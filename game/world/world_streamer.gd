@@ -17,6 +17,7 @@ var _content: Dictionary = {}  # Vector2i -> instanced authored scene
 var _pending: Dictionary = {}  # Vector2i -> path in threaded load
 
 var _ground_material: StandardMaterial3D
+var _flora_mesh: QuadMesh
 
 @onready var _player: Node3D = get_tree().get_first_node_in_group("player")
 
@@ -26,6 +27,20 @@ func _ready() -> void:
 	_ground_material = StandardMaterial3D.new()
 	_ground_material.albedo_color = Color(0.929, 0.89, 0.82)
 	_ground_material.roughness = 1.0
+
+	# Shared billboard mesh for scattered flora (silly trees).
+	var mat := StandardMaterial3D.new()
+	mat.albedo_texture = load("res://assets/paintings/silly_tree.png")
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	mat.alpha_scissor_threshold = 0.5
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
+	mat.billboard_keep_scale = true
+	mat.roughness = 1.0
+	_flora_mesh = QuadMesh.new()
+	_flora_mesh.size = Vector2(2.8, 3.5)
+	_flora_mesh.center_offset = Vector3(0, 1.75, 0)
+	_flora_mesh.material = mat
+
 	# Synchronous first fill: the ground must exist before the first physics frame.
 	_update_cells(true)
 
@@ -123,8 +138,43 @@ func _add_terrain(c: Vector2i) -> void:
 	body.add_child(mi)
 	body.add_child(col)
 	body.position = origin
+	_add_scatter(c, body, origin)
 	add_child(body)
 	_terrain[c] = body
+
+
+func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
+	# Deterministic flora scatter: same cell -> same trees, forever.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(c)
+	var transforms: Array[Transform3D] = []
+	for i in rng.randi_range(8, 16):
+		var lx := rng.randf() * CELL_SIZE
+		var lz := rng.randf() * CELL_SIZE
+		var wx := origin.x + lx
+		var wz := origin.z + lz
+		var clear := false
+		for f in Terrain.FLATTENS:
+			if Vector2(wx - f[0], wz - f[1]).length() < f[2] + f[3]:
+				clear = true
+				break
+		if clear:
+			continue
+		var s := rng.randf_range(0.5, 1.0)
+		var xf := Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)),
+				Vector3(lx, Terrain.height(wx, wz), lz))
+		transforms.append(xf)
+	if transforms.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = _flora_mesh
+	mm.instance_count = transforms.size()
+	for i in transforms.size():
+		mm.set_instance_transform(i, transforms[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.multimesh = mm
+	parent.add_child(mmi)
 
 
 func _add_content(c: Vector2i, scene: PackedScene) -> void:

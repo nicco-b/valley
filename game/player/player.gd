@@ -7,6 +7,12 @@ const ACCEL := 10.0
 const MOUSE_SENSITIVITY := 0.003
 const PITCH_MIN := -1.2
 const PITCH_MAX := 0.5
+const ARM_LENGTH := 4.0
+const SIT_ARM_LENGTH := 6.5
+const SIT_BODY_DROP := -0.45
+const SIT_EASE := 3.0
+
+var _sitting := false
 
 @onready var _rig: Node3D = $CameraRig
 @onready var _arm: SpringArm3D = $CameraRig/SpringArm3D
@@ -31,12 +37,20 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+
+	if Input.is_action_just_pressed("sit") and is_on_floor():
+		_sitting = not _sitting
+	elif _sitting and (input != Vector2.ZERO or Input.is_action_just_pressed("jump")):
+		_sitting = false
+	if _sitting:
+		input = Vector2.ZERO
+
 	if not is_on_floor():
 		velocity += get_gravity() * delta
-	elif Input.is_action_just_pressed("jump"):
+	elif Input.is_action_just_pressed("jump") and not _sitting:
 		velocity.y = JUMP_VELOCITY
 
-	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var dir := _rig.global_basis * Vector3(input.x, 0.0, input.y)
 	dir.y = 0.0
 	dir = dir.normalized() if dir.length() > 0.01 else Vector3.ZERO
@@ -52,3 +66,10 @@ func _physics_process(delta: float) -> void:
 	var flat := Vector3(velocity.x, 0.0, velocity.z)
 	if flat.length() > 0.2:
 		_body.rotation.y = lerp_angle(_body.rotation.y, atan2(flat.x, flat.z) + PI, blend)
+
+	# Sitting: settle the body down and ease the camera out to a wider frame.
+	var sit_blend := 1.0 - exp(-SIT_EASE * delta)
+	_body.position.y = lerpf(_body.position.y, SIT_BODY_DROP if _sitting else 0.0, sit_blend)
+	_arm.spring_length = lerpf(
+		_arm.spring_length, SIT_ARM_LENGTH if _sitting else ARM_LENGTH, sit_blend
+	)

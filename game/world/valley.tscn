@@ -1,0 +1,42 @@
+[gd_scene load_steps=6 format=3]
+
+[sub_resource type="ProceduralSkyMaterial" id="SkyMaterial_valley"]
+sky_top_color = Color(0.976, 0.812, 0.827, 1)
+sky_horizon_color = Color(0.988, 0.933, 0.894, 1)
+ground_bottom_color = Color(0.898, 0.855, 0.812, 1)
+ground_horizon_color = Color(0.988, 0.933, 0.894, 1)
+sun_angle_max = 15.0
+
+[sub_resource type="Sky" id="Sky_valley"]
+sky_material = SubResource("SkyMaterial_valley")
+
+[sub_resource type="Environment" id="Environment_valley"]
+background_mode = 2
+sky = SubResource("Sky_valley")
+ambient_light_source = 3
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(400, 400)
+
+[sub_resource type="StandardMaterial3D" id="Material_ground"]
+albedo_color = Color(0.929, 0.89, 0.82, 1)
+roughness = 1.0
+
+[node name="Valley" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_valley")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 30, 0)
+light_color = Color(1, 0.878, 0.796, 1)
+shadow_enabled = true
+
+[node name="Ground" type="MeshInstance3D" parent="."]
+mesh = SubResource("PlaneMesh_ground")
+surface_material_override/0 = SubResource("Material_ground")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.984808, 0.173648, 0, -0.173648, 0.984808, 0, 3, 14)

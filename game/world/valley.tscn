@@ -1,6 +1,7 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
+[ext_resource type="PackedScene" path="res://game/world/landmarks/shrine.tscn" id="5_shrine"]
 [ext_resource type="Script" path="res://game/world/day_night.gd" id="2_daynight"]
 [ext_resource type="Script" path="res://game/world/world_streamer.gd" id="3_streamer"]
 [ext_resource type="AudioStream" path="res://assets/audio/wind_loop.wav" id="4_wind"]
@@ -42,6 +43,11 @@ script = ExtResource("3_streamer")
 stream = ExtResource("4_wind")
 volume_db = -6.0
 autoplay = true
+
+[node name="Landmarks" type="Node3D" parent="."]
+
+[node name="Shrine" parent="Landmarks" instance=ExtResource("5_shrine")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 150, 0, -900)
 
 [node name="Player" parent="." instance=ExtResource("1_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 10)

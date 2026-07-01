@@ -60,7 +60,7 @@ a real place.
 | Layer | Technique |
 |---|---|
 | Terrain, buildings | Low-poly meshes, flat-shaded in palette colors. No realistic textures, ever. |
-| Vegetation, props, mid/far scenery | Her paintings as billboard cards. Dense grass/foliage via GPU instancing (MultiMesh) with wind-sway shader — the Elden Ring grass technique. |
+| Vegetation, props, mid/far scenery | Her paintings as billboard cards to start; hero flora graduates to low-poly Blender models with painted textures over time. Dense grass/foliage stays billboard via GPU instancing (MultiMesh) with wind-sway shader — the Elden Ring grass technique. |
 | Characters (player, NPCs, creatures) | Real 3D meshes, Sable-like low-poly, flat-shaded in her palette. Designed by her as turnaround sheets, modeled/rigged from those. |
 | Sky | Painted gradients — literally her skies. Day/night is a palette shift, not just darkness. |
 | Light/glow | The world is matte. **Only** the glow-phenomenon, shrines, and celestial bodies emit light + bloom. Glow is reserved visual language. |

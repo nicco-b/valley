@@ -1,6 +1,7 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Texture2D" path="res://assets/paintings/placeholder_cactus.svg" id="1_cactus"]
+[ext_resource type="Texture2D" path="res://assets/paintings/silly_tree.png" id="2_sillytree"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_large"]
 size = Vector3(8, 5, 6)
@@ -61,3 +62,11 @@ billboard = 2
 shaded = true
 alpha_cut = 2
 texture = ExtResource("1_cactus")
+
+[node name="SillyTree" type="Sprite3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1.72, -6)
+pixel_size = 0.0023
+billboard = 2
+shaded = true
+alpha_cut = 2
+texture = ExtResource("2_sillytree")

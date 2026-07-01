@@ -16,8 +16,15 @@ var _terrain: Dictionary = {}  # Vector2i -> terrain node
 var _content: Dictionary = {}  # Vector2i -> instanced authored scene
 var _pending: Dictionary = {}  # Vector2i -> path in threaded load
 
+# Flora kit: [texture path, height in meters, scatter weight]
+const FLORA := [
+	["res://assets/paintings/silly_tree.png", 3.5, 0.3],
+	["res://assets/paintings/silly_tree_2.png", 1.8, 0.5],
+	["res://assets/paintings/silly_tree_3.png", 4.6, 0.2],
+]
+
 var _ground_material: StandardMaterial3D
-var _flora_mesh: QuadMesh
+var _flora_meshes: Array[QuadMesh] = []
 
 @onready var _player: Node3D = get_tree().get_first_node_in_group("player")
 
@@ -28,18 +35,23 @@ func _ready() -> void:
 	_ground_material.albedo_color = Color(0.929, 0.89, 0.82)
 	_ground_material.roughness = 1.0
 
-	# Shared billboard mesh for scattered flora (silly trees).
-	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = load("res://assets/paintings/silly_tree.png")
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-	mat.alpha_scissor_threshold = 0.5
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
-	mat.billboard_keep_scale = true
-	mat.roughness = 1.0
-	_flora_mesh = QuadMesh.new()
-	_flora_mesh.size = Vector2(2.8, 3.5)
-	_flora_mesh.center_offset = Vector3(0, 1.75, 0)
-	_flora_mesh.material = mat
+	# Shared billboard meshes, one per flora kit entry.
+	for f in FLORA:
+		var tex: Texture2D = load(f[0])
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = tex
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		mat.alpha_scissor_threshold = 0.5
+		mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
+		mat.billboard_keep_scale = true
+		mat.roughness = 1.0
+		var h: float = f[1]
+		var w: float = h * float(tex.get_width()) / float(tex.get_height())
+		var mesh := QuadMesh.new()
+		mesh.size = Vector2(w, h)
+		mesh.center_offset = Vector3(0, h * 0.5, 0)
+		mesh.material = mat
+		_flora_meshes.append(mesh)
 
 	# Synchronous first fill: the ground must exist before the first physics frame.
 	_update_cells(true)
@@ -147,10 +159,14 @@ func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 	# Deterministic flora scatter: same cell -> same trees, forever.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash(c)
-	var transforms: Array[Transform3D] = []
-	for i in rng.randi_range(8, 16):
+	var buckets: Array = []
+	for f in FLORA:
+		buckets.append([] as Array[Transform3D])
+	for i in rng.randi_range(10, 20):
 		var lx := rng.randf() * CELL_SIZE
 		var lz := rng.randf() * CELL_SIZE
+		var variant := _pick_flora(rng.randf())
+		var s := rng.randf_range(0.75, 1.15)
 		var wx := origin.x + lx
 		var wz := origin.z + lz
 		var clear := false
@@ -160,21 +176,30 @@ func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 				break
 		if clear:
 			continue
-		var s := rng.randf_range(0.5, 1.0)
-		var xf := Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)),
-				Vector3(lx, Terrain.height(wx, wz), lz))
-		transforms.append(xf)
-	if transforms.is_empty():
-		return
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.mesh = _flora_mesh
-	mm.instance_count = transforms.size()
-	for i in transforms.size():
-		mm.set_instance_transform(i, transforms[i])
-	var mmi := MultiMeshInstance3D.new()
-	mmi.multimesh = mm
-	parent.add_child(mmi)
+		buckets[variant].append(Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)),
+				Vector3(lx, Terrain.height(wx, wz), lz)))
+	for v in FLORA.size():
+		var transforms: Array[Transform3D] = buckets[v]
+		if transforms.is_empty():
+			continue
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = _flora_meshes[v]
+		mm.instance_count = transforms.size()
+		for i in transforms.size():
+			mm.set_instance_transform(i, transforms[i])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		parent.add_child(mmi)
+
+
+func _pick_flora(roll: float) -> int:
+	var acc := 0.0
+	for v in FLORA.size():
+		acc += FLORA[v][2]
+		if roll <= acc:
+			return v
+	return FLORA.size() - 1
 
 
 func _add_content(c: Vector2i, scene: PackedScene) -> void:

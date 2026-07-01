@@ -22,7 +22,9 @@ var _sitting := false
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	for n in ["Idle", "Walking", "Running", "Sitting"]:
+	# Idle/Walk/Run are cycles; Sitting and Jump are one-shot gestures that
+	# hold their final frame.
+	for n in ["Idle", "Walking", "Running"]:
 		_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
 	_anim.play("Idle")
 
@@ -81,7 +83,9 @@ func _physics_process(delta: float) -> void:
 		target_anim = "Running"
 	elif flat.length() > 0.5:
 		target_anim = "Walking"
-	if _anim.current_animation != target_anim:
+	# Compare against assigned_animation: current_animation empties when a
+	# one-shot clip finishes, which would retrigger it every frame.
+	if _anim.assigned_animation != target_anim:
 		_anim.play(target_anim, 0.3)
 
 	# Sitting: settle the body down and ease the camera out to a wider frame.

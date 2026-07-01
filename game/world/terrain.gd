@@ -11,6 +11,16 @@ const FLATTENS := [
 	[150.0, -900.0, 35.0, 60.0],  # shrine
 ]
 
+# Authored edit layer: a float heightmap sculpted in god mode (and later
+# paintable externally), added on top of the base noise. World-anchored,
+# EDIT_M_PER_PX meters per pixel, centered on the origin.
+const EDIT_SIZE := 2048  # pixels per side
+const EDIT_M_PER_PX := 2.0
+const EDIT_PATH := "res://data/terrain/edit_layer.exr"
+
+signal edited(world_rect: Rect2)
+
+var _edits: Image
 var _hills := FastNoiseLite.new()
 var _dunes := FastNoiseLite.new()
 
@@ -21,6 +31,11 @@ func _ready() -> void:
 	_hills.fractal_octaves = 4
 	_dunes.seed = 40
 	_dunes.frequency = 0.03
+	if FileAccess.file_exists(EDIT_PATH):
+		_edits = Image.load_from_file(ProjectSettings.globalize_path(EDIT_PATH))
+		_edits.convert(Image.FORMAT_RF)
+	else:
+		_edits = Image.create(EDIT_SIZE, EDIT_SIZE, false, Image.FORMAT_RF)
 
 
 func height(x: float, z: float) -> float:
@@ -28,4 +43,46 @@ func height(x: float, z: float) -> float:
 	for f in FLATTENS:
 		var d := Vector2(x - f[0], z - f[1]).length()
 		h *= smoothstep(f[2], f[2] + f[3], d)
-	return h
+	return h + edit_height(x, z)
+
+
+func edit_height(x: float, z: float) -> float:
+	var half := EDIT_SIZE * EDIT_M_PER_PX * 0.5
+	var px := (x + half) / EDIT_M_PER_PX
+	var pz := (z + half) / EDIT_M_PER_PX
+	if px < 0.0 or pz < 0.0 or px >= EDIT_SIZE - 1 or pz >= EDIT_SIZE - 1:
+		return 0.0
+	var ix := int(px)
+	var iz := int(pz)
+	var fx := px - ix
+	var fz := pz - iz
+	var h00 := _edits.get_pixel(ix, iz).r
+	var h10 := _edits.get_pixel(ix + 1, iz).r
+	var h01 := _edits.get_pixel(ix, iz + 1).r
+	var h11 := _edits.get_pixel(ix + 1, iz + 1).r
+	return lerpf(lerpf(h00, h10, fx), lerpf(h01, h11, fx), fz)
+
+
+func apply_brush(center: Vector3, radius: float, amount: float) -> void:
+	var half := EDIT_SIZE * EDIT_M_PER_PX * 0.5
+	var r_px := int(ceil(radius / EDIT_M_PER_PX))
+	var cx := int((center.x + half) / EDIT_M_PER_PX)
+	var cz := int((center.z + half) / EDIT_M_PER_PX)
+	for pz in range(maxi(cz - r_px, 0), mini(cz + r_px + 1, EDIT_SIZE)):
+		for px in range(maxi(cx - r_px, 0), mini(cx + r_px + 1, EDIT_SIZE)):
+			var wx := px * EDIT_M_PER_PX - half
+			var wz := pz * EDIT_M_PER_PX - half
+			var d := Vector2(wx - center.x, wz - center.z).length()
+			if d >= radius:
+				continue
+			var falloff := smoothstep(1.0, 0.0, d / radius)
+			var h := _edits.get_pixel(px, pz).r + amount * falloff
+			_edits.set_pixel(px, pz, Color(h, 0, 0))
+	edited.emit(Rect2(center.x - radius, center.z - radius, radius * 2.0, radius * 2.0))
+
+
+func save_edits() -> void:
+	var dir := ProjectSettings.globalize_path("res://data/terrain")
+	DirAccess.make_dir_recursive_absolute(dir)
+	_edits.save_exr(ProjectSettings.globalize_path(EDIT_PATH))
+	print("[terrain] edit layer saved")

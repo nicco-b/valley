@@ -29,8 +29,13 @@ var _flora_meshes: Array[QuadMesh] = []
 @onready var _player: Node3D = get_tree().get_first_node_in_group("player")
 
 
+var _dirty: Dictionary = {}
+var _rebuild_cooldown := 0.0
+
+
 func _ready() -> void:
 	_scan_authored()
+	Terrain.edited.connect(_on_terrain_edited)
 	_ground_material = StandardMaterial3D.new()
 	_ground_material.albedo_color = Color(0.929, 0.89, 0.82)
 	_ground_material.roughness = 1.0
@@ -57,9 +62,28 @@ func _ready() -> void:
 	_update_cells(true)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	_update_cells(false)
 	_poll_pending()
+	_rebuild_cooldown -= delta
+	if not _dirty.is_empty() and _rebuild_cooldown <= 0.0:
+		_rebuild_cooldown = 0.2
+		for c in _dirty.keys():
+			if _terrain.has(c):
+				_terrain[c].queue_free()
+				_terrain.erase(c)
+				_add_terrain(c)
+		_dirty.clear()
+
+
+func _on_terrain_edited(world_rect: Rect2) -> void:
+	var c0 := Vector2i(roundi(world_rect.position.x / CELL_SIZE), roundi(world_rect.position.y / CELL_SIZE))
+	var c1 := Vector2i(roundi(world_rect.end.x / CELL_SIZE), roundi(world_rect.end.y / CELL_SIZE))
+	for cy in range(c0.y, c1.y + 1):
+		for cx in range(c0.x, c1.x + 1):
+			var c := Vector2i(cx, cy)
+			if _terrain.has(c):
+				_dirty[c] = true
 
 
 func _scan_authored() -> void:
@@ -75,7 +99,8 @@ func _scan_authored() -> void:
 
 
 func _player_cell() -> Vector2i:
-	var p := _player.global_position
+	# Streaming follows the god camera when god mode is flying.
+	var p := GodMode.cam_position() if GodMode.active else _player.global_position
 	return Vector2i(roundi(p.x / CELL_SIZE), roundi(p.z / CELL_SIZE))
 
 

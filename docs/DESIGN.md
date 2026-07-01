@@ -80,9 +80,31 @@ Character turnarounds: front/side/back in palette.
 
 ## World Architecture (decide-now items — locked)
 
-Target scale: **Skyrim-sized (~37 km²) or larger, fully seamless.** No loading
-screens in the overworld. Stylized art makes rendering cheap; the constraints
-are architecture and content, and architecture is locked from day one:
+Target scale: **finite but undecided — the world grows outward.** Terrain is a
+quilt of authored **heightmap tiles**: rectangular painted canvases (any size,
+any position, ~2m/px, overlap allowed with priority blending) in a world
+registry — the rectangle is the canvas, not the place; unpainted canvas defers
+to what's beneath. World size = the union of tiles painted so far. Start with
+the home valley, add places outward forever. Wherever nothing is authored, an
+auto-generated impassable rim (ridge + fog frontier) closes the world;
+painting the next tile dissolves that stretch of rim.
+
+**Biomes are a separate, fully irregular layer**: a world-spanning painted
+classification mask (low-res color map) deciding palette, flora kit, scatter
+rules, and ambience per area. Biome borders meander independently of any tile
+edge; systems blend across border bands (scatter crossfade, palette
+interpolation, ambience fade). Authored stack, bottom to top: base detail
+noise → terrain tiles → biome mask → cell content scenes → landmarks. Generative systems are subordinate detail: fine terrain
+noise and deterministic flora scatter on top of authored landforms. Soft
+budget: ~12 km world diameter before float-precision engineering returns —
+grow radially to spend it slowest.
+
+**The map** derives from the same masters and grows with the quilt: a
+functional in-game map rendered from region heightmaps + POI records, and an
+illustrated map painted by her, traced from the functional one so they never
+disagree.
+
+Architecture locked from day one:
 
 - **Cell grid from day one.** The world is a grid of streamed cells. The first
   valley is cells of the real world map, not a standalone scene. Chunked

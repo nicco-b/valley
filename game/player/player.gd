@@ -9,7 +9,7 @@ const PITCH_MIN := -1.2
 const PITCH_MAX := 0.5
 const ARM_LENGTH := 4.0
 const SIT_ARM_LENGTH := 6.5
-const SIT_BODY_DROP := -0.45
+const SIT_BODY_DROP := 0.0  # the sit animation handles the pose now
 const SIT_EASE := 3.0
 
 var _sitting := false
@@ -17,10 +17,14 @@ var _sitting := false
 @onready var _rig: Node3D = $CameraRig
 @onready var _arm: SpringArm3D = $CameraRig/SpringArm3D
 @onready var _body: Node3D = $Body
+@onready var _anim: AnimationPlayer = $Body/Model/AnimationPlayer
 
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	for n in ["Idle", "Walking", "Running", "Sitting"]:
+		_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
+	_anim.play("Idle")
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -63,9 +67,22 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 	# Face the body toward horizontal movement; the camera rig stays independent.
+	# (The robot model faces +Z, hence no half-turn offset.)
 	var flat := Vector3(velocity.x, 0.0, velocity.z)
 	if flat.length() > 0.2:
-		_body.rotation.y = lerp_angle(_body.rotation.y, atan2(flat.x, flat.z) + PI, blend)
+		_body.rotation.y = lerp_angle(_body.rotation.y, atan2(flat.x, flat.z), blend)
+
+	var target_anim := "Idle"
+	if _sitting:
+		target_anim = "Sitting"
+	elif not is_on_floor():
+		target_anim = "Jump"
+	elif flat.length() > 4.5:
+		target_anim = "Running"
+	elif flat.length() > 0.5:
+		target_anim = "Walking"
+	if _anim.current_animation != target_anim:
+		_anim.play(target_anim, 0.3)
 
 	# Sitting: settle the body down and ease the camera out to a wider frame.
 	var sit_blend := 1.0 - exp(-SIT_EASE * delta)

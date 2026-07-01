@@ -8,14 +8,25 @@ extends Node
 # [center x, center z, flat radius, feather distance]
 const FLATTENS := [
 	[0.0, 0.0, 60.0, 70.0],  # spawn area & starter rocks
-	[150.0, -900.0, 35.0, 60.0],  # shrine
-	[90.0, -450.0, 45.0, 40.0],  # pond clearing (also keeps flora out of water)
+	[120.0, -620.0, 35.0, 60.0],  # shrine
+	[70.0, -310.0, 45.0, 40.0],  # pond clearing (also keeps flora out of water)
 ]
 
 # Carved depressions: [center x, center z, radius, depth]
 const BASINS := [
-	[90.0, -450.0, 38.0, 3.2],  # the pond
+	[70.0, -310.0, 38.0, 3.2],  # the pond
 ]
+
+# The home valley: an authored landform. Centerline from behind spawn,
+# past the pond, to the shrine; floor stays low and dense, walls rise
+# into an enclosing ridge plateau (doubles as the frontier rim).
+const VALLEY_PATH := [
+	Vector2(0, 220), Vector2(0, 0), Vector2(30, -160), Vector2(70, -310),
+	Vector2(95, -470), Vector2(120, -620), Vector2(130, -790),
+]
+const VALLEY_INNER := 120.0
+const VALLEY_OUTER := 220.0
+const WALL_HEIGHT := 42.0
 
 # Authored edit layer: a float heightmap sculpted in god mode (and later
 # paintable externally), added on top of the base noise. World-anchored,
@@ -44,8 +55,19 @@ func _ready() -> void:
 		_edits = Image.create(EDIT_SIZE, EDIT_SIZE, false, Image.FORMAT_RF)
 
 
+## 0.0 on the valley floor, 1.0 on the surrounding plateau.
+func valley_factor(x: float, z: float) -> float:
+	var p := Vector2(x, z)
+	var d := 1e12
+	for i in VALLEY_PATH.size() - 1:
+		d = minf(d, _segment_distance(p, VALLEY_PATH[i], VALLEY_PATH[i + 1]))
+	return smoothstep(VALLEY_INNER, VALLEY_OUTER, d)
+
+
 func height(x: float, z: float) -> float:
-	var h := _hills.get_noise_2d(x, z) * 18.0 + _dunes.get_noise_2d(x, z) * 0.6
+	var floor_h := _hills.get_noise_2d(x, z) * 3.0 + _dunes.get_noise_2d(x, z) * 0.6
+	var wall_h := WALL_HEIGHT + _hills.get_noise_2d(x, z) * 22.0
+	var h := lerpf(floor_h, wall_h, valley_factor(x, z))
 	for f in FLATTENS:
 		var d := Vector2(x - f[0], z - f[1]).length()
 		h *= smoothstep(f[2], f[2] + f[3], d)
@@ -53,6 +75,12 @@ func height(x: float, z: float) -> float:
 		var d := Vector2(x - b[0], z - b[1]).length()
 		h -= b[3] * smoothstep(1.0, 0.0, d / b[2])
 	return h + edit_height(x, z)
+
+
+func _segment_distance(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var t := clampf((p - a).dot(ab) / ab.length_squared(), 0.0, 1.0)
+	return p.distance_to(a + ab * t)
 
 
 func edit_height(x: float, z: float) -> float:

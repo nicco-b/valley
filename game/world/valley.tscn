@@ -72,10 +72,10 @@ autoplay = true
 [node name="Landmarks" type="Node3D" parent="."]
 
 [node name="Shrine" parent="Landmarks" instance=ExtResource("5_shrine")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 150, 0, -900)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 120, 0, -620)
 
 [node name="Pond" type="MeshInstance3D" parent="Landmarks"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 90, -0.9, -450)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 70, -0.9, -310)
 mesh = SubResource("CylinderMesh_pond")
 
 [node name="Player" parent="." instance=ExtResource("1_player")]

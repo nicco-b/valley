@@ -22,6 +22,10 @@ sky = SubResource("Sky_valley")
 ambient_light_source = 3
 tonemap_mode = 2
 glow_enabled = true
+fog_enabled = true
+fog_light_color = Color(0.988, 0.933, 0.894, 1)
+fog_density = 0.0008
+fog_sky_affect = 0.35
 
 [node name="Valley" type="Node3D"]
 

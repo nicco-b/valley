@@ -17,6 +17,7 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 [autoload]
 
 GameClock="*res://game/world/game_clock.gd"
+Terrain="*res://game/world/terrain.gd"
 
 [input]
 

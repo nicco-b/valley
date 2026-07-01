@@ -46,3 +46,4 @@ func _process(_delta: float) -> void:
 	mat.sky_horizon_color = horizon
 	mat.ground_horizon_color = horizon
 	mat.ground_bottom_color = horizon.darkened(0.15)
+	world_environment.environment.fog_light_color = horizon

@@ -9,28 +9,23 @@ const CELL_SIZE := 128.0
 const LOAD_RADIUS := 2  # Chebyshev radius of cells kept loaded
 const UNLOAD_RADIUS := 3  # hysteresis so border cells don't thrash
 const CELLS_DIR := "res://game/world/cells"
+const TERRAIN_RES := 33  # vertices per cell side (4m grid)
 
 var _authored: Dictionary = {}  # Vector2i -> scene path
 var _terrain: Dictionary = {}  # Vector2i -> terrain node
 var _content: Dictionary = {}  # Vector2i -> instanced authored scene
 var _pending: Dictionary = {}  # Vector2i -> path in threaded load
 
-var _tile_mesh: PlaneMesh
-var _tile_shape: BoxShape3D
+var _ground_material: StandardMaterial3D
 
 @onready var _player: Node3D = get_tree().get_first_node_in_group("player")
 
 
 func _ready() -> void:
 	_scan_authored()
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.929, 0.89, 0.82)
-	mat.roughness = 1.0
-	_tile_mesh = PlaneMesh.new()
-	_tile_mesh.size = Vector2(CELL_SIZE, CELL_SIZE)
-	_tile_mesh.material = mat
-	_tile_shape = BoxShape3D.new()
-	_tile_shape.size = Vector3(CELL_SIZE, 1.0, CELL_SIZE)
+	_ground_material = StandardMaterial3D.new()
+	_ground_material.albedo_color = Color(0.929, 0.89, 0.82)
+	_ground_material.roughness = 1.0
 	# Synchronous first fill: the ground must exist before the first physics frame.
 	_update_cells(true)
 
@@ -93,16 +88,41 @@ func _poll_pending() -> void:
 
 
 func _add_terrain(c: Vector2i) -> void:
+	var origin := Vector3(
+		c.x * CELL_SIZE - CELL_SIZE * 0.5, 0.0, c.y * CELL_SIZE - CELL_SIZE * 0.5
+	)
+	var step := CELL_SIZE / (TERRAIN_RES - 1)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_material(_ground_material)
+	st.set_smooth_group(0)
+	for iz in TERRAIN_RES:
+		for ix in TERRAIN_RES:
+			var wx := origin.x + ix * step
+			var wz := origin.z + iz * step
+			st.set_uv(Vector2(wx, wz) * 0.05)
+			st.add_vertex(Vector3(ix * step, Terrain.height(wx, wz), iz * step))
+	for iz in TERRAIN_RES - 1:
+		for ix in TERRAIN_RES - 1:
+			var i := iz * TERRAIN_RES + ix
+			st.add_index(i)
+			st.add_index(i + 1)
+			st.add_index(i + TERRAIN_RES)
+			st.add_index(i + 1)
+			st.add_index(i + TERRAIN_RES + 1)
+			st.add_index(i + TERRAIN_RES)
+	st.generate_normals()
+	var mesh := st.commit()
+
 	var body := StaticBody3D.new()
 	body.name = "Terrain_%d_%d" % [c.x, c.y]
 	var mi := MeshInstance3D.new()
-	mi.mesh = _tile_mesh
+	mi.mesh = mesh
 	var col := CollisionShape3D.new()
-	col.shape = _tile_shape
-	col.position.y = -0.5
+	col.shape = mesh.create_trimesh_shape()
 	body.add_child(mi)
 	body.add_child(col)
-	body.position = Vector3(c.x * CELL_SIZE, 0.0, c.y * CELL_SIZE)
+	body.position = origin
 	add_child(body)
 	_terrain[c] = body
 
@@ -111,6 +131,12 @@ func _add_content(c: Vector2i, scene: PackedScene) -> void:
 	var node: Node3D = scene.instantiate()
 	node.position = Vector3(c.x * CELL_SIZE, 0.0, c.y * CELL_SIZE)
 	add_child(node)
+	# Authored content is placed as if the ground were flat; settle each
+	# top-level object onto the actual terrain under it.
+	for child in node.get_children():
+		if child is Node3D:
+			var gp: Vector3 = child.global_position
+			child.position.y += Terrain.height(gp.x, gp.z)
 	_content[c] = node
 	print("[world] cell content loaded: ", c)
 

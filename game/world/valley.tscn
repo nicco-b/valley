@@ -1,10 +1,21 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" path="res://game/world/landmarks/shrine.tscn" id="5_shrine"]
+[ext_resource type="Shader" path="res://game/shaders/water.gdshader" id="6_water"]
 [ext_resource type="Script" path="res://game/world/day_night.gd" id="2_daynight"]
 [ext_resource type="Script" path="res://game/world/world_streamer.gd" id="3_streamer"]
 [ext_resource type="AudioStream" path="res://assets/audio/wind_loop.wav" id="4_wind"]
+
+[sub_resource type="ShaderMaterial" id="Material_water"]
+shader = ExtResource("6_water")
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_pond"]
+top_radius = 27.0
+bottom_radius = 27.0
+height = 0.1
+radial_segments = 64
+material = SubResource("Material_water")
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMaterial_valley"]
 sky_top_color = Color(0.976, 0.812, 0.827, 1)
@@ -52,6 +63,10 @@ autoplay = true
 
 [node name="Shrine" parent="Landmarks" instance=ExtResource("5_shrine")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 150, 0, -900)
+
+[node name="Pond" type="MeshInstance3D" parent="Landmarks"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 90, -0.9, -450)
+mesh = SubResource("CylinderMesh_pond")
 
 [node name="Player" parent="." instance=ExtResource("1_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 10)

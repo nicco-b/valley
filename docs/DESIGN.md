@@ -89,6 +89,14 @@ the home valley, add places outward forever. Wherever nothing is authored, an
 auto-generated impassable rim (ridge + fog frontier) closes the world;
 painting the next tile dissolves that stretch of rim.
 
+**Simulation is an offline authoring amplifier, not a content generator**
+(the Skyrim configuration, not the Starfield one): bake passes over authored
+masters — erosion (thermal/hydraulic) to weather painted landforms, hydrology
+to derive river paths/pools/water table (which also answers settlement
+"why here?"), wind/moisture passes feeding dune orientation and flora-density
+maps for the scatter system. Deterministic, images in → images out, zero
+runtime cost. Intent stays authored; simulation multiplies it.
+
 **Biomes are a separate, fully irregular layer**: a world-spanning painted
 classification mask (low-res color map) deciding palette, flora kit, scatter
 rules, and ambience per area. Biome borders meander independently of any tile

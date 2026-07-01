@@ -40,16 +40,13 @@ func _ready() -> void:
 	_ground_material.albedo_color = Color(0.929, 0.89, 0.82)
 	_ground_material.roughness = 1.0
 
-	# Shared billboard meshes, one per flora kit entry.
+	# Shared billboard meshes, one per flora kit entry (sway shader).
+	var sway := load("res://game/shaders/flora_sway.gdshader")
 	for f in FLORA:
 		var tex: Texture2D = load(f[0])
-		var mat := StandardMaterial3D.new()
-		mat.albedo_texture = tex
-		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-		mat.alpha_scissor_threshold = 0.5
-		mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
-		mat.billboard_keep_scale = true
-		mat.roughness = 1.0
+		var mat := ShaderMaterial.new()
+		mat.shader = sway
+		mat.set_shader_parameter("albedo_tex", tex)
 		var h: float = f[1]
 		var w: float = h * float(tex.get_width()) / float(tex.get_height())
 		var mesh := QuadMesh.new()

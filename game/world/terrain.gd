@@ -9,6 +9,12 @@ extends Node
 const FLATTENS := [
 	[0.0, 0.0, 60.0, 70.0],  # spawn area & starter rocks
 	[150.0, -900.0, 35.0, 60.0],  # shrine
+	[90.0, -450.0, 45.0, 40.0],  # pond clearing (also keeps flora out of water)
+]
+
+# Carved depressions: [center x, center z, radius, depth]
+const BASINS := [
+	[90.0, -450.0, 38.0, 3.2],  # the pond
 ]
 
 # Authored edit layer: a float heightmap sculpted in god mode (and later
@@ -43,6 +49,9 @@ func height(x: float, z: float) -> float:
 	for f in FLATTENS:
 		var d := Vector2(x - f[0], z - f[1]).length()
 		h *= smoothstep(f[2], f[2] + f[3], d)
+	for b in BASINS:
+		var d := Vector2(x - b[0], z - b[1]).length()
+		h -= b[3] * smoothstep(1.0, 0.0, d / b[2])
 	return h + edit_height(x, z)
 
 

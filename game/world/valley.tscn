@@ -1,8 +1,8 @@
-[gd_scene load_steps=19 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="Script" path="res://game/world/day_night.gd" id="2_daynight"]
-[ext_resource type="Texture2D" path="res://assets/paintings/placeholder_cactus.svg" id="3_cactus"]
+[ext_resource type="Script" path="res://game/world/world_streamer.gd" id="3_streamer"]
 [ext_resource type="AudioStream" path="res://assets/audio/wind_loop.wav" id="4_wind"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMaterial_valley"]
@@ -22,41 +22,6 @@ ambient_light_source = 3
 tonemap_mode = 2
 glow_enabled = true
 
-[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
-size = Vector2(400, 400)
-
-[sub_resource type="StandardMaterial3D" id="Material_ground"]
-albedo_color = Color(0.929, 0.89, 0.82, 1)
-roughness = 1.0
-
-[sub_resource type="WorldBoundaryShape3D" id="Shape_ground"]
-
-[sub_resource type="BoxMesh" id="BoxMesh_large"]
-size = Vector3(8, 5, 6)
-
-[sub_resource type="BoxShape3D" id="BoxShape_large"]
-size = Vector3(8, 5, 6)
-
-[sub_resource type="BoxMesh" id="BoxMesh_med"]
-size = Vector3(3, 2, 2.5)
-
-[sub_resource type="BoxShape3D" id="BoxShape_med"]
-size = Vector3(3, 2, 2.5)
-
-[sub_resource type="BoxMesh" id="BoxMesh_mesa"]
-size = Vector3(30, 18, 12)
-
-[sub_resource type="BoxShape3D" id="BoxShape_mesa"]
-size = Vector3(30, 18, 12)
-
-[sub_resource type="StandardMaterial3D" id="Material_rock_ochre"]
-albedo_color = Color(0.871, 0.663, 0.369, 1)
-roughness = 1.0
-
-[sub_resource type="StandardMaterial3D" id="Material_rock_dark"]
-albedo_color = Color(0.404, 0.443, 0.408, 1)
-roughness = 1.0
-
 [node name="Valley" type="Node3D"]
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
@@ -70,62 +35,8 @@ shadow_enabled = true
 [node name="DayNight" type="Node" parent="."]
 script = ExtResource("2_daynight")
 
-[node name="Ground" type="StaticBody3D" parent="."]
-
-[node name="Mesh" type="MeshInstance3D" parent="Ground"]
-mesh = SubResource("PlaneMesh_ground")
-surface_material_override/0 = SubResource("Material_ground")
-
-[node name="Collision" type="CollisionShape3D" parent="Ground"]
-shape = SubResource("Shape_ground")
-
-[node name="RockLarge" type="StaticBody3D" parent="."]
-transform = Transform3D(0.939693, 0, 0.34202, 0, 1, 0, -0.34202, 0, 0.939693, -10, 2.5, -6)
-
-[node name="Mesh" type="MeshInstance3D" parent="RockLarge"]
-mesh = SubResource("BoxMesh_large")
-surface_material_override/0 = SubResource("Material_rock_ochre")
-
-[node name="Collision" type="CollisionShape3D" parent="RockLarge"]
-shape = SubResource("BoxShape_large")
-
-[node name="RockMed" type="StaticBody3D" parent="."]
-transform = Transform3D(0.819152, 0, -0.573576, 0, 1, 0, 0.573576, 0, 0.819152, 6, 1, -12)
-
-[node name="Mesh" type="MeshInstance3D" parent="RockMed"]
-mesh = SubResource("BoxMesh_med")
-surface_material_override/0 = SubResource("Material_rock_dark")
-
-[node name="Collision" type="CollisionShape3D" parent="RockMed"]
-shape = SubResource("BoxShape_med")
-
-[node name="RockMed2" type="StaticBody3D" parent="."]
-transform = Transform3D(0.573576, 0, 0.819152, 0, 1, 0, -0.819152, 0, 0.573576, 14, 1, 4)
-
-[node name="Mesh" type="MeshInstance3D" parent="RockMed2"]
-mesh = SubResource("BoxMesh_med")
-surface_material_override/0 = SubResource("Material_rock_ochre")
-
-[node name="Collision" type="CollisionShape3D" parent="RockMed2"]
-shape = SubResource("BoxShape_med")
-
-[node name="Mesa" type="StaticBody3D" parent="."]
-transform = Transform3D(0.939693, 0, -0.34202, 0, 1, 0, 0.34202, 0, 0.939693, -45, 9, -65)
-
-[node name="Mesh" type="MeshInstance3D" parent="Mesa"]
-mesh = SubResource("BoxMesh_mesa")
-surface_material_override/0 = SubResource("Material_rock_dark")
-
-[node name="Collision" type="CollisionShape3D" parent="Mesa"]
-shape = SubResource("BoxShape_mesa")
-
-[node name="PlaceholderCactus" type="Sprite3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 1.54, -2)
-pixel_size = 0.003
-billboard = 2
-shaded = true
-alpha_cut = 2
-texture = ExtResource("3_cactus")
+[node name="WorldStreamer" type="Node3D" parent="."]
+script = ExtResource("3_streamer")
 
 [node name="Wind" type="AudioStreamPlayer" parent="."]
 stream = ExtResource("4_wind")

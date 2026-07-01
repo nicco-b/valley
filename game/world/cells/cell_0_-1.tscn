@@ -1,0 +1,23 @@
+[gd_scene load_steps=4 format=3]
+
+[sub_resource type="BoxMesh" id="BoxMesh_mesa"]
+size = Vector3(30, 18, 12)
+
+[sub_resource type="BoxShape3D" id="BoxShape_mesa"]
+size = Vector3(30, 18, 12)
+
+[sub_resource type="StandardMaterial3D" id="Material_rock_dark"]
+albedo_color = Color(0.404, 0.443, 0.408, 1)
+roughness = 1.0
+
+[node name="Cell_0_-1" type="Node3D"]
+
+[node name="Mesa" type="StaticBody3D" parent="."]
+transform = Transform3D(0.939693, 0, -0.34202, 0, 1, 0, 0.34202, 0, 0.939693, -45, 9, 63)
+
+[node name="Mesh" type="MeshInstance3D" parent="Mesa"]
+mesh = SubResource("BoxMesh_mesa")
+surface_material_override/0 = SubResource("Material_rock_dark")
+
+[node name="Collision" type="CollisionShape3D" parent="Mesa"]
+shape = SubResource("BoxShape_mesa")

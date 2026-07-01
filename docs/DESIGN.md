@@ -165,7 +165,7 @@ are architecture and content, and architecture is locked from day one:
 Milestones prove pipelines, not features. Each must be *solidly working and
 verified* before the next begins.
 
-1. **M1 — Grayblock valley (pipeline proof).** Real world-grid cells.
+1. **M1 — Grayblock valley (pipeline proof).** *Done 2026-07-01 (character is still the placeholder capsule; painting + wind are marked placeholders awaiting real assets).* Real world-grid cells.
    Third-person controller; sit mechanic (camera settles, HUD fades, ambiance
    up). Day/night sun + palette shift. One painted billboard element in-world.
    One placeholder 3D character standing among billboards — the make-or-break

@@ -184,6 +184,7 @@ func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 	var buckets: Array = []
 	for f in FLORA:
 		buckets.append([] as Array[Transform3D])
+	var colliders: Array = []  # [variant, transform] for large flora
 	for i in rng.randi_range(10, 20):
 		var lx := rng.randf() * CELL_SIZE
 		var lz := rng.randf() * CELL_SIZE
@@ -198,8 +199,11 @@ func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 				break
 		if clear:
 			continue
-		buckets[variant].append(Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)),
-				Vector3(lx, Terrain.height(wx, wz), lz)))
+		var xf := Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)),
+				Vector3(lx, Terrain.height(wx, wz), lz))
+		buckets[variant].append(xf)
+		if variant != 1:  # the shrub stays walkable; trees get trunks
+			colliders.append([variant, xf])
 	for v in FLORA.size():
 		var transforms: Array[Transform3D] = buckets[v]
 		if transforms.is_empty():
@@ -213,6 +217,18 @@ func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 		var mmi := MultiMeshInstance3D.new()
 		mmi.multimesh = mm
 		parent.add_child(mmi)
+	if not colliders.is_empty():
+		var body := StaticBody3D.new()
+		for entry in colliders:
+			var s: float = entry[1].basis.get_scale().x
+			var shape := CylinderShape3D.new()
+			shape.radius = (0.35 if entry[0] == 0 else 0.5) * s
+			shape.height = 4.0 * s
+			var col := CollisionShape3D.new()
+			col.shape = shape
+			col.position = entry[1].origin + Vector3(0.0, 2.0 * s, 0.0)
+			body.add_child(col)
+		parent.add_child(body)
 
 
 func _pick_flora(roll: float) -> int:

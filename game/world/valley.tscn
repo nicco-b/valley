@@ -1,7 +1,9 @@
-[gd_scene load_steps=17 format=3]
+[gd_scene load_steps=19 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="Script" path="res://game/world/day_night.gd" id="2_daynight"]
+[ext_resource type="Texture2D" path="res://assets/paintings/placeholder_cactus.svg" id="3_cactus"]
+[ext_resource type="AudioStream" path="res://assets/audio/wind_loop.wav" id="4_wind"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMaterial_valley"]
 sky_top_color = Color(0.976, 0.812, 0.827, 1)
@@ -116,6 +118,19 @@ surface_material_override/0 = SubResource("Material_rock_dark")
 
 [node name="Collision" type="CollisionShape3D" parent="Mesa"]
 shape = SubResource("BoxShape_mesa")
+
+[node name="PlaceholderCactus" type="Sprite3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 1.54, -2)
+pixel_size = 0.003
+billboard = 2
+shaded = true
+alpha_cut = 2
+texture = ExtResource("3_cactus")
+
+[node name="Wind" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("4_wind")
+volume_db = -6.0
+autoplay = true
 
 [node name="Player" parent="." instance=ExtResource("1_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 10)

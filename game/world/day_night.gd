@@ -42,11 +42,14 @@ func _process(_delta: float) -> void:
 	var horizon: Color = a[2].lerp(b[2], t)
 	sun.light_color = a[3].lerp(b[3], t)
 
-	var mat: ProceduralSkyMaterial = world_environment.environment.sky.sky_material
-	mat.sky_top_color = top
-	mat.sky_horizon_color = horizon
-	mat.ground_horizon_color = horizon
-	mat.ground_bottom_color = horizon.darkened(0.15)
+	var mat: ShaderMaterial = world_environment.environment.sky.sky_material
+	mat.set_shader_parameter("top_color", top)
+	mat.set_shader_parameter("horizon_color", horizon)
+	mat.set_shader_parameter("sun_color", sun.light_color)
+	# Direction TO the sun; disc swells and reddens near the horizon.
+	mat.set_shader_parameter("sun_dir", sun.global_basis.z)
+	mat.set_shader_parameter("sun_size", 0.035 + 0.05 * (1.0 - clampf(absf(elevation) * 3.0, 0.0, 1.0)))
+	mat.set_shader_parameter("night", clampf(-elevation * 4.0, 0.0, 1.0))
 	# Storms thicken the air and dust the horizon color.
 	var env := world_environment.environment
 	env.fog_light_color = horizon.lerp(Color(0.8, 0.7, 0.58), Weather.storminess * 0.6)

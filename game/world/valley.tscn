@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3]
+[gd_scene load_steps=23 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" path="res://game/world/landmarks/shrine.tscn" id="5_shrine"]
@@ -11,6 +11,8 @@
 [ext_resource type="Script" path="res://game/npc/npc_manager.gd" id="9_npcs"]
 [ext_resource type="PackedScene" path="res://game/items/pickup.tscn" id="10_pickup"]
 [ext_resource type="Script" path="res://game/world/weather_fx.gd" id="11_weatherfx"]
+[ext_resource type="Shader" path="res://game/shaders/sky.gdshader" id="12_sky"]
+[ext_resource type="Script" path="res://game/world/atmosphere.gd" id="13_atmosphere"]
 
 [sub_resource type="ParticleProcessMaterial" id="Particles_dust"]
 direction = Vector3(1, 0, 0.2)
@@ -44,12 +46,8 @@ height = 0.1
 radial_segments = 64
 material = SubResource("Material_water")
 
-[sub_resource type="ProceduralSkyMaterial" id="SkyMaterial_valley"]
-sky_top_color = Color(0.976, 0.812, 0.827, 1)
-sky_horizon_color = Color(0.988, 0.933, 0.894, 1)
-ground_bottom_color = Color(0.898, 0.855, 0.812, 1)
-ground_horizon_color = Color(0.988, 0.933, 0.894, 1)
-sun_angle_max = 15.0
+[sub_resource type="ShaderMaterial" id="SkyMaterial_valley"]
+shader = ExtResource("12_sky")
 
 [sub_resource type="Sky" id="Sky_valley"]
 sky_material = SubResource("SkyMaterial_valley")
@@ -128,6 +126,9 @@ lifetime = 2.0
 visibility_aabb = AABB(-60, -20, -60, 120, 40, 120)
 process_material = SubResource("Particles_dust")
 draw_pass_1 = SubResource("Quad_dust")
+
+[node name="Atmosphere" type="Node3D" parent="."]
+script = ExtResource("13_atmosphere")
 
 [node name="NPCManager" type="Node" parent="."]
 script = ExtResource("9_npcs")

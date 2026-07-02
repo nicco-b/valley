@@ -11,6 +11,11 @@ var hours := 9.0
 ## Days elapsed since the world began. Mirrored to WorldState "time.day".
 var day := 0
 
+## Tick bus: simulation systems subscribe at the rate they need.
+signal hour_tick(hour: int)
+
+var _last_hour := -1
+
 
 func _process(delta: float) -> void:
 	var advanced := hours + delta * 24.0 / (day_length_minutes * 60.0)
@@ -18,6 +23,16 @@ func _process(delta: float) -> void:
 		day += 1
 		WorldState.set_value("time.day", day)
 	hours = fmod(advanced, 24.0)
+	var h := int(hours)
+	if h != _last_hour:
+		_last_hour = h
+		hour_tick.emit(h)
+
+
+## Game-hours elapsed for a real-time delta — the conversion every
+## continuous simulation uses.
+func hours_delta(delta: float) -> float:
+	return delta * 24.0 / (day_length_minutes * 60.0)
 
 
 func _unhandled_input(event: InputEvent) -> void:

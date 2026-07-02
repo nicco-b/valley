@@ -16,6 +16,8 @@ var _cam: Camera3D
 var _cursor: MeshInstance3D
 var _hud: CanvasLayer
 var _hud_label: Label
+var _inspector: Label
+var _inspected: Node = null
 var _yaw := 0.0
 var _pitch := -0.9
 var _brush_radius := 12.0
@@ -70,6 +72,16 @@ func _unhandled_input(event: InputEvent) -> void:
 			if hit != Vector3.INF:
 				CellRecords.add(hit, Kit.ENTRIES[_kit_index].id,
 						randf() * TAU, randf_range(0.85, 1.15))
+		elif event.button_index == MOUSE_BUTTON_RIGHT:
+			# Sim inspector: right-click an NPC to watch its mind.
+			var space := _cam.get_world_3d().direct_space_state
+			var params := PhysicsRayQueryParameters3D.create(
+				_cam.global_position, _cam.global_position - _cam.global_basis.z * 3000.0, 3
+			)
+			var result := space.intersect_ray(params)
+			_inspected = result.collider if result and result.collider.has_method("sim_debug") \
+					else null
+			_inspector.visible = _inspected != null
 
 
 func _process(delta: float) -> void:
@@ -87,6 +99,11 @@ func _process(delta: float) -> void:
 	if Input.is_action_pressed("sprint"):
 		speed *= FAST_MULT
 	_cam.global_position += dir * speed * delta
+
+	if _inspected and is_instance_valid(_inspected):
+		_inspector.text = _inspected.sim_debug()
+	elif _inspector.visible:
+		_inspector.visible = false
 
 	# Brush cursor: ray from screen center to terrain.
 	var hit := _ray_to_ground()
@@ -176,6 +193,20 @@ func _build_nodes() -> void:
 	_hud_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.6))
 	_hud_label.add_theme_constant_override("shadow_offset_y", 1)
 	_hud.add_child(_hud_label)
+
+	_inspector = Label.new()
+	_inspector.visible = false
+	_inspector.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_inspector.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_inspector.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	_inspector.offset_right = -14.0
+	_inspector.offset_top = 40.0
+	_inspector.add_theme_font_size_override("font_size", 13)
+	_inspector.add_theme_color_override("font_color", Color(0.85, 1.0, 0.95))
+	_inspector.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	_inspector.add_theme_constant_override("shadow_offset_y", 1)
+	_hud.add_child(_inspector)
+
 	add_child(_hud)
 	_hud.visible = false
 

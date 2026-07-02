@@ -7,17 +7,17 @@ const DIR := "res://data/npcs"
 
 
 func _ready() -> void:
-	var records: Dictionary = Records.load_dir(DIR, {"id": TYPE_STRING, "schedule": TYPE_ARRAY})
+	var records: Dictionary = Records.load_dir(DIR, {
+		"id": TYPE_STRING, "home": TYPE_DICTIONARY,
+		"needs": TYPE_DICTIONARY, "activities": TYPE_ARRAY,
+	})
 	for key in records:
 		var data: Dictionary = records[key]
-		if data.schedule.is_empty():
+		if data.activities.is_empty():
 			continue
 		var npc := NPC_SCENE.instantiate()
-		npc.schedule = data.schedule
-		npc.npc_id = data.id
-		npc.display_name = data.get("name", data.id)
+		npc.setup(data)
 		add_child(npc)
-		var start: Dictionary = data.schedule.back()
 		npc.global_position = Vector3(
-			start.x, Terrain.height(start.x, start.z) + 0.5, start.z
+			data.home.x, Terrain.height(data.home.x, data.home.z) + 0.5, data.home.z
 		)

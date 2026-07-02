@@ -12,6 +12,7 @@ var _prompt: Label
 var _speaker: Label
 var _line: Label
 var _notice: Label
+var _satchel: Label
 var _say_token := 0
 var _notify_token := 0
 
@@ -23,6 +24,31 @@ func _ready() -> void:
 	_speaker = _make_label(14, TEAL, VERTICAL_ALIGNMENT_BOTTOM, -170.0)
 	_line = _make_label(17, CREAM, VERTICAL_ALIGNMENT_BOTTOM, -140.0)
 	_notice = _make_label(13, CREAM, VERTICAL_ALIGNMENT_TOP, 14.0)
+	_satchel = _make_label(15, CREAM, VERTICAL_ALIGNMENT_TOP, 48.0)
+	WorldState.changed.connect(_on_state_changed)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("inventory"):
+		_satchel.visible = not _satchel.visible
+		if _satchel.visible:
+			_refresh_satchel()
+
+
+func _on_state_changed(key: String, _value: Variant) -> void:
+	if key == "player.inventory" and _satchel.visible:
+		_refresh_satchel()
+
+
+func _refresh_satchel() -> void:
+	var inv: Dictionary = Items.inventory()
+	if inv.is_empty():
+		_satchel.text = "— satchel —\n(empty)"
+		return
+	var lines: Array[String] = ["— satchel —"]
+	for id in inv:
+		lines.append("%s × %d" % [Items.display_name(id), inv[id]])
+	_satchel.text = "\n".join(lines)
 
 
 func prompt(text: String) -> void:

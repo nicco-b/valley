@@ -1,7 +1,8 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Texture2D" path="res://assets/paintings/placeholder_cactus.svg" id="1_cactus"]
 [ext_resource type="Texture2D" path="res://assets/paintings/silly_tree.png" id="2_sillytree"]
+[ext_resource type="PackedScene" path="res://game/items/pickup.tscn" id="3_pickup"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_large"]
 size = Vector3(8, 5, 6)
@@ -62,6 +63,16 @@ billboard = 2
 shaded = true
 alpha_cut = 2
 texture = ExtResource("1_cactus")
+
+[node name="BloomPickup" type="Area3D" parent="." instance=ExtResource("3_pickup")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.5, 0, -7)
+item_id = "dried_bloom"
+uid = "c00_bloom_1"
+
+[node name="StonePickup" type="Area3D" parent="." instance=ExtResource("3_pickup")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -8, 0, -10)
+item_id = "river_stone"
+uid = "c00_stone_1"
 
 [node name="SillyTree" type="Sprite3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1.72, -6)

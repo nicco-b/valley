@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=16 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" path="res://game/world/landmarks/shrine.tscn" id="5_shrine"]
@@ -9,6 +9,7 @@
 [ext_resource type="AudioStream" path="res://assets/audio/night_loop.wav" id="7_night"]
 [ext_resource type="Script" path="res://game/world/ambience.gd" id="8_ambience"]
 [ext_resource type="Script" path="res://game/npc/npc_manager.gd" id="9_npcs"]
+[ext_resource type="PackedScene" path="res://game/items/pickup.tscn" id="10_pickup"]
 
 [sub_resource type="ShaderMaterial" id="Material_water"]
 shader = ExtResource("6_water")
@@ -78,6 +79,11 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 120, 0, -620)
 [node name="Pond" type="MeshInstance3D" parent="Landmarks"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 70, -0.9, -310)
 mesh = SubResource("CylinderMesh_pond")
+
+[node name="PondStone" type="Area3D" parent="Landmarks" instance=ExtResource("10_pickup")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 66, -0.4, -278)
+item_id = "river_stone"
+uid = "pond_stone_1"
 
 [node name="NPCManager" type="Node" parent="."]
 script = ExtResource("9_npcs")

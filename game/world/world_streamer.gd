@@ -7,7 +7,7 @@ extends Node3D
 
 const CELL_SIZE := 128.0
 const CELLS_DIR := "res://game/world/cells"
-const TERRAIN_RES := 33  # vertices per cell side (4m grid)
+const TERRAIN_RES := 49  # vertices per cell side (~2.7m grid; gen is threaded)
 
 var load_radius := 2  # Chebyshev radius of cells kept loaded (map widens this)
 
@@ -27,7 +27,7 @@ const FLORA := [
 	["res://assets/paintings/silly_tree_3.png", 4.6, 0.2],
 ]
 
-var _ground_material: StandardMaterial3D
+var _ground_material: ShaderMaterial
 var _flora_meshes: Array[QuadMesh] = []
 
 @onready var _player: Node3D = get_tree().get_first_node_in_group("player")
@@ -42,9 +42,17 @@ func _ready() -> void:
 	_scan_authored()
 	Terrain.edited.connect(_on_terrain_edited)
 	CellRecords.changed.connect(_on_records_changed)
-	_ground_material = StandardMaterial3D.new()
-	_ground_material.albedo_color = Color(0.929, 0.89, 0.82)
-	_ground_material.roughness = 1.0
+	# Painterly terrain material with a shared seamless variation texture.
+	var vnoise := FastNoiseLite.new()
+	vnoise.seed = 11
+	var vtex := NoiseTexture2D.new()
+	vtex.seamless = true
+	vtex.width = 256
+	vtex.height = 256
+	vtex.noise = vnoise
+	_ground_material = ShaderMaterial.new()
+	_ground_material.shader = load("res://game/shaders/terrain.gdshader")
+	_ground_material.set_shader_parameter("variation", vtex)
 
 	# Shared billboard meshes, one per flora kit entry (sway shader).
 	var sway := load("res://game/shaders/flora_sway.gdshader")

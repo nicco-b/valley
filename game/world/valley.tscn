@@ -59,11 +59,18 @@ background_mode = 2
 sky = SubResource("Sky_valley")
 ambient_light_source = 3
 tonemap_mode = 2
+ssao_enabled = true
+ssao_radius = 2.5
+ssao_intensity = 2.5
 glow_enabled = true
 fog_enabled = true
 fog_light_color = Color(0.988, 0.933, 0.894, 1)
 fog_density = 0.0008
 fog_sky_affect = 0.35
+adjustment_enabled = true
+adjustment_brightness = 1.02
+adjustment_contrast = 1.04
+adjustment_saturation = 1.09
 
 [node name="Valley" type="Node3D"]
 
@@ -74,6 +81,11 @@ environment = SubResource("Environment_valley")
 transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 30, 0)
 light_color = Color(1, 0.878, 0.796, 1)
 shadow_enabled = true
+shadow_blur = 1.8
+directional_shadow_max_distance = 300.0
+directional_shadow_split_1 = 0.06
+directional_shadow_split_2 = 0.2
+directional_shadow_split_3 = 0.5
 
 [node name="DayNight" type="Node" parent="."]
 script = ExtResource("2_daynight")

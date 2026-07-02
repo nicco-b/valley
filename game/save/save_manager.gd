@@ -12,7 +12,7 @@ var _accum := 0.0
 
 
 func _ready() -> void:
-	_load.call_deferred()
+	pass  # loading happens when the world scene's player calls load_into_world
 
 
 func _process(delta: float) -> void:
@@ -43,7 +43,8 @@ func save_game() -> void:
 	file.store_string(JSON.stringify(data, "\t"))
 
 
-func _load() -> void:
+## Called (deferred) by the player when the world scene starts.
+func load_into_world() -> void:
 	await get_tree().process_frame
 	if not FileAccess.file_exists(PATH):
 		return

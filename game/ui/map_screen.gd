@@ -79,9 +79,11 @@ func _process(delta: float) -> void:
 
 
 func _open() -> void:
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null:
+		return  # not in the world (title screen)
 	active = true
 	visible = true
-	var player := get_tree().get_first_node_in_group("player")
 	_focus = Vector3(player.global_position.x, 0.0, player.global_position.z)
 	if _cam == null:
 		_cam = Camera3D.new()

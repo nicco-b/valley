@@ -23,6 +23,8 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("ui_cancel"):
 		return
+	if get_tree().get_first_node_in_group("player") == null:
+		return  # title screen
 	if GodMode.active:
 		return  # god mode owns Esc while flying
 	if MapScreen.active:

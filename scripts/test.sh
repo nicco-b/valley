@@ -8,13 +8,23 @@ godot --headless --import >/dev/null 2>&1
 echo "== unit tests =="
 godot --headless -s tests/run_tests.gd || exit 1
 
-echo "== smoke test (240 frames) =="
 # Filter: engine banners, benign exit-time audio warnings, and our own
 # "[system]" log lines (anything bracket-prefixed is intentional logging).
-OUT=$(godot --headless --quit-after 240 2>&1 | grep -vE "^Godot Engine|^Dummy|^\[|leaked|still in use|object.cpp|resource.cpp")
+FILTER="^Godot Engine|^Dummy|^\[|leaked|still in use|object.cpp|resource.cpp"
+
+echo "== smoke test: title boot (120 frames) =="
+OUT=$(godot --headless --quit-after 120 2>&1 | grep -vE "$FILTER")
 if [ -n "$OUT" ]; then
 	echo "$OUT"
-	echo "SMOKE FAIL: unexpected output above"
+	echo "SMOKE FAIL (title): unexpected output above"
+	exit 1
+fi
+
+echo "== smoke test: world (240 frames) =="
+OUT=$(godot --headless --quit-after 240 res://game/world/valley.tscn 2>&1 | grep -vE "$FILTER")
+if [ -n "$OUT" ]; then
+	echo "$OUT"
+	echo "SMOKE FAIL (world): unexpected output above"
 	exit 1
 fi
 echo "smoke clean"

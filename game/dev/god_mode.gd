@@ -130,8 +130,10 @@ func _ray_to_ground() -> Vector3:
 
 
 func _enter() -> void:
-	active = true
 	var player := _player()
+	if player == null:
+		return  # not in the world (title screen)
+	active = true
 	if _cam == null:
 		_build_nodes()
 	_cam.global_position = player.global_position + Vector3(0, 60, 25)

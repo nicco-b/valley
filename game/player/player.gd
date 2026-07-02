@@ -31,6 +31,7 @@ func _ready() -> void:
 		_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
 	_anim.play("Idle")
 	_sand_puff = _make_sand_puff()
+	SaveGame.load_into_world.call_deferred()
 
 
 func _make_sand_puff() -> GPUParticles3D:

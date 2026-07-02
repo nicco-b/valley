@@ -193,6 +193,30 @@ F5 backup+scripts (today-sized)
 → F3 lands when content outgrows the valley (region #2 forces it)
 ```
 
+## G — the real-game backlog (post-foundation, mostly asset-independent)
+
+Foundation ≠ game. The systems a shipped RPG still needs, roughly ordered;
+none of these wait on assets unless marked:
+
+- **G1 — Game shell**: pause menu, settings (audio, sensitivity, display,
+  rebinding later), save slots + versioned migration, main menu/title,
+  export builds (.app), CI running scripts/test.sh on push
+- **G2 — Dialogue engine**: the machinery now (Dialogue Manager addon,
+  WorldState conditions/effects, HUD conversation UI) with placeholder
+  text; real writing lands post-axioms
+- **G3 — Player verbs & feel**: footstep audio framework *(sounds: his
+  recorder)*, wading/swimming (the pond!), scramble on steep slopes,
+  gamepad support, camera polish
+- **G4 — RPG frameworks**: quest/journal, use-based skills, inventory UI
+  proper, item use/equip, trading, crafting/tool upgrades
+- **G5 — World systems at scale**: region tile pipeline (painted
+  heightmaps), biome records + mask, water bodies, flora lifecycle sim,
+  doors/interiors, flora LOD/impostors for bigger vistas
+- **G6 — Living world depth**: navmesh, NPC relationships + NPC-to-NPC
+  conversations, more inhabitants, homes/ownership, wildlife archetype AI
+- **G7 — Combat** (M5): stamina, lock-on, hitboxes-on-animation, damage,
+  enemy AI *(feel work benefits from real character rigs)*
+
 ## Open questions (decide, don't drift into)
 
 - Axioms + the glow's name + the Wanderer's identity (canon; blocks writing)

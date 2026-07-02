@@ -66,16 +66,16 @@ func _make_sand_puff() -> GPUParticles3D:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		_rig.rotation.y -= event.relative.x * MOUSE_SENSITIVITY
+		var sens := MOUSE_SENSITIVITY * Settings.mouse_sensitivity
+		_rig.rotation.y -= event.relative.x * sens
 		_arm.rotation.x = clampf(
-			_arm.rotation.x - event.relative.y * MOUSE_SENSITIVITY, PITCH_MIN, PITCH_MAX
+			_arm.rotation.x - event.relative.y * sens, PITCH_MIN, PITCH_MAX
 		)
 	elif event.is_action_pressed("interact") and _target:
 		_target.interact(self)
-	elif event.is_action_pressed("ui_cancel"):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventMouseButton and event.pressed \
-			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
+			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED \
+			and not PauseMenu.paused:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 

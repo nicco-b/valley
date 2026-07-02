@@ -35,6 +35,8 @@ GodMode="*res://game/dev/god_mode.gd"
 HotReload="*res://game/dev/hot_reload.gd"
 MapScreen="*res://game/ui/map_screen.gd"
 SaveGame="*res://game/save/save_manager.gd"
+Settings="*res://game/ui/settings.gd"
+PauseMenu="*res://game/ui/pause_menu.gd"
 
 [shader_globals]
 

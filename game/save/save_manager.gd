@@ -34,7 +34,9 @@ func save_game() -> void:
 	var data := {
 		"version": 1,
 		"hours": GameClock.hours,
+		"day": GameClock.day,
 		"player": {"x": player.global_position.x, "z": player.global_position.z},
+		"state": WorldState.snapshot(),
 		"cells": {},  # future: per-cell world-state mutations
 	}
 	var file := FileAccess.open(PATH, FileAccess.WRITE)
@@ -49,6 +51,8 @@ func _load() -> void:
 	if data == null or data.get("version") != 1:
 		return
 	GameClock.hours = data.hours
+	GameClock.day = int(data.get("day", 0))
+	WorldState.restore(data.get("state", {}))
 	var player := get_tree().get_first_node_in_group("player")
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if player:

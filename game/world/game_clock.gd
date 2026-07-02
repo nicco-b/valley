@@ -8,9 +8,16 @@ extends Node
 ## Time of day in hours, [0, 24).
 var hours := 9.0
 
+## Days elapsed since the world began. Mirrored to WorldState "time.day".
+var day := 0
+
 
 func _process(delta: float) -> void:
-	hours = fmod(hours + delta * 24.0 / (day_length_minutes * 60.0), 24.0)
+	var advanced := hours + delta * 24.0 / (day_length_minutes * 60.0)
+	if advanced >= 24.0:
+		day += 1
+		WorldState.set_value("time.day", day)
+	hours = fmod(advanced, 24.0)
 
 
 func _unhandled_input(event: InputEvent) -> void:

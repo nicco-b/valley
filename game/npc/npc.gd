@@ -14,6 +14,12 @@ const SATISFY_SCALE := 10.0  # need points gained per game-hour at rate 1.0
 const OFF_HOURS_GATE := 0.15
 const KEEP_CURRENT_BIAS := 1.5
 const DECIDE_INTERVAL := 0.5  # real seconds between decisions
+# Two-tier simulation: beyond FAR_DISTANCE from the focus the body
+# dissolves and the same sim runs coarsely (A-Life style); it re-forms
+# inside NEAR_DISTANCE. Hysteresis prevents flapping at the border.
+const FAR_DISTANCE := 170.0
+const NEAR_DISTANCE := 140.0
+const COARSE_INTERVAL := 2.0  # real seconds between coarse ticks
 
 var npc_id := "npc"
 var display_name := "???"
@@ -25,9 +31,12 @@ var needs: Dictionary = {}  # need -> 0..100 (100 = content)
 var current: Dictionary = {}
 var last_utilities: Dictionary = {}
 
+var far_mode := false
+
 var _target := Vector3.ZERO
 var _decide_accum := 0.0
 var _wander_accum := 0.0
+var _coarse_accum := 0.0
 
 @onready var _anim: AnimationPlayer = $Body/Model/AnimationPlayer
 @onready var _body: Node3D = $Body
@@ -56,25 +65,88 @@ func _ready() -> void:
 	_decide()
 
 
-func _physics_process(delta: float) -> void:
-	if not is_on_floor():
-		velocity += get_gravity() * delta
+func _process(delta: float) -> void:
+	# Tier switching runs regardless of mode; the focus is whatever the
+	# streamer follows (player, god camera, or map).
+	var focus := global_position
+	var player := get_tree().get_first_node_in_group("player")
+	if GodMode.active:
+		focus = GodMode.cam_position()
+	elif MapScreen.active:
+		focus = MapScreen.focus_position()
+	elif player:
+		focus = player.global_position
+	var d := global_position.distance_to(focus)
+	if far_mode and d < NEAR_DISTANCE:
+		_embody()
+	elif not far_mode and d > FAR_DISTANCE:
+		_dissolve()
+	if far_mode:
+		_coarse_accum += delta
+		if _coarse_accum >= COARSE_INTERVAL:
+			_coarse_tick(_coarse_accum)
+			_coarse_accum = 0.0
 
-	var dt_hours: float = GameClock.hours_delta(delta)
+
+func _dissolve() -> void:
+	far_mode = true
+	visible = false
+	set_physics_process(false)
+	$Collision.set_deferred("disabled", true)
+
+
+func _embody() -> void:
+	far_mode = false
+	visible = true
+	set_physics_process(true)
+	$Collision.set_deferred("disabled", false)
+	global_position.y = Terrain.height(global_position.x, global_position.z) + 0.5
+	velocity = Vector3.ZERO
+
+
+## The same simulation, coarse: needs drain, decisions happen, position
+## advances in straight lines. No physics, no animation, ~nothing per tick.
+func _coarse_tick(dt_real: float) -> void:
+	var dt_hours: float = GameClock.hours_delta(dt_real)
+	_drain(dt_hours)
+	var to := Vector3(_target.x - global_position.x, 0.0, _target.z - global_position.z)
+	if to.length() < ARRIVE_DISTANCE:
+		_satisfy(dt_hours)
+	else:
+		global_position += to.normalized() * minf(SPEED * dt_real, to.length())
+	global_position.y = Terrain.height(global_position.x, global_position.z) + 0.5
+	_decide()
+
+
+func _drain(dt_hours: float) -> void:
 	for need in needs:
 		needs[need] = clampf(
 			needs[need] - needs_def[need] * DRAIN_SCALE * dt_hours, 0.0, 100.0
 		)
 
+
+func _satisfy(dt_hours: float) -> void:
+	if current.is_empty():
+		return
+	var need: String = current.satisfies
+	needs[need] = clampf(
+		needs[need] + float(current.get("rate", 6.0)) * SATISFY_SCALE * dt_hours,
+		0.0, 100.0
+	)
+
+
+func _physics_process(delta: float) -> void:
+	if not is_on_floor():
+		velocity += get_gravity() * delta
+
+	var dt_hours: float = GameClock.hours_delta(delta)
+	_drain(dt_hours)
+
 	var to := Vector3(_target.x - global_position.x, 0.0, _target.z - global_position.z)
 	var arrived := to.length() < ARRIVE_DISTANCE
 
 	if arrived and not current.is_empty():
-		var need: String = current.satisfies
-		needs[need] = clampf(
-			needs[need] + float(current.get("rate", 6.0)) * SATISFY_SCALE * dt_hours,
-			0.0, 100.0
-		)
+		_satisfy(dt_hours)
 		# Foragers drift around their spot.
 		if current.has("wander"):
 			_wander_accum += delta
@@ -175,6 +247,7 @@ func _resolve_at(a: Dictionary) -> Vector3:
 ## One-line-per-fact debug dump for the god-mode sim inspector.
 func sim_debug() -> String:
 	var lines: Array[String] = [display_name, ""]
+	lines.append("mode: %s" % ("coarse (far)" if far_mode else "embodied"))
 	lines.append("activity: %s%s" % [
 		current.get("id", "—"), " (%s)" % current.get("pose", "stand")
 	])

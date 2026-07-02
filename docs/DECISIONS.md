@@ -43,6 +43,9 @@ All decided 2026-07-01 (first design day) unless noted.*
   her illustrated map traced from it later.
 - **Tools live in the game, dev-gated** (god mode pattern); content is
   records; place mode writes JSON, not scenes.
+- **Sitting changes nothing.** No depth-of-field, no filters, no cinematic
+  dressing on the sit — the point of sitting is seeing the world exactly as
+  it is. (Camera pull-out and HUD fade stay; they remove, not add.)
 - **Repo: private GitHub (nicco-b/valley), plain git for binaries until ~1GB.**
 
 ## Open (deliberately undecided)

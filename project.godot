@@ -14,6 +14,11 @@ config/name="Valley"
 run/main_scene="res://game/world/valley.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
+[display]
+
+window/size/viewport_width=1400
+window/size/viewport_height=1120
+
 [autoload]
 
 WorldState="*res://game/state/world_state.gd"

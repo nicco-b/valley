@@ -165,21 +165,20 @@ part. Grant Abbitt's low-poly character series is the right speed.
 
 ### F5 — working without Claude (do continuously, starting now)
 
-- [ ] **Push to a private GitHub remote — P0.** The entire project lives on
-  one SSD right now
-- [ ] `docs/DEV_GUIDE.md` — the manual: how to run, where everything lives,
+- [x] Private GitHub remote (github.com/nicco-b/valley) — done
+- [x] `docs/DEV_GUIDE.md` — the manual: how to run, where everything lives,
   and **recipes**: add a flora / add an NPC / add a kit object / add a
   schedule / sculpt & save / re-export a painting / add a records file
-- [ ] `docs/DECISIONS.md` — the why-log (engine, billboards, camera, no-VO,
+- [x] `docs/DECISIONS.md` — the why-log (engine, billboards, camera, no-VO,
   finite quilt world…), so future-you doesn't relitigate settled questions
-- [ ] `CLAUDE.md` at repo root — project conventions for any future AI
+- [x] `CLAUDE.md` at repo root — project conventions for any future AI
   session: run/test commands, tscn gotchas (sub_resources before nodes,
   importer loop enum = 2, force-reimport dance), record patterns, style
-- [ ] `scripts/run.sh`, `scripts/test.sh`, `scripts/reimport.sh` — the
+- [x] `scripts/run.sh`, `scripts/test.sh`, `scripts/reimport.sh` — the
   whole dev loop as three commands
-- [ ] Data folder READMEs — every `data/*` dir explains its schema in 10
+- [x] Data folder READMEs — every `data/*` dir explains its schema in 10
   lines
-- [ ] `docs/ART_BIBLE.md` — the visual laws (matte world, glow reserved,
+- [x] `docs/ART_BIBLE.md` — the visual laws (matte world, glow reserved,
   palette ramps, billboard vs mesh rules) + asset specs for her
 
 ## Build order

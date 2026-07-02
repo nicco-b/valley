@@ -21,14 +21,15 @@ and [FOUNDATIONS.md](FOUNDATIONS.md) (build plan).*
 | Shift | sprint | | E / Q | up / down |
 | Space | jump | | wheel | fly speed |
 | C | sit | | Tab | sculpt ↔ place |
-| E | interact | | LMB / Shift+LMB | raise / carve (sculpt) |
+| E | interact / catch | | LMB / Shift+LMB | raise / carve (sculpt) |
 | I | satchel | | `[` `]` | brush size |
-| M | map (drag pan, wheel zoom) | | 1–5 | pick kit object (place) |
-| Esc | release mouse | | LMB | place object |
-| **T** | *debug:* +1 hour | | Z | undo last placement |
-| **Y** | *debug:* next weather | | RMB on NPC | sim inspector |
-| | | | F5 | save terrain edits |
-| | | | F1 | exit **(teleports player to camera)** |
+| J | journal (quests + skills) | | RMB on NPC | sim inspector |
+| M | map (pan/zoom, gestures) | | 1–9 | pick kit object (place) |
+| F / R | deploy / recall fireflies | | LMB | place object |
+| Esc | pause (or close map/talk) | | Z | undo last placement |
+| **T** | *debug:* +1 hour | | F5 | save terrain edits |
+| **Y** | *debug:* next weather | | F1 | exit **(teleports player)** |
+
 
 ## How the systems fit (two minutes)
 

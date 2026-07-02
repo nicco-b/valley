@@ -1,5 +1,7 @@
 # CLAUDE.md — project conventions
 
+**Start every session by reading `docs/STATUS.md`** — live state, placeholder ledger, and what's next.
+
 Two-person open-world RPG ("Valley", working title) in Godot 4.7 on macOS.
 Skyrim-inspired living world, hand-painted art by a solo illustrator,
 simulation-heavy. Read `docs/DESIGN.md` (what it is), `docs/FOUNDATIONS.md`

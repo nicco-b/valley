@@ -6,6 +6,8 @@ stays workable for a solo human. Read alongside [DESIGN.md](DESIGN.md).*
 
 ## Where we are (honest audit)
 
+*Day-1 snapshot, kept for history — the live state is [STATUS.md](STATUS.md).*
+
 | Domain | State | Debt / gap |
 |---|---|---|
 | World streaming | ✅ v1 — cell grid, threaded content loads, follows player/god/map | Terrain gen is main-thread (hitches on fast map pans) |

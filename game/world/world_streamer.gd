@@ -27,8 +27,18 @@ const FLORA := [
 	["res://assets/paintings/silly_tree_3.png", 4.6, 0.2],
 ]
 
+# Ground cover: the dense low stratum (placeholder SVGs until painted
+# tufts arrive — same slots). [texture path, height m, weight]
+const GROUND_COVER := [
+	["res://assets/paintings/placeholder_tuft_1.svg", 0.5, 0.45],
+	["res://assets/paintings/placeholder_tuft_2.svg", 0.35, 0.35],
+	["res://assets/paintings/placeholder_pebbles.svg", 0.22, 0.2],
+]
+const COVER_VISIBLE_RANGE := 75.0
+
 var _ground_material: ShaderMaterial
 var _flora_meshes: Array[QuadMesh] = []
+var _cover_meshes: Array[QuadMesh] = []
 
 @onready var _player: Node3D = get_tree().get_first_node_in_group("player")
 
@@ -54,20 +64,12 @@ func _ready() -> void:
 	_ground_material.shader = load("res://game/shaders/terrain.gdshader")
 	_ground_material.set_shader_parameter("variation", vtex)
 
-	# Shared billboard meshes, one per flora kit entry (sway shader).
+	# Shared billboard meshes for flora and ground cover (sway shader).
 	var sway := load("res://game/shaders/flora_sway.gdshader")
 	for f in FLORA:
-		var tex: Texture2D = load(f[0])
-		var mat := ShaderMaterial.new()
-		mat.shader = sway
-		mat.set_shader_parameter("albedo_tex", tex)
-		var h: float = f[1]
-		var w: float = h * float(tex.get_width()) / float(tex.get_height())
-		var mesh := QuadMesh.new()
-		mesh.size = Vector2(w, h)
-		mesh.center_offset = Vector3(0, h * 0.5, 0)
-		mesh.material = mat
-		_flora_meshes.append(mesh)
+		_flora_meshes.append(_make_billboard_mesh(f[0], f[1], sway))
+	for f in GROUND_COVER:
+		_cover_meshes.append(_make_billboard_mesh(f[0], f[1], sway))
 
 	# Synchronous first fill: the ground must exist before the first physics frame.
 	_update_cells(true)
@@ -240,6 +242,8 @@ func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D) -> void:
 	body.add_child(col)
 	body.position = origin
 	_add_scatter(c, body, origin)
+	_add_ground_cover(c, body, origin,
+			Terrain.valley_factor(origin.x + CELL_SIZE * 0.5, origin.z + CELL_SIZE * 0.5))
 	add_child(body)
 	_terrain[c] = body
 
@@ -259,7 +263,7 @@ func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 	for i in rng.randi_range(base_count, base_count + 8):
 		var lx := rng.randf() * CELL_SIZE
 		var lz := rng.randf() * CELL_SIZE
-		var variant := _pick_flora(rng.randf())
+		var variant := _pick_weighted(FLORA, rng.randf())
 		var s := rng.randf_range(0.75, 1.15)
 		var wx := origin.x + lx
 		var wz := origin.z + lz
@@ -326,13 +330,68 @@ func _on_records_changed(c: Vector2i) -> void:
 		_add_records(c)
 
 
-func _pick_flora(roll: float) -> int:
+func _make_billboard_mesh(path: String, h: float, sway: Shader) -> QuadMesh:
+	var tex: Texture2D = load(path)
+	var mat := ShaderMaterial.new()
+	mat.shader = sway
+	mat.set_shader_parameter("albedo_tex", tex)
+	var w: float = h * float(tex.get_width()) / float(tex.get_height())
+	var mesh := QuadMesh.new()
+	mesh.size = Vector2(w, h)
+	mesh.center_offset = Vector3(0, h * 0.5, 0)
+	mesh.material = mat
+	return mesh
+
+
+func _add_ground_cover(c: Vector2i, parent: Node3D, origin: Vector3, vf: float) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(c) * 31 + 7
+	var count := int(round(lerpf(240.0, 12.0, vf)))
+	var buckets: Array = []
+	for f in GROUND_COVER:
+		buckets.append([] as Array[Transform3D])
+	for i in count:
+		var lx := rng.randf() * CELL_SIZE
+		var lz := rng.randf() * CELL_SIZE
+		var wx := origin.x + lx
+		var wz := origin.z + lz
+		var in_clearing := false
+		for f in Terrain.FLATTENS:
+			# Cover may enter clearings' feather but not their core.
+			if Vector2(wx - f[0], wz - f[1]).length() < f[2] * 0.8:
+				in_clearing = true
+				break
+		if in_clearing:
+			continue
+		var variant := _pick_weighted(GROUND_COVER, rng.randf())
+		var s := rng.randf_range(0.7, 1.35)
+		buckets[variant].append(Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)),
+				Vector3(lx, Terrain.height(wx, wz) - 0.02, lz)))
+	for v in GROUND_COVER.size():
+		var transforms: Array[Transform3D] = buckets[v]
+		if transforms.is_empty():
+			continue
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = _cover_meshes[v]
+		mm.instance_count = transforms.size()
+		for i in transforms.size():
+			mm.set_instance_transform(i, transforms[i])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.visibility_range_end = COVER_VISIBLE_RANGE
+		mmi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(mmi)
+
+
+func _pick_weighted(table: Array, roll: float) -> int:
 	var acc := 0.0
-	for v in FLORA.size():
-		acc += FLORA[v][2]
+	for v in table.size():
+		acc += table[v][2]
 		if roll <= acc:
 			return v
-	return FLORA.size() - 1
+	return table.size() - 1
 
 
 func _add_content(c: Vector2i, scene: PackedScene) -> void:

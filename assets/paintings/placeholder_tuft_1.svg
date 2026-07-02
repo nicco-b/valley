@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="170" viewBox="0 0 220 170">
+  <!-- PLACEHOLDER dry grass tuft — replace with a painted PNG, same slot. -->
+  <g fill="none" stroke="#6b6d3a" stroke-width="7" stroke-linecap="round">
+    <path d="M110 165 C 108 120, 100 90, 78 58"/>
+    <path d="M110 165 C 111 115, 116 82, 132 46"/>
+    <path d="M110 165 C 104 125, 88 100, 52 84"/>
+    <path d="M110 165 C 117 128, 138 104, 172 90"/>
+    <path d="M110 165 C 110 110, 108 70, 102 30"/>
+  </g>
+  <g fill="none" stroke="#84864c" stroke-width="5" stroke-linecap="round">
+    <path d="M110 165 C 106 130, 92 108, 66 96"/>
+    <path d="M110 165 C 114 126, 130 106, 158 72"/>
+    <path d="M110 165 C 109 122, 112 92, 120 62"/>
+  </g>
+  <circle cx="102" cy="28" r="7" fill="#b98a2e"/>
+  <circle cx="133" cy="44" r="5" fill="#b98a2e"/>
+</svg>

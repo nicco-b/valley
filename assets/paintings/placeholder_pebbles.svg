@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="110" viewBox="0 0 220 110">
+  <!-- PLACEHOLDER pebble cluster — replace with a painted PNG, same slot. -->
+  <ellipse cx="70" cy="88" rx="34" ry="20" fill="#8a8276"/>
+  <ellipse cx="126" cy="92" rx="26" ry="15" fill="#a29a8a"/>
+  <ellipse cx="162" cy="84" rx="18" ry="12" fill="#7a746a"/>
+  <ellipse cx="104" cy="76" rx="16" ry="10" fill="#96907f"/>
+  <ellipse cx="66" cy="80" rx="12" ry="7" fill="#b0a896"/>
+</svg>

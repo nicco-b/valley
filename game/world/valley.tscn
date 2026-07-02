@@ -1,4 +1,4 @@
-[gd_scene load_steps=14 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" path="res://game/world/landmarks/shrine.tscn" id="5_shrine"]
@@ -8,6 +8,7 @@
 [ext_resource type="AudioStream" path="res://assets/audio/wind_loop.wav" id="4_wind"]
 [ext_resource type="AudioStream" path="res://assets/audio/night_loop.wav" id="7_night"]
 [ext_resource type="Script" path="res://game/world/ambience.gd" id="8_ambience"]
+[ext_resource type="Script" path="res://game/npc/npc_manager.gd" id="9_npcs"]
 
 [sub_resource type="ShaderMaterial" id="Material_water"]
 shader = ExtResource("6_water")
@@ -77,6 +78,9 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 120, 0, -620)
 [node name="Pond" type="MeshInstance3D" parent="Landmarks"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 70, -0.9, -310)
 mesh = SubResource("CylinderMesh_pond")
+
+[node name="NPCManager" type="Node" parent="."]
+script = ExtResource("9_npcs")
 
 [node name="Player" parent="." instance=ExtResource("1_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 10)

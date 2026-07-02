@@ -75,6 +75,30 @@ Rules: every system reads/writes the shared stores (GameClock, WorldState,
 biome params) — no private clocks, no hidden state. A sim effect the player
 can never perceive is cut.
 
+**Physical-response layer ("real physics", decided 2026-07-01).** The shipped-
+game truth: world-scale water/snow/sand is a two-layer illusion — coarse
+*state* simulation globally (snow depth, wetness, water level, wind: numbers
+from the weather/ecology tick) + fine *response* simulation near the player.
+We adopt the AAA mechanism directly:
+
+- **Interaction field** — a world-space disturbance texture following the
+  player (footsteps, movement, sitting; NPCs too), read by terrain, snow,
+  sand, water, and flora shaders. One system → sand footprints, snow trails
+  (Tsushima/RDR2 technique), bent grass wakes, wading ripples. Build once,
+  then per-material work is artistic, not systemic.
+- **Material states from weather**: snow accumulation/melt, ground wetness,
+  as per-region values blended in terrain shaders.
+- **Flora lifecycle sim**: scatter becomes per-cell living state — sprout →
+  grow → **bloom** → seed → die, spreading by moisture/ground, grazed by
+  future wildlife, on the coarse tick, saved per cell. Blooms are ecological
+  events (axioms/glow tie-in).
+- **Bounded set-piece effects** (waterfall foam, one avalanche) allowed as
+  local fakery. **World-scale volumetric fluid/granular solvers: never** —
+  project-killing cost, negligible visible payoff over the illusion stack.
+
+Cost order: interaction field → material states → flora lifecycle →
+set pieces.
+
 ### F2 — engineering debts (small, do between features)
 
 - **Threaded terrain generation** (WorkerThreadPool in `world_streamer.gd`)

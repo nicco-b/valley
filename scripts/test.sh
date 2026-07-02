@@ -2,6 +2,9 @@
 # Unit tests + smoke test. Exits nonzero on failure.
 cd "$(dirname "$0")/.." || exit 1
 
+echo "== import (refresh class cache) =="
+godot --headless --import >/dev/null 2>&1
+
 echo "== unit tests =="
 godot --headless -s tests/run_tests.gd || exit 1
 

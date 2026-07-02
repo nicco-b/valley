@@ -7,17 +7,15 @@ const DIR := "res://data/npcs"
 
 
 func _ready() -> void:
-	var dir := DirAccess.open(DIR)
-	if dir == null:
-		return
-	for f in dir.get_files():
-		if not f.ends_with(".json"):
-			continue
-		var data = JSON.parse_string(FileAccess.get_file_as_string(DIR + "/" + f))
-		if data == null or not data.has("schedule") or data.schedule.is_empty():
+	var records: Dictionary = Records.load_dir(DIR, {"id": TYPE_STRING, "schedule": TYPE_ARRAY})
+	for key in records:
+		var data: Dictionary = records[key]
+		if data.schedule.is_empty():
 			continue
 		var npc := NPC_SCENE.instantiate()
 		npc.schedule = data.schedule
+		npc.npc_id = data.id
+		npc.display_name = data.get("name", data.id)
 		add_child(npc)
 		var start: Dictionary = data.schedule.back()
 		npc.global_position = Vector3(

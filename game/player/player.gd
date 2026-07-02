@@ -13,6 +13,7 @@ const SIT_BODY_DROP := 0.0  # the sit animation handles the pose now
 const SIT_EASE := 3.0
 
 var _sitting := false
+var _target: Interactable = null
 
 @onready var _rig: Node3D = $CameraRig
 @onready var _arm: SpringArm3D = $CameraRig/SpringArm3D
@@ -35,6 +36,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_arm.rotation.x = clampf(
 			_arm.rotation.x - event.relative.y * MOUSE_SENSITIVITY, PITCH_MIN, PITCH_MAX
 		)
+	elif event.is_action_pressed("interact") and _target:
+		_target.interact(self)
 	elif event.is_action_pressed("ui_cancel"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventMouseButton and event.pressed \
@@ -94,3 +97,27 @@ func _physics_process(delta: float) -> void:
 	_arm.spring_length = lerpf(
 		_arm.spring_length, SIT_ARM_LENGTH if _sitting else ARM_LENGTH, sit_blend
 	)
+
+	_update_target()
+
+
+## Nearest Interactable within reach that the camera roughly faces.
+func _update_target() -> void:
+	var best: Interactable = null
+	var best_d := 2.8
+	var fwd := -_rig.global_basis.z
+	fwd.y = 0.0
+	fwd = fwd.normalized()
+	for node in get_tree().get_nodes_in_group("interactable"):
+		var it := node as Interactable
+		var d := it.global_position.distance_to(global_position)
+		if d >= best_d:
+			continue
+		var to := it.global_position - global_position
+		to.y = 0.0
+		if d < 1.2 or to.normalized().dot(fwd) > 0.1:
+			best = it
+			best_d = d
+	if best != _target:
+		_target = best
+		HUD.prompt("" if _target == null else "E — " + _target.prompt)

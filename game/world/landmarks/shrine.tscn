@@ -1,4 +1,9 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=14 format=3]
+
+[ext_resource type="Script" path="res://game/interact/examinable.gd" id="1_examine"]
+
+[sub_resource type="SphereShape3D" id="Sphere_examine"]
+radius = 2.0
 
 [sub_resource type="StandardMaterial3D" id="Material_stone"]
 albedo_color = Color(0.75, 0.72, 0.66, 1)
@@ -86,6 +91,16 @@ surface_material_override/0 = SubResource("Material_teal")
 [node name="PillarRCollision" type="CollisionShape3D" parent="Body"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 5, 4.5, 5)
 shape = SubResource("BoxShape_pillar")
+
+[node name="Examine" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 7)
+script = ExtResource("1_examine")
+prompt = "Examine"
+text = "The orb hums faintly overhead. The glow answers no question you know how to ask — yet."
+flag = "world.shrine.examined"
+
+[node name="Shape" type="CollisionShape3D" parent="Examine"]
+shape = SubResource("Sphere_examine")
 
 [node name="Orb" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 16.7, 0)

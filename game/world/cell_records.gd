@@ -21,10 +21,16 @@ func _ready() -> void:
 			var parts := f.trim_suffix(".json").split("_")
 			if parts.size() != 3:
 				continue
-			var text := FileAccess.get_file_as_string(DIR + "/" + f)
-			var parsed = JSON.parse_string(text)
+			var parsed = Records.load_json(DIR + "/" + f)
 			if parsed is Array:
-				_cells[Vector2i(parts[1].to_int(), parts[2].to_int())] = parsed
+				var valid: Array = []
+				for rec in parsed:
+					if rec is Dictionary and Records.validate(rec, {
+						"kit": TYPE_STRING, "x": TYPE_FLOAT, "y": TYPE_FLOAT,
+						"z": TYPE_FLOAT, "yaw": TYPE_FLOAT,
+					}, DIR + "/" + f):
+						valid.append(rec)
+				_cells[Vector2i(parts[1].to_int(), parts[2].to_int())] = valid
 
 
 func cell_of(pos: Vector3) -> Vector2i:

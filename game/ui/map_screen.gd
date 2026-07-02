@@ -50,9 +50,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_ortho = clampf(_ortho * 0.85, 130.0, 1100.0)
+			_ortho = clampf(_ortho * 0.85, 130.0, 1500.0)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_ortho = clampf(_ortho / 0.85, 130.0, 1100.0)
+			_ortho = clampf(_ortho / 0.85, 130.0, 1500.0)
+	elif event is InputEventMagnifyGesture:
+		# Trackpad pinch.
+		_ortho = clampf(_ortho / event.factor, 130.0, 1500.0)
+	elif event is InputEventPanGesture:
+		# Trackpad two-finger pan.
+		var scale := _ortho / get_viewport().get_visible_rect().size.y
+		_focus.x += event.delta.x * scale * 2.2
+		_focus.z += event.delta.y * scale * 2.2
 	elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
 		var scale := _ortho / get_viewport().get_visible_rect().size.y
 		_focus.x -= event.relative.x * scale
@@ -114,16 +122,29 @@ func _draw_markers() -> void:
 		_markers.draw_circle(p, 5.0, Color(0.55, 0.16, 0.30))
 		_markers.draw_circle(p, 5.0, Color.WHITE, false, 1.5)
 		_draw_label(font, p + Vector2(10, 5), m[0])
-	var npc := get_tree().get_first_node_in_group("npc")
-	if npc:
+	for npc in get_tree().get_nodes_in_group("npc"):
 		var p := _cam.unproject_position(npc.global_position + Vector3.UP * 2.0)
 		_markers.draw_circle(p, 5.0, Color(0.13, 0.35, 0.37))
 		_markers.draw_circle(p, 5.0, Color.WHITE, false, 1.5)
+		_draw_label(font, p + Vector2(9, 4), npc.display_name)
 	var player := get_tree().get_first_node_in_group("player")
 	if player:
 		var p := _cam.unproject_position(player.global_position + Vector3.UP * 2.0)
 		_markers.draw_circle(p, 6.0, Color.WHITE)
 		_markers.draw_circle(p, 6.0, COLOR_INK, false, 1.5)
+
+	# Compass north + scale bar.
+	var vp := _markers.size
+	_markers.draw_string(font, Vector2(vp.x * 0.5 - 5, 34), "N",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(1, 0.95, 0.9))
+	_markers.draw_line(Vector2(vp.x * 0.5, 44), Vector2(vp.x * 0.5, 58),
+			Color(1, 0.95, 0.9), 1.5)
+	var bar_px := 100.0 / _cam.size * vp.y
+	var bar_y := vp.y - 36.0
+	_markers.draw_line(Vector2(24, bar_y), Vector2(24 + bar_px, bar_y),
+			Color(1, 0.95, 0.9), 2.0)
+	_markers.draw_string(font, Vector2(24, bar_y - 8), "100 m",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 0.95, 0.9))
 
 
 func _draw_label(font: Font, pos: Vector2, text: String) -> void:

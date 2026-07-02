@@ -15,6 +15,7 @@ const SIT_EASE := 3.0
 var _sitting := false
 var _target: Interactable = null
 var _step_accum := 0.0
+var _sand_puff: GPUParticles3D
 
 @onready var _rig: Node3D = $CameraRig
 @onready var _arm: SpringArm3D = $CameraRig/SpringArm3D
@@ -29,6 +30,38 @@ func _ready() -> void:
 	for n in ["Idle", "Walking", "Running"]:
 		_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
 	_anim.play("Idle")
+	_sand_puff = _make_sand_puff()
+
+
+func _make_sand_puff() -> GPUParticles3D:
+	var mat := ParticleProcessMaterial.new()
+	mat.direction = Vector3(0, 1, 0)
+	mat.spread = 55.0
+	mat.initial_velocity_min = 0.6
+	mat.initial_velocity_max = 1.3
+	mat.gravity = Vector3(0, -3.5, 0)
+	mat.scale_min = 0.5
+	mat.scale_max = 1.0
+	mat.color = Color(0.85, 0.78, 0.64, 0.5)
+	var quad := QuadMesh.new()
+	quad.size = Vector2(0.09, 0.09)
+	var draw := StandardMaterial3D.new()
+	draw.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	draw.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	draw.vertex_color_use_as_albedo = true
+	draw.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	quad.material = draw
+	var p := GPUParticles3D.new()
+	p.amount = 6
+	p.lifetime = 0.45
+	p.one_shot = true
+	p.emitting = false
+	p.explosiveness = 0.9
+	p.process_material = mat
+	p.draw_pass_1 = quad
+	p.top_level = true  # puffs stay where they were kicked
+	add_child(p)
+	return p
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -66,6 +99,13 @@ func _physics_process(delta: float) -> void:
 	dir = dir.normalized() if dir.length() > 0.01 else Vector3.ZERO
 
 	var speed := SPRINT_SPEED if Input.is_action_pressed("sprint") else WALK_SPEED
+	# Loose sand: climbing steep ground costs a little speed.
+	if is_on_floor() and dir != Vector3.ZERO:
+		var fn := get_floor_normal()
+		var downhill := Vector3(fn.x, 0.0, fn.z)
+		if downhill.length() > 0.01:
+			var uphill := maxf(-dir.dot(downhill.normalized()), 0.0)
+			speed *= 1.0 - uphill * clampf((1.0 - fn.y) * 2.2, 0.0, 0.4)
 	var blend := 1.0 - exp(-ACCEL * delta)
 	velocity.x = lerpf(velocity.x, dir.x * speed, blend)
 	velocity.z = lerpf(velocity.z, dir.z * speed, blend)
@@ -77,6 +117,8 @@ func _physics_process(delta: float) -> void:
 		if _step_accum >= 0.7:
 			_step_accum = 0.0
 			InteractionField.stamp(Vector2(global_position.x, global_position.z))
+			_sand_puff.global_position = global_position + Vector3(0, 0.06, 0)
+			_sand_puff.restart()
 
 	# Face the body toward horizontal movement; the camera rig stays independent.
 	# (The robot model faces +Z, hence no half-turn offset.)

@@ -1,4 +1,4 @@
-[gd_scene load_steps=16 format=3]
+[gd_scene load_steps=21 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" path="res://game/world/landmarks/shrine.tscn" id="5_shrine"]
@@ -10,6 +10,29 @@
 [ext_resource type="Script" path="res://game/world/ambience.gd" id="8_ambience"]
 [ext_resource type="Script" path="res://game/npc/npc_manager.gd" id="9_npcs"]
 [ext_resource type="PackedScene" path="res://game/items/pickup.tscn" id="10_pickup"]
+[ext_resource type="Script" path="res://game/world/weather_fx.gd" id="11_weatherfx"]
+
+[sub_resource type="ParticleProcessMaterial" id="Particles_dust"]
+direction = Vector3(1, 0, 0.2)
+spread = 20.0
+initial_velocity_min = 12.0
+initial_velocity_max = 22.0
+gravity = Vector3(0, -0.4, 0)
+scale_min = 0.08
+scale_max = 0.22
+color = Color(0.87, 0.78, 0.62, 0.22)
+emission_shape = 3
+emission_box_extents = Vector3(45, 10, 45)
+
+[sub_resource type="StandardMaterial3D" id="Material_dust"]
+transparency = 1
+shading_mode = 0
+vertex_color_use_as_albedo = true
+billboard_mode = 3
+
+[sub_resource type="QuadMesh" id="Quad_dust"]
+size = Vector2(0.3, 0.3)
+material = SubResource("Material_dust")
 
 [sub_resource type="ShaderMaterial" id="Material_water"]
 shader = ExtResource("6_water")
@@ -84,6 +107,15 @@ mesh = SubResource("CylinderMesh_pond")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 66, -0.4, -278)
 item_id = "river_stone"
 uid = "pond_stone_1"
+
+[node name="Dust" type="GPUParticles3D" parent="."]
+script = ExtResource("11_weatherfx")
+emitting = false
+amount = 400
+lifetime = 2.0
+visibility_aabb = AABB(-60, -20, -60, 120, 40, 120)
+process_material = SubResource("Particles_dust")
+draw_pass_1 = SubResource("Quad_dust")
 
 [node name="NPCManager" type="Node" parent="."]
 script = ExtResource("9_npcs")

@@ -11,5 +11,7 @@ func _process(_delta: float) -> void:
 	var nightness := clampf(
 		smoothstep(19.0, 21.5, h) + 1.0 - smoothstep(5.0, 7.0, h), 0.0, 1.0
 	)
-	_wind.volume_db = linear_to_db(lerpf(0.5, 0.18, nightness))
-	_night.volume_db = linear_to_db(maxf(nightness * 0.45, 0.0001))
+	# The wind you hear is the wind the trees feel (Weather.wind).
+	var gusting := 0.35 + 1.1 * Weather.wind
+	_wind.volume_db = linear_to_db(clampf(lerpf(0.5, 0.18, nightness) * gusting, 0.0001, 1.0))
+	_night.volume_db = linear_to_db(maxf(nightness * 0.45 * (1.0 - Weather.storminess * 0.7), 0.0001))

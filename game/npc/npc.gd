@@ -114,6 +114,8 @@ func _decide() -> void:
 	last_utilities = {}
 	for a in activities:
 		var u: float = (100.0 - needs.get(a.satisfies, 50.0)) * _hours_gate(a)
+		# Weather changes minds: storm_boost activities spike in bad weather.
+		u *= 1.0 + Weather.storminess * float(a.get("storm_boost", 0.0))
 		last_utilities[a.id] = u
 		if a == current:
 			current_u = u

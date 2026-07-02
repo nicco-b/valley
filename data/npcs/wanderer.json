@@ -7,6 +7,7 @@
 		{"id": "sleep", "at": "home", "satisfies": "rest", "rate": 9, "pose": "sit", "hours": [20, 6]},
 		{"id": "drink", "at": {"x": 70, "z": -265}, "satisfies": "water", "rate": 14},
 		{"id": "forage", "at": {"x": 50, "z": -200}, "satisfies": "food", "rate": 7, "wander": 18},
-		{"id": "commune", "at": {"x": 120, "z": -606}, "satisfies": "peace", "rate": 7, "pose": "sit", "hours": [16, 21]}
+		{"id": "commune", "at": {"x": 120, "z": -606}, "satisfies": "peace", "rate": 7, "pose": "sit", "hours": [16, 21]},
+		{"id": "shelter", "at": "home", "satisfies": "peace", "rate": 3, "pose": "sit", "storm_boost": 8}
 	]
 }

@@ -25,7 +25,8 @@ func _process(_delta: float) -> void:
 	# Sun path: full circle around X; 6:00 rises, 12:00 zenith, 18:00 sets.
 	sun.rotation.x = -(h - 6.0) / 24.0 * TAU
 	var elevation := sin((h - 6.0) / 24.0 * TAU)
-	sun.light_energy = clampf(elevation * 1.4, 0.0, 1.2)
+	sun.light_energy = clampf(elevation * 1.4, 0.0, 1.2) \
+			* (1.0 - 0.55 * Weather.storminess)
 
 	# Sky palette: lerp between bracketing keyframes.
 	var a: Array = KEYS[0]
@@ -46,4 +47,7 @@ func _process(_delta: float) -> void:
 	mat.sky_horizon_color = horizon
 	mat.ground_horizon_color = horizon
 	mat.ground_bottom_color = horizon.darkened(0.15)
-	world_environment.environment.fog_light_color = horizon
+	# Storms thicken the air and dust the horizon color.
+	var env := world_environment.environment
+	env.fog_light_color = horizon.lerp(Color(0.8, 0.7, 0.58), Weather.storminess * 0.6)
+	env.fog_density = lerpf(0.0008, 0.0045, Weather.storminess)

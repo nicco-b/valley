@@ -23,6 +23,8 @@ func description(id: String) -> String:
 func add(id: String, count: int = 1) -> void:
 	var inv: Dictionary = inventory().duplicate()
 	inv[id] = int(inv.get(id, 0)) + count
+	if inv[id] <= 0:
+		inv.erase(id)
 	WorldState.set_value("player.inventory", inv)
 
 

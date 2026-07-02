@@ -1,4 +1,4 @@
-[gd_scene load_steps=24 format=3]
+[gd_scene load_steps=25 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" path="res://game/world/landmarks/shrine.tscn" id="5_shrine"]
@@ -14,6 +14,7 @@
 [ext_resource type="Shader" path="res://game/shaders/sky.gdshader" id="12_sky"]
 [ext_resource type="Script" path="res://game/world/atmosphere.gd" id="13_atmosphere"]
 [ext_resource type="Script" path="res://game/world/far_terrain.gd" id="14_far"]
+[ext_resource type="Script" path="res://game/world/firefly_field.gd" id="15_fireflies"]
 
 [sub_resource type="ParticleProcessMaterial" id="Particles_dust"]
 direction = Vector3(1, 0, 0.2)
@@ -134,6 +135,9 @@ draw_pass_1 = SubResource("Quad_dust")
 
 [node name="Atmosphere" type="Node3D" parent="."]
 script = ExtResource("13_atmosphere")
+
+[node name="FireflyField" type="Node3D" parent="."]
+script = ExtResource("15_fireflies")
 
 [node name="NPCManager" type="Node" parent="."]
 script = ExtResource("9_npcs")

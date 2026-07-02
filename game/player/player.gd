@@ -123,6 +123,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		)
 	elif event.is_action_pressed("interact") and _target:
 		_target.interact(self)
+	elif event.is_action_pressed("firefly_deploy"):
+		if Items.count("firefly") > 0:
+			Items.add("firefly", -1)
+			$Fireflies.deploy()
+		else:
+			HUD.notify("no fireflies in the satchel")
+	elif event.is_action_pressed("firefly_recall"):
+		var n: int = $Fireflies.recall_all()
+		if n > 0:
+			Items.add("firefly", n)
+			HUD.notify("the fireflies return  (+%d)" % n)
 	elif event is InputEventMouseButton and event.pressed \
 			and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED \
 			and not PauseMenu.paused:

@@ -1,83 +1,232 @@
 {
 	"id": "wanderer",
 	"start": [
-		{"if": {"gte": ["npc.wanderer.encounters", 5]}, "node": "friend"},
-		{"if": {"flag": "npc.wanderer.met"}, "node": "again"},
-		{"node": "first"}
+		{
+			"if": {
+				"gte": [
+					"npc.wanderer.encounters",
+					5
+				]
+			},
+			"node": "friend"
+		},
+		{
+			"if": {
+				"flag": "npc.wanderer.met"
+			},
+			"node": "again"
+		},
+		{
+			"node": "first"
+		}
 	],
 	"nodes": {
 		"first": {
 			"speaker": "The Wanderer",
 			"text": "You walk loud, for someone so small in all this. Sit sometime. The valley likes company more than it lets on.",
-			"effects": [{"set": "npc.wanderer.met"}, {"inc": "npc.wanderer.encounters"}],
+			"effects": [
+				{
+					"set": "npc.wanderer.met"
+				},
+				{
+					"inc": "npc.wanderer.encounters"
+				}
+			],
 			"choices": [
-				{"text": "Who are you?", "next": "who"},
-				{"text": "What is this place?", "next": "place"},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "Who are you?",
+					"next": "who"
+				},
+				{
+					"text": "What is this place?",
+					"next": "place"
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"again": {
 			"speaker": "The Wanderer",
 			"text": "Back again. The dunes moved in the night — you didn't. That's something.",
-			"effects": [{"inc": "npc.wanderer.encounters"}],
+			"effects": [
+				{
+					"inc": "npc.wanderer.encounters"
+				}
+			],
 			"choices": [
-				{"text": "Who are you?", "next": "who"},
-				{"text": "What is this place?", "next": "place"},
-				{"text": "The light at the shrine — what is it?", "next": "shrine", "if": {"flag": "world.shrine.examined"}},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "Who are you?",
+					"next": "who"
+				},
+				{
+					"text": "What is this place?",
+					"next": "place"
+				},
+				{
+					"text": "The light at the shrine — what is it?",
+					"next": "shrine",
+					"if": {
+						"flag": "world.shrine.examined"
+					}
+				},
+				{
+					"text": "The keeper at the shrine — you know them?",
+					"next": "about_keeper",
+					"if": {
+						"flag": "npc.keeper.met"
+					}
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"friend": {
 			"speaker": "The Wanderer",
 			"text": "Ah. You. Good — the evening wanted a second pair of eyes.",
-			"effects": [{"inc": "npc.wanderer.encounters"}],
+			"effects": [
+				{
+					"inc": "npc.wanderer.encounters"
+				}
+			],
 			"choices": [
-				{"text": "Who are you, really?", "next": "who"},
-				{"text": "The light at the shrine — what is it?", "next": "shrine", "if": {"flag": "world.shrine.examined"}},
-				{"text": "[Sit with them a while]", "next": "sit_together"},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "Who are you, really?",
+					"next": "who"
+				},
+				{
+					"text": "The light at the shrine — what is it?",
+					"next": "shrine",
+					"if": {
+						"flag": "world.shrine.examined"
+					}
+				},
+				{
+					"text": "[Sit with them a while]",
+					"next": "sit_together"
+				},
+				{
+					"text": "The keeper at the shrine — you know them?",
+					"next": "about_keeper",
+					"if": {
+						"flag": "npc.keeper.met"
+					}
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"who": {
 			"speaker": "The Wanderer",
 			"text": "A wanderer. Names are for people who plan to be found. Ask me again when we know each other.",
 			"choices": [
-				{"text": "Ask something else.", "next": "hub"},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "Ask something else.",
+					"next": "hub"
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"place": {
 			"speaker": "The Wanderer",
 			"text": "This valley keeps what it's given. Water, footsteps, the patient kind of tree. It kept me. It's started keeping you — I've seen your tracks.",
 			"choices": [
-				{"text": "Ask something else.", "next": "hub"},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "Ask something else.",
+					"next": "hub"
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"shrine": {
 			"speaker": "The Wanderer",
 			"text": "You touched it, then. It hums, doesn't it. Don't ask it questions — it answers in weather, and you don't speak weather yet.",
-			"effects": [{"set": "npc.wanderer.spoke_of_glow"}],
+			"effects": [
+				{
+					"set": "npc.wanderer.spoke_of_glow"
+				}
+			],
 			"choices": [
-				{"text": "Ask something else.", "next": "hub"},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "Ask something else.",
+					"next": "hub"
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"sit_together": {
 			"speaker": "The Wanderer",
 			"text": "They nod at the ground beside them, and say nothing more. It's a good nothing.",
 			"choices": [
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"hub": {
 			"speaker": "The Wanderer",
 			"text": "Mm?",
 			"choices": [
-				{"text": "Who are you?", "next": "who"},
-				{"text": "What is this place?", "next": "place"},
-				{"text": "The light at the shrine — what is it?", "next": "shrine", "if": {"flag": "world.shrine.examined"}},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "Who are you?",
+					"next": "who"
+				},
+				{
+					"text": "What is this place?",
+					"next": "place"
+				},
+				{
+					"text": "The light at the shrine — what is it?",
+					"next": "shrine",
+					"if": {
+						"flag": "world.shrine.examined"
+					}
+				},
+				{
+					"text": "The keeper at the shrine — you know them?",
+					"next": "about_keeper",
+					"if": {
+						"flag": "npc.keeper.met"
+					}
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
+			]
+		},
+		"about_keeper": {
+			"speaker": "The Wanderer",
+			"text": "Stubborn as the stone they sweep. We are old arguments, the two of us. Tell them the west path cleared — they'll know what it means.",
+			"effects": [
+				{
+					"set": "npc.wanderer.mentioned_keeper"
+				}
+			],
+			"choices": [
+				{
+					"text": "Ask something else.",
+					"next": "hub"
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		}
 	}

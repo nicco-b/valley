@@ -1,0 +1,8 @@
+{
+	"id": "between_two_solitudes",
+	"title": "Between Two Solitudes",
+	"start_if": {"flag": "npc.wanderer.mentioned_keeper"},
+	"steps": [
+		{"id": "deliver", "text": "Tell the Keeper the west path cleared.", "done_if": {"flag": "npc.keeper.heard_message"}}
+	]
+}

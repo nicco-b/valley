@@ -26,6 +26,7 @@ var display_name := "???"
 var home := Vector2.ZERO
 var needs_def: Dictionary = {}  # need -> drain weight
 var activities: Array = []
+var scarf_color := Color.TRANSPARENT
 
 var needs: Dictionary = {}  # need -> 0..100 (100 = content)
 var current: Dictionary = {}
@@ -50,6 +51,8 @@ func setup(data: Dictionary) -> void:
 	needs_def = data.needs
 	activities = data.activities
 	home = Vector2(data.home.x, data.home.z)
+	if data.has("color"):
+		scarf_color = Color(data.color[0], data.color[1], data.color[2])
 
 
 func _ready() -> void:
@@ -58,6 +61,17 @@ func _ready() -> void:
 		_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
 	_anim.play("Idle")
 	$Interact.interacted.connect(_on_interacted)
+	if scarf_color.a > 0.0:
+		var scarf := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		mesh.size = Vector3(0.34, 0.09, 0.34)
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = scarf_color
+		mat.roughness = 1.0
+		mesh.material = mat
+		scarf.mesh = mesh
+		scarf.position = Vector3(0, 0.78, 0)
+		_body.add_child(scarf)
 
 	var saved: Dictionary = WorldState.get_value("npc.%s.needs" % npc_id, {})
 	for need in needs_def:

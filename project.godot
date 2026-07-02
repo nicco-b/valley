@@ -38,6 +38,7 @@ SaveGame="*res://game/save/save_manager.gd"
 Settings="*res://game/ui/settings.gd"
 PauseMenu="*res://game/ui/pause_menu.gd"
 Dialogue="*res://game/dialogue/dialogue.gd"
+Skills="*res://game/skills/skills.gd"
 Journal="*res://game/quests/journal.gd"
 
 [shader_globals]

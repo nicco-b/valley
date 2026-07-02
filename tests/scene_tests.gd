@@ -9,6 +9,7 @@ var _failures := 0
 func _ready() -> void:
 	_test_dialogue()
 	_test_quests()
+	_test_skills()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -58,3 +59,12 @@ func _test_quests() -> void:
 	_check(Journal.quest_done(q), "quest completes when all steps pass")
 	_check(not Journal.quest_active(q), "complete quest no longer active")
 	_check(Conditions.eval({"item": ["nonexistent_item", 1]}) == false, "item condition")
+
+
+func _test_skills() -> void:
+	_check(Skills.defs().size() >= 4, "skill records load")
+	WorldState.set_value("player.dist_walked", 1300.0)
+	_check(Skills.level("wayfaring") == 2, "wayfaring level from distance")
+	WorldState.set_value("player.dist_walked", 0.0)
+	_check(Skills.level("wayfaring") == 0, "level derives, never sticks")
+	_check(Skills.level("nonexistent") == 0, "unknown skill is level 0")

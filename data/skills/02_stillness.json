@@ -1,0 +1,7 @@
+{
+	"id": "stillness",
+	"name": "Stillness",
+	"stat": "player.time_sat",
+	"thresholds": [90, 360, 1200, 3600, 10800],
+	"desc": "Sit long enough and the hours learn to pass with you."
+}

@@ -17,6 +17,7 @@ func _ready() -> void:
 func interact(by: Node) -> void:
 	super(by)
 	Items.add(item_id)
+	WorldState.increment("player.items_taken")
 	HUD.notify("+ " + Items.display_name(item_id))
 	if not uid.is_empty():
 		WorldState.set_flag("taken." + uid)

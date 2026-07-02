@@ -1,0 +1,7 @@
+{
+	"id": "wayfaring",
+	"name": "Wayfaring",
+	"stat": "player.dist_walked",
+	"thresholds": [400, 1200, 3000, 7000, 15000],
+	"desc": "Distance teaches the legs. Each way walked, walked a little easier."
+}

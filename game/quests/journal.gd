@@ -91,6 +91,15 @@ func _refresh() -> void:
 		lines.append("[color=#8a7a6a][b]Remembered[/b][/color]")
 		for t in done_titles:
 			lines.append("[color=#8a7a6a]   ✓ %s[/color]" % t)
+		lines.append("")
+	lines.append("[b]Ways[/b]")
+	for def in Skills.defs():
+		var lvl: int = Skills.level(def.id)
+		var dots := ""
+		var filled := int(round(Skills.progress(def) * 8.0))
+		for i in 8:
+			dots += "●" if i < filled else "○"
+		lines.append("   %-10s %-4s %s" % [def.name, Skills.NUMERALS[lvl], dots])
 	_text.text = "\n".join(lines)
 
 

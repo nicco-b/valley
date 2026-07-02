@@ -1,0 +1,7 @@
+{
+	"id": "foraging",
+	"name": "Foraging",
+	"stat": "player.items_taken",
+	"thresholds": [3, 10, 25, 60, 150],
+	"desc": "Small things reveal themselves to practiced hands."
+}

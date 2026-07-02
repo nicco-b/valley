@@ -20,6 +20,11 @@ var _target: Interactable = null
 var _step_accum := 0.0
 var _sand_puff: GPUParticles3D
 var _steps: AudioStreamPlayer
+# Skill xp accumulators, flushed to WorldState every few seconds.
+var _xp_walk := 0.0
+var _xp_sit := 0.0
+var _xp_swim := 0.0
+var _xp_flush := 0.0
 
 @onready var _rig: Node3D = $CameraRig
 @onready var _arm: SpringArm3D = $CameraRig/SpringArm3D
@@ -56,6 +61,21 @@ func _make_footsteps() -> AudioStreamPlayer:
 	player.volume_db = -13.0
 	add_child(player)
 	return player
+
+
+func _flush_xp() -> void:
+	if _xp_walk > 0.0:
+		WorldState.set_value("player.dist_walked",
+				float(WorldState.get_value("player.dist_walked", 0)) + _xp_walk)
+		_xp_walk = 0.0
+	if _xp_sit > 0.0:
+		WorldState.set_value("player.time_sat",
+				float(WorldState.get_value("player.time_sat", 0)) + _xp_sit)
+		_xp_sit = 0.0
+	if _xp_swim > 0.0:
+		WorldState.set_value("player.time_swum",
+				float(WorldState.get_value("player.time_swum", 0)) + _xp_swim)
+		_xp_swim = 0.0
 
 
 func _play_footstep() -> void:
@@ -144,8 +164,9 @@ func _physics_process(delta: float) -> void:
 	dir = dir.normalized() if dir.length() > 0.01 else Vector3.ZERO
 
 	var speed := SPRINT_SPEED if Input.is_action_pressed("sprint") else WALK_SPEED
+	speed *= 1.0 + 0.05 * Skills.level("wayfaring")
 	if swimming:
-		speed *= 0.55
+		speed *= 0.55 * (1.0 + 0.08 * Skills.level("swimming"))
 	elif water_depth > 0.0:
 		speed *= lerpf(1.0, 0.55, clampf(water_depth / 1.1, 0.0, 1.0))
 	# Loose sand: climbing steep ground costs a little speed.
@@ -190,6 +211,19 @@ func _physics_process(delta: float) -> void:
 	# one-shot clip finishes, which would retrigger it every frame.
 	if _anim.assigned_animation != target_anim:
 		_anim.play(target_anim, 0.3)
+
+	# Skill practice accrues from doing; Stillness bends time while sitting.
+	if is_on_floor() and flat.length() > 0.5:
+		_xp_walk += flat.length() * delta
+	if _sitting:
+		_xp_sit += delta
+	if swimming:
+		_xp_swim += delta
+	GameClock.time_scale = 1.0 + 2.0 * Skills.level("stillness") if _sitting else 1.0
+	_xp_flush += delta
+	if _xp_flush >= 3.0:
+		_xp_flush = 0.0
+		_flush_xp()
 
 	# Right stick: camera look (polled — sticks aren't motion events).
 	var look := Vector2(

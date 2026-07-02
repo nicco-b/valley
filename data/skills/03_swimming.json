@@ -1,0 +1,7 @@
+{
+	"id": "swimming",
+	"name": "Swimming",
+	"stat": "player.time_swum",
+	"thresholds": [30, 120, 600, 1800, 5400],
+	"desc": "The pink water carries those it knows."
+}

@@ -51,10 +51,6 @@ func _physics_process(delta: float) -> void:
 
 	if Input.is_action_just_pressed("sit") and is_on_floor():
 		_sitting = not _sitting
-		# Sitting gets a gentle cinematic depth of field.
-		var attrs: CameraAttributesPractical = \
-				$CameraRig/SpringArm3D/Camera3D.attributes
-		attrs.dof_blur_far_enabled = _sitting
 	elif _sitting and (input != Vector2.ZERO or Input.is_action_just_pressed("jump")):
 		_sitting = false
 	if _sitting:

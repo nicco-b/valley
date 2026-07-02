@@ -25,6 +25,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if get_tree().get_first_node_in_group("player") == null:
 		return  # title screen
+	if Dialogue.active:
+		return  # Esc ends the conversation instead
 	if GodMode.active:
 		return  # god mode owns Esc while flying
 	if MapScreen.active:

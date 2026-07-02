@@ -270,16 +270,17 @@ func sim_debug() -> String:
 	return "\n".join(lines)
 
 
-## Placeholder greeting until dialogue exists: familiarity from WorldState.
 func _on_interacted(by: Node) -> void:
-	WorldState.set_flag("npc.%s.met" % npc_id)
-	var n: int = WorldState.increment("npc.%s.encounters" % npc_id)
-	var text := "%s studies you for a moment — a stranger — then nods once." % display_name
-	if n >= 5:
-		text = "%s raises a hand before you speak, like an old friend." % display_name
-	elif n > 1:
-		text = "%s nods. You again." % display_name
-	HUD.say(display_name, text)
 	if by is Node3D:
 		var to: Vector3 = (by as Node3D).global_position - global_position
 		_body.rotation.y = atan2(to.x, to.z)
+	if Dialogue.has_dialogue(npc_id):
+		Dialogue.start(npc_id, by)
+		return
+	# Fallback greeting for NPCs without a dialogue record yet.
+	WorldState.set_flag("npc.%s.met" % npc_id)
+	var n: int = WorldState.increment("npc.%s.encounters" % npc_id)
+	var text := "%s studies you for a moment, then nods once." % display_name
+	if n > 1:
+		text = "%s nods. You again." % display_name
+	HUD.say(display_name, text)

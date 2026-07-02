@@ -6,6 +6,9 @@ extends SceneTree
 var _failures := 0
 
 
+## NOTE: scripts loaded under `godot -s` compile before autoload globals
+## register — tests here must not load any script that names an autoload.
+## Those tests live in scene_tests.tscn (run by test.sh in scene context).
 func _init() -> void:
 	_test_world_state()
 	_test_terrain_determinism()

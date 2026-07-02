@@ -8,6 +8,9 @@ const MOUSE_SENSITIVITY := 0.003
 const PITCH_MIN := -1.2
 const PITCH_MAX := 0.5
 const ARM_LENGTH := 4.0
+const STICK_LOOK_SPEED := 2.6
+const BASE_FOV := 75.0
+const SPRINT_FOV := 81.0
 const SIT_ARM_LENGTH := 6.5
 const SIT_BODY_DROP := 0.0  # the sit animation handles the pose now
 const SIT_EASE := 3.0
@@ -22,6 +25,7 @@ var _steps: AudioStreamPlayer
 @onready var _arm: SpringArm3D = $CameraRig/SpringArm3D
 @onready var _body: Node3D = $Body
 @onready var _anim: AnimationPlayer = $Body/Model/AnimationPlayer
+@onready var _camera: Camera3D = $CameraRig/SpringArm3D/Camera3D
 
 
 func _ready() -> void:
@@ -182,6 +186,19 @@ func _physics_process(delta: float) -> void:
 	# one-shot clip finishes, which would retrigger it every frame.
 	if _anim.assigned_animation != target_anim:
 		_anim.play(target_anim, 0.3)
+
+	# Right stick: camera look (polled — sticks aren't motion events).
+	var look := Vector2(
+		Input.get_joy_axis(0, JOY_AXIS_RIGHT_X), Input.get_joy_axis(0, JOY_AXIS_RIGHT_Y)
+	)
+	if look.length() > 0.18:
+		var s := STICK_LOOK_SPEED * Settings.mouse_sensitivity * delta
+		_rig.rotation.y -= look.x * s
+		_arm.rotation.x = clampf(_arm.rotation.x - look.y * s, PITCH_MIN, PITCH_MAX)
+
+	# Sprint widens the view a touch.
+	var moving_fast := Input.is_action_pressed("sprint") and flat.length() > 4.0
+	_camera.fov = lerpf(_camera.fov, SPRINT_FOV if moving_fast else BASE_FOV, blend * 0.6)
 
 	# Sitting: settle the body down and ease the camera out to a wider frame.
 	var sit_blend := 1.0 - exp(-SIT_EASE * delta)

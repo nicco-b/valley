@@ -11,6 +11,7 @@ var paused := false
 var _volume: HSlider
 var _sensitivity: HSlider
 var _fullscreen: CheckButton
+var _resume: Button
 
 
 func _ready() -> void:
@@ -40,6 +41,8 @@ func toggle() -> void:
 	get_tree().paused = paused
 	visible = paused
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if paused else Input.MOUSE_MODE_CAPTURED
+	if paused:
+		_resume.grab_focus.call_deferred()
 
 
 func _build_ui() -> void:
@@ -74,7 +77,8 @@ func _build_ui() -> void:
 	title.add_theme_color_override("font_color", INK)
 	vbox.add_child(title)
 
-	vbox.add_child(_button("Resume", toggle))
+	_resume = _button("Resume", toggle)
+	vbox.add_child(_resume)
 
 	vbox.add_child(_label("Volume"))
 	_volume = _slider(0.0, 1.0, Settings.master_volume, func(v: float) -> void:

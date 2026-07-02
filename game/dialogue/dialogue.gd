@@ -114,6 +114,9 @@ func _show(nid: String) -> void:
 		btn.add_theme_color_override("font_color", CREAM)
 		btn.pressed.connect(_end)
 		_choices.add_child(btn)
+	# Controller/keyboard navigation starts on the first choice.
+	if _choices.get_child_count() > 0:
+		(_choices.get_child(0) as Button).grab_focus.call_deferred()
 
 
 func _unhandled_input(event: InputEvent) -> void:

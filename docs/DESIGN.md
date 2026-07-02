@@ -17,6 +17,7 @@ Reference constellation (each covers a different layer — this is a synthesis, 
 - **Shadow of the Colossus** — the macro-structure: vast quiet world, few monumental guardians
 - **Elden Ring** — vegetation density, glow-as-event lighting, deliberate weighty combat, legible layers of history
 - **Her paintings** — the genre itself (see World & Genre)
+- **Aladdin's Agrabah** — market warmth: wooden stalls, striped awnings, sunlit sand
 
 ## Pillars
 

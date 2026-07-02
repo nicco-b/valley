@@ -315,7 +315,10 @@ func _add_records(c: Vector2i) -> void:
 			continue
 		var node: Node3D = scene.instantiate()
 		container.add_child(node)
-		node.position = Vector3(rec.x, rec.y, rec.z)
+		var y: float = rec.y
+		if rec.get("snap", false):
+			y = Terrain.height(rec.x, rec.z)
+		node.position = Vector3(rec.x, y, rec.z)
 		node.rotation.y = rec.yaw
 		node.scale = Vector3.ONE * rec.get("scale", 1.0)
 	add_child(container)

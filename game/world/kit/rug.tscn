@@ -1,0 +1,27 @@
+[gd_scene load_steps=5 format=3]
+
+[sub_resource type="BoxMesh" id="BoxMesh_border"]
+size = Vector3(1.7, 0.02, 2.5)
+
+[sub_resource type="BoxMesh" id="BoxMesh_inner"]
+size = Vector3(1.4, 0.015, 2.2)
+
+[sub_resource type="StandardMaterial3D" id="Material_border"]
+albedo_color = Color(0.55, 0.16, 0.3, 1)
+roughness = 1.0
+
+[sub_resource type="StandardMaterial3D" id="Material_inner"]
+albedo_color = Color(0.93, 0.83, 0.68, 1)
+roughness = 1.0
+
+[node name="Rug" type="Node3D"]
+
+[node name="Border" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.012, 0)
+mesh = SubResource("BoxMesh_border")
+surface_material_override/0 = SubResource("Material_border")
+
+[node name="Inner" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.03, 0)
+mesh = SubResource("BoxMesh_inner")
+surface_material_override/0 = SubResource("Material_inner")

@@ -192,6 +192,10 @@ Architecture locked from day one:
 
 ## Roadmap
 
+*Groundwork sequencing now lives in [FOUNDATIONS.md](FOUNDATIONS.md) — audit,
+foundation phases (RPG spine, engineering debts, authoring maturation,
+Blender pipeline, solo-workability), and build order.*
+
 Milestones prove pipelines, not features. Each must be *solidly working and
 verified* before the next begins.
 

@@ -1,0 +1,22 @@
+[gd_scene load_steps=4 format=3]
+
+[sub_resource type="BoxMesh" id="BoxMesh_rock"]
+size = Vector3(3, 2, 2.5)
+
+[sub_resource type="BoxShape3D" id="BoxShape_rock"]
+size = Vector3(3, 2, 2.5)
+
+[sub_resource type="StandardMaterial3D" id="Material_rock"]
+albedo_color = Color(0.404, 0.443, 0.408, 1)
+roughness = 1.0
+
+[node name="RockMed" type="StaticBody3D"]
+
+[node name="Mesh" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+mesh = SubResource("BoxMesh_rock")
+surface_material_override/0 = SubResource("Material_rock")
+
+[node name="Collision" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+shape = SubResource("BoxShape_rock")

@@ -8,15 +8,20 @@ const FAST_MULT := 4.0
 const BRUSH_RATE := 14.0  # meters of height per second at brush center
 const MOUSE_SENSITIVITY := 0.003
 
+enum Tool { SCULPT, PLACE }
+
 var active := false
 
 var _cam: Camera3D
 var _cursor: MeshInstance3D
 var _hud: CanvasLayer
+var _hud_label: Label
 var _yaw := 0.0
 var _pitch := -0.9
 var _brush_radius := 12.0
 var _speed_mult := 1.0
+var _tool := Tool.SCULPT
+var _kit_index := 0
 
 
 func cam_position() -> Vector3:
@@ -34,12 +39,24 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, -1.55, 1.55)
 	elif event.is_action_pressed("god_save"):
 		Terrain.save_edits()
+	elif event.is_action_pressed("god_tool"):
+		_tool = Tool.PLACE if _tool == Tool.SCULPT else Tool.SCULPT
+		_update_hud()
+	elif event.is_action_pressed("god_undo"):
+		var hit := _ray_to_ground()
+		if hit != Vector3.INF:
+			CellRecords.remove_last(CellRecords.cell_of(hit))
 	elif event.is_action_pressed("brush_bigger"):
 		_brush_radius = minf(_brush_radius * 1.3, 64.0)
 	elif event.is_action_pressed("brush_smaller"):
 		_brush_radius = maxf(_brush_radius / 1.3, 3.0)
 	elif event.is_action_pressed("ui_cancel"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	elif event is InputEventKey and event.pressed and not event.echo \
+			and event.physical_keycode >= KEY_1 \
+			and event.physical_keycode < KEY_1 + Kit.ENTRIES.size():
+		_kit_index = event.physical_keycode - KEY_1
+		_update_hud()
 	elif event is InputEventMouseButton and event.pressed:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED \
 				and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
@@ -48,6 +65,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			_speed_mult = minf(_speed_mult * 1.2, 8.0)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			_speed_mult = maxf(_speed_mult / 1.2, 0.2)
+		elif event.button_index == MOUSE_BUTTON_LEFT and _tool == Tool.PLACE:
+			var hit := _ray_to_ground()
+			if hit != Vector3.INF:
+				CellRecords.add(hit, Kit.ENTRIES[_kit_index].id,
+						randf() * TAU, randf_range(0.85, 1.15))
 
 
 func _process(delta: float) -> void:
@@ -71,8 +93,9 @@ func _process(delta: float) -> void:
 	_cursor.visible = hit != Vector3.INF
 	if _cursor.visible:
 		_cursor.global_position = hit
-		_cursor.scale = Vector3(_brush_radius, 1.0, _brush_radius)
-		if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
+		var r := _brush_radius if _tool == Tool.SCULPT else 1.5
+		_cursor.scale = Vector3(r, 1.0, r)
+		if _tool == Tool.SCULPT and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
 				and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			var amount := BRUSH_RATE * delta
 			if Input.is_action_pressed("sprint"):
@@ -100,6 +123,7 @@ func _enter() -> void:
 	_cam.current = true
 	_cursor.visible = true
 	_hud.visible = true
+	_update_hud()
 	player.set_physics_process(false)
 	player.set_process_unhandled_input(false)
 	set_process(true)
@@ -146,12 +170,23 @@ func _build_nodes() -> void:
 	add_child(_cursor)
 
 	_hud = CanvasLayer.new()
-	var label := Label.new()
-	label.text = "GOD MODE   F1 exit+teleport | LMB raise · Shift+LMB carve | [ ] brush | E/Q up/down | wheel speed | F5 save"
-	label.position = Vector2(12, 8)
-	label.add_theme_color_override("font_color", Color(1, 0.9, 0.8))
-	label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.6))
-	label.add_theme_constant_override("shadow_offset_y", 1)
-	_hud.add_child(label)
+	_hud_label = Label.new()
+	_hud_label.position = Vector2(12, 8)
+	_hud_label.add_theme_color_override("font_color", Color(1, 0.9, 0.8))
+	_hud_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.6))
+	_hud_label.add_theme_constant_override("shadow_offset_y", 1)
+	_hud.add_child(_hud_label)
 	add_child(_hud)
 	_hud.visible = false
+
+
+func _update_hud() -> void:
+	if _tool == Tool.SCULPT:
+		_hud_label.text = "GOD·SCULPT   F1 exit+teleport | LMB raise · Shift+LMB carve | [ ] brush | Tab place mode | E/Q fly | F5 save"
+	else:
+		var names: Array[String] = []
+		for i in Kit.ENTRIES.size():
+			var label: String = Kit.ENTRIES[i].label
+			names.append(("[%d %s]" if i == _kit_index else "%d %s") % [i + 1, label])
+		_hud_label.text = "GOD·PLACE   " + " · ".join(names) \
+				+ "   |   LMB place | Z undo | Tab sculpt mode | F1 exit"

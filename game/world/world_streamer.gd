@@ -14,6 +14,7 @@ const TERRAIN_RES := 33  # vertices per cell side (4m grid)
 var _authored: Dictionary = {}  # Vector2i -> scene path
 var _terrain: Dictionary = {}  # Vector2i -> terrain node
 var _content: Dictionary = {}  # Vector2i -> instanced authored scene
+var _records: Dictionary = {}  # Vector2i -> container of placed-record objects
 var _pending: Dictionary = {}  # Vector2i -> path in threaded load
 
 # Flora kit: [texture path, height in meters, scatter weight]
@@ -34,8 +35,10 @@ var _rebuild_cooldown := 0.0
 
 
 func _ready() -> void:
+	add_to_group("world_streamer")
 	_scan_authored()
 	Terrain.edited.connect(_on_terrain_edited)
+	CellRecords.changed.connect(_on_records_changed)
 	_ground_material = StandardMaterial3D.new()
 	_ground_material.albedo_color = Color(0.929, 0.89, 0.82)
 	_ground_material.roughness = 1.0
@@ -108,6 +111,8 @@ func _update_cells(sync: bool) -> void:
 			var c := center + Vector2i(dx, dy)
 			if not _terrain.has(c):
 				_add_terrain(c)
+			if not _records.has(c) and not CellRecords.records(c).is_empty():
+				_add_records(c)
 			if _authored.has(c) and not _content.has(c) and not _pending.has(c):
 				if sync:
 					_add_content(c, load(_authored[c]))
@@ -122,6 +127,10 @@ func _update_cells(sync: bool) -> void:
 		if _chebyshev(c - center) > UNLOAD_RADIUS:
 			_content[c].queue_free()
 			_content.erase(c)
+	for c in _records.keys():
+		if _chebyshev(c - center) > UNLOAD_RADIUS:
+			_records[c].queue_free()
+			_records.erase(c)
 
 
 func _poll_pending() -> void:
@@ -233,6 +242,29 @@ func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 			col.position = entry[1].origin + Vector3(0.0, 2.0 * s, 0.0)
 			body.add_child(col)
 		parent.add_child(body)
+
+
+func _add_records(c: Vector2i) -> void:
+	var container := Node3D.new()
+	for rec in CellRecords.records(c):
+		var scene: PackedScene = Kit.scene(rec.kit)
+		if scene == null:
+			continue
+		var node: Node3D = scene.instantiate()
+		container.add_child(node)
+		node.position = Vector3(rec.x, rec.y, rec.z)
+		node.rotation.y = rec.yaw
+		node.scale = Vector3.ONE * rec.get("scale", 1.0)
+	add_child(container)
+	_records[c] = container
+
+
+func _on_records_changed(c: Vector2i) -> void:
+	if _records.has(c):
+		_records[c].queue_free()
+		_records.erase(c)
+	if _terrain.has(c) and not CellRecords.records(c).is_empty():
+		_add_records(c)
 
 
 func _pick_flora(roll: float) -> int:

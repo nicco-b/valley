@@ -1,0 +1,13 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/paintings/silly_tree_2.png" id="1_tex"]
+
+[node name="Shrub" type="Node3D"]
+
+[node name="Sprite" type="Sprite3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+pixel_size = 0.001524
+billboard = 2
+shaded = true
+alpha_cut = 2
+texture = ExtResource("1_tex")

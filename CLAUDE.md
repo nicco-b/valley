@@ -57,6 +57,10 @@ Content is data: NPCs, items, placements in `data/` as JSON, loaded through
   `atan2(dir.x, dir.z)` yaw. The placeholder robot's armature carries a
   baked ×100 scale — model node is scaled 0.65 for ~1.7m.
 - Physics: Jolt. Player/NPC on collision layer 2, world on 1.
+- **Verify pushes succeeded** (`git log origin/main..main` should be empty).
+  A push touching .github/workflows needs the gh token's `workflow` scope —
+  rejections once went unnoticed for 11 commits because a command chain
+  swallowed the error.
 - Audio: exit-time "leaked instance" warnings for playing streams are
   benign; test.sh filters them.
 

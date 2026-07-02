@@ -37,6 +37,7 @@ var _target := Vector3.ZERO
 var _decide_accum := 0.0
 var _wander_accum := 0.0
 var _coarse_accum := 0.0
+var _step_accum := 0.0
 
 @onready var _anim: AnimationPlayer = $Body/Model/AnimationPlayer
 @onready var _body: Node3D = $Body
@@ -169,6 +170,12 @@ func _physics_process(delta: float) -> void:
 	velocity.x = lerpf(velocity.x, target_velocity.x, blend)
 	velocity.z = lerpf(velocity.z, target_velocity.z, blend)
 	move_and_slide()
+
+	if is_on_floor():
+		_step_accum += Vector2(velocity.x, velocity.z).length() * delta
+		if _step_accum >= 0.7:
+			_step_accum = 0.0
+			InteractionField.stamp(Vector2(global_position.x, global_position.z))
 
 	var flat := Vector3(velocity.x, 0.0, velocity.z)
 	if flat.length() > 0.3:

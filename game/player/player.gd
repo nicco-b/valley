@@ -14,6 +14,7 @@ const SIT_EASE := 3.0
 
 var _sitting := false
 var _target: Interactable = null
+var _step_accum := 0.0
 
 @onready var _rig: Node3D = $CameraRig
 @onready var _arm: SpringArm3D = $CameraRig/SpringArm3D
@@ -70,6 +71,12 @@ func _physics_process(delta: float) -> void:
 	velocity.z = lerpf(velocity.z, dir.z * speed, blend)
 
 	move_and_slide()
+
+	if is_on_floor():
+		_step_accum += Vector2(velocity.x, velocity.z).length() * delta
+		if _step_accum >= 0.7:
+			_step_accum = 0.0
+			InteractionField.stamp(Vector2(global_position.x, global_position.z))
 
 	# Face the body toward horizontal movement; the camera rig stays independent.
 	# (The robot model faces +Z, hence no half-turn offset.)

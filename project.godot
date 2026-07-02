@@ -20,6 +20,7 @@ WorldState="*res://game/state/world_state.gd"
 GameClock="*res://game/world/game_clock.gd"
 Terrain="*res://game/world/terrain.gd"
 Weather="*res://game/world/weather.gd"
+InteractionField="*res://game/world/interaction_field.gd"
 Records="*res://game/data/records.gd"
 HUD="*res://game/ui/hud.gd"
 Items="*res://game/items/items.gd"
@@ -35,6 +36,18 @@ SaveGame="*res://game/save/save_manager.gd"
 wind_strength={
 "type": "float",
 "value": 0.12
+}
+trace_map={
+"type": "sampler2D",
+"value": ""
+}
+trace_center={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
+trace_size={
+"type": "float",
+"value": 80.0
 }
 
 [input]

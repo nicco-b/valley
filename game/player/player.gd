@@ -114,6 +114,8 @@ func _physics_process(delta: float) -> void:
 
 	if Input.is_action_just_pressed("sit") and is_on_floor():
 		_sitting = not _sitting
+		if _sitting:
+			WorldState.increment("player.times_sat")
 	elif _sitting and (input != Vector2.ZERO or Input.is_action_just_pressed("jump")):
 		_sitting = false
 	if _sitting:
@@ -130,6 +132,8 @@ func _physics_process(delta: float) -> void:
 	if swimming:
 		_sitting = false
 		velocity.y = (wsurf - 0.45 - global_position.y) * 3.0
+		if not WorldState.has_flag("player.swam"):
+			WorldState.set_flag("player.swam")
 	elif not is_on_floor():
 		velocity += get_gravity() * delta
 	elif Input.is_action_just_pressed("jump") and not _sitting:

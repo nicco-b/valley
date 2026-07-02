@@ -63,15 +63,7 @@ func _pick_start() -> String:
 
 
 func _eval(c: Dictionary) -> bool:
-	if c.is_empty():
-		return true
-	if c.has("flag"):
-		return WorldState.has_flag(c.flag)
-	if c.has("not_flag"):
-		return not WorldState.has_flag(c.not_flag)
-	if c.has("gte"):
-		return int(WorldState.get_value(c.gte[0], 0)) >= int(c.gte[1])
-	return true
+	return Conditions.eval(c)
 
 
 func _apply(effects: Array) -> void:

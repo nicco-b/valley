@@ -13,11 +13,13 @@ global uniform vec2 trace_center;
 global uniform float trace_size;
 
 varying vec3 wpos;
+varying vec3 wnormal;
 varying float wslope;
 
 void vertex() {
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	wslope = 1.0 - NORMAL.y; // terrain meshes are unrotated: model = world
+	wnormal = NORMAL; // terrain meshes are unrotated: model = world
+	wslope = 1.0 - NORMAL.y;
 }
 
 void fragment() {
@@ -30,13 +32,41 @@ void fragment() {
 	col = mix(col, rock_steep, smoothstep(0.45, 0.75, wslope));
 	col *= 0.95 + 0.10 * grain;
 
-	// Footprint trails: pressed, slightly darkened ground where feet went.
+	// Sand lives on low, flat ground; rock faces get none of the detail.
+	float sandiness = (1.0 - smoothstep(16.0, 28.0, wpos.y))
+			* (1.0 - smoothstep(0.28, 0.5, wslope));
+
+	// Aeolian ripples: wind-aligned sine crests wandered by the blotch
+	// noise, ~1.1m wavelength. Shading depth comes from perturbing the
+	// normal, so the sun models them like real micro-dunes.
+	vec2 rip_dir = normalize(vec2(1.0, 0.35));
+	float wander = (texture(variation, wpos.xz * 0.02).r - 0.5) * 5.0;
+	float phase = dot(wpos.xz, rip_dir) * 5.7 + wander;
+	float crest = sin(phase);
+	vec3 n = wnormal;
+	n.xz += rip_dir * cos(phase) * 0.22 * sandiness;
+	col *= 1.0 - 0.06 * (crest * 0.5 + 0.5) * sandiness;
+
+	// Footprints: darkened AND pressed — a normal dimple from the trace
+	// gradient gives prints and trails actual relief.
 	vec2 trace_uv = (wpos.xz - trace_center) / trace_size + 0.5;
 	if (all(greaterThan(trace_uv, vec2(0.0))) && all(lessThan(trace_uv, vec2(1.0)))) {
-		float t = texture(trace_map, trace_uv).r;
-		col *= 1.0 - 0.16 * t;
+		float px = 1.0 / 256.0;
+		float tC = texture(trace_map, trace_uv).r;
+		float tX = texture(trace_map, trace_uv + vec2(px, 0.0)).r;
+		float tY = texture(trace_map, trace_uv + vec2(0.0, px)).r;
+		n.xz += vec2(tX - tC, tY - tC) * 6.0;
+		col *= 1.0 - 0.13 * tC;
 	}
 
+	NORMAL = normalize((VIEW_MATRIX * vec4(normalize(n), 0.0)).xyz);
+
+	// Sun glints: sparse micro-facets with low roughness sparkle in
+	// direct light (the Journey trick, gently).
+	float g = fract(sin(dot(floor(wpos.xz * 16.0), vec2(127.1, 311.7))) * 43758.5453);
+	float glint = step(0.986, g) * sandiness;
+
 	ALBEDO = col;
-	ROUGHNESS = 1.0;
+	ROUGHNESS = mix(1.0, 0.25, glint);
+	SPECULAR = mix(0.08, 0.6, glint);
 }

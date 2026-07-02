@@ -6,10 +6,10 @@ extends Node3D
 ## thread-loaded on top as the player approaches.
 
 const CELL_SIZE := 128.0
-const LOAD_RADIUS := 2  # Chebyshev radius of cells kept loaded
-const UNLOAD_RADIUS := 3  # hysteresis so border cells don't thrash
 const CELLS_DIR := "res://game/world/cells"
 const TERRAIN_RES := 33  # vertices per cell side (4m grid)
+
+var load_radius := 2  # Chebyshev radius of cells kept loaded (map widens this)
 
 var _authored: Dictionary = {}  # Vector2i -> scene path
 var _terrain: Dictionary = {}  # Vector2i -> terrain node
@@ -99,15 +99,19 @@ func _scan_authored() -> void:
 
 
 func _player_cell() -> Vector2i:
-	# Streaming follows the god camera when god mode is flying.
-	var p := GodMode.cam_position() if GodMode.active else _player.global_position
+	# Streaming follows the god camera or map focus when either is active.
+	var p := _player.global_position
+	if GodMode.active:
+		p = GodMode.cam_position()
+	elif MapScreen.active:
+		p = MapScreen.focus_position()
 	return Vector2i(roundi(p.x / CELL_SIZE), roundi(p.z / CELL_SIZE))
 
 
 func _update_cells(sync: bool) -> void:
 	var center := _player_cell()
-	for dy in range(-LOAD_RADIUS, LOAD_RADIUS + 1):
-		for dx in range(-LOAD_RADIUS, LOAD_RADIUS + 1):
+	for dy in range(-load_radius, load_radius + 1):
+		for dx in range(-load_radius, load_radius + 1):
 			var c := center + Vector2i(dx, dy)
 			if not _terrain.has(c):
 				_add_terrain(c)
@@ -119,16 +123,17 @@ func _update_cells(sync: bool) -> void:
 				else:
 					ResourceLoader.load_threaded_request(_authored[c])
 					_pending[c] = _authored[c]
+	var unload_radius := load_radius + 1
 	for c in _terrain.keys():
-		if _chebyshev(c - center) > UNLOAD_RADIUS:
+		if _chebyshev(c - center) > unload_radius:
 			_terrain[c].queue_free()
 			_terrain.erase(c)
 	for c in _content.keys():
-		if _chebyshev(c - center) > UNLOAD_RADIUS:
+		if _chebyshev(c - center) > unload_radius:
 			_content[c].queue_free()
 			_content.erase(c)
 	for c in _records.keys():
-		if _chebyshev(c - center) > UNLOAD_RADIUS:
+		if _chebyshev(c - center) > unload_radius:
 			_records[c].queue_free()
 			_records.erase(c)
 

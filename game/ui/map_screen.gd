@@ -1,145 +1,133 @@
 extends CanvasLayer
-## The map (autoload). M toggles. Rendered from Terrain.height over the
-## valley area — the functional map that her illustrated map will one day
-## be traced from. Re-renders after god-mode terrain edits.
+## The map (autoload). Skyrim-style: M opens a live orthographic camera
+## over the actual world. Drag or WASD to pan, wheel to zoom. The
+## streamer follows the map focus (with a widened radius) so terrain
+## and content exist wherever you look.
 
-const WORLD := Rect2(-260, -800, 640, 1080)  # world-space area shown (x, z)
-const IMG_W := 480
-const IMG_H := 810
-const DISPLAY_H := 560.0
-
-const COLOR_FLOOR := Color(0.945, 0.905, 0.83)
-const COLOR_MID := Color(0.875, 0.76, 0.585)
-const COLOR_HIGH := Color(0.62, 0.46, 0.30)
-const COLOR_WATER := Color(0.92, 0.60, 0.64)
-const COLOR_CONTOUR := Color(0.52, 0.40, 0.28)
-const COLOR_INK := Color(0.30, 0.17, 0.16)
 const MARKS := [["Shrine", Vector2(120, -620)], ["Pond", Vector2(70, -310)]]
+const COLOR_INK := Color(0.30, 0.17, 0.16)
+const PITCH := -1.134  # ~65 degrees down
+const CAM_DISTANCE := 400.0
 
-var _dirty := true
-var _map_rect: TextureRect
+var active := false
+
+var _cam: Camera3D
 var _markers: Control
+var _hint: Label
+var _focus := Vector3.ZERO
+var _ortho := 420.0
 
 
 func _ready() -> void:
 	layer = 10
 	visible = false
-
-	var bg := ColorRect.new()
-	bg.color = Color(0.10, 0.08, 0.10, 0.82)
-	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(bg)
-
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-
-	var panel := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.96, 0.93, 0.865)
-	style.border_color = Color(0.45, 0.32, 0.24)
-	style.set_border_width_all(3)
-	style.set_corner_radius_all(6)
-	style.set_content_margin_all(18)
-	panel.add_theme_stylebox_override("panel", style)
-	center.add_child(panel)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
-	panel.add_child(vbox)
-
-	var title := Label.new()
-	title.text = "The Valley"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_color_override("font_color", COLOR_INK)
-	title.add_theme_font_size_override("font_size", 22)
-	vbox.add_child(title)
-
-	_map_rect = TextureRect.new()
-	_map_rect.custom_minimum_size = Vector2(DISPLAY_H * IMG_W / IMG_H, DISPLAY_H)
-	_map_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_map_rect.stretch_mode = TextureRect.STRETCH_SCALE
-	vbox.add_child(_map_rect)
-
 	_markers = Control.new()
 	_markers.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_map_rect.add_child(_markers)
 	_markers.draw.connect(_draw_markers)
+	add_child(_markers)
+	_hint = Label.new()
+	_hint.text = "drag / WASD pan  ·  wheel zoom  ·  M close"
+	_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_hint.position.y -= 34.0
+	_hint.add_theme_color_override("font_color", Color(1, 0.95, 0.9))
+	_hint.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
+	_hint.add_theme_constant_override("shadow_offset_y", 1)
+	add_child(_hint)
 
-	Terrain.edited.connect(func(_r: Rect2) -> void: _dirty = true)
+
+func focus_position() -> Vector3:
+	return _focus
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("map"):
-		visible = not visible
-		if visible and _dirty:
-			_render()
+	if event.is_action_pressed("map") and not GodMode.active:
+		if active:
+			_close()
+		else:
+			_open()
+		return
+	if not active:
+		return
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_ortho = clampf(_ortho * 0.85, 130.0, 1100.0)
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_ortho = clampf(_ortho / 0.85, 130.0, 1100.0)
+	elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+		var scale := _ortho / get_viewport().get_visible_rect().size.y
+		_focus.x -= event.relative.x * scale
+		_focus.z -= event.relative.y * scale
 
 
-func _process(_delta: float) -> void:
-	if visible:
-		_markers.queue_redraw()
+func _process(delta: float) -> void:
+	if not active:
+		return
+	var pan := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	_focus.x += pan.x * _ortho * 0.9 * delta
+	_focus.z += pan.y * _ortho * 0.9 * delta
+	_cam.size = lerpf(_cam.size, _ortho, 1.0 - exp(-10.0 * delta))
+	_cam.global_position = _focus + Vector3(0.0, 0.906, 0.423) * CAM_DISTANCE
+	_markers.queue_redraw()
 
 
-func _is_water(wx: float, wz: float, h: float) -> bool:
-	if h > -0.95:
-		return false
-	for b in Terrain.BASINS:
-		if Vector2(wx - b[0], wz - b[1]).length() < b[2]:
-			return true
-	return false
+func _open() -> void:
+	active = true
+	visible = true
+	var player := get_tree().get_first_node_in_group("player")
+	_focus = Vector3(player.global_position.x, 0.0, player.global_position.z)
+	if _cam == null:
+		_cam = Camera3D.new()
+		_cam.projection = Camera3D.PROJECTION_ORTHOGONAL
+		_cam.rotation.x = PITCH
+		_cam.size = _ortho
+		_cam.far = 2500.0
+		add_child(_cam)
+	_cam.current = true
+	player.set_physics_process(false)
+	player.set_process_unhandled_input(false)
+	var streamer := get_tree().get_first_node_in_group("world_streamer")
+	if streamer:
+		streamer.load_radius = 4
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
-func _render() -> void:
-	var img := Image.create(IMG_W, IMG_H, false, Image.FORMAT_RGB8)
-	for py in IMG_H:
-		var wz := WORLD.position.y + (py + 0.5) / float(IMG_H) * WORLD.size.y
-		for px in IMG_W:
-			var wx := WORLD.position.x + (px + 0.5) / float(IMG_W) * WORLD.size.x
-			var h: float = Terrain.height(wx, wz)
-			var col: Color
-			if _is_water(wx, wz, h):
-				col = COLOR_WATER
-			else:
-				var t := clampf((h + 3.0) / 58.0, 0.0, 1.0)
-				if t < 0.35:
-					col = COLOR_FLOOR.lerp(COLOR_MID, t / 0.35)
-				else:
-					col = COLOR_MID.lerp(COLOR_HIGH, (t - 0.35) / 0.65)
-				# Hillshade lit from the west.
-				var west: float = Terrain.height(wx - 5.0, wz)
-				col = col.lightened(clampf((h - west) * 0.05, -0.18, 0.18))
-				# Contour lines every 10m above the floor.
-				if h > 4.0 and fposmod(h, 10.0) < 0.5:
-					col = col.lerp(COLOR_CONTOUR, 0.45)
-			img.set_pixel(px, py, col)
-	_map_rect.texture = ImageTexture.create_from_image(img)
-	_dirty = false
-
-
-func _map_point(world_xz: Vector2) -> Vector2:
-	var size := _map_rect.size
-	return Vector2(
-		(world_xz.x - WORLD.position.x) / WORLD.size.x * size.x,
-		(world_xz.y - WORLD.position.y) / WORLD.size.y * size.y
-	)
+func _close() -> void:
+	active = false
+	visible = false
+	var player := get_tree().get_first_node_in_group("player")
+	player.set_physics_process(true)
+	player.set_process_unhandled_input(true)
+	(player.get_node("CameraRig/SpringArm3D/Camera3D") as Camera3D).current = true
+	var streamer := get_tree().get_first_node_in_group("world_streamer")
+	if streamer:
+		streamer.load_radius = 2
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _draw_markers() -> void:
+	if _cam == null:
+		return
 	var font := _markers.get_theme_default_font()
 	for m in MARKS:
-		var p: Vector2 = _map_point(m[1])
+		var world := Vector3(m[1].x, Terrain.height(m[1].x, m[1].y) + 2.0, m[1].y)
+		var p := _cam.unproject_position(world)
 		_markers.draw_circle(p, 5.0, Color(0.55, 0.16, 0.30))
-		_markers.draw_circle(p, 5.0, COLOR_INK, false, 1.2)
-		_markers.draw_string(font, p + Vector2(10, 5), m[0],
-				HORIZONTAL_ALIGNMENT_LEFT, -1, 14, COLOR_INK)
-	var npc := _markers.get_tree().get_first_node_in_group("npc")
+		_markers.draw_circle(p, 5.0, Color.WHITE, false, 1.5)
+		_draw_label(font, p + Vector2(10, 5), m[0])
+	var npc := get_tree().get_first_node_in_group("npc")
 	if npc:
-		var p := _map_point(Vector2(npc.global_position.x, npc.global_position.z))
+		var p := _cam.unproject_position(npc.global_position + Vector3.UP * 2.0)
 		_markers.draw_circle(p, 5.0, Color(0.13, 0.35, 0.37))
-		_markers.draw_circle(p, 5.0, COLOR_INK, false, 1.2)
-	var player := _markers.get_tree().get_first_node_in_group("player")
+		_markers.draw_circle(p, 5.0, Color.WHITE, false, 1.5)
+	var player := get_tree().get_first_node_in_group("player")
 	if player:
-		var p := _map_point(Vector2(player.global_position.x, player.global_position.z))
+		var p := _cam.unproject_position(player.global_position + Vector3.UP * 2.0)
 		_markers.draw_circle(p, 6.0, Color.WHITE)
 		_markers.draw_circle(p, 6.0, COLOR_INK, false, 1.5)
+
+
+func _draw_label(font: Font, pos: Vector2, text: String) -> void:
+	_markers.draw_string(font, pos + Vector2(1, 1), text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 1, 1, 0.85))
+	_markers.draw_string(font, pos, text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 15, COLOR_INK)

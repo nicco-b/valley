@@ -63,3 +63,4 @@ func _load() -> void:
 		if streamer:
 			streamer._update_cells(true)
 	print("[save] loaded")
+	HUD.notify("journey resumed — day %d" % GameClock.day)

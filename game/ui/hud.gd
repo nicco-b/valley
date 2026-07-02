@@ -18,18 +18,11 @@ var _notify_token := 0
 
 func _ready() -> void:
 	layer = 5
-	_prompt = _make_label(15, CREAM)
-	_prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_prompt.position.y -= 70.0
-	_speaker = _make_label(14, TEAL)
-	_speaker.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_speaker.position.y -= 165.0
-	_line = _make_label(17, CREAM)
-	_line.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_line.position.y -= 140.0
-	_notice = _make_label(13, CREAM)
-	_notice.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	_notice.position.y += 14.0
+	# Full-rect labels + text alignment: layout that cannot land off-screen.
+	_prompt = _make_label(15, CREAM, VERTICAL_ALIGNMENT_BOTTOM, -70.0)
+	_speaker = _make_label(14, TEAL, VERTICAL_ALIGNMENT_BOTTOM, -170.0)
+	_line = _make_label(17, CREAM, VERTICAL_ALIGNMENT_BOTTOM, -140.0)
+	_notice = _make_label(13, CREAM, VERTICAL_ALIGNMENT_TOP, 14.0)
 
 
 func prompt(text: String) -> void:
@@ -60,11 +53,17 @@ func notify(text: String, seconds := 2.5) -> void:
 		_notice.visible = false
 
 
-func _make_label(size: int, color: Color) -> Label:
+func _make_label(size: int, color: Color, valign: int, edge_offset: float) -> Label:
 	var label := Label.new()
 	label.visible = false
+	label.set_anchors_preset(Control.PRESET_FULL_RECT)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	label.vertical_alignment = valign as VerticalAlignment
+	if valign == VERTICAL_ALIGNMENT_BOTTOM:
+		label.offset_bottom = edge_offset
+	else:
+		label.offset_top = edge_offset
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_size_override("font_size", size)
 	label.add_theme_color_override("font_color", color)
 	label.add_theme_color_override("font_shadow_color", SHADOW)

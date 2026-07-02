@@ -91,7 +91,9 @@ func _physics_process(delta: float) -> void:
 		_decide()
 
 	var blend := 1.0 - exp(-ACCEL * delta)
-	var target_velocity := Vector3.ZERO if arrived else to.normalized() * SPEED
+	var target_velocity := Vector3.ZERO
+	if not arrived:
+		target_velocity = _avoid(to.normalized()) * SPEED
 	velocity.x = lerpf(velocity.x, target_velocity.x, blend)
 	velocity.z = lerpf(velocity.z, target_velocity.z, blend)
 	move_and_slide()
@@ -105,6 +107,26 @@ func _physics_process(delta: float) -> void:
 		target_anim = "Sitting" if current.get("pose", "stand") == "sit" else "Idle"
 	if _anim.assigned_animation != target_anim:
 		_anim.play(target_anim, 0.3)
+
+
+## Whisker steering around obstacles (layer 4: rocks, trees, structures —
+## never terrain, so slopes don't read as walls).
+func _avoid(desired: Vector3) -> Vector3:
+	if not _blocked(desired):
+		return desired
+	for angle in [0.7, -0.7, 1.3, -1.3]:
+		var alt := desired.rotated(Vector3.UP, angle)
+		if not _blocked(alt):
+			return alt
+	return desired
+
+
+func _blocked(dir: Vector3) -> bool:
+	var space := get_world_3d().direct_space_state
+	var from := global_position + Vector3.UP
+	var params := PhysicsRayQueryParameters3D.create(from, from + dir * 2.5, 4)
+	params.exclude = [get_rid()]
+	return not space.intersect_ray(params).is_empty()
 
 
 func _decide() -> void:

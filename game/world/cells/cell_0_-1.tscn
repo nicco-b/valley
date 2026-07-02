@@ -13,6 +13,7 @@ roughness = 1.0
 [node name="Cell_0_-1" type="Node3D"]
 
 [node name="Mesa" type="StaticBody3D" parent="."]
+collision_layer = 5
 transform = Transform3D(0.939693, 0, -0.34202, 0, 1, 0, 0.34202, 0, 0.939693, -45, 9, 63)
 
 [node name="Mesh" type="MeshInstance3D" parent="Mesa"]

@@ -16,6 +16,9 @@ var _terrain: Dictionary = {}  # Vector2i -> terrain node
 var _content: Dictionary = {}  # Vector2i -> instanced authored scene
 var _records: Dictionary = {}  # Vector2i -> container of placed-record objects
 var _pending: Dictionary = {}  # Vector2i -> path in threaded load
+var _terrain_pending: Dictionary = {}  # Vector2i -> WorkerThreadPool task id
+var _terrain_results: Array = []  # [cell, mesh, shape] built off-thread
+var _results_mutex := Mutex.new()
 
 # Flora kit: [texture path, height in meters, scatter weight]
 const FLORA := [
@@ -65,6 +68,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_update_cells(false)
 	_poll_pending()
+	_drain_terrain_results()
 	_rebuild_cooldown -= delta
 	if not _dirty.is_empty() and _rebuild_cooldown <= 0.0:
 		_rebuild_cooldown = 0.2
@@ -72,7 +76,7 @@ func _process(delta: float) -> void:
 			if _terrain.has(c):
 				_terrain[c].queue_free()
 				_terrain.erase(c)
-				_add_terrain(c)
+				_add_terrain_sync(c)  # sculpting wants immediate feedback
 		_dirty.clear()
 
 
@@ -113,8 +117,12 @@ func _update_cells(sync: bool) -> void:
 	for dy in range(-load_radius, load_radius + 1):
 		for dx in range(-load_radius, load_radius + 1):
 			var c := center + Vector2i(dx, dy)
-			if not _terrain.has(c):
-				_add_terrain(c)
+			if not _terrain.has(c) and not _terrain_pending.has(c):
+				if sync:
+					_add_terrain_sync(c)
+				else:
+					_terrain_pending[c] = WorkerThreadPool.add_task(
+						_thread_build_terrain.bind(c))
 			if not _records.has(c) and not CellRecords.records(c).is_empty():
 				_add_records(c)
 			if _authored.has(c) and not _content.has(c) and not _pending.has(c):
@@ -150,7 +158,9 @@ func _poll_pending() -> void:
 				_pending.erase(c)
 
 
-func _add_terrain(c: Vector2i) -> void:
+## Heavy part of cell generation, safe to run on a worker thread: builds
+## the mesh and collision shape (only reads Terrain + creates resources).
+func _build_terrain_mesh(c: Vector2i) -> Array:
 	var origin := Vector3(
 		c.x * CELL_SIZE - CELL_SIZE * 0.5, 0.0, c.y * CELL_SIZE - CELL_SIZE * 0.5
 	)
@@ -176,13 +186,48 @@ func _add_terrain(c: Vector2i) -> void:
 			st.add_index(i + TERRAIN_RES)
 	st.generate_normals()
 	var mesh := st.commit()
+	return [mesh, mesh.create_trimesh_shape()]
 
+
+func _thread_build_terrain(c: Vector2i) -> void:
+	var built := _build_terrain_mesh(c)
+	_results_mutex.lock()
+	_terrain_results.append([c, built[0], built[1]])
+	_results_mutex.unlock()
+
+
+func _drain_terrain_results() -> void:
+	_results_mutex.lock()
+	var results := _terrain_results.duplicate()
+	_terrain_results.clear()
+	_results_mutex.unlock()
+	for r in results:
+		var c: Vector2i = r[0]
+		if _terrain_pending.has(c):
+			WorkerThreadPool.wait_for_task_completion(_terrain_pending[c])
+			_terrain_pending.erase(c)
+		if _terrain.has(c):
+			continue
+		if _chebyshev(c - _player_cell()) > load_radius + 1:
+			continue  # streamed past it while building; let it lapse
+		_finish_terrain(c, r[1], r[2])
+
+
+func _add_terrain_sync(c: Vector2i) -> void:
+	var built := _build_terrain_mesh(c)
+	_finish_terrain(c, built[0], built[1])
+
+
+func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D) -> void:
+	var origin := Vector3(
+		c.x * CELL_SIZE - CELL_SIZE * 0.5, 0.0, c.y * CELL_SIZE - CELL_SIZE * 0.5
+	)
 	var body := StaticBody3D.new()
 	body.name = "Terrain_%d_%d" % [c.x, c.y]
 	var mi := MeshInstance3D.new()
 	mi.mesh = mesh
 	var col := CollisionShape3D.new()
-	col.shape = mesh.create_trimesh_shape()
+	col.shape = shape
 	body.add_child(mi)
 	body.add_child(col)
 	body.position = origin
@@ -237,6 +282,7 @@ func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 		parent.add_child(mmi)
 	if not colliders.is_empty():
 		var body := StaticBody3D.new()
+		body.collision_layer = 5  # world (1) + obstacle (4) for NPC avoidance
 		for entry in colliders:
 			var s: float = entry[1].basis.get_scale().x
 			var shape := CylinderShape3D.new()

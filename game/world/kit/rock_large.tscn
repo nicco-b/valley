@@ -11,6 +11,7 @@ albedo_color = Color(0.871, 0.663, 0.369, 1)
 roughness = 1.0
 
 [node name="RockLarge" type="StaticBody3D"]
+collision_layer = 5
 
 [node name="Mesh" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.5, 0)

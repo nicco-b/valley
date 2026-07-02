@@ -135,9 +135,16 @@ Architecture locked from day one:
 ## Systems
 
 ### Simulation & NPCs
-- **Two-tier NPC simulation:** every NPC is a schedule record advancing against
-  the global clock (abstract tier); an embodied character spawns only near the
-  player. Schedules are data.
+- **Simulation is a pillar (decided 2026-07-01): the world runs deep.** NPCs
+  are needs-driven utility agents (not timetables) — daily patterns *emerge*
+  from needs, jobs, weather, and relationships. World systems (weather,
+  temperature, flora cycles/blooms, wildlife ecology) run on a shared tick
+  bus at varying rates. Discipline: every system ships with its inspector
+  (observability), a far/coarse mode, and guardrails around canon-critical
+  state — the Radiant AI lesson. Simulation the player can't perceive is
+  cut. See FOUNDATIONS.md F1.5.
+- **Two-tier simulation:** every sim system has an embodied near mode and a
+  coarse far mode (A-Life style); the world keeps happening offscreen.
 - NPC depth over NPC count: a village of 12 who know each other > a city of 200
   who don't. Relationship webs; opinions about each other and about the
   player's deeds.

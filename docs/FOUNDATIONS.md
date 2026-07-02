@@ -55,6 +55,26 @@ conditions/effects wire straight into WorldState) — but only after the
 axioms conversation gives the writing a world. **Dialogue is gated on canon,
 not on code.**
 
+### F1.5 — the simulation stack (pillar decision 2026-07-01: lean heavy on simulation)
+
+The game simulates deeply — NPCs, weather, ecology — with the discipline
+that keeps deep simulation shippable (the Radiant AI lesson: Oblivion built
+this, couldn't observe or constrain it, and shipped it lobotomized):
+
+| # | What | Notes |
+|---|---|---|
+| 1 | **Sim tick bus** — GameClock grows subscription rates (per-minute, per-hour, coarse) | Every sim system subscribes; nothing free-runs |
+| 2 | **NPC needs + utility AI** — needs drain (rest/food/warmth/social/purpose), activities score against them; behavior emerges | Replaces schedule tables. Records define who someone *is* (needs curves, job, home, relationships), not where they stand at 2pm. RimWorld/Sims model |
+| 3 | **Two-tier as core** — every sim system ships with a near/full and far/coarse mode | STALKER A-Life: the world keeps happening offscreen |
+| 4 | **Weather** — per-region state machine driven by biome wind/moisture; affects palette, fog, particles, ambience, and NPC decisions | First player-visible system payoff |
+| 5 | **Sim inspector** — god mode: click an NPC → needs, current goal, decision scores; systems panel for weather/regions | Non-negotiable. Simulation without instruments is chaos |
+| 6 | **Guardrails** — canon-critical NPCs/states protected from emergent outcomes; sim writes to WorldState through defined channels | The other half of the Radiant AI lesson |
+| 7 | Later: flora cycles (blooms as ecological events — axioms tie-in), temperature/comfort, wildlife populations, hydrology-fed ecology | One at a time, each player-visible + inspectable before the next |
+
+Rules: every system reads/writes the shared stores (GameClock, WorldState,
+biome params) — no private clocks, no hidden state. A sim effect the player
+can never perceive is cut.
+
 ### F2 — engineering debts (small, do between features)
 
 - **Threaded terrain generation** (WorkerThreadPool in `world_streamer.gd`)
@@ -143,7 +163,8 @@ part. Grant Abbitt's low-poly character series is the right speed.
 ```
 F5 backup+scripts (today-sized)
 → F1.1 WorldState → F1.2 Records loader → F1.3 Interaction → F1.4 UI → F1.5 Items
-→ F2 debts (threaded gen, nav, two-tier) — interleaved
+→ F1.5-sim: tick bus → needs/utility NPC v2 (+ inspector) → weather v1
+→ F2 debts (threaded gen, nav — nav now feeds the sim) — interleaved
 → [axioms conversation] → dialogue v1 → second NPC → village planning
 → F4 starts the day the first turnaround sheet exists (parallel track)
 → F3 lands when content outgrows the valley (region #2 forces it)

@@ -52,7 +52,10 @@ wind + footsteps
 (→ his recordings; night bed is a CC0 field recording, see
 assets/audio/SOURCES.md) · SVG tufts/pebbles/cactus (→ her painted PNGs,
 same slots) · noise terrain beyond the valley (→ painted region tiles,
-FOUNDATIONS F3) · all dialogue text (→ post-axioms rewrite).
+FOUNDATIONS F3) · all dialogue text (→ post-axioms rewrite) · biped fox
+creature (from her painting, 2026-07-01) modeled/rigged/animated at
+assets/models/creatures/biped_fox.glb but not yet placed in the world
+(→ wire as an NPC body or interactable once canon names it).
 
 ## Next up (in rough priority)
 

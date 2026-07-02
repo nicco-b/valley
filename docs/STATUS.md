@@ -43,7 +43,12 @@ harness (unit + scene + dual smoke).
 
 ## Placeholder ledger (each has a named replacement path)
 
-Robot character (→ her turnaround + Blender) · synth wind + footsteps
+Star hound player ships flat glb colors — the painterly shading (edge
+darkening, paper grain) lives only in the Blender file (→ matching
+spatial shader pass in Godot; model + full clip set
+Idle/Walking/Running/Sitting/Jump rebuilt close to her painting
+2026-07-01, source assets/blender/creatures/star_hound.blend) · synth
+wind + footsteps
 (→ his recordings; night bed is a CC0 field recording, see
 assets/audio/SOURCES.md) · SVG tufts/pebbles/cactus (→ her painted PNGs,
 same slots) · noise terrain beyond the valley (→ painted region tiles,

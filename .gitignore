@@ -2,5 +2,8 @@
 .godot/
 *.tmp
 
+# Blender backup saves (the .blend itself is versioned)
+*.blend1
+
 # macOS
 .DS_Store

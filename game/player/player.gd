@@ -36,13 +36,38 @@ var _xp_flush := 0.0
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	# Idle/Walk/Run are cycles; Sitting and Jump are one-shot gestures that
-	# hold their final frame.
-	for n in ["Idle", "Walking", "Running"]:
-		_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
-	_anim.play("Idle")
+	# hold their final frame. Alternate rigs may ship a subset, so only touch
+	# clips that actually exist.
+	for n in ["Idle", "Walking", "Running", "Walk", "Run"]:
+		if _anim.has_animation(n):
+			_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
+	var idle := _resolve_anim("Idle")
+	if idle != "":
+		_anim.play(idle)
 	_sand_puff = _make_sand_puff()
 	_steps = _make_footsteps()
 	SaveGame.load_into_world.call_deferred()
+
+
+## Maps a locomotion state to a clip this model actually has, so alternate
+## rigs degrade gracefully instead of crashing on a missing clip name. The
+## star hound ships the full set (Idle/Walking/Running/Sitting/Jump); a rig
+## missing a clip resolves down the list or to "" (the caller then just
+## holds the current pose).
+const _ANIM_FALLBACKS := {
+	"Idle": ["Idle"],
+	"Walking": ["Walking", "Walk"],
+	"Running": ["Running", "Run", "Walking", "Walk"],
+	"Sitting": ["Sitting", "Sit"],
+	"Jump": ["Jump"],
+}
+
+
+func _resolve_anim(desired: String) -> String:
+	for candidate in _ANIM_FALLBACKS.get(desired, [desired]):
+		if _anim.has_animation(candidate):
+			return candidate
+	return ""
 
 
 ## Footstep pool: every wav in assets/audio/steps/ (synth placeholders
@@ -220,8 +245,13 @@ func _physics_process(delta: float) -> void:
 		target_anim = "Walking"
 	# Compare against assigned_animation: current_animation empties when a
 	# one-shot clip finishes, which would retrigger it every frame.
-	if _anim.assigned_animation != target_anim:
-		_anim.play(target_anim, 0.3)
+	var resolved := _resolve_anim(target_anim)
+	if resolved == "":
+		_anim.pause()  # no matching clip (e.g. hound has no Idle) — hold pose
+	elif _anim.assigned_animation != resolved:
+		_anim.play(resolved, 0.3)
+	elif not _anim.is_playing() and _anim.get_animation(resolved).loop_mode != Animation.LOOP_NONE:
+		_anim.play(resolved)  # resume a looping clip after a pause; finished one-shots hold their pose
 
 	# Skill practice accrues from doing; Stillness bends time while sitting.
 	if is_on_floor() and flat.length() > 0.5:

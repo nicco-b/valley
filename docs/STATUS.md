@@ -43,19 +43,16 @@ harness (unit + scene + dual smoke).
 
 ## Placeholder ledger (each has a named replacement path)
 
-Star hound player ships flat glb colors — the painterly shading (edge
-darkening, paper grain) lives only in the Blender file (→ matching
-spatial shader pass in Godot; model + full clip set
-Idle/Walking/Running/Sitting/Jump rebuilt close to her painting
-2026-07-01, source assets/blender/creatures/star_hound.blend) · synth
-wind + footsteps
+Biped fox player (hers, replaced the star hound as the player body
+2026-07-02) and the star hound (fully animated, currently unplaced →
+return it as a creature/companion when canon names one) both ship flat
+glb colors — the painterly shading lives only in their .blend files in
+assets/blender/creatures/ (→ matching spatial shader pass in Godot) ·
+synth wind + footsteps
 (→ his recordings; night bed is a CC0 field recording, see
 assets/audio/SOURCES.md) · SVG tufts/pebbles/cactus (→ her painted PNGs,
 same slots) · noise terrain beyond the valley (→ painted region tiles,
-FOUNDATIONS F3) · all dialogue text (→ post-axioms rewrite) · biped fox
-creature (from her painting, 2026-07-01) modeled/rigged/animated at
-assets/models/creatures/biped_fox.glb but not yet placed in the world
-(→ wire as an NPC body or interactable once canon names it).
+FOUNDATIONS F3) · all dialogue text (→ post-axioms rewrite).
 
 ## Next up (in rough priority)
 

@@ -187,7 +187,9 @@ func _physics_process(delta: float) -> void:
 
 	if swimming:
 		_sitting = false
-		velocity.y = (wsurf - 0.45 - global_position.y) * 3.0
+		# Hold the origin ~0.8 under the surface: chest-deep for the
+		# 1.5m biped fox, head and ears clear of the water.
+		velocity.y = (wsurf - 0.8 - global_position.y) * 3.0
 		if not WorldState.has_flag("player.swam"):
 			WorldState.set_flag("player.swam")
 	elif not is_on_floor():
@@ -229,7 +231,7 @@ func _physics_process(delta: float) -> void:
 				_play_footstep()
 
 	# Face the body toward horizontal movement; the camera rig stays independent.
-	# (The robot model faces +Z, hence no half-turn offset.)
+	# (Creature models face +Z by convention, hence no half-turn offset.)
 	var flat := Vector3(velocity.x, 0.0, velocity.z)
 	if flat.length() > 0.2:
 		_body.rotation.y = lerp_angle(_body.rotation.y, atan2(flat.x, flat.z), blend)

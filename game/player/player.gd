@@ -16,6 +16,7 @@ var _sitting := false
 var _target: Interactable = null
 var _step_accum := 0.0
 var _sand_puff: GPUParticles3D
+var _steps: AudioStreamPlayer
 
 @onready var _rig: Node3D = $CameraRig
 @onready var _arm: SpringArm3D = $CameraRig/SpringArm3D
@@ -31,7 +32,31 @@ func _ready() -> void:
 		_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
 	_anim.play("Idle")
 	_sand_puff = _make_sand_puff()
+	_steps = _make_footsteps()
 	SaveGame.load_into_world.call_deferred()
+
+
+## Footstep pool: every wav in assets/audio/steps/ (synth placeholders
+## now; drop real recordings in the same folder and they take over).
+func _make_footsteps() -> AudioStreamPlayer:
+	var randomizer := AudioStreamRandomizer.new()
+	randomizer.random_pitch = 1.12
+	randomizer.random_volume_offset_db = 2.0
+	var dir := DirAccess.open("res://assets/audio/steps")
+	if dir:
+		for f in dir.get_files():
+			if f.ends_with(".wav"):
+				randomizer.add_stream(-1, load("res://assets/audio/steps/" + f))
+	var player := AudioStreamPlayer.new()
+	player.stream = randomizer
+	player.volume_db = -13.0
+	add_child(player)
+	return player
+
+
+func _play_footstep() -> void:
+	if _steps.stream.streams_count > 0:
+		_steps.play()
 
 
 func _make_sand_puff() -> GPUParticles3D:
@@ -90,7 +115,18 @@ func _physics_process(delta: float) -> void:
 	if _sitting:
 		input = Vector2.ZERO
 
-	if not is_on_floor():
+	# Water: deep enough and you float; shallow water just slows you.
+	var wsurf: float = Terrain.water_surface(global_position.x, global_position.z)
+	var water_depth := 0.0
+	var swimming := false
+	if wsurf > -1e11:
+		water_depth = wsurf - Terrain.height(global_position.x, global_position.z)
+		swimming = water_depth > 1.1 and global_position.y < wsurf + 0.2
+
+	if swimming:
+		_sitting = false
+		velocity.y = (wsurf - 0.45 - global_position.y) * 3.0
+	elif not is_on_floor():
 		velocity += get_gravity() * delta
 	elif Input.is_action_just_pressed("jump") and not _sitting:
 		velocity.y = JUMP_VELOCITY
@@ -100,6 +136,10 @@ func _physics_process(delta: float) -> void:
 	dir = dir.normalized() if dir.length() > 0.01 else Vector3.ZERO
 
 	var speed := SPRINT_SPEED if Input.is_action_pressed("sprint") else WALK_SPEED
+	if swimming:
+		speed *= 0.55
+	elif water_depth > 0.0:
+		speed *= lerpf(1.0, 0.55, clampf(water_depth / 1.1, 0.0, 1.0))
 	# Loose sand: climbing steep ground costs a little speed.
 	if is_on_floor() and dir != Vector3.ZERO:
 		var fn := get_floor_normal()
@@ -113,13 +153,15 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 
-	if is_on_floor():
+	if is_on_floor() or swimming:
 		_step_accum += Vector2(velocity.x, velocity.z).length() * delta
 		if _step_accum >= 0.7:
 			_step_accum = 0.0
 			InteractionField.stamp(Vector2(global_position.x, global_position.z))
-			_sand_puff.global_position = global_position + Vector3(0, 0.06, 0)
-			_sand_puff.restart()
+			if not swimming:
+				_sand_puff.global_position = global_position + Vector3(0, 0.06, 0)
+				_sand_puff.restart()
+				_play_footstep()
 
 	# Face the body toward horizontal movement; the camera rig stays independent.
 	# (The robot model faces +Z, hence no half-turn offset.)

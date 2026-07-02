@@ -17,6 +17,20 @@ const BASINS := [
 	[70.0, -310.0, 38.0, 3.2],  # the pond
 ]
 
+# Water bodies: [center x, center z, radius, surface y]. The pond mesh in
+# valley.tscn mirrors this — keep them in sync until water becomes records.
+const WATER_BODIES := [
+	[70.0, -310.0, 27.0, -0.9],
+]
+
+
+## Water surface height at a point, or -INF when there's no water there.
+func water_surface(x: float, z: float) -> float:
+	for w in WATER_BODIES:
+		if Vector2(x - w[0], z - w[1]).length() < w[2]:
+			return w[3]
+	return -1e12
+
 # The home valley: an authored landform. Centerline from behind spawn,
 # past the pond, to the shrine; floor stays low and dense, walls rise
 # into an enclosing ridge plateau (doubles as the frontier rim).

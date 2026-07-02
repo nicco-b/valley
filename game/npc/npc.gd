@@ -32,6 +32,7 @@ var current: Dictionary = {}
 var last_utilities: Dictionary = {}
 
 var far_mode := false
+var talking := false
 
 var _target := Vector3.ZERO
 var _decide_accum := 0.0
@@ -165,7 +166,7 @@ func _physics_process(delta: float) -> void:
 
 	var blend := 1.0 - exp(-ACCEL * delta)
 	var target_velocity := Vector3.ZERO
-	if not arrived:
+	if not arrived and not talking:
 		target_velocity = _avoid(to.normalized()) * SPEED
 	velocity.x = lerpf(velocity.x, target_velocity.x, blend)
 	velocity.z = lerpf(velocity.z, target_velocity.z, blend)
@@ -182,7 +183,9 @@ func _physics_process(delta: float) -> void:
 		_body.rotation.y = lerp_angle(_body.rotation.y, atan2(flat.x, flat.z), blend)
 
 	var target_anim := "Walking"
-	if arrived:
+	if talking:
+		target_anim = "Idle"
+	elif arrived:
 		target_anim = "Sitting" if current.get("pose", "stand") == "sit" else "Idle"
 	if _anim.assigned_animation != target_anim:
 		_anim.play(target_anim, 0.3)
@@ -275,6 +278,8 @@ func _on_interacted(by: Node) -> void:
 		var to: Vector3 = (by as Node3D).global_position - global_position
 		_body.rotation.y = atan2(to.x, to.z)
 	if Dialogue.has_dialogue(npc_id):
+		talking = true
+		Dialogue.ended.connect(func() -> void: talking = false, CONNECT_ONE_SHOT)
 		Dialogue.start(npc_id, by)
 		return
 	# Fallback greeting for NPCs without a dialogue record yet.

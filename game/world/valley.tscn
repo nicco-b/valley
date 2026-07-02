@@ -13,7 +13,7 @@
 [ext_resource type="Script" path="res://game/world/weather_fx.gd" id="11_weatherfx"]
 [ext_resource type="Shader" path="res://game/shaders/sky.gdshader" id="12_sky"]
 [ext_resource type="Script" path="res://game/world/atmosphere.gd" id="13_atmosphere"]
-[ext_resource type="Script" path="res://game/world/horizon.gd" id="14_horizon"]
+[ext_resource type="Script" path="res://game/world/far_terrain.gd" id="14_far"]
 
 [sub_resource type="ParticleProcessMaterial" id="Particles_dust"]
 direction = Vector3(1, 0, 0.2)
@@ -106,10 +106,10 @@ stream = ExtResource("7_night")
 volume_db = -60.0
 autoplay = true
 
-[node name="Landmarks" type="Node3D" parent="."]
+[node name="FarTerrain" type="Node3D" parent="."]
+script = ExtResource("14_far")
 
-[node name="Horizon" type="Node3D" parent="Landmarks"]
-script = ExtResource("14_horizon")
+[node name="Landmarks" type="Node3D" parent="."]
 
 [node name="Shrine" parent="Landmarks" instance=ExtResource("5_shrine")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 120, 0, -620)

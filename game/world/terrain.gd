@@ -40,6 +40,7 @@ signal edited(world_rect: Rect2)
 var _edits: Image
 var _hills := FastNoiseLite.new()
 var _dunes := FastNoiseLite.new()
+var _ranges := FastNoiseLite.new()
 
 
 func _ready() -> void:
@@ -48,6 +49,12 @@ func _ready() -> void:
 	_hills.fractal_octaves = 4
 	_dunes.seed = 40
 	_dunes.frequency = 0.03
+	# Real distant mountains ("if you can see it, you can go there"):
+	# ridged ranges that stay out of the home valley and rise beyond it.
+	_ranges.seed = 23
+	_ranges.frequency = 0.0007
+	_ranges.fractal_type = FastNoiseLite.FRACTAL_RIDGED
+	_ranges.fractal_octaves = 3
 	if FileAccess.file_exists(EDIT_PATH):
 		_edits = Image.load_from_file(ProjectSettings.globalize_path(EDIT_PATH))
 		_edits.convert(Image.FORMAT_RF)
@@ -68,6 +75,9 @@ func height(x: float, z: float) -> float:
 	var floor_h := _hills.get_noise_2d(x, z) * 3.0 + _dunes.get_noise_2d(x, z) * 0.6
 	var wall_h := WALL_HEIGHT + _hills.get_noise_2d(x, z) * 22.0
 	var h := lerpf(floor_h, wall_h, valley_factor(x, z))
+	# Mountain ranges: absent near home, real and walkable beyond ~1.2km.
+	var range_envelope := smoothstep(1200.0, 2400.0, Vector2(x, z).length())
+	h += maxf(_ranges.get_noise_2d(x, z), 0.0) * 320.0 * range_envelope
 	for f in FLATTENS:
 		var d := Vector2(x - f[0], z - f[1]).length()
 		h *= smoothstep(f[2], f[2] + f[3], d)

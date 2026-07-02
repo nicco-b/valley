@@ -43,6 +43,10 @@ All decided 2026-07-01 (first design day) unless noted.*
   her illustrated map traced from it later.
 - **Tools live in the game, dev-gated** (god mode pattern); content is
   records; place mode writes JSON, not scenes.
+- **If you can see it, you can go there.** No fake vista geometry, ever.
+  Distant terrain renders from the same height function the streamer
+  builds walkable cells from (far-LOD mesh); a visible mountain is a real
+  destination. Scales with the quilt: authored tiles feed both near and far.
 - **Sitting changes nothing.** No depth-of-field, no filters, no cinematic
   dressing on the sit — the point of sitting is seeing the world exactly as
   it is. (Camera pull-out and HUD fade stay; they remove, not add.)

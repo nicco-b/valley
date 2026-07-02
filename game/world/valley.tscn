@@ -56,7 +56,9 @@ sky_material = SubResource("SkyMaterial_valley")
 background_mode = 2
 sky = SubResource("Sky_valley")
 ambient_light_source = 3
+ambient_light_sky_contribution = 0.58
 tonemap_mode = 2
+tonemap_exposure = 0.9
 ssao_enabled = true
 ssao_radius = 2.5
 ssao_intensity = 2.5
@@ -66,7 +68,6 @@ fog_light_color = Color(0.988, 0.933, 0.894, 1)
 fog_density = 0.0008
 fog_sky_affect = 0.35
 adjustment_enabled = true
-adjustment_brightness = 1.02
 adjustment_contrast = 1.04
 adjustment_saturation = 1.09
 

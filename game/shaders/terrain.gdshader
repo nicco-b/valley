@@ -3,8 +3,8 @@ shader_type spatial;
 // large noise blotches and fine grain so the ground reads as painted
 // wash instead of a single flat fill.
 
-uniform vec3 sand_floor : source_color = vec3(0.93, 0.885, 0.815);
-uniform vec3 sand_warm : source_color = vec3(0.875, 0.73, 0.53);
+uniform vec3 sand_floor : source_color = vec3(0.84, 0.785, 0.70);
+uniform vec3 sand_warm : source_color = vec3(0.80, 0.655, 0.46);
 uniform vec3 rock_high : source_color = vec3(0.63, 0.50, 0.36);
 uniform vec3 rock_steep : source_color = vec3(0.56, 0.48, 0.41);
 uniform sampler2D variation : filter_linear, repeat_enable;

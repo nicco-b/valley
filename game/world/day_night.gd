@@ -11,8 +11,8 @@ const KEYS := [
 	[0.0, Color(0.08, 0.1, 0.17), Color(0.2, 0.17, 0.25), Color(1.0, 0.5, 0.4)],
 	[5.0, Color(0.08, 0.1, 0.17), Color(0.2, 0.17, 0.25), Color(1.0, 0.5, 0.4)],
 	[6.5, Color(0.976, 0.812, 0.827), Color(0.988, 0.933, 0.894), Color(1.0, 0.62, 0.5)],
-	[9.0, Color(0.78, 0.86, 0.92), Color(0.95, 0.93, 0.89), Color(1.0, 0.878, 0.796)],
-	[17.0, Color(0.78, 0.86, 0.92), Color(0.95, 0.93, 0.89), Color(1.0, 0.878, 0.796)],
+	[9.0, Color(0.70, 0.80, 0.88), Color(0.89, 0.85, 0.78), Color(1.0, 0.878, 0.796)],
+	[17.0, Color(0.70, 0.80, 0.88), Color(0.89, 0.85, 0.78), Color(1.0, 0.878, 0.796)],
 	[19.5, Color(0.93, 0.62, 0.66), Color(1.0, 0.82, 0.72), Color(1.0, 0.45, 0.35)],
 	[21.5, Color(0.08, 0.1, 0.17), Color(0.2, 0.17, 0.25), Color(1.0, 0.5, 0.4)],
 	[24.0, Color(0.08, 0.1, 0.17), Color(0.2, 0.17, 0.25), Color(1.0, 0.5, 0.4)],
@@ -25,7 +25,7 @@ func _process(_delta: float) -> void:
 	# Sun path: full circle around X; 6:00 rises, 12:00 zenith, 18:00 sets.
 	sun.rotation.x = -(h - 6.0) / 24.0 * TAU
 	var elevation := sin((h - 6.0) / 24.0 * TAU)
-	sun.light_energy = clampf(elevation * 1.4, 0.0, 1.2) \
+	sun.light_energy = clampf(elevation * 1.2, 0.0, 0.95) \
 			* (1.0 - 0.55 * Weather.storminess)
 
 	# Sky palette: lerp between bracketing keyframes.

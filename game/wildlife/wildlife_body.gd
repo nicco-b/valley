@@ -28,6 +28,7 @@ var attention := Attention.CALM
 var _sim_target := Vector3.ZERO
 var _flee_target := Vector3.ZERO
 var _calm_accum := 0.0
+var _nav := PathCursor.new()  # embodied walking follows the baked navmesh
 
 @onready var _anim: AnimationPlayer = $Body/Model/AnimationPlayer
 @onready var _body: Node3D = $Body
@@ -82,7 +83,13 @@ func _physics_process(delta: float) -> void:
 	var to := Vector3(target.x - global_position.x, 0.0, target.z - global_position.z)
 	var arrived := hold or to.length() < ARRIVE
 	var blend := 1.0 - exp(-ACCEL * delta)
-	var target_velocity := Vector3.ZERO if arrived else to.normalized() * speed
+	var target_velocity := Vector3.ZERO
+	if not arrived:
+		var wp := _nav.waypoint(delta, global_position,
+			Vector3(target.x, global_position.y, target.z))
+		var to_wp := Vector3(wp.x - global_position.x, 0.0, wp.z - global_position.z)
+		if to_wp.length() > 0.1:
+			target_velocity = to_wp.normalized() * speed
 	velocity.x = lerpf(velocity.x, target_velocity.x, blend)
 	velocity.z = lerpf(velocity.z, target_velocity.z, blend)
 	move_and_slide()

@@ -103,9 +103,13 @@ picker).
    (30 days headless ×2, fingerprint-matched) · ✅ A2 AgentSim core
    (wildlife ported, fingerprint bit-identical; NPC is the second
    adopter, with the village) · ✅ perception v1 (wildlife wariness:
-   light-scaled sight, hearing, alert/flee/resume) · ⏳ remaining:
-   navmesh-per-cell (before NPC #3), far waypoint graph (with the first
-   authored road — an empty graph is scaffolding), NPC AgentSim port.
+   light-scaled sight, hearing, alert/flee/resume) · ✅ navmesh-per-cell
+   (baked per streamed cell on the worker thread from terrain triangles,
+   water carved out; NPCs and wildlife walk waypoints via PathCursor,
+   straight-line fallback where no navmesh exists; god mode N toggles
+   the overlay) · ⏳ remaining: far waypoint graph (with the first
+   authored road — an empty graph is scaffolding), NPC AgentSim port
+   (with the village).
 
 1. **Asset track (humans)** — see ASSETS_NEEDED.md. Top: her ground-cover
    kit, his Blender rock family, real wind recording.

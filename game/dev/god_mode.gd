@@ -52,6 +52,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_brush_radius = minf(_brush_radius * 1.3, 64.0)
 	elif event.is_action_pressed("brush_smaller"):
 		_brush_radius = maxf(_brush_radius / 1.3, 3.0)
+	elif event is InputEventKey and event.pressed and not event.echo \
+			and event.physical_keycode == KEY_N:
+		# Navmesh overlay: see what the world thinks is walkable.
+		NavigationServer3D.set_debug_enabled(not NavigationServer3D.get_debug_enabled())
 	elif event.is_action_pressed("ui_cancel"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventKey and event.pressed and not event.echo \

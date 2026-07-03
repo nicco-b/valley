@@ -18,6 +18,7 @@ func _ready() -> void:
 	_test_rumors()
 	_test_wildlife()
 	_test_long_memory()
+	_test_nav()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -313,3 +314,32 @@ func _test_long_memory() -> void:
 	_check(absf(float(InteractionField.wear_snapshot()[key]) - float(snap[key])) < 0.002,
 		"wear survives a save/load roundtrip")
 	InteractionField.wear_restore({})  # leave no test residue in the field
+
+
+## Near-tier navigation: bake from faces, path across, fall back cleanly.
+func _test_nav() -> void:
+	# A 20x20m plane in the streamer's exact triangle winding.
+	var res := 11
+	var step := 2.0
+	var faces := PackedVector3Array()
+	for iz in res - 1:
+		for ix in res - 1:
+			var a := Vector3(ix * step, 0.0, iz * step)
+			var b := Vector3((ix + 1) * step, 0.0, iz * step)
+			var c := Vector3(ix * step, 0.0, (iz + 1) * step)
+			var d := Vector3((ix + 1) * step, 0.0, (iz + 1) * step)
+			faces.append_array([a, b, c, b, d, c])
+	var navmesh: NavigationMesh = Nav.bake_navmesh(faces)
+	_check(navmesh.get_polygon_count() > 0, "bake produces walkable polygons")
+	var cell := Vector2i(999, 999)
+	var origin := Vector3(9990.0, 0.0, 9990.0)
+	Nav.add_cell(cell, navmesh, origin)
+	NavigationServer3D.map_force_update(Nav._map)
+	var p: PackedVector3Array = Nav.path(
+		origin + Vector3(2.0, 0.5, 2.0), origin + Vector3(18.0, 0.5, 18.0))
+	_check(p.size() >= 2, "path across the baked cell")
+	_check(p[p.size() - 1].distance_to(origin + Vector3(18.0, 0.0, 18.0)) < 2.5,
+		"path reaches the goal")
+	Nav.remove_cell(cell)
+	var fallback: PackedVector3Array = Nav.path(Vector3.ZERO, Vector3(10.0, 0.0, 10.0))
+	_check(fallback.size() == 2, "no navmesh -> straight-line fallback")

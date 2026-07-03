@@ -46,6 +46,7 @@ var far_mode := false
 var talking := false
 
 var _target := Vector3.ZERO
+var _nav := PathCursor.new()  # embodied walking follows the baked navmesh
 var _decide_accum := 0.0
 var _wander_accum := 0.0
 var _coarse_accum := 0.0
@@ -278,7 +279,13 @@ func _physics_process(delta: float) -> void:
 	var blend := 1.0 - exp(-ACCEL * delta)
 	var target_velocity := Vector3.ZERO
 	if not arrived and not talking:
-		target_velocity = _avoid(to.normalized()) * SPEED
+		# Walk the navmesh route waypoint by waypoint; whiskers still
+		# handle placed objects the bake doesn't know about.
+		var wp := _nav.waypoint(delta, global_position,
+			Vector3(_target.x, global_position.y, _target.z))
+		var to_wp := Vector3(wp.x - global_position.x, 0.0, wp.z - global_position.z)
+		if to_wp.length() > 0.1:
+			target_velocity = _avoid(to_wp.normalized()) * SPEED
 	velocity.x = lerpf(velocity.x, target_velocity.x, blend)
 	velocity.z = lerpf(velocity.z, target_velocity.z, blend)
 	move_and_slide()

@@ -26,6 +26,7 @@ GameClock="*res://game/world/game_clock.gd"
 FocusThrottle="*res://game/world/focus_throttle.gd"
 Terrain="*res://game/world/terrain.gd"
 Rng="*res://game/sim/rng.gd"
+Nav="*res://game/world/nav.gd"
 Weather="*res://game/world/weather.gd"
 Climate="*res://game/world/climate.gd"
 FloraLife="*res://game/world/flora_life.gd"
@@ -44,6 +45,13 @@ PauseMenu="*res://game/ui/pause_menu.gd"
 Dialogue="*res://game/dialogue/dialogue.gd"
 Skills="*res://game/skills/skills.gd"
 Journal="*res://game/quests/journal.gd"
+
+[navigation]
+
+; Per-cell baked navmesh tiles share border edges by design; at corners
+; four regions meet and the merge warning fires on every sync. The
+; engine's own guidance for tiled setups is to disable it.
+3d/warnings/navmesh_edge_merge_errors=false
 
 [shader_globals]
 

@@ -146,6 +146,7 @@ func _update_cells(sync: bool) -> void:
 		if _chebyshev(c - center) > unload_radius:
 			_terrain[c].queue_free()
 			_terrain.erase(c)
+			Nav.remove_cell(c)
 	for c in _content.keys():
 		if _chebyshev(c - center) > unload_radius:
 			_content[c].queue_free()
@@ -169,12 +170,18 @@ func _poll_pending() -> void:
 
 
 ## Heavy part of cell generation, safe to run on a worker thread: builds
-## the mesh and collision shape (only reads Terrain + creates resources).
+## the mesh, collision shape, and baked navmesh (only reads Terrain +
+## creates resources). The navmesh gets the same triangles minus anything
+## submerged — nobody paths through the pond.
 func _build_terrain_mesh(c: Vector2i) -> Array:
 	var origin := Vector3(
 		c.x * CELL_SIZE - CELL_SIZE * 0.5, 0.0, c.y * CELL_SIZE - CELL_SIZE * 0.5
 	)
 	var step := CELL_SIZE / (TERRAIN_RES - 1)
+	var pts := PackedVector3Array()
+	pts.resize(TERRAIN_RES * TERRAIN_RES)
+	var wet := PackedByteArray()
+	wet.resize(TERRAIN_RES * TERRAIN_RES)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.set_material(_ground_material)
@@ -183,8 +190,13 @@ func _build_terrain_mesh(c: Vector2i) -> Array:
 		for ix in TERRAIN_RES:
 			var wx := origin.x + ix * step
 			var wz := origin.z + iz * step
+			var y := Terrain.height(wx, wz)
+			var i := iz * TERRAIN_RES + ix
+			pts[i] = Vector3(ix * step, y, iz * step)
+			wet[i] = 1 if y < Terrain.water_surface(wx, wz) - 0.05 else 0
 			st.set_uv(Vector2(wx, wz) * 0.05)
-			st.add_vertex(Vector3(ix * step, Terrain.height(wx, wz), iz * step))
+			st.add_vertex(pts[i])
+	var faces := PackedVector3Array()
 	for iz in TERRAIN_RES - 1:
 		for ix in TERRAIN_RES - 1:
 			var i := iz * TERRAIN_RES + ix
@@ -194,15 +206,23 @@ func _build_terrain_mesh(c: Vector2i) -> Array:
 			st.add_index(i + 1)
 			st.add_index(i + TERRAIN_RES + 1)
 			st.add_index(i + TERRAIN_RES)
+			if wet[i] == 0 and wet[i + 1] == 0 and wet[i + TERRAIN_RES] == 0:
+				faces.append(pts[i])
+				faces.append(pts[i + 1])
+				faces.append(pts[i + TERRAIN_RES])
+			if wet[i + 1] == 0 and wet[i + TERRAIN_RES + 1] == 0 and wet[i + TERRAIN_RES] == 0:
+				faces.append(pts[i + 1])
+				faces.append(pts[i + TERRAIN_RES + 1])
+				faces.append(pts[i + TERRAIN_RES])
 	st.generate_normals()
 	var mesh := st.commit()
-	return [mesh, mesh.create_trimesh_shape()]
+	return [mesh, mesh.create_trimesh_shape(), Nav.bake_navmesh(faces)]
 
 
 func _thread_build_terrain(c: Vector2i) -> void:
 	var built := _build_terrain_mesh(c)
 	_results_mutex.lock()
-	_terrain_results.append([c, built[0], built[1]])
+	_terrain_results.append([c, built[0], built[1], built[2]])
 	_results_mutex.unlock()
 
 
@@ -220,15 +240,16 @@ func _drain_terrain_results() -> void:
 			continue
 		if _chebyshev(c - _player_cell()) > load_radius + 1:
 			continue  # streamed past it while building; let it lapse
-		_finish_terrain(c, r[1], r[2])
+		_finish_terrain(c, r[1], r[2], r[3])
 
 
 func _add_terrain_sync(c: Vector2i) -> void:
 	var built := _build_terrain_mesh(c)
-	_finish_terrain(c, built[0], built[1])
+	_finish_terrain(c, built[0], built[1], built[2])
 
 
-func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D) -> void:
+func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D,
+		navmesh: NavigationMesh) -> void:
 	var origin := Vector3(
 		c.x * CELL_SIZE - CELL_SIZE * 0.5, 0.0, c.y * CELL_SIZE - CELL_SIZE * 0.5
 	)
@@ -246,6 +267,7 @@ func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D) -> void:
 			Terrain.valley_factor(origin.x + CELL_SIZE * 0.5, origin.z + CELL_SIZE * 0.5))
 	add_child(body)
 	_terrain[c] = body
+	Nav.add_cell(c, navmesh, origin)
 
 
 func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:

@@ -68,15 +68,24 @@ All decided 2026-07-01 (first design day) unless noted.*
   of the ambient machine. Cut only computation with zero eventual
   consequence. Observability discipline (inspector for everything) is
   unchanged and matters more, not less.
-- **Real seasons, the real calendar** *(2026-07-02)*. The valley shares the
-  player's calendar: season (`GameClock.season`, mirrored to WorldState
-  `time.season` for quests/dialogue/seeds) and daylight length derive from
-  the real system date. Sun arc, sky palette, dusk audio, and night
+- **Real seasons, the real calendar, the real local sun** *(2026-07-02)*.
+  The valley shares the player's calendar *and sky*: season (`GameClock.
+  season`, mirrored to WorldState `time.season` for quests/dialogue/seeds),
+  daylight length, and sunrise/sunset times derive from the real system
+  date and the player's real location (solar declination + equation of
+  time; latitude/longitude one-shot IP-geolocated into Settings, timezone-
+  guessed fallback, settings-picker later). Hemisphere falls out of
+  latitude. New worlds anchor the clock to real local time, so the
+  valley's sunset is your sunset — only Stillness bends the clock away
+  from your watch (and the valley ignores DST, so alignment steps an hour
+  twice a year; accepted). Sun arc, sky palette, dusk audio, and night
   creatures all read `GameClock.solar_hours()` — hour-of-day warped so
-  sunrise/sunset land on canonical 6:00/18:00 — so everything sun-shaped
-  inherits seasonal daylight from one seam. Weather storm odds are
-  season-biased. Northern-hemisphere arc (hemisphere setting later);
-  seasonal *palette/flora* changes await her seasonal paintings.
+  sunrise/noon/sunset land on canonical 6/12/18 — so everything sun-shaped
+  inherits the real sky from one seam. Weather storm odds are season-
+  biased. Seasonal *palette/flora* changes await her seasonal paintings.
+  Dev time travel (T / Shift+T / Alt+T → next anchor / +day / +week,
+  debug builds) always goes *through* `advance_hours` — the world lives
+  skipped time; there is no travelling back.
 - **Unfocused = watchable, throttled** *(2026-07-02)*. The unfocused window
   stays alive and glanceable (fps-capped, nothing dissolves, tiers stay
   distance-based); only a minimized window throttles near-idle. Good-citizen

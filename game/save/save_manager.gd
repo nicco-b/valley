@@ -38,6 +38,7 @@ func save_game() -> void:
 		"hours": GameClock.hours,
 		"day": GameClock.day,
 		"wall_time": Time.get_unix_time_from_system(),
+		"civil": true,  # clock anchored to real local time (1:1 era)
 		"player": {"x": player.global_position.x, "z": player.global_position.z},
 		"state": WorldState.snapshot(),
 		"cells": {},  # future: per-cell world-state mutations
@@ -65,6 +66,11 @@ func load_into_world() -> void:
 		away_hours = maxf(0.0, elapsed / 3600.0)
 	if away_hours > 0.01:
 		GameClock.advance_hours(away_hours)
+	# One-time migration: saves from before the civil anchor carry an
+	# arbitrary clock offset — re-anchor to real local time (the sim above
+	# already lived the away hours; this only moves the dial).
+	if not data.get("civil", false):
+		GameClock.hours = GameClock.civil_now()
 	var player := get_tree().get_first_node_in_group("player")
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if player:

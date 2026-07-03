@@ -27,13 +27,19 @@ and [FOUNDATIONS.md](FOUNDATIONS.md) (build plan).*
 | M | map (pan/zoom, gestures) | | 1–9 | pick kit object (place) |
 | F / R | deploy / recall fireflies | | LMB | place object |
 | Esc | pause (or close map/talk) | | Z | undo last placement |
-| **T** | *debug:* +1 hour | | F5 | save terrain edits |
+| **T** | *debug:* → next sunrise/noon/sunset/midnight | | F5 | save terrain edits |
+| **Shift+T / Alt+T** | *debug:* +1 day / +1 week | | | |
 | **Y** | *debug:* next weather | | F1 | exit **(teleports player)** |
 
 
 ## How the systems fit (two minutes)
 
-**Time** flows from `GameClock` (15-min days; `hour_tick` signal).
+**Time** flows from `GameClock` (1:1 with the real world — a game day is a
+real day, anchored to your local time; real-calendar seasons and real
+local sunrise/sunset from Settings' geolocated latitude/longitude;
+`hour_tick` signal; dev time travel on T always *lives* the skipped hours
+through `advance_hours`, so weather and NPCs experience them — there is no
+travelling back).
 **Weather** rolls a state each hour and eases `wind`/`storminess` values
 that drive flora sway (global shader param), wind audio, fog, sun, dust,
 and NPC decisions. **Terrain** is one height function: noise + the authored

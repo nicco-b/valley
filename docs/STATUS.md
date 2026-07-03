@@ -25,10 +25,13 @@ particles (sand motes, dusk moths from her painting, night glow-motes).
 
 **Simulation** — GameClock (**1:1 real time** — a game day is a real day;
 wall-clock driven, hour_tick bus, time_scale for Stillness); **real
-seasons from the real calendar** (season + daylight length from the
-system date; sun/palette/dusk-audio/creatures follow seasonal
-sunrise-sunset via `solar_hours()`; storms season-biased; `time.season`
-in WorldState for conditions); the ambient machine: saves carry a wall-clock timestamp and time away/asleep is
+seasons, real local sun** (season + daylight + sunrise/sunset from the
+system date and geolocated latitude/longitude — solar declination +
+equation of time, hemisphere-correct; new worlds anchor the clock to
+real local time; sun/palette/dusk-audio/creatures follow via
+`solar_hours()`; storms season-biased; `time.season` in WorldState for
+conditions; dev time travel: T → next sunrise/noon/sunset/midnight,
+Shift/Alt+T → +day/+week, always lived via `advance_hours`); the ambient machine: saves carry a wall-clock timestamp and time away/asleep is
 replayed via shared `GameClock.advance_hours()` catch-up (weather rolls,
 NPCs live the skipped hours — needs/position/activity persist hourly);
 FocusThrottle (unfocused window fps-capped but watchable, minimized
@@ -70,7 +73,8 @@ assets/audio/SOURCES.md) · SVG tufts/pebbles/cactus (→ her painted PNGs,
 same slots) · noise terrain beyond the valley (→ painted region tiles,
 FOUNDATIONS F3) · all dialogue text (→ post-axioms rewrite) · seasons
 change daylight/weather only (→ her seasonal palettes + flora states when
-painted; hemisphere setting when Settings grows one).
+painted) · location via one-shot IP lookup (→ settings-screen location
+picker).
 
 ## Next up (in rough priority)
 

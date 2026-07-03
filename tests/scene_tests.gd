@@ -90,8 +90,8 @@ func _test_clock() -> void:
 		"1:1 time — one real hour is one game hour")
 
 
-## Seasons follow the real calendar; daylight and the solar-hour warp
-## derive from the real date.
+## Seasons follow the real calendar; daylight, solar noon, and the
+## solar-hour warp derive from the real date and the player's location.
 func _test_seasons() -> void:
 	_check(GameClock.season_for({"month": 1, "day": 15}) == "winter", "january is winter")
 	_check(GameClock.season_for({"month": 3, "day": 19}) == "winter", "mar 19 still winter")
@@ -99,17 +99,30 @@ func _test_seasons() -> void:
 	_check(GameClock.season_for({"month": 7, "day": 2}) == "summer", "july is summer")
 	_check(GameClock.season_for({"month": 10, "day": 5}) == "autumn", "october is autumn")
 	_check(GameClock.season_for({"month": 12, "day": 21}) == "winter", "dec 21 turns winter")
-	var solstice_summer: float = GameClock.daylight_hours_for(172)
-	var solstice_winter: float = GameClock.daylight_hours_for(355)
-	_check(solstice_summer > 15.0, "summer solstice daylight is long")
-	_check(solstice_winter < 9.0, "winter solstice daylight is short")
+	_check(GameClock.season_for({"month": 12, "day": 25}, true) == "summer",
+		"southern hemisphere flips the season")
+	var solstice_summer: float = GameClock.daylight_hours_for(172, 45.0)
+	var solstice_winter: float = GameClock.daylight_hours_for(355, 45.0)
+	_check(solstice_summer > 15.0, "summer solstice daylight is long at 45N")
+	_check(solstice_winter < 9.0, "winter solstice daylight is short at 45N")
+	_check(absf(GameClock.daylight_hours_for(172, 0.0) - 12.1) < 0.3,
+		"equator stays near 12h year round")
+	_check(GameClock.daylight_hours_for(172, -45.0) < 9.0,
+		"southern winter in june")
+	_check(GameClock.daylight_hours_for(172, 89.0) <= 23.5,
+		"polar day clamps — the sun always sets")
 	_check(GameClock.season != "", "live season is set")
 	_check(WorldState.get_value("time.season") == GameClock.season,
 		"season mirrored to WorldState")
 	var span: Vector2 = GameClock.daylight_span()
-	GameClock.hours = span.x
+	_check(span.y > span.x, "sunrise precedes sunset")
+	var today_dl: float = GameClock.daylight_hours_for(
+		GameClock.day_of_year(Time.get_date_dict_from_system()), Settings.latitude)
+	_check(absf((span.y - span.x) - today_dl) < 0.01,
+		"span width matches the sunrise equation")
+	GameClock.hours = fposmod(span.x, 24.0)
 	_check(absf(GameClock.solar_hours() - 6.0) < 0.01, "sunrise maps to solar 6:00")
-	GameClock.hours = span.y - 0.001
+	GameClock.hours = fposmod(span.y - 0.001, 24.0)
 	_check(absf(GameClock.solar_hours() - 18.0) < 0.05, "sunset maps to solar 18:00")
-	GameClock.hours = 12.0
-	_check(absf(GameClock.solar_hours() - 12.0) < 0.01, "noon stays noon")
+	GameClock.hours = fposmod((span.x + span.y) * 0.5, 24.0)
+	_check(absf(GameClock.solar_hours() - 12.0) < 0.01, "solar noon maps to 12:00")

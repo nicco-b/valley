@@ -109,7 +109,12 @@ picker).
    straight-line fallback where no navmesh exists; god mode N toggles
    the overlay) · ⏳ remaining: far waypoint graph (with the first
    authored road — an empty graph is scaffolding), NPC AgentSim port
-   (with the village).
+   (with the village). **Phase B started:** ✅ snow (cover state +
+   emergent snowline from the lapse rate, meltwater soaks the ground) ·
+   ✅ wind direction (wanders hourly, swings in storms; sand ripples and
+   dust follow it) · ✅ herd cohesion (roam draws around the group's
+   drifting centroid) · ⏳ per-cell flora + species records next;
+   population dynamics gated on the life-timescale axiom.
 
 1. **Asset track (humans)** — see ASSETS_NEEDED.md. Top: her ground-cover
    kit, his Blender rock family, real wind recording.

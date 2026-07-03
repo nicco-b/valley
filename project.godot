@@ -79,6 +79,18 @@ flora_vitality={
 "type": "float",
 "value": 0.7
 }
+snow_cover={
+"type": "float",
+"value": 0.0
+}
+snow_line={
+"type": "float",
+"value": 400.0
+}
+wind_dir={
+"type": "vec2",
+"value": Vector2(1, 0.35)
+}
 
 [input]
 

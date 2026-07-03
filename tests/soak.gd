@@ -53,6 +53,8 @@ func _check(condition: bool, name: String) -> void:
 func _invariants(npcs: Node, wildlife: Node) -> void:
 	_check(GameClock.day == DAYS, "clock advanced exactly %d days" % DAYS)
 	_check(Climate.wetness >= 0.0 and Climate.wetness <= 1.0, "wetness in [0,1]")
+	_check(Climate.snow >= 0.0 and Climate.snow <= 1.0, "snow in [0,1]")
+	_check(absf(Weather.wind_dir.length() - 1.0) < 0.01, "wind_dir stays unit")
 	_check(FloraLife.vitality >= 0.05 and FloraLife.vitality <= 1.0, "vitality in rails")
 	for npc in npcs.get_children():
 		for need in npc.needs:
@@ -83,6 +85,8 @@ func _fingerprint(npcs: Node, wildlife: Node) -> int:
 	var parts: Array = [
 		Weather.state,
 		"%.4f" % Climate.wetness,
+		"%.4f" % Climate.snow,
+		"%.3f,%.3f" % [Weather.wind_dir.x, Weather.wind_dir.y],
 		"%.4f" % FloraLife.vitality,
 		GameClock.day,
 		WorldState.has_flag("valley.bloom"),

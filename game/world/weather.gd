@@ -22,6 +22,12 @@ const SEASON_STORM_BIAS := {"winter": 1.6, "autumn": 1.25, "spring": 1.0, "summe
 var state := "calm"
 var wind: float = WIND_LEVELS.calm
 var storminess := 0.0
+## Where the wind blows FROM->TO on the xz plane. Wanders a little each
+## hour, swings harder in storms; sand ripples, dust, and (later) seed
+## drift and audio panning all read it.
+var wind_dir := Vector2(1.0, 0.35).normalized()
+
+var _wind_angle := atan2(0.35, 1.0)
 
 
 func _ready() -> void:
@@ -33,6 +39,8 @@ func _ready() -> void:
 func load_state() -> void:
 	state = WorldState.get_value("weather.state", "calm")
 	wind = float(WorldState.get_value("weather.wind", WIND_LEVELS[state]))
+	_wind_angle = float(WorldState.get_value("weather.wind_angle", _wind_angle))
+	wind_dir = Vector2(cos(_wind_angle), sin(_wind_angle))
 
 
 func _process(delta: float) -> void:
@@ -40,6 +48,7 @@ func _process(delta: float) -> void:
 	wind = lerpf(wind, WIND_LEVELS[state], blend)
 	storminess = lerpf(storminess, 1.0 if state == "storm" else 0.0, blend)
 	RenderingServer.global_shader_parameter_set("wind_strength", wind)
+	RenderingServer.global_shader_parameter_set("wind_dir", wind_dir)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -63,5 +72,11 @@ func _transition(_hour: int) -> void:
 				state = t[0]
 				print("[weather] -> ", state)
 			break
+	# The wind wanders; storms swing it hard enough to notice.
+	var swing := 0.15 + 0.5 * storminess
+	var drift := Rng.stream("weather").randf_range(-swing, swing)
+	_wind_angle = fposmod(_wind_angle + drift, TAU)
+	wind_dir = Vector2.from_angle(_wind_angle)
 	WorldState.set_value("weather.state", state)
 	WorldState.set_value("weather.wind", wind)
+	WorldState.set_value("weather.wind_angle", snappedf(_wind_angle, 0.001))

@@ -27,6 +27,11 @@ var keep_bias := 1.0  # >1.0 adds hysteresis: keep current unless clearly beaten
 var solar_gate := false  # wildlife lives by the sun; people by the clock
 var roam_range := 150.0
 var rng_stream := "npc"
+## Herd cohesion: when set (by a manager, to the group's centroid), roam
+## targets draw near it instead of anywhere in range — the group drifts
+## through its territory as a group.
+var roam_center := Vector2.INF
+var cohesion_radius := 30.0
 
 var needs_def: Dictionary = {}  # need -> drain weight
 var needs: Dictionary = {}  # need -> 0..100 (100 = content)
@@ -129,8 +134,13 @@ func resolve_at(a: Dictionary) -> Vector2:
 		return Vector2(a.at.x, a.at.z)
 	if a.get("at") == "roam":
 		var rng := Rng.stream(rng_stream)
+		var center := home
+		var radius := roam_range
+		if roam_center.is_finite():
+			center = roam_center
+			radius = cohesion_radius
 		var ang := rng.randf() * TAU
-		return home + Vector2(cos(ang), sin(ang)) * rng.randf_range(0.2, 1.0) * roam_range
+		return center + Vector2(cos(ang), sin(ang)) * rng.randf_range(0.2, 1.0) * radius
 	return home
 
 

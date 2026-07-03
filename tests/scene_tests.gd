@@ -174,8 +174,23 @@ func _test_climate() -> void:
 	Climate.wetness = 0.0
 	_check(Climate.moisture(72.0, -280.0) > Climate.moisture(400.0, -100.0),
 		"pond banks stay damp through a dry spell")
+	_check(Climate.snow_line_for(20.0) > Climate.snow_line_for(2.0),
+		"warm air lifts the snowline")
+	_check(Climate.snow_line_for(-3.0) < 0.0,
+		"a freezing floor drops the snowline below the valley")
+	var was_snow: float = Climate.snow
+	Weather.state = "calm"
+	Climate.snow = 0.5
+	Climate.wetness = 0.1
+	Climate._hourly(0)
+	_check(Climate.snow < 0.5, "warm calm hours melt the snow")
+	_check(Climate.wetness > 0.0, "meltwater soaks the ground")
+	Climate.snow = was_snow
 	Weather.state = was_state
 	Climate.wetness = was_wet
+	Weather._transition(0)
+	_check(absf(Weather.wind_dir.length() - 1.0) < 0.001,
+		"wind direction stays a unit vector as it wanders")
 
 
 ## Flora lifecycle: vitality chases climate, flags latch story-seeds.
@@ -272,7 +287,16 @@ func _test_wildlife() -> void:
 	mgr._save_state()
 	var rows: Array = WorldState.get_value("wildlife.test_herd", [])
 	_check(rows.size() == 2, "herd persists to WorldState")
-	mgr.free()
+	# Herd cohesion: roam draws near the group's heart, not anywhere.
+	for i in herd.individuals.size():
+		herd.individuals[i].sim.pos = Vector2(20.0 * i, 0.0)
+	mgr._update_cohesion(herd)
+	var roamer: AgentSim = herd.individuals[1].sim
+	_check(roamer.roam_center.is_finite(), "cohesion sets the herd's heart")
+	var roam_spot: Vector2 = roamer.resolve_at({"at": "roam"})
+	_check((roam_spot - roamer.roam_center).length() <= roamer.cohesion_radius + 0.1,
+		"roam targets stay with the herd")
+	mgr.free()  # after every mgr use — a freed Node here cost a long bisect
 	var body_script := load("res://game/wildlife/wildlife_body.gd")
 	var noon: float = body_script.sense_range_for(12.0, 0.0)
 	var dark: float = body_script.sense_range_for(0.0, 0.0)

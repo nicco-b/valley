@@ -14,6 +14,7 @@ echo "== scene tests (autoload context) =="
 # Success is the PASS line, not the exit code (quit-after exits 0).
 SCENE_OUT=$(godot --headless --quit-after 2000 res://tests/scene_tests.tscn 2>&1)
 echo "$SCENE_OUT" | grep -E "PASS|FAIL|SCRIPT ERROR"
+echo "$SCENE_OUT" | grep -q "SCRIPT ERROR" && exit 1
 echo "$SCENE_OUT" | grep -q "SCENE-TESTS PASS" || exit 1
 
 # Filter: engine banners, benign exit-time audio warnings, and our own

@@ -58,10 +58,30 @@ func spawn_herd(data: Dictionary) -> Dictionary:
 	return herd
 
 
+## Herd cohesion (SIM_ROADMAP wildlife rung 2): roam targets draw around
+## the group's centroid, clamped inside the home range — the herd drifts
+## through its territory as one animal-shaped cloud, and reads as a herd
+## from a ridge away.
+func _update_cohesion(herd: Dictionary) -> void:
+	if herd.individuals.is_empty():
+		return
+	var centroid := Vector2.ZERO
+	for ind in herd.individuals:
+		centroid += ind.sim.pos
+	centroid /= herd.individuals.size()
+	var lead: AgentSim = herd.individuals[0].sim
+	var off := centroid - lead.home
+	if off.length() > lead.roam_range:
+		centroid = lead.home + off.normalized() * lead.roam_range
+	for ind in herd.individuals:
+		ind.sim.roam_center = centroid
+
+
 ## Catch-up: every animal lives the skipped hours as data; bodies are
 ## re-seated on their records afterwards.
 func sim_advance_hours(dt_hours: float) -> void:
 	for herd in herds:
+		_update_cohesion(herd)
 		for ind in herd.individuals:
 			var sim: AgentSim = ind.sim
 			if ind.body != null:
@@ -79,6 +99,7 @@ func _process(delta: float) -> void:
 	_tick_accum = 0.0
 	var focus := _focus_position()
 	for herd in herds:
+		_update_cohesion(herd)
 		for ind in herd.individuals:
 			var sim: AgentSim = ind.sim
 			if ind.body != null:

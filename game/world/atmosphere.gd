@@ -27,6 +27,9 @@ func _process(_delta: float) -> void:
 	var h: float = GameClock.solar_hours()  # creatures follow the sun, not the clock
 	_motes.emitting = true
 	_motes.speed_scale = 0.4 + Weather.wind * 1.6
+	# Motes drift the way the wind actually blows.
+	var mat := _motes.process_material as ParticleProcessMaterial
+	mat.direction = Vector3(Weather.wind_dir.x, 0.05, Weather.wind_dir.y)
 	_glow.emitting = h >= 19.5 or h < 5.0
 	# The phenomenon prefers dark skies: sparse under a full moon.
 	_glow.amount_ratio = 0.4 + 0.6 * (1.0 - GameClock.moon_light())

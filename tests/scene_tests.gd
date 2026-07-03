@@ -13,6 +13,7 @@ func _ready() -> void:
 	_test_clock()
 	_test_seasons()
 	_test_climate()
+	_test_flora()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -61,6 +62,14 @@ func _test_quests() -> void:
 	WorldState.set_value("test.q.n", 2)
 	_check(Journal.quest_done(q), "quest completes when all steps pass")
 	_check(not Journal.quest_active(q), "complete quest no longer active")
+	var seed: Dictionary = {"id": "t_seed", "title": "S",
+		"start_if": {"flag": "test.seed.on"},
+		"steps": [{"id": "x", "text": "x", "done_if": {"flag": "test.seed.done"}}]}
+	_check(not Journal.quest_active(seed), "seed dormant before its state")
+	WorldState.set_flag("test.seed.on")
+	_check(Journal.quest_active(seed), "seed activates on sim state")
+	WorldState.set_value("test.seed.on", false)
+	_check(Journal.quest_active(seed), "seed stays latched when the state passes")
 	_check(Conditions.eval({"item": ["nonexistent_item", 1]}) == false, "item condition")
 
 
@@ -162,3 +171,28 @@ func _test_climate() -> void:
 		"pond banks stay damp through a dry spell")
 	Weather.state = was_state
 	Climate.wetness = was_wet
+
+
+## Flora lifecycle: vitality chases climate, flags latch story-seeds.
+func _test_flora() -> void:
+	_check(FloraLife.target_for("spring", 0.8, 18.0) > FloraLife.target_for("winter", 0.8, 18.0),
+		"spring outgrows winter")
+	_check(FloraLife.target_for("summer", 0.1, 34.0) < FloraLife.target_for("summer", 0.7, 22.0),
+		"hot and dry starves the flora")
+	var was_v: float = FloraLife.vitality
+	var was_wet: float = Climate.wetness
+	Climate.wetness = 0.0
+	FloraLife.vitality = 0.1
+	WorldState.set_value("valley.parched", false)
+	WorldState.set_value("valley.bloom", false)
+	FloraLife._hourly(0)
+	_check(WorldState.has_flag("valley.parched"), "dry + starved flora -> parched flag")
+	Climate.wetness = 1.0
+	FloraLife.vitality = 0.9
+	FloraLife._hourly(0)
+	_check(WorldState.has_flag("valley.bloom"), "soaked + thriving flora -> bloom flag")
+	_check(not WorldState.has_flag("valley.parched"), "recovery clears parched")
+	FloraLife.vitality = was_v
+	Climate.wetness = was_wet
+	WorldState.set_value("valley.bloom", false)
+	WorldState.set_value("valley.parched", false)

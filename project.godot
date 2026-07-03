@@ -27,6 +27,7 @@ FocusThrottle="*res://game/world/focus_throttle.gd"
 Terrain="*res://game/world/terrain.gd"
 Weather="*res://game/world/weather.gd"
 Climate="*res://game/world/climate.gd"
+FloraLife="*res://game/world/flora_life.gd"
 InteractionField="*res://game/world/interaction_field.gd"
 Records="*res://game/data/records.gd"
 HUD="*res://game/ui/hud.gd"
@@ -64,6 +65,10 @@ trace_size={
 ground_wetness={
 "type": "float",
 "value": 0.25
+}
+flora_vitality={
+"type": "float",
+"value": 0.7
 }
 
 [input]

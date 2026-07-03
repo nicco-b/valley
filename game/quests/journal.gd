@@ -48,14 +48,27 @@ func quest_done(q: Dictionary) -> bool:
 	return true
 
 
+## Latched activation: once a quest's start_if has passed, it stays
+## started — story-seeds are triggered by transient sim states (a drought,
+## a bloom) and must not vanish from the journal when the state passes.
+func quest_started(q: Dictionary) -> bool:
+	var key := "journal.%s.started" % q.id
+	if WorldState.has_flag(key):
+		return true
+	if Conditions.eval(q.get("start_if", {})):
+		WorldState.set_flag(key)
+		return true
+	return false
+
+
 func quest_active(q: Dictionary) -> bool:
-	return Conditions.eval(q.get("start_if", {})) and not quest_done(q)
+	return quest_started(q) and not quest_done(q)
 
 
 ## Notify (once) when a step or quest completes.
 func _on_state_changed(_key: String, _value: Variant) -> void:
 	for q in _quests:
-		if not Conditions.eval(q.get("start_if", {})):
+		if not quest_started(q):
 			continue
 		for step in q.steps:
 			var seen := "journal.%s.%s.seen" % [q.id, step.id]
@@ -85,7 +98,7 @@ func _refresh() -> void:
 		lines.append("")
 	var done_titles: Array[String] = []
 	for q in _quests:
-		if Conditions.eval(q.get("start_if", {})) and quest_done(q):
+		if quest_started(q) and quest_done(q):
 			done_titles.append(q.title)
 	if not done_titles.is_empty():
 		lines.append("[color=#8a7a6a][b]Remembered[/b][/color]")

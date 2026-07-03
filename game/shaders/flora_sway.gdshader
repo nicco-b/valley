@@ -5,6 +5,7 @@ shader_type spatial;
 
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;
 global uniform float wind_strength; // Weather publishes this (0..1)
+global uniform float flora_vitality; // FloraLife publishes this (0..1)
 
 void vertex() {
 	float h = 1.0 - UV.y; // 1 at the top of the card, 0 at the root
@@ -29,7 +30,11 @@ void vertex() {
 
 void fragment() {
 	vec4 tex = texture(albedo_tex, UV);
-	ALBEDO = tex.rgb;
+	// Lifecycle: low vitality dries the paint toward straw (keeps the
+	// painting's value structure, shifts its hue) — the whole valley
+	// greens and browns with FloraLife.
+	vec3 dry = vec3(dot(tex.rgb, vec3(0.333))) * vec3(1.12, 0.94, 0.62);
+	ALBEDO = mix(dry, tex.rgb, 0.4 + 0.6 * flora_vitality);
 	ALPHA = tex.a;
 	ALPHA_SCISSOR_THRESHOLD = 0.5;
 	ROUGHNESS = 1.0;

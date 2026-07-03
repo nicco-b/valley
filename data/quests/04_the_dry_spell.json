@@ -1,0 +1,9 @@
+{
+	"id": "the_dry_spell",
+	"title": "The Dry Spell",
+	"start_if": {"flag": "valley.parched"},
+	"steps": [
+		{"id": "drink", "text": "The flora is failing. See that the Keeper keeps drinking.", "done_if": {"flag": "npc.keeper.met"}},
+		{"id": "rain", "text": "Wait for the weather to turn.", "done_if": {"not_flag": "valley.parched"}}
+	]
+}

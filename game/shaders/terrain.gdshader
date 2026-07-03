@@ -27,9 +27,11 @@ const float PATCH_HOLE = 9.8; // terrain discards inside; patch owns it
 varying vec3 wpos;
 varying vec3 wnormal;
 varying float wslope;
+varying float v_fade; // patch: deformation amplitude fade toward the rim
 
 void vertex() {
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	v_fade = 0.0;
 	if (sand_patch) {
 		// The dense patch: shaped prints from the 4.7cm deform field
 		// press REAL geometry. Displacement fades at the disc edge and
@@ -41,9 +43,9 @@ void vertex() {
 		if (all(greaterThan(d_uv, vec2(0.0))) && all(lessThan(d_uv, vec2(1.0)))) {
 			press = min(textureLod(deform_map, d_uv, 0.0).r, 1.0);
 		}
-		float fade = 1.0 - smoothstep(9.0, PATCH_HOLE, r);
+		v_fade = 1.0 - smoothstep(9.0, PATCH_HOLE, r);
 		float proud = 0.02 * smoothstep(8.8, 9.6, r);
-		VERTEX.y += proud - press * (0.10 + 0.08 * ground_wetness) * fade;
+		VERTEX.y += proud - press * (0.13 + 0.09 * ground_wetness) * v_fade;
 		wpos.y = VERTEX.y;
 	} else {
 		// Coarse cells: trodden ground sinks by the 80m trace map —
@@ -116,30 +118,37 @@ void fragment() {
 		float tX = textureLod(trace_map, trace_uv + vec2(px, 0.0), 0.0).r;
 		float tY = textureLod(trace_map, trace_uv + vec2(0.0, px), 0.0).r;
 		vec2 grad = vec2(tX - tC, tY - tC);
-		n.xz += grad * 8.0;  // directional shading carries the read in any light
+		// Physical relief shading, same empirical sign as the patch —
+		// the original += was inverted, so every print ever rendered
+		// shaded as a bump. Scale ~= depth/texel, mildly exaggerated.
+		n.xz -= grad * 1.6;
 		// Dry sand doesn't stain — the pit reads as shadowed relief, and
 		// only truly darkens when the ground is wet.
-		col *= 1.0 - min(tC, 1.0) * (0.055 + 0.09 * ground_wetness);
-		// Kicked-up sand at the print's rim is looser and lighter — the
-		// lit berm is what sells the depth at play-camera distance.
-		float rim = max(0.0, length(grad) * 7.0 - tC * 1.2) * sandiness;
-		col += vec3(0.09, 0.075, 0.05) * min(rim, 1.0);
+		col *= 1.0 - min(tC, 1.0) * (0.03 + 0.07 * ground_wetness);
 	}
 
-	// On the dense patch, the deform field shades at true footprint
-	// scale: heel-and-toe pits, walls, and kicked rims from 4.7cm data.
+	// On the dense patch: NO painted shading. The surface normal is
+	// derived PHYSICALLY from the deformed height field (central
+	// differences over the 4.7cm texels, scaled by the true depth), and
+	// the actual sun does the rest — a pit reads concave at every hour
+	// because the light model, not a paint trick, says so. The only
+	// paint left is a whisper of compaction tint on wet ground.
 	if (sand_patch) {
 		vec2 d_uv = (wpos.xz - deform_center) / deform_size + 0.5;
 		if (all(greaterThan(d_uv, vec2(0.0))) && all(lessThan(d_uv, vec2(1.0)))) {
 			float dpx = 1.0 / 512.0;
+			float texel_m = deform_size / 512.0;
+			float amp = (0.13 + 0.09 * ground_wetness) * v_fade;
 			float dC = textureLod(deform_map, d_uv, 0.0).r;
-			float dX = textureLod(deform_map, d_uv + vec2(dpx, 0.0), 0.0).r;
-			float dY = textureLod(deform_map, d_uv + vec2(0.0, dpx), 0.0).r;
-			vec2 dgrad = vec2(dX - dC, dY - dC);
-			n.xz += dgrad * 14.0;
-			col *= 1.0 - min(dC, 1.0) * (0.05 + 0.09 * ground_wetness);
-			float drim = max(0.0, length(dgrad) * 9.0 - dC * 1.2) * sandiness;
-			col += vec3(0.09, 0.075, 0.05) * min(drim, 1.0);
+			float dXp = textureLod(deform_map, d_uv + vec2(dpx, 0.0), 0.0).r;
+			float dXm = textureLod(deform_map, d_uv - vec2(dpx, 0.0), 0.0).r;
+			float dYp = textureLod(deform_map, d_uv + vec2(0.0, dpx), 0.0).r;
+			float dYm = textureLod(deform_map, d_uv - vec2(0.0, dpx), 0.0).r;
+			// H = base - press*amp  =>  n.xz += amp * d(press)/d(xz)
+			// (sign verified empirically against the probe's sphere
+			// shadow — A/B'd both ways)
+			n.xz -= (amp / texel_m) * 0.5 * vec2(dXp - dXm, dYp - dYm);
+			col *= 1.0 - min(dC, 1.0) * (0.02 + 0.10 * ground_wetness);
 		}
 	}
 

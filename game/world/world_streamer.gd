@@ -86,7 +86,7 @@ func _ready() -> void:
 	for f in FLORA:
 		_flora_meshes.append(_make_billboard_mesh(f[0], f[1], sway))
 	for f in GROUND_COVER:
-		_cover_meshes.append(_make_billboard_mesh(f[0], f[1], sway))
+		_cover_meshes.append(_make_billboard_mesh(f[0], f[1], sway, true))
 
 	# Synchronous first fill: the ground must exist before the first physics frame.
 	_update_cells(true)
@@ -456,11 +456,13 @@ func _on_records_changed(c: Vector2i) -> void:
 		_add_records(c)
 
 
-func _make_billboard_mesh(path: String, h: float, sway: Shader) -> QuadMesh:
+func _make_billboard_mesh(path: String, h: float, sway: Shader,
+		is_cover := false) -> QuadMesh:
 	var tex: Texture2D = load(path)
 	var mat := ShaderMaterial.new()
 	mat.shader = sway
 	mat.set_shader_parameter("albedo_tex", tex)
+	mat.set_shader_parameter("ground_cover", is_cover)
 	var w: float = h * float(tex.get_width()) / float(tex.get_height())
 	var mesh := QuadMesh.new()
 	mesh.size = Vector2(w, h)

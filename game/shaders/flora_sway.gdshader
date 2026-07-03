@@ -6,6 +6,8 @@ shader_type spatial;
 uniform sampler2D albedo_tex : source_color, filter_linear_mipmap;
 global uniform float wind_strength; // Weather publishes this (0..1)
 global uniform float flora_vitality; // FloraLife publishes this (0..1)
+global uniform vec2 patch_center; // the deformation disc under the player
+uniform bool ground_cover = false; // low cover yields inside the disc
 
 void vertex() {
 	float h = 1.0 - UV.y; // 1 at the top of the card, 0 at the root
@@ -29,6 +31,15 @@ void vertex() {
 }
 
 void fragment() {
+	// Ground cover sits on the hidden coarse cell — inside the
+	// deformation disc it would float over the dense patch's pressed
+	// ground, so it yields (bare pressed sand reads better anyway).
+	if (ground_cover) {
+		vec2 wxz = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xz;
+		if (distance(wxz, patch_center) < 10.0) {
+			discard;
+		}
+	}
 	vec4 tex = texture(albedo_tex, UV);
 	// Lifecycle: low vitality dries the paint toward straw (keeps the
 	// painting's value structure, shifts its hue) — the whole valley

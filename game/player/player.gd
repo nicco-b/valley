@@ -44,6 +44,7 @@ func _ready() -> void:
 	var idle := _resolve_anim("Idle")
 	if idle != "":
 		_anim.play(idle)
+	CharacterPaint.apply($Body/Model)
 	_sand_puff = _make_sand_puff()
 	_steps = _make_footsteps()
 	SaveGame.load_into_world.call_deferred()

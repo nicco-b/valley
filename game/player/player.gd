@@ -141,6 +141,19 @@ func _make_sand_puff() -> GPUParticles3D:
 	draw.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	draw.vertex_color_use_as_albedo = true
 	draw.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	# Soft round mote, not a bare quad — a hard-edged square of dust
+	# reads as a rendering bug, not sand.
+	var dot := GradientTexture2D.new()
+	dot.fill = GradientTexture2D.FILL_RADIAL
+	dot.fill_from = Vector2(0.5, 0.5)
+	dot.fill_to = Vector2(0.5, 0.0)
+	dot.width = 32
+	dot.height = 32
+	var dot_grad := Gradient.new()
+	dot_grad.set_color(0, Color(1, 1, 1, 1))
+	dot_grad.set_color(1, Color(1, 1, 1, 0))
+	dot.gradient = dot_grad
+	draw.albedo_texture = dot
 	quad.material = draw
 	var p := GPUParticles3D.new()
 	p.amount = 14

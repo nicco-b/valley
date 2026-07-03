@@ -21,7 +21,7 @@ const AGING_INTERVAL := 0.35  # rebuild cadence when nothing new happened
 const WEAR_PER_STAMP := 0.04
 const WEAR_DECAY_PER_HOUR := 0.0006  # ~2 months to fade an unwalked path
 const WEAR_MIN := 0.02  # below this a cell is forgotten
-const WEAR_RENDER := 0.55  # the old path draws fainter than a fresh print
+const WEAR_RENDER := 0.4  # old paths stay faint so fresh prints keep contrast
 const WEAR_MAX_CELLS := 8000
 
 var _stamps: Array = []  # [Vector2 world xz, float time_placed]

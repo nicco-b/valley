@@ -21,7 +21,29 @@ func _run() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var player: CharacterBody3D = get_tree().get_first_node_in_group("player")
-	# Open flat sand, afternoon light, calm wind so prints persist.
+	# First: the player's REAL save spot with the REAL wear — the ground
+	# the human actually tests on. Stamp a short line and look at it.
+	GameClock.hours = 15.0
+	GameClock.time_scale = 0.0
+	Weather.state = "calm"
+	Weather.wind = 0.1
+	for i in 30:
+		await get_tree().process_frame
+	var home := Vector2(player.global_position.x, player.global_position.z)
+	for i in 10:
+		InteractionField.stamp(home + Vector2(-0.7 * i, -0.4 * i), 1.0)
+	for i in 30:
+		await get_tree().process_frame
+	var home_cam := Camera3D.new()
+	add_child(home_cam)
+	home_cam.global_position = player.global_position + Vector3(4.0, 2.4, 4.0)
+	home_cam.look_at(player.global_position + Vector3(-4.0, -1.2, -3.0))
+	home_cam.make_current()
+	for i in 5:
+		await get_tree().process_frame
+	_shot("home")
+	player.get_node("CameraRig/SpringArm3D/Camera3D").make_current()
+	# Then: open flat sand, afternoon light, calm wind so prints persist.
 	player.global_position = Vector3(30.0, Terrain.height(30.0, -80.0) + 1.0, -80.0)
 	GameClock.hours = 15.0
 	GameClock.time_scale = 0.0  # hold the light still

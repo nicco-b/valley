@@ -52,9 +52,10 @@ places (pond oasis + surrounds) authored via place mode — cells in data/cells/
 
 Biped fox player (hers, replaced the star hound as the player body
 2026-07-02) and the star hound (fully animated, currently unplaced →
-return it as a creature/companion when canon names one) both ship flat
-glb colors — the painterly shading lives only in their .blend files in
-assets/blender/creatures/ (→ matching spatial shader pass in Godot) ·
+return it as a creature/companion when canon names one). The fox now
+renders through character_paint.gdshader (gouache wash/grain/edge-dark
+in-engine, restoring what the flat glb export loses); apply the same
+CharacterPaint pass to the star hound and NPC models when they land ·
 synth wind + footsteps
 (→ his recordings; night bed is a CC0 field recording, see
 assets/audio/SOURCES.md) · SVG tufts/pebbles/cactus (→ her painted PNGs,

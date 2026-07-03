@@ -92,6 +92,16 @@ All decided 2026-07-01 (first design day) unless noted.*
   distance-based); only a minimized window throttles near-idle. Good-citizen
   behavior for leave-it-running, without sabotaging the glance.
 
+- **AI in the pipeline: offline amplifier only** *(2026-07-02)*. LLMs may
+  help the humans author — drafting conditional dialogue variants, seed
+  permutations, schema-shaped content for human editing — but nothing
+  generated ships unreviewed and **nothing generates at runtime**. Runtime
+  systems may only select and parameterize authored content. This is
+  authored-primary (Principle #4) applied to text.
+- **Depth before visual R&D** *(2026-07-02)*. Stroke-space/whole-frame
+  painterly rendering research declined for now; the risk budget goes to
+  simulation depth (SIM_ROADMAP). The per-surface painterly stack stands.
+
 ## Open (deliberately undecided)
 
 - World-axioms, the glow's name, the Wanderer's identity, journey premise
@@ -100,3 +110,10 @@ All decided 2026-07-01 (first design day) unless noted.*
 - Fast travel: diegetic-or-none (decide with world size)
 - NPC navigation approach: navmesh-per-cell vs steering (before NPC #2)
 - Factions, economy model
+- **The shared valley** — one persistent world both of you inhabit
+  (live/async co-presence) vs. solo worlds with shared traces vs. strictly
+  solo. Parked 2026-07-02 with eyes open: deciding *yes* after per-cell
+  persistence lands costs rework, so revisit before/with that work (SIM_
+  ROADMAP save phase).
+- **OS-level ambient presence** (menu-bar status, event notifications,
+  wallpaper mode) — "maybe, but just the window for now" (2026-07-02).

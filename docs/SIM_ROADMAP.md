@@ -200,6 +200,36 @@ Phase E  economy flows + trading                          (G4 completes)
 Each phase is weeks not months, ships player-visible, and none blocks
 the asset or canon tracks. Axioms still gate all real writing.
 
+## The extreme tier (survived the 2026-07-02 spec questions; depth-first)
+
+Three advancements beyond the Skyrim bar, all sim-side, all riding the
+foundations above — plus the discipline that enables them:
+
+- **Determinism per system** (build with Phase A, alongside the soak
+  harness): every sim system draws from its own seeded RNG stream;
+  given the same save + wall-clock span, the world replays identically.
+  Not a feature — an engineering discipline that buys perfect bug repro,
+  a bulletproof soak harness, and the memoir below.
+- **The world's memoir** (after P4): the event log + determinism make
+  history *replayable* — sit at the shrine and watch a ghost time-lapse
+  of the last season: paths wearing in, the drought breaking. Ties into
+  the field-recordist mechanic (a recording is an item carrying the
+  actual soundscape of the actual day it was made).
+- **Succession-scale ecology** (extends the flora/climate ladders):
+  multi-month arcs as content — overgrazed ground recovering through
+  stages across a real season, heavy wear eroding into actual terrain
+  grooves (the wear map writing the sculpt edit layer), the water table
+  breathing across years. Year-two valley ≠ year-one valley.
+- **Individual animal identity** (extends wildlife rung 3): each tier-3
+  record accrues history — the scar from the winter fight, the limp that
+  never healed, the one that drinks last. Names earned by behavior,
+  never assigned. The cheapest emotional depth in this document.
+
+Parked, recorded in DECISIONS open list: the shared valley (decide
+before/with per-cell persistence), OS-level ambient presence (window
+only for now). Declined: stroke-space rendering R&D (depth first);
+runtime text generation (offline authoring amplifier only — decided).
+
 ## What we deliberately do not chase
 
 Animation-graph combat breadth (anti-spiral, session doc §5). Voiced

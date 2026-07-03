@@ -52,11 +52,13 @@ func _ready() -> void:
 	GameClock.hour_tick.connect(_age_wear)
 
 
-## strength: how hard the ground was pressed — running presses harder,
-## hooves lighter, and wet sand takes every print more deeply (Climate).
-func stamp(world_xz: Vector2, strength := 1.0) -> void:
-	strength = minf(strength * (1.0 + 0.5 * Climate.wetness), 1.6)
-	_stamps.append([world_xz, _clock, strength])
+## strength caps at 1.0 — a saturated stamp has no gradient, and no
+## gradient means no rim, no shading, no depth (flat dark craters, the
+## bug this replaces). Pressing harder = a WIDER print (radius), and wet
+## ground presses deeper via the shader's displacement (ground_wetness),
+## never by inflating the mask.
+func stamp(world_xz: Vector2, strength := 1.0, radius := 2) -> void:
+	_stamps.append([world_xz, _clock, minf(strength, 1.0), radius])
 	if _stamps.size() > MAX_STAMPS:
 		_stamps.pop_front()
 	var cell := Vector2i(int(floor(world_xz.x)), int(floor(world_xz.y)))
@@ -160,9 +162,9 @@ func _rebuild() -> void:
 		alive.append(s)
 		var strength: float = minf(age / FADE_IN, 1.0) * (1.0 - age / LIFETIME) * s[2]
 		var uv: Vector2 = (s[0] - _anchor) * px_per_m + Vector2.ONE * (TEX_SIZE * 0.5)
-		_blob(_image, int(uv.x), int(uv.y), strength, 2)  # fresh prints: tight
-		# (r2 ≈ 0.3m: at a 0.7m stride, prints separate instead of
-		# merging into a trench — a walked line reads as footsteps.)
+		# r2 ≈ 0.3m: at a 0.7m stride, prints separate instead of merging
+		# into a trench — a walked line reads as footsteps.
+		_blob(_image, int(uv.x), int(uv.y), strength, s[3])
 	_stamps = alive
 	_image.generate_mipmaps()  # the vertex displacement reads a blurred level
 	_texture.update(_image)

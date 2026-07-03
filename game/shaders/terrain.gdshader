@@ -33,7 +33,8 @@ void vertex() {
 		vec2 edge = min(t_uv, 1.0 - t_uv);
 		float region_fade = smoothstep(0.0, 0.06, min(edge.x, edge.y));
 		float press = min(textureLod(trace_map, t_uv, 1.0).r, 1.0);
-		VERTEX.y -= press * 0.16 * region_fade;
+		// Wet sand takes prints deeper — in geometry, not in the mask.
+		VERTEX.y -= press * (0.14 + 0.10 * ground_wetness) * region_fade;
 		wpos.y = VERTEX.y;
 	}
 	wnormal = NORMAL; // terrain meshes are unrotated: model = world
@@ -85,7 +86,7 @@ void fragment() {
 		n.xz += grad * 8.0;  // directional shading carries the read in any light
 		// Dry sand doesn't stain — the pit reads as shadowed relief, and
 		// only truly darkens when the ground is wet.
-		col *= 1.0 - min(tC, 1.0) * (0.055 + 0.14 * ground_wetness);
+		col *= 1.0 - min(tC, 1.0) * (0.055 + 0.09 * ground_wetness);
 		// Kicked-up sand at the print's rim is looser and lighter — the
 		// lit berm is what sells the depth at play-camera distance.
 		float rim = max(0.0, length(grad) * 7.0 - tC * 1.2) * sandiness;

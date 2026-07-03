@@ -115,6 +115,31 @@ func _run() -> void:
 	for i in 20:
 		await get_tree().process_frame
 	_shot("playcam_soft")
+	# The worn-path case that bit us: a SATURATED wear route (months of
+	# NPC traffic) on WET ground — must read as a smooth trodden groove,
+	# never a chain of dark craters.
+	GameClock.hours = 15.0
+	Weather.state = "calm"
+	Weather.wind = 0.1
+	Climate.wetness = 0.7
+	# Both wet-ground cases: a fresh walked stride (the reported bug) and
+	# a saturated months-old wear route — shaped prints and a smooth
+	# groove respectively, never flat dark craters.
+	for i in 30:
+		var t := float(i) * 0.5
+		InteractionField.stamp(Vector2(26.0 - t * 0.9, -78.0 - t * 0.55), 1.0)
+	for i in 40:
+		var w := float(i) * 1.0
+		InteractionField._wear[Vector2i(int(20.0 - w * 0.8), int(-92.0 - w * 0.5))] = 1.0
+	InteractionField._wear_dirty = true
+	InteractionField._wear_cooldown = 0.0
+	for i in 30:
+		await get_tree().process_frame
+	cam.global_position = Vector3(26.0, Terrain.height(26.0, -80.0) + 2.4, -80.0)
+	cam.look_at(Vector3(8.0, 0.0, -92.0))
+	for i in 5:
+		await get_tree().process_frame
+	_shot("wornwet")
 	get_tree().quit(0)
 
 

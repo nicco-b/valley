@@ -25,9 +25,14 @@ var storminess := 0.0
 
 
 func _ready() -> void:
+	add_to_group("world_state_reader")  # SaveGame re-calls load_state post-restore
+	load_state()
+	GameClock.hour_tick.connect(_transition)
+
+
+func load_state() -> void:
 	state = WorldState.get_value("weather.state", "calm")
 	wind = float(WorldState.get_value("weather.wind", WIND_LEVELS[state]))
-	GameClock.hour_tick.connect(_transition)
 
 
 func _process(delta: float) -> void:

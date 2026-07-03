@@ -58,6 +58,9 @@ func load_into_world() -> void:
 	GameClock.hours = data.hours
 	GameClock.day = int(data.get("day", 0))
 	WorldState.restore(data.get("state", {}))
+	# Every system that mirrors WorldState re-reads it here — autoload
+	# _ready runs before the save loads, so boot-time reads see defaults.
+	get_tree().call_group("world_state_reader", "load_state")
 	get_tree().call_group("npc", "load_state")
 	# The world ran 1:1 while the app was closed — live the missed hours.
 	var away_hours := 0.0

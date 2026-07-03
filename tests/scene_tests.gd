@@ -12,6 +12,7 @@ func _ready() -> void:
 	_test_skills()
 	_test_clock()
 	_test_seasons()
+	_test_climate()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -131,3 +132,33 @@ func _test_seasons() -> void:
 	_check(absf(GameClock.solar_hours() - 18.0) < 0.05, "sunset maps to solar 18:00")
 	GameClock.hours = fposmod((span.x + span.y) * 0.5, 24.0)
 	_check(absf(GameClock.solar_hours() - 12.0) < 0.01, "solar noon maps to 12:00")
+
+
+## Climate: the temperature/moisture substrate other systems read.
+func _test_climate() -> void:
+	var floor_temp: float = Climate.temperature(0.0, -100.0)
+	var ridge_temp: float = Climate.temperature(900.0, -100.0)
+	_check(ridge_temp < floor_temp, "ridges run colder than the valley floor")
+	var span: Vector2 = GameClock.daylight_span()
+	GameClock.hours = fposmod(span.x - 2.0, 24.0)  # before dawn
+	var predawn: float = Climate.temperature(0.0, -100.0)
+	GameClock.hours = fposmod((span.x + span.y) * 0.5 + 3.0, 24.0)  # mid-afternoon
+	var afternoon: float = Climate.temperature(0.0, -100.0)
+	_check(predawn < afternoon, "pre-dawn is colder than mid-afternoon")
+	var was_state: String = Weather.state
+	var was_wet: float = Climate.wetness
+	Weather.state = "storm"
+	Climate.wetness = 0.2
+	Climate._hourly(0)
+	_check(Climate.wetness > 0.2, "storm hours soak the ground")
+	Weather.state = "calm"
+	var wet: float = Climate.wetness
+	Climate._hourly(0)
+	_check(Climate.wetness < wet, "calm hours dry the ground")
+	_check(float(WorldState.get_value("climate.wetness")) == Climate.wetness,
+		"wetness mirrored to WorldState")
+	Climate.wetness = 0.0
+	_check(Climate.moisture(72.0, -280.0) > Climate.moisture(400.0, -100.0),
+		"pond banks stay damp through a dry spell")
+	Weather.state = was_state
+	Climate.wetness = was_wet

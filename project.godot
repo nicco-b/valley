@@ -26,6 +26,7 @@ GameClock="*res://game/world/game_clock.gd"
 FocusThrottle="*res://game/world/focus_throttle.gd"
 Terrain="*res://game/world/terrain.gd"
 Weather="*res://game/world/weather.gd"
+Climate="*res://game/world/climate.gd"
 InteractionField="*res://game/world/interaction_field.gd"
 Records="*res://game/data/records.gd"
 HUD="*res://game/ui/hud.gd"
@@ -59,6 +60,10 @@ trace_center={
 trace_size={
 "type": "float",
 "value": 80.0
+}
+ground_wetness={
+"type": "float",
+"value": 0.25
 }
 
 [input]

@@ -28,6 +28,8 @@ time skips through it; real-calendar seasons — sun-following systems read
 `Terrain` (the
 global height function: noise + valley landform + sculpt edit layer),
 `Weather` (wind/storminess; publishes `wind_strength` global shader param),
+`Climate` (the substrate fields: `temperature(x,z)` + `moisture(x,z)`;
+publishes `ground_wetness` — new sims read these, never roll their own),
 `Records` (validated JSON loading), `HUD` (all on-screen text: prompt/say/
 notify/satchel), `Items`, `Kit` (placeable palette), `CellRecords` (placed-
 object JSON), `GodMode` (dev tools), `HotReload`, `MapScreen`, `SaveGame`.
@@ -76,5 +78,12 @@ Content is data: NPCs, items, placements in `data/` as JSON, loaded through
 - Every placeholder is labeled placeholder with its replacement path.
 - Simulation code must ship with observability (the god-mode inspector
   pattern) — see FOUNDATIONS F1.5 rules.
+- **The sim contract (time is 1:1; DECISIONS 2026-07-02):** every
+  simulation is either (a) a stateless function of real time (seasons,
+  sun, moon) or (b) stateful and advanced by `hour_tick` /
+  `sim_advance_hours` so `GameClock.advance_hours` replays closed/asleep
+  stretches. State that mirrors WorldState joins the
+  `world_state_reader` group with a `load_state()` (boot `_ready` runs
+  before the save restores). A sim that can't catch up doesn't ship.
 - Commit style: what + why, present tense; end with the Co-Authored-By
   trailer; push after committing (private repo github.com/nicco-b/valley).

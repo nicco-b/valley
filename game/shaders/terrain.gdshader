@@ -11,6 +11,7 @@ uniform sampler2D variation : filter_linear, repeat_enable;
 global uniform sampler2D trace_map;
 global uniform vec2 trace_center;
 global uniform float trace_size;
+global uniform float ground_wetness; // Climate publishes this (0..1)
 
 varying vec3 wpos;
 varying vec3 wnormal;
@@ -66,7 +67,11 @@ void fragment() {
 	float g = fract(sin(dot(floor(wpos.xz * 16.0), vec2(127.1, 311.7))) * 43758.5453);
 	float glint = step(0.986, g) * sandiness;
 
+	// Rain memory: wet ground darkens (sand most, rock least) and takes a
+	// faint sheen while it dries out.
+	col *= 1.0 - ground_wetness * (0.08 + 0.12 * sandiness);
+
 	ALBEDO = col;
-	ROUGHNESS = mix(1.0, 0.25, glint);
+	ROUGHNESS = mix(mix(1.0, 0.25, glint), 0.55, ground_wetness * sandiness * 0.6);
 	SPECULAR = mix(0.08, 0.6, glint);
 }

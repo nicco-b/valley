@@ -1,0 +1,79 @@
+extends Node3D
+## SandPatch: the dense ground under the player — a 24m disc of terrain
+## at 18.75cm vertices (the streamed cells are 0.66m at best) that
+## displaces by SandField's 4.7cm deformation map. Footsteps become
+## actual heel-and-toe pits with walls and rims, in geometry. The
+## terrain shader opens a hole under the patch (patch_center global);
+## the patch discards outside the same circle with a small overlap band
+## where it sits 2cm proud, so there is never a gap or a z-fight.
+## Rebuilt on the worker thread when SandField re-anchors; the old patch
+## serves until the new one lands.
+
+const SIZE := 24.0
+const RES := 129  # 18.75cm vertex grid
+
+var _anchor := Vector2.INF
+var _pending_anchor := Vector2.INF
+var _task := -1
+var _built_mutex := Mutex.new()
+var _built: Array = []  # [anchor, ArrayMesh]
+var _mi: MeshInstance3D
+
+
+func _ready() -> void:
+	_mi = MeshInstance3D.new()
+	var streamer := get_tree().get_first_node_in_group("world_streamer")
+	if streamer:
+		var mat: ShaderMaterial = streamer._ground_material.duplicate()
+		mat.set_shader_parameter("sand_patch", true)
+		_mi.material_override = mat
+	add_child(_mi)
+
+
+func _process(_delta: float) -> void:
+	var want: Vector2 = SandField._anchor
+	if want.is_finite() and want != _anchor and _task == -1 and want != _pending_anchor:
+		_pending_anchor = want
+		_task = WorkerThreadPool.add_task(_thread_build.bind(want))
+	_built_mutex.lock()
+	var done := _built.duplicate()
+	_built.clear()
+	_built_mutex.unlock()
+	if not done.is_empty():
+		if _task != -1:
+			WorkerThreadPool.wait_for_task_completion(_task)
+			_task = -1
+		var latest: Array = done[done.size() - 1]
+		_anchor = latest[0]
+		_mi.mesh = latest[1]
+		global_position = Vector3(_anchor.x, 0.0, _anchor.y)
+		# The hole in the terrain follows the ground that fills it.
+		RenderingServer.global_shader_parameter_set("patch_center", _anchor)
+
+
+## True local terrain at footprint resolution, built off-thread.
+func _thread_build(anchor: Vector2) -> void:
+	var step := SIZE / (RES - 1)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	st.set_smooth_group(0)
+	for iz in RES:
+		for ix in RES:
+			var lx := ix * step - SIZE * 0.5
+			var lz := iz * step - SIZE * 0.5
+			st.set_uv(Vector2(anchor.x + lx, anchor.y + lz) * 0.05)
+			st.add_vertex(Vector3(lx, Terrain.height(anchor.x + lx, anchor.y + lz), lz))
+	for iz in RES - 1:
+		for ix in RES - 1:
+			var i := iz * RES + ix
+			st.add_index(i)
+			st.add_index(i + 1)
+			st.add_index(i + RES)
+			st.add_index(i + 1)
+			st.add_index(i + RES + 1)
+			st.add_index(i + RES)
+	st.generate_normals()
+	var mesh := st.commit()
+	_built_mutex.lock()
+	_built.append([anchor, mesh])
+	_built_mutex.unlock()

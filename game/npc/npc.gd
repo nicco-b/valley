@@ -295,6 +295,8 @@ func _physics_process(delta: float) -> void:
 		if _step_accum >= 0.7:
 			_step_accum = 0.0
 			InteractionField.stamp(Vector2(global_position.x, global_position.z), 0.9)
+			SandField.stamp(Vector2(global_position.x, global_position.z),
+				_body.rotation.y, SandField.Mask.BOOT, 0.9)
 
 	var flat := Vector3(velocity.x, 0.0, velocity.z)
 	if flat.length() > 0.3:

@@ -16,7 +16,13 @@ global uniform float snow_cover; // Climate: 0..1 cover above the snowline
 global uniform float snow_line; // Climate: freezing altitude in meters
 global uniform vec2 wind_dir; // Weather: where the wind blows
 global uniform vec2 stream_center; // WorldStreamer: where full cells exist
+global uniform sampler2D deform_map; // SandField: 4.7cm/px pressure field
+global uniform vec2 deform_center; // where the deform window is anchored
+global uniform float deform_size;
+global uniform vec2 patch_center; // where the dense patch covers the hole
 uniform bool far_lod = false; // far terrain yields to the real cells
+uniform bool sand_patch = false; // the dense patch replacing ground underfoot
+const float PATCH_HOLE = 9.8; // terrain discards inside; patch owns it
 
 varying vec3 wpos;
 varying vec3 wnormal;
@@ -24,18 +30,32 @@ varying float wslope;
 
 void vertex() {
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-	// Trodden ground actually sinks (the RDR2-snow trick, painterly
-	// dose): a blurred read of the trace map presses the mesh down, so
-	// worn paths and fresh trails become real grooves with silhouettes.
-	// Fades at the region border so the moving window never pops.
-	vec2 t_uv = (wpos.xz - trace_center) / trace_size + 0.5;
-	if (all(greaterThan(t_uv, vec2(0.0))) && all(lessThan(t_uv, vec2(1.0)))) {
-		vec2 edge = min(t_uv, 1.0 - t_uv);
-		float region_fade = smoothstep(0.0, 0.06, min(edge.x, edge.y));
-		float press = min(textureLod(trace_map, t_uv, 1.0).r, 1.0);
-		// Wet sand takes prints deeper — in geometry, not in the mask.
-		VERTEX.y -= press * (0.14 + 0.10 * ground_wetness) * region_fade;
+	if (sand_patch) {
+		// The dense patch: shaped prints from the 4.7cm deform field
+		// press REAL geometry. Displacement fades at the disc edge and
+		// the rim of the disc sits 2cm proud so it overdraws the coarse
+		// terrain cleanly in the overlap band.
+		float r = length(VERTEX.xz);
+		vec2 d_uv = (wpos.xz - deform_center) / deform_size + 0.5;
+		float press = 0.0;
+		if (all(greaterThan(d_uv, vec2(0.0))) && all(lessThan(d_uv, vec2(1.0)))) {
+			press = min(textureLod(deform_map, d_uv, 0.0).r, 1.0);
+		}
+		float fade = 1.0 - smoothstep(9.0, PATCH_HOLE, r);
+		float proud = 0.02 * smoothstep(8.8, 9.6, r);
+		VERTEX.y += proud - press * (0.10 + 0.08 * ground_wetness) * fade;
 		wpos.y = VERTEX.y;
+	} else {
+		// Coarse cells: trodden ground sinks by the 80m trace map —
+		// worn paths and distant trails keep their broad grooves.
+		vec2 t_uv = (wpos.xz - trace_center) / trace_size + 0.5;
+		if (all(greaterThan(t_uv, vec2(0.0))) && all(lessThan(t_uv, vec2(1.0)))) {
+			vec2 edge = min(t_uv, 1.0 - t_uv);
+			float region_fade = smoothstep(0.0, 0.06, min(edge.x, edge.y));
+			float press = min(textureLod(trace_map, t_uv, 1.0).r, 1.0);
+			VERTEX.y -= press * (0.14 + 0.10 * ground_wetness) * region_fade;
+			wpos.y = VERTEX.y;
+		}
 	}
 	wnormal = NORMAL; // terrain meshes are unrotated: model = world
 	wslope = 1.0 - NORMAL.y;
@@ -46,6 +66,16 @@ void fragment() {
 	// its coarse sampling can bulge over sharp sculpts, and the real
 	// ground is always there to win.
 	if (far_lod && distance(wpos.xz, stream_center) < 240.0) {
+		discard;
+	}
+	// The streamed cells yield the disc under the player to the dense
+	// sand patch (which discards outside it — complementary with an
+	// overlap band so neither gaps nor fights).
+	if (sand_patch) {
+		if (length(wpos.xz - patch_center) > PATCH_HOLE + 0.2) {
+			discard;
+		}
+	} else if (!far_lod && distance(wpos.xz, patch_center) < PATCH_HOLE) {
 		discard;
 	}
 	float blotch = texture(variation, wpos.xz * 0.006).r;
@@ -94,6 +124,23 @@ void fragment() {
 		// lit berm is what sells the depth at play-camera distance.
 		float rim = max(0.0, length(grad) * 7.0 - tC * 1.2) * sandiness;
 		col += vec3(0.09, 0.075, 0.05) * min(rim, 1.0);
+	}
+
+	// On the dense patch, the deform field shades at true footprint
+	// scale: heel-and-toe pits, walls, and kicked rims from 4.7cm data.
+	if (sand_patch) {
+		vec2 d_uv = (wpos.xz - deform_center) / deform_size + 0.5;
+		if (all(greaterThan(d_uv, vec2(0.0))) && all(lessThan(d_uv, vec2(1.0)))) {
+			float dpx = 1.0 / 512.0;
+			float dC = textureLod(deform_map, d_uv, 0.0).r;
+			float dX = textureLod(deform_map, d_uv + vec2(dpx, 0.0), 0.0).r;
+			float dY = textureLod(deform_map, d_uv + vec2(0.0, dpx), 0.0).r;
+			vec2 dgrad = vec2(dX - dC, dY - dC);
+			n.xz += dgrad * 14.0;
+			col *= 1.0 - min(dC, 1.0) * (0.05 + 0.09 * ground_wetness);
+			float drim = max(0.0, length(dgrad) * 9.0 - dC * 1.2) * sandiness;
+			col += vec3(0.09, 0.075, 0.05) * min(drim, 1.0);
+		}
 	}
 
 	NORMAL = normalize((VIEW_MATRIX * vec4(normalize(n), 0.0)).xyz);

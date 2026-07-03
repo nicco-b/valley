@@ -18,7 +18,10 @@ const SIT_EASE := 3.0
 var _sitting := false
 var _target: Interactable = null
 var _step_accum := 0.0
+var _step_left := false
 var _sand_puff: GPUParticles3D
+var _scuff: GPUParticles3D
+var _was_airborne := false
 var _steps: AudioStreamPlayer
 # Skill xp accumulators, flushed to WorldState every few seconds.
 var _xp_walk := 0.0
@@ -46,6 +49,7 @@ func _ready() -> void:
 		_anim.play(idle)
 	CharacterPaint.apply($Body/Model)
 	_sand_puff = _make_sand_puff()
+	_scuff = _make_scuff()
 	_steps = _make_footsteps()
 	SaveGame.load_into_world.call_deferred()
 
@@ -168,6 +172,27 @@ func _make_sand_puff() -> GPUParticles3D:
 	return p
 
 
+## Continuous low scuff while sprinting — dragged sand, not bursts.
+func _make_scuff() -> GPUParticles3D:
+	var src := _make_sand_puff()
+	src.queue_free()  # cheapest way to clone the tuned material setup:
+	var p := GPUParticles3D.new()
+	p.process_material = src.process_material.duplicate()
+	p.draw_pass_1 = src.draw_pass_1
+	var mat := p.process_material as ParticleProcessMaterial
+	mat.initial_velocity_min = 0.3
+	mat.initial_velocity_max = 0.9
+	mat.direction = Vector3(0, 1, 0)
+	p.amount = 24
+	p.lifetime = 0.55
+	p.one_shot = false
+	p.emitting = false
+	p.explosiveness = 0.0
+	p.top_level = true
+	add_child(p)
+	return p
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var sens := MOUSE_SENSITIVITY * Settings.mouse_sensitivity
@@ -249,11 +274,31 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 
+	# Kicked sand: a landing thumps a burst; a sprint drags a scuff.
+	if is_on_floor() and _was_airborne and not swimming:
+		_sand_puff.global_position = global_position + Vector3(0, 0.06, 0)
+		_sand_puff.amount_ratio = 1.0
+		_sand_puff.restart()
+	_was_airborne = not is_on_floor()
+	_scuff.emitting = is_on_floor() and not swimming \
+			and Input.is_action_pressed("sprint") \
+			and Vector2(velocity.x, velocity.z).length() > 4.0
+	if _scuff.emitting:
+		_scuff.global_position = global_position + Vector3(0, 0.08, 0)
+
 	if is_on_floor() or swimming:
 		_step_accum += Vector2(velocity.x, velocity.z).length() * delta
 		if _step_accum >= 0.7:
 			_step_accum = 0.0
-			InteractionField.stamp(Vector2(global_position.x, global_position.z),
+			var foot_pos := Vector2(global_position.x, global_position.z)
+			var heading := Vector2(sin(_body.rotation.y), cos(_body.rotation.y))
+			var perp := Vector2(heading.y, -heading.x)
+			_step_left = not _step_left
+			SandField.stamp(foot_pos + perp * (0.12 if _step_left else -0.12),
+				_body.rotation.y,
+				SandField.Mask.FOOT_L if _step_left else SandField.Mask.FOOT_R,
+				1.0)
+			InteractionField.stamp(foot_pos,
 				1.0, 3 if Input.is_action_pressed("sprint") else 2)
 			if not swimming:
 				_sand_puff.global_position = global_position + Vector3(0, 0.06, 0)

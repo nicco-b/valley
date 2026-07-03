@@ -31,6 +31,7 @@ Weather="*res://game/world/weather.gd"
 Climate="*res://game/world/climate.gd"
 FloraLife="*res://game/world/flora_life.gd"
 InteractionField="*res://game/world/interaction_field.gd"
+SandField="*res://game/world/sand_field.gd"
 Records="*res://game/data/records.gd"
 HUD="*res://game/ui/hud.gd"
 Items="*res://game/items/items.gd"
@@ -94,6 +95,22 @@ wind_dir={
 stream_center={
 "type": "vec2",
 "value": Vector2(0, 0)
+}
+deform_map={
+"type": "sampler2D",
+"value": ""
+}
+deform_center={
+"type": "vec2",
+"value": Vector2(999999, 999999)
+}
+deform_size={
+"type": "float",
+"value": 24.0
+}
+patch_center={
+"type": "vec2",
+"value": Vector2(999999, 999999)
 }
 
 [input]

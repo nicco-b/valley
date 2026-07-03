@@ -67,11 +67,20 @@ func _run() -> void:
 	else:
 		print("[probe] CENTER CELL BODY MISSING")
 	# A walked S-curve behind the player, stamped at the player's real
-	# 0.7m stride so the probe shows what walking actually produces.
+	# 0.7m stride, through BOTH fields exactly like walking does: shaped
+	# alternating feet into SandField, coarse wear into InteractionField.
+	var prev := Vector2(30.0, -80.0)
 	for i in 45:
 		var t := float(i) * 0.5
 		var pos := Vector2(30.0 - t * 0.85, -80.0 - sin(t * 0.35) * 3.0 - t * 0.4)
+		var dir := (pos - prev).normalized() if i > 0 else Vector2(-0.85, -0.4).normalized()
+		var yaw := atan2(dir.x, dir.y)
+		var perp := Vector2(dir.y, -dir.x)
+		var left := i % 2 == 0
+		SandField.stamp(pos + perp * (0.12 if left else -0.12), yaw,
+			SandField.Mask.FOOT_L if left else SandField.Mask.FOOT_R, 1.0)
 		InteractionField.stamp(pos, 1.0)
+		prev = pos
 	for i in 40:
 		await get_tree().process_frame
 	# Verify the stamps landed in the trace texture at a known point.
@@ -127,13 +136,19 @@ func _run() -> void:
 	# groove respectively, never flat dark craters.
 	for i in 30:
 		var t := float(i) * 0.5
-		InteractionField.stamp(Vector2(26.0 - t * 0.9, -78.0 - t * 0.55), 1.0)
+		var wpos := Vector2(26.0 - t * 0.9, -78.0 - t * 0.55)
+		SandField.stamp(wpos, atan2(-0.9, -0.55),
+			SandField.Mask.FOOT_L if i % 2 == 0 else SandField.Mask.FOOT_R, 1.0)
+		InteractionField.stamp(wpos, 1.0)
 	# And the human test pattern: pacing and turning in place — crowded
 	# stamps must NOT merge into a saturated blob.
 	for i in 40:
 		var ang := float(i) * 1.7
-		InteractionField.stamp(Vector2(30.0, -74.0)
-			+ Vector2(cos(ang), sin(ang)) * (0.3 + 0.05 * float(i)), 1.0)
+		var cpos := Vector2(30.0, -74.0) \
+			+ Vector2(cos(ang), sin(ang)) * (0.3 + 0.05 * float(i))
+		SandField.stamp(cpos, ang,
+			SandField.Mask.FOOT_L if i % 2 == 0 else SandField.Mask.FOOT_R, 1.0)
+		InteractionField.stamp(cpos, 1.0)
 	for i in 40:
 		var w := float(i) * 1.0
 		InteractionField._wear[Vector2i(int(20.0 - w * 0.8), int(-92.0 - w * 0.5))] = 1.0

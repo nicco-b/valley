@@ -44,11 +44,12 @@ func _run() -> void:
 			print("[probe] mesh material=%s" % mi.mesh.surface_get_material(0))
 	else:
 		print("[probe] CENTER CELL BODY MISSING")
-	# A walked S-curve behind the player: stamps every 0.35m like strides.
-	for i in 60:
-		var t := float(i) * 0.35
+	# A walked S-curve behind the player, stamped at the player's real
+	# 0.7m stride so the probe shows what walking actually produces.
+	for i in 45:
+		var t := float(i) * 0.5
 		var pos := Vector2(30.0 - t * 0.85, -80.0 - sin(t * 0.35) * 3.0 - t * 0.4)
-		InteractionField.stamp(pos, 1.2)
+		InteractionField.stamp(pos, 1.0)
 	for i in 40:
 		await get_tree().process_frame
 	# Verify the stamps landed in the trace texture at a known point.
@@ -77,12 +78,21 @@ func _run() -> void:
 		await get_tree().process_frame
 	_shot("topdown")
 	# Play-camera framing: behind and above, looking along the trail —
-	# the read that actually matters.
+	# the read that actually matters. Shot in BOTH lights: hard afternoon
+	# sun (flattering) and soft hazy morning (the one that exposed the
+	# smear) — the trail must read in each.
 	cam.global_position = Vector3(32.0, Terrain.height(32.0, -78.0) + 2.4, -78.0)
 	cam.look_at(Vector3(20.0, 0.0, -87.0))
 	for i in 5:
 		await get_tree().process_frame
 	_shot("playcam")
+	var span := GameClock.daylight_span()
+	GameClock.hours = span.x + 2.5  # soft mid-morning sun
+	Weather.state = "windy"
+	Weather.wind = 0.55  # haze, and the wind that erases
+	for i in 20:
+		await get_tree().process_frame
+	_shot("playcam_soft")
 	get_tree().quit(0)
 
 

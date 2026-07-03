@@ -160,7 +160,9 @@ func _rebuild() -> void:
 		alive.append(s)
 		var strength: float = minf(age / FADE_IN, 1.0) * (1.0 - age / LIFETIME) * s[2]
 		var uv: Vector2 = (s[0] - _anchor) * px_per_m + Vector2.ONE * (TEX_SIZE * 0.5)
-		_blob(_image, int(uv.x), int(uv.y), strength, 3)  # fresh prints: tight
+		_blob(_image, int(uv.x), int(uv.y), strength, 2)  # fresh prints: tight
+		# (r2 ≈ 0.3m: at a 0.7m stride, prints separate instead of
+		# merging into a trench — a walked line reads as footsteps.)
 	_stamps = alive
 	_image.generate_mipmaps()  # the vertex displacement reads a blurred level
 	_texture.update(_image)

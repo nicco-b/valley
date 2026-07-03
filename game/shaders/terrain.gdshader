@@ -82,10 +82,10 @@ void fragment() {
 		float tX = texture(trace_map, trace_uv + vec2(px, 0.0)).r;
 		float tY = texture(trace_map, trace_uv + vec2(0.0, px)).r;
 		vec2 grad = vec2(tX - tC, tY - tC);
-		n.xz += grad * 6.0;
+		n.xz += grad * 8.0;  // directional shading carries the read in any light
 		// Dry sand doesn't stain — the pit reads as shadowed relief, and
 		// only truly darkens when the ground is wet.
-		col *= 1.0 - min(tC, 1.0) * (0.075 + 0.14 * ground_wetness);
+		col *= 1.0 - min(tC, 1.0) * (0.055 + 0.14 * ground_wetness);
 		// Kicked-up sand at the print's rim is looser and lighter — the
 		// lit berm is what sells the depth at play-camera distance.
 		float rim = max(0.0, length(grad) * 7.0 - tC * 1.2) * sandiness;

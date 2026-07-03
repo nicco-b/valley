@@ -1,8 +1,10 @@
 # Status — read this first when resuming
 
-*As of 2026-07-02 (day two: the Blender creature pipeline; ~67 commits, all
-pushed to github.com/nicco-b/valley). This file is the live state; update it
-when things change. The doc map: [DESIGN.md](DESIGN.md) = what the game is ·
+*As of 2026-07-03 (day three: the deep-sim build-out — 1:1 real time,
+real seasons/sun/moon, climate/flora/rumors/wildlife, SIM_ROADMAP Phase
+A+B starts, and the GPU granular sand simulation; ~91 commits, all
+pushed to github.com/nicco-b/valley). This file is the live state;
+update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the game is ·
 [FOUNDATIONS.md](FOUNDATIONS.md) = build plan & backlog · [DEV_GUIDE.md](DEV_GUIDE.md)
 = how to work on it · [DECISIONS.md](DECISIONS.md) = settled questions ·
 [IDEAS.md](IDEAS.md) = the drawer · [ASSETS_NEEDED.md](ASSETS_NEEDED.md) =

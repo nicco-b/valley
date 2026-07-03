@@ -98,6 +98,17 @@ All decided 2026-07-01 (first design day) unless noted.*
   generated ships unreviewed and **nothing generates at runtime**. Runtime
   systems may only select and parameterize authored content. This is
   authored-primary (Principle #4) applied to text.
+- **The ambient sim is the foundation, not a feature** *(2026-07-03,
+  stated at the close of the physics session)*. In Nicco's words: the
+  game is "a beautiful ambient sim underlying any gameplay loops or
+  mechanics… all of these tiny details add up to make something
+  amazing." This is Pillar 1 sharpened into a build priority: material
+  and atmospheric truth (granular sand, climate, wind, light, sound)
+  is invested in FIRST, deliberately, and gameplay loops are built on
+  top of it — never the reverse. When triaging work, a detail that
+  deepens the world's material reality outranks a mechanic that merely
+  adds content. The brainstormed detail backlog lives in IDEAS.md
+  ("The ambient material").
 - **Depth before visual R&D** *(2026-07-02)*. Stroke-space/whole-frame
   painterly rendering research declined for now; the risk budget goes to
   simulation depth (SIM_ROADMAP). The per-surface painterly stack stands.

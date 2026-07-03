@@ -91,6 +91,10 @@ wind_dir={
 "type": "vec2",
 "value": Vector2(1, 0.35)
 }
+stream_center={
+"type": "vec2",
+"value": Vector2(0, 0)
+}
 
 [input]
 

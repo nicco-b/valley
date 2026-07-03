@@ -129,17 +129,26 @@ func _scan_authored() -> void:
 				_authored[c] = CELLS_DIR + "/" + f
 
 
-func _player_cell() -> Vector2i:
+func _focus_position() -> Vector3:
 	# Streaming follows the god camera or map focus when either is active.
 	var p := _player.global_position
 	if GodMode.active:
 		p = GodMode.cam_position()
 	elif MapScreen.active:
 		p = MapScreen.focus_position()
+	return p
+
+
+func _player_cell() -> Vector2i:
+	var p := _focus_position()
 	return Vector2i(roundi(p.x / CELL_SIZE), roundi(p.z / CELL_SIZE))
 
 
 func _update_cells(sync: bool) -> void:
+	var fp := _focus_position()
+	# The far LOD's discard zone follows wherever full cells exist.
+	RenderingServer.global_shader_parameter_set(
+		"stream_center", Vector2(fp.x, fp.z))
 	var center := _player_cell()
 	for dy in range(-load_radius, load_radius + 1):
 		for dx in range(-load_radius, load_radius + 1):

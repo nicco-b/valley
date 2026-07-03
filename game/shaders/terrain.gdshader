@@ -15,6 +15,8 @@ global uniform float ground_wetness; // Climate publishes this (0..1)
 global uniform float snow_cover; // Climate: 0..1 cover above the snowline
 global uniform float snow_line; // Climate: freezing altitude in meters
 global uniform vec2 wind_dir; // Weather: where the wind blows
+global uniform vec2 stream_center; // WorldStreamer: where full cells exist
+uniform bool far_lod = false; // far terrain yields to the real cells
 
 varying vec3 wpos;
 varying vec3 wnormal;
@@ -27,6 +29,12 @@ void vertex() {
 }
 
 void fragment() {
+	// The far LOD never draws where full-resolution cells are streamed:
+	// its coarse sampling can bulge over sharp sculpts, and the real
+	// ground is always there to win.
+	if (far_lod && distance(wpos.xz, stream_center) < 240.0) {
+		discard;
+	}
 	float blotch = texture(variation, wpos.xz * 0.006).r;
 	float grain = texture(variation, wpos.xz * 0.09).r;
 

@@ -21,10 +21,14 @@ ground-cover stratum (placeholder SVGs); pond with wading/swimming and
 ripple wake; day/night palette cycle; custom sky (swelling red sun, stars);
 weather (calm/windy/storm) driving sway, audio, fog, dust, and NPC shelter;
 interaction field (80m coarse: desire-path wear, distant trails) +
-**SandField/SandPatch deformation** (4.7cm pressure field in a 24m
-window, shaped heel-toe/paw/boot stamps rotated to heading, dense 18.75cm
-patch replacing terrain underfoot — footprints are real geometry; wind
-erases, wet deepens; visual probe verifies from six framings); ambient
+**granular sand simulation** (a threaded heightfield sim in a 20m
+window: signed sand volume in meters, CONSERVED — footsteps displace
+material into ejecta ridges, landings blast craters with thrown rims,
+moving feet plow bow waves; cells past the angle of repose avalanche
+downhill each tick, so pits slump shut and ridges slide; wet raises
+repose, wind erodes; rendered as real geometry by a 9.4cm sand patch;
+sand-slide traversal on steep slopes — the Journey move; conservation
+unit-tested; visual probe verifies eight framings); ambient
 particles (sand motes, dusk moths from her painting, night glow-motes).
 
 **Simulation** — GameClock (**1:1 real time** — a game day is a real day;

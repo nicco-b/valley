@@ -19,6 +19,7 @@ var _sitting := false
 var _target: Interactable = null
 var _step_accum := 0.0
 var _step_left := false
+var _sliding := false
 var _sand_puff: GPUParticles3D
 var _scuff: GPUParticles3D
 var _was_airborne := false
@@ -272,16 +273,44 @@ func _physics_process(delta: float) -> void:
 	velocity.x = lerpf(velocity.x, dir.x * speed, blend)
 	velocity.z = lerpf(velocity.z, dir.z * speed, blend)
 
+	# Sand-slide (the Journey move): steep loose ground stops holding you.
+	# Gravity's slope component wins over walking friction — you skid
+	# downhill, steerable, fast, shoveling a wake the granular sim then
+	# avalanches behind you.
+	_sliding = false
+	if is_on_floor() and not swimming and not _sitting:
+		var floor_n := get_floor_normal()
+		if floor_n.y < cos(deg_to_rad(28.0)):
+			_sliding = true
+			var downhill := Vector3(floor_n.x, 0.0, floor_n.z).normalized()
+			velocity.x += downhill.x * 16.0 * delta
+			velocity.z += downhill.z * 16.0 * delta
+			var flat_v := Vector2(velocity.x, velocity.z)
+			if flat_v.length() > 10.0:
+				flat_v = flat_v.normalized() * 10.0
+				velocity.x = flat_v.x
+				velocity.z = flat_v.y
+
 	move_and_slide()
 
-	# Kicked sand: a landing thumps a burst; a sprint drags a scuff.
+	# The granular sim: moving feet shovel sand along the velocity;
+	# sliding shovels a real trench.
+	if is_on_floor() and not swimming:
+		var flow_v := Vector2(velocity.x, velocity.z)
+		if flow_v.length() > 1.2:
+			SandField.plow(Vector2(global_position.x, global_position.z),
+				flow_v.normalized(),
+				0.0016 * flow_v.length() * (3.0 if _sliding else 1.0))
+
+	# Kicked sand: a landing thumps a burst and blasts a real crater.
 	if is_on_floor() and _was_airborne and not swimming:
 		_sand_puff.global_position = global_position + Vector3(0, 0.06, 0)
 		_sand_puff.amount_ratio = 1.0
 		_sand_puff.restart()
+		SandField.crater(Vector2(global_position.x, global_position.z), 0.45, 0.045)
 	_was_airborne = not is_on_floor()
 	_scuff.emitting = is_on_floor() and not swimming \
-			and Input.is_action_pressed("sprint") \
+			and (_sliding or Input.is_action_pressed("sprint")) \
 			and Vector2(velocity.x, velocity.z).length() > 4.0
 	if _scuff.emitting:
 		_scuff.global_position = global_position + Vector3(0, 0.08, 0)
@@ -360,7 +389,7 @@ func _physics_process(delta: float) -> void:
 		_arm.rotation.x = clampf(_arm.rotation.x - look.y * s, PITCH_MIN, PITCH_MAX)
 
 	# Sprint widens the view a touch.
-	var moving_fast := Input.is_action_pressed("sprint") and flat.length() > 4.0
+	var moving_fast := (_sliding or Input.is_action_pressed("sprint")) and flat.length() > 4.0
 	_camera.fov = lerpf(_camera.fov, SPRINT_FOV if moving_fast else BASE_FOV, blend * 0.6)
 
 	# Sitting: settle the body down and ease the camera out to a wider frame.

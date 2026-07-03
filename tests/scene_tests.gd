@@ -19,6 +19,7 @@ func _ready() -> void:
 	_test_wildlife()
 	_test_long_memory()
 	_test_nav()
+	_test_sand_sim()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -368,3 +369,59 @@ func _test_nav() -> void:
 	Nav.remove_cell(cell)
 	var fallback: PackedVector3Array = Nav.path(Vector3.ZERO, Vector3(10.0, 0.0, 10.0))
 	_check(fallback.size() == 2, "no navmesh -> straight-line fallback")
+
+
+## The granular kernel: sand is conserved, spikes slump to repose, flows
+## spread — pure math, no thread, no rendering.
+func _test_sand_sim() -> void:
+	var g := 16
+	var delta_field := PackedFloat32Array()
+	delta_field.resize(g * g)
+	var base := PackedFloat32Array()
+	base.resize(g * g)
+	var active := PackedInt32Array()
+	var queued := PackedByteArray()
+	queued.resize(g * g)
+	var center := (g / 2) * g + g / 2
+	delta_field[center] = 0.3
+	queued[center] = 1
+	active.append(center)
+	var before := 0.0
+	for i in g * g:
+		before += delta_field[i]
+	for step in 300:
+		SandField.relax(delta_field, base, active, queued, g, 0.04, 0.3, 4000)
+	var after := 0.0
+	var peak := 0.0
+	for i in g * g:
+		after += delta_field[i]
+		peak = maxf(peak, delta_field[i])
+	_check(absf(after - before) < 0.0005, "sand is conserved through avalanches")
+	_check(peak < 0.29, "a spike slumps toward the angle of repose")
+	_check(delta_field[center - 1] > 0.0, "material flows to the neighbors")
+	# Steep base terrain: material walks downhill across cells.
+	var slope_delta := PackedFloat32Array()
+	slope_delta.resize(g * g)
+	var slope_base := PackedFloat32Array()
+	slope_base.resize(g * g)
+	for y in g:
+		for x in g:
+			slope_base[y * g + x] = -x * 0.1  # falls to +x
+	var a2 := PackedInt32Array()
+	var q2 := PackedByteArray()
+	q2.resize(g * g)
+	var mid := (g / 2) * g + 3
+	slope_delta[mid] = 0.25
+	q2[mid] = 1
+	a2.append(mid)
+	for step in 300:
+		SandField.relax(slope_delta, slope_base, a2, q2, g, 0.04, 0.3, 4000)
+	var right := 0.0
+	var left := 0.0
+	for y in g:
+		for x in g:
+			if x >= 6:
+				right += slope_delta[y * g + x]
+			elif x <= 2:
+				left += slope_delta[y * g + x]
+	_check(right > 0.06 and right > left * 2.0, "piled sand avalanches downhill")

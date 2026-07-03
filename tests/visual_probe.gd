@@ -174,6 +174,28 @@ func _run() -> void:
 	for i in 10:
 		await get_tree().process_frame
 	_shot("dawn")
+	# Granular sim: carve a plow trench, blast a crater, then let the
+	# avalanche pass slump everything toward repose — the ridges must
+	# spread and soften over the wait, and mass must visibly pile.
+	GameClock.hours = 15.0
+	Climate.wetness = 0.0
+	player.global_position = Vector3(30.0, Terrain.height(30.0, -80.0) + 1.0, -80.0)
+	for i in 10:
+		await get_tree().process_frame
+	for i in 60:
+		var t := float(i) * 0.25
+		SandField.plow(Vector2(30.0 - t, -80.0 - t * 0.3), Vector2(-1, -0.3).normalized(), 0.02)
+	SandField.crater(Vector2(27.0, -76.0), 0.9, 0.1)
+	for i in 30:
+		await get_tree().process_frame
+	cam.global_position = Vector3(33.0, Terrain.height(33.0, -77.0) + 2.6, -77.0)
+	cam.look_at(Vector3(22.0, 0.0, -84.0))
+	for i in 5:
+		await get_tree().process_frame
+	_shot("granular_fresh")
+	for i in 240:
+		await get_tree().process_frame
+	_shot("granular_settled")
 	get_tree().quit(0)
 
 

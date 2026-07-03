@@ -33,19 +33,18 @@ void vertex() {
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	v_fade = 0.0;
 	if (sand_patch) {
-		// The dense patch: shaped prints from the 4.7cm deform field
-		// press REAL geometry. Displacement fades at the disc edge and
-		// the rim of the disc sits 2cm proud so it overdraws the coarse
-		// terrain cleanly in the overlap band.
+		// The dense patch renders the granular sim: deform_map is SIGNED
+		// sand volume in METERS (pits negative, ridges positive, mass
+		// conserved by the sim). The geometry simply follows it.
 		float r = length(VERTEX.xz);
 		vec2 d_uv = (wpos.xz - deform_center) / deform_size + 0.5;
-		float press = 0.0;
+		float sand = 0.0;
 		if (all(greaterThan(d_uv, vec2(0.0))) && all(lessThan(d_uv, vec2(1.0)))) {
-			press = min(textureLod(deform_map, d_uv, 0.0).r, 1.0);
+			sand = textureLod(deform_map, d_uv, 0.0).r;
 		}
 		v_fade = 1.0 - smoothstep(9.0, PATCH_HOLE, r);
 		float proud = 0.02 * smoothstep(8.8, 9.6, r);
-		VERTEX.y += proud - press * (0.13 + 0.09 * ground_wetness) * v_fade;
+		VERTEX.y += proud + sand * v_fade;
 		wpos.y = VERTEX.y;
 	} else {
 		// Coarse cells: trodden ground sinks by the 80m trace map —
@@ -136,19 +135,20 @@ void fragment() {
 	if (sand_patch) {
 		vec2 d_uv = (wpos.xz - deform_center) / deform_size + 0.5;
 		if (all(greaterThan(d_uv, vec2(0.0))) && all(lessThan(d_uv, vec2(1.0)))) {
-			float dpx = 1.0 / 512.0;
-			float texel_m = deform_size / 512.0;
-			float amp = (0.13 + 0.09 * ground_wetness) * v_fade;
+			float dpx = 1.0 / 256.0;
+			float texel_m = deform_size / 256.0;
 			float dC = textureLod(deform_map, d_uv, 0.0).r;
 			float dXp = textureLod(deform_map, d_uv + vec2(dpx, 0.0), 0.0).r;
 			float dXm = textureLod(deform_map, d_uv - vec2(dpx, 0.0), 0.0).r;
 			float dYp = textureLod(deform_map, d_uv + vec2(0.0, dpx), 0.0).r;
 			float dYm = textureLod(deform_map, d_uv - vec2(0.0, dpx), 0.0).r;
-			// H = base - press*amp  =>  n.xz += amp * d(press)/d(xz)
-			// (sign verified empirically against the probe's sphere
-			// shadow — A/B'd both ways)
-			n.xz -= (amp / texel_m) * 0.5 * vec2(dXp - dXm, dYp - dYm);
-			col *= 1.0 - min(dC, 1.0) * (0.02 + 0.10 * ground_wetness);
+			// The field is height in meters: the normal is its exact
+			// gradient (sign verified empirically vs a shadow reference).
+			n.xz -= (v_fade / texel_m) * 0.5 * vec2(dXp - dXm, dYp - dYm);
+			// Disturbed sand tint: pressed-below-base compacts (darker
+			// when wet); freshly piled sand is looser and lighter.
+			col *= 1.0 - clamp(-dC * 6.0, 0.0, 1.0) * (0.02 + 0.10 * ground_wetness);
+			col += vec3(0.05, 0.04, 0.028) * clamp(dC * 10.0, 0.0, 1.0) * sandiness;
 		}
 	}
 

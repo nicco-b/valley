@@ -88,6 +88,11 @@ func _test_clock() -> void:
 	_check(absf(GameClock.hours - 2.0) < 0.001, "clock lands on the right hour")
 	_check(absf(GameClock.hours_delta(3600.0) - 1.0) < 0.001,
 		"1:1 time — one real hour is one game hour")
+	var day_before: int = GameClock.day
+	GameClock.return_to_now()
+	_check(absf(GameClock.hours - GameClock.civil_now()) < 0.01,
+		"return_to_now re-anchors to real local time")
+	_check(GameClock.day == day_before, "return_to_now keeps days lived")
 
 
 ## Seasons follow the real calendar; daylight, solar noon, and the

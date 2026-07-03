@@ -29,6 +29,7 @@ and [FOUNDATIONS.md](FOUNDATIONS.md) (build plan).*
 | Esc | pause (or close map/talk) | | Z | undo last placement |
 | **T** | *debug:* → next sunrise/noon/sunset/midnight | | F5 | save terrain edits |
 | **Shift+T / Alt+T** | *debug:* +1 day / +1 week | | | |
+| **Shift+Alt+T** | *debug:* back to now (real time) | | | |
 | **Y** | *debug:* next weather | | F1 | exit **(teleports player)** |
 
 

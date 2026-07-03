@@ -205,19 +205,35 @@ func clock_text() -> String:
 
 ## --- Dev time travel (debug builds) --------------------------------------
 ## T: live forward to the next anchor (sunrise / noon / sunset / midnight).
-## Shift+T: +1 day. Alt+T: +1 week. Always through advance_hours — the
-## world lives the skipped time; there is no travelling back (the sim
-## can't unlive hours).
+## Shift+T: +1 day. Alt+T: +1 week. Shift+Alt+T: back to now (play mode).
+## Forward travel always goes through advance_hours — the world lives the
+## skipped time; there is no travelling back (the sim can't unlive hours).
+## "Back to now" only re-anchors the dial to real local time: days lived
+## during travel stay lived.
 func _unhandled_input(event: InputEvent) -> void:
 	if not OS.is_debug_build():
 		return
 	if event.is_action_pressed("debug_time_skip"):
-		if event is InputEventWithModifiers and event.alt_pressed:
+		var mods := event as InputEventWithModifiers
+		var shift := mods != null and mods.shift_pressed
+		var alt := mods != null and mods.alt_pressed
+		if shift and alt:
+			return_to_now()
+		elif alt:
 			_dev_skip(24.0 * 7.0, "a week passes")
-		elif event is InputEventWithModifiers and event.shift_pressed:
+		elif shift:
 			_dev_skip(24.0, "a day passes")
 		else:
 			_dev_skip_to_anchor()
+
+
+## Re-anchor the clock to real local time — the state normal play mode
+## lives in. A dial move only, no simulation events.
+func return_to_now() -> void:
+	hours = civil_now()
+	var msg := "back to now — %s, day %d (%s)" % [clock_text(), day, season]
+	print("[clock] dev: ", msg)
+	HUD.notify(msg)
 
 
 func _dev_skip(dh: float, label: String) -> void:

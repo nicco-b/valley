@@ -31,7 +31,8 @@ equation of time, hemisphere-correct; new worlds anchor the clock to
 real local time; sun/palette/dusk-audio/creatures follow via
 `solar_hours()`; storms season-biased; `time.season` in WorldState for
 conditions; dev time travel: T → next sunrise/noon/sunset/midnight,
-Shift/Alt+T → +day/+week, always lived via `advance_hours`); the ambient machine: saves carry a wall-clock timestamp and time away/asleep is
+Shift/Alt+T → +day/+week, always lived via `advance_hours`;
+Shift+Alt+T → back to now, re-anchoring the dial to real time); the ambient machine: saves carry a wall-clock timestamp and time away/asleep is
 replayed via shared `GameClock.advance_hours()` catch-up (weather rolls,
 NPCs live the skipped hours — needs/position/activity persist hourly);
 FocusThrottle (unfocused window fps-capped but watchable, minimized

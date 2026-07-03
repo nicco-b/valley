@@ -85,7 +85,8 @@ All decided 2026-07-01 (first design day) unless noted.*
   biased. Seasonal *palette/flora* changes await her seasonal paintings.
   Dev time travel (T / Shift+T / Alt+T → next anchor / +day / +week,
   debug builds) always goes *through* `advance_hours` — the world lives
-  skipped time; there is no travelling back.
+  skipped time; there is no travelling back. Shift+Alt+T returns to now:
+  a dial-only re-anchor to real local time (days lived stay lived).
 - **Unfocused = watchable, throttled** *(2026-07-02)*. The unfocused window
   stays alive and glanceable (fps-capped, nothing dissolves, tiers stay
   distance-based); only a minimized window throttles near-idle. Good-citizen

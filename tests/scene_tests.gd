@@ -15,6 +15,7 @@ func _ready() -> void:
 	_test_climate()
 	_test_flora()
 	_test_moon()
+	_test_rumors()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -210,3 +211,31 @@ func _test_moon() -> void:
 	_check(absf(full_light - 1.0) < 0.001, "full moon is fully lit")
 	var phase: float = GameClock.moon_phase()
 	_check(phase >= 0.0 and phase < 1.0, "live phase in range")
+
+
+## Rumors: learn, mirror to flags, forget at capacity, pass between minds.
+func _test_rumors() -> void:
+	var npc_script := load("res://game/npc/npc.gd")
+	var a: CharacterBody3D = npc_script.new()
+	a.npc_id = "test_a"
+	var b: CharacterBody3D = npc_script.new()
+	b.npc_id = "test_b"
+	a.learn("valley_parched")
+	_check(a.knows("valley_parched"), "npc learns a fact")
+	_check(WorldState.has_flag("npc.test_a.knows.valley_parched"),
+		"fact mirrored as a dialogue-readable flag")
+	for i in 15:
+		a.learn("filler_%d" % i)
+	_check(not a.knows("valley_parched"), "oldest rumor forgotten at capacity")
+	_check(not WorldState.has_flag("npc.test_a.knows.valley_parched"),
+		"forgotten rumor's flag clears")
+	b.learn("weathered_storm")
+	b.learn("met_player")
+	var mgr: Node = load("res://game/npc/npc_manager.gd").new()
+	mgr._tell_one(b, a)
+	_check(a.knows("weathered_storm"), "rumor passes between npcs")
+	mgr._tell_one(b, a)
+	_check(not a.knows("met_player"), "meeting someone is not a catchable rumor")
+	a.free()
+	b.free()
+	mgr.free()

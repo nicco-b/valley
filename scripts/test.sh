@@ -9,8 +9,12 @@ echo "== unit tests =="
 godot --headless -s tests/run_tests.gd || exit 1
 
 echo "== scene tests (autoload context) =="
-godot --headless res://tests/scene_tests.tscn 2>&1 | grep -E "PASS|FAIL"
-godot --headless res://tests/scene_tests.tscn >/dev/null 2>&1 || exit 1
+# --quit-after backstop: if the test script itself fails to parse, the
+# scene runs empty and never quits — without this the suite hangs forever.
+# Success is the PASS line, not the exit code (quit-after exits 0).
+SCENE_OUT=$(godot --headless --quit-after 2000 res://tests/scene_tests.tscn 2>&1)
+echo "$SCENE_OUT" | grep -E "PASS|FAIL|SCRIPT ERROR"
+echo "$SCENE_OUT" | grep -q "SCENE-TESTS PASS" || exit 1
 
 # Filter: engine banners, benign exit-time audio warnings, and our own
 # "[system]" log lines (anything bracket-prefixed is intentional logging).

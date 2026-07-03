@@ -1,63 +1,177 @@
 {
 	"id": "keeper",
 	"start": [
-		{"if": {"flag": "npc.keeper.met"}, "node": "again"},
-		{"node": "first"}
+		{
+			"if": {
+				"flag": "npc.keeper.met"
+			},
+			"node": "again"
+		},
+		{
+			"node": "first"
+		}
 	],
 	"nodes": {
 		"first": {
 			"speaker": "The Keeper",
 			"text": "You found the shrine. Most find the light first, and the sweeping never. I do the sweeping.",
-			"effects": [{"set": "npc.keeper.met"}, {"inc": "npc.keeper.encounters"}],
+			"effects": [
+				{
+					"set": "npc.keeper.met"
+				},
+				{
+					"inc": "npc.keeper.encounters"
+				}
+			],
 			"choices": [
-				{"text": "What do you do here?", "next": "tend"},
-				{"text": "The light — what is it?", "next": "light", "if": {"flag": "world.shrine.examined"}},
-				{"text": "There's one who walks the valley. You know them?", "next": "knows_wanderer", "if": {"flag": "npc.wanderer.met"}},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "What do you do here?",
+					"next": "tend"
+				},
+				{
+					"text": "The light — what is it?",
+					"next": "light",
+					"if": {
+						"flag": "world.shrine.examined"
+					}
+				},
+				{
+					"text": "There's one who walks the valley. You know them?",
+					"next": "knows_wanderer",
+					"if": {
+						"flag": "npc.wanderer.met"
+					}
+				},
+				{
+					"text": "The valley looks thirsty.",
+					"next": "dry",
+					"if": {
+						"flag": "npc.keeper.knows.valley_parched"
+					}
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"again": {
 			"speaker": "The Keeper",
 			"text": "The dust returns. So do you.",
-			"effects": [{"inc": "npc.keeper.encounters"}],
+			"effects": [
+				{
+					"inc": "npc.keeper.encounters"
+				}
+			],
 			"choices": [
-				{"text": "What do you do here?", "next": "tend"},
-				{"text": "The light — what is it?", "next": "light", "if": {"flag": "world.shrine.examined"}},
-				{"text": "There's one who walks the valley. You know them?", "next": "knows_wanderer", "if": {"flag": "npc.wanderer.met"}},
-				{"text": "The Wanderer says the west path cleared.", "next": "message", "if": {"flag": "npc.wanderer.mentioned_keeper", "not_flag": "npc.keeper.heard_message"}},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "What do you do here?",
+					"next": "tend"
+				},
+				{
+					"text": "The light — what is it?",
+					"next": "light",
+					"if": {
+						"flag": "world.shrine.examined"
+					}
+				},
+				{
+					"text": "There's one who walks the valley. You know them?",
+					"next": "knows_wanderer",
+					"if": {
+						"flag": "npc.wanderer.met"
+					}
+				},
+				{
+					"text": "The Wanderer says the west path cleared.",
+					"next": "message",
+					"if": {
+						"flag": "npc.wanderer.mentioned_keeper",
+						"not_flag": "npc.keeper.heard_message"
+					}
+				},
+				{
+					"text": "The valley looks thirsty.",
+					"next": "dry",
+					"if": {
+						"flag": "npc.keeper.knows.valley_parched"
+					}
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"tend": {
 			"speaker": "The Keeper",
 			"text": "I keep the platform clear and the quiet unbroken. The light does the rest, whatever the rest is.",
 			"choices": [
-				{"text": "Ask something else.", "next": "again"},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "Ask something else.",
+					"next": "again"
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"light": {
 			"speaker": "The Keeper",
 			"text": "It was here before the path was. It will be here after the path forgets us. I sweep; it shines. We don't discuss it.",
 			"choices": [
-				{"text": "Ask something else.", "next": "again"},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "Ask something else.",
+					"next": "again"
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"knows_wanderer": {
 			"speaker": "The Keeper",
 			"text": "Since before either of us kept count. They walk; I stay. Between the two of us, the valley is held.",
 			"choices": [
-				{"text": "Ask something else.", "next": "again"},
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "Ask something else.",
+					"next": "again"
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		},
 		"message": {
 			"speaker": "The Keeper",
 			"text": "…Then the stones can rest a season. Thank them — if the wind lets you meet twice.",
-			"effects": [{"set": "npc.keeper.heard_message"}],
+			"effects": [
+				{
+					"set": "npc.keeper.heard_message"
+				}
+			],
 			"choices": [
-				{"text": "[Leave]", "next": ""}
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
+			]
+		},
+		"dry": {
+			"speaker": "The Keeper",
+			"text": "The bulbs close before noon now, and the ground forgets the last rain. The pond holds. The rest of us wait for the turn.",
+			"choices": [
+				{
+					"text": "Ask something else.",
+					"next": "again"
+				},
+				{
+					"text": "[Leave]",
+					"next": ""
+				}
 			]
 		}
 	}

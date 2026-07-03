@@ -28,9 +28,14 @@ var needs_def: Dictionary = {}  # need -> drain weight
 var activities: Array = []
 var scarf_color := Color.TRANSPARENT
 
+const MAX_RUMORS := 12  # what one mind holds; the oldest falls out
+
 var needs: Dictionary = {}  # need -> 0..100 (100 = content)
 var current: Dictionary = {}
 var last_utilities: Dictionary = {}
+## What this NPC knows, oldest first. Each fact mirrors to a WorldState
+## flag npc.<id>.knows.<fact> so dialogue/quests condition on it.
+var rumors: Array = []
 
 var far_mode := false
 var talking := false
@@ -77,7 +82,9 @@ func _ready() -> void:
 	for need in needs_def:
 		needs[need] = 70.0
 	load_state()  # no-op on a fresh world; SaveGame calls it again post-restore
-	GameClock.hour_tick.connect(func(_h: int) -> void: _save_state())
+	GameClock.hour_tick.connect(func(_h: int) -> void:
+		_observe_world()
+		_save_state())
 	_decide()
 
 
@@ -89,6 +96,39 @@ func _save_state() -> void:
 	WorldState.set_value("npc.%s.pos" % npc_id,
 		{"x": global_position.x, "z": global_position.z})
 	WorldState.set_value("npc.%s.activity" % npc_id, current.get("id", ""))
+	WorldState.set_value("npc.%s.rumors" % npc_id, rumors.duplicate())
+
+
+func knows(fact: String) -> bool:
+	return rumors.has(fact)
+
+
+## Learn a fact — from the world or from someone. Selective memory: a mind
+## holds MAX_RUMORS and forgets the oldest (its flag clears) — a world
+## that remembers everything loses the meaning of memory.
+func learn(fact: String, from_whom := "") -> void:
+	if rumors.has(fact):
+		return
+	rumors.append(fact)
+	WorldState.set_flag("npc.%s.knows.%s" % [npc_id, fact])
+	if rumors.size() > MAX_RUMORS:
+		var old: String = rumors.pop_front()
+		WorldState.set_value("npc.%s.knows.%s" % [npc_id, old], false)
+	if from_whom != "":
+		print("[rumor] %s heard '%s' from %s" % [npc_id, fact, from_whom])
+
+
+## Valley-scale states are hard to miss — inhabitants notice them as they
+## live through them; person-scale facts only travel by telling.
+func _observe_world() -> void:
+	if WorldState.has_flag("valley.bloom"):
+		learn("valley_bloomed")
+	if WorldState.has_flag("valley.parched"):
+		learn("valley_parched")
+	if Weather.state == "storm":
+		learn("weathered_storm")
+	if WorldState.has_flag("npc.%s.met" % npc_id):
+		learn("met_player")
 
 
 ## Re-read persisted state from WorldState. Called from _ready (fresh boot)
@@ -109,6 +149,8 @@ func load_state() -> void:
 			current = a
 			_target = _resolve_at(a)
 			break
+	var saved_rumors: Array = WorldState.get_value("npc.%s.rumors" % npc_id, [])
+	rumors = saved_rumors.duplicate()
 
 
 func _process(delta: float) -> void:
@@ -322,6 +364,10 @@ func sim_debug() -> String:
 	lines.append("utilities:")
 	for id in last_utilities:
 		lines.append("  %-10s %5.1f" % [id, last_utilities[id]])
+	lines.append("")
+	lines.append("knows:")
+	for fact in rumors:
+		lines.append("  " + str(fact))
 	return "\n".join(lines)
 
 

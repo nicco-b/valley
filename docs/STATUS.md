@@ -39,6 +39,24 @@ FocusThrottle (unfocused window fps-capped but watchable, minimized
 near-idle); needs/utility NPC AI from records; two-tier (bodies dissolve
 >170m, coarse sim continues); sim inspector (god mode → right-click NPC).
 
+**Deep sim (built 2026-07-02, the six-domain pass — every sim obeys the
+CLAUDE.md sim contract):** Climate substrate (`temperature(x,z)` +
+`moisture(x,z)`; rain soaks / warmth dries; wet ground darkens via
+`ground_wetness`); FloraLife (valley-wide vitality chasing climate over
+days; billboards dry toward straw via `flora_vitality`; writes
+`valley.bloom`/`valley.parched` — first sim-authored story-seed, "The
+Dry Spell", with journal seed-latching so transient states can open
+quests); real moon phase (stars wash out, glow-motes/fireflies thin
+under a full moon; `sky.moon_phase`); rumors (NPCs notice valley-scale
+events, hold 12 facts oldest-forgotten, mirror them as
+`npc.<id>.knows.*` flags for dialogue, and swap news when they share a
+place for an hour); wildlife tier-3 (star-hound herd as pure data —
+drink at dawn, shade at noon, prowl — embodied only near the focus;
+`data/wildlife/*.json`); long memory (NPC pantry stocks from
+`produces` activities → `npc.<id>.stock.*`, ready for trading;
+permanent desire-path wear layer persisted in the save, fading over
+game-months; placed records stamp their day for future weathering).
+
 **RPG** — WorldState (all flags/values, saved); records loader with
 validation; interaction layer (E); items + satchel (I); fireflies (catch at
 night / F deploys orbiting light swarm / R recalls); dialogue engine
@@ -63,8 +81,9 @@ places (pond oasis + surrounds) authored via place mode — cells in data/cells/
 ## Placeholder ledger (each has a named replacement path)
 
 Biped fox player (hers, replaced the star hound as the player body
-2026-07-02) and the star hound (fully animated, currently unplaced →
-return it as a creature/companion when canon names one). The fox now
+2026-07-02) and the star hound (now placed as the placeholder *wildlife*
+body — a herd with daily lives west of the pond → rename/re-skin when
+canon names the valley's creatures). The fox now
 renders through character_paint.gdshader (gouache wash/grain/edge-dark
 in-engine, restoring what the flat glb export loses); apply the same
 CharacterPaint pass to the star hound and NPC models when they land ·
@@ -88,7 +107,10 @@ picker).
 3. **Code: G4 remainder** — inventory/item-use UI (eat, examine, gift),
    trading (needs the errand pattern + prices).
 4. **Code: G6** — NPC-to-NPC ambient meetings (they cross paths at the pond
-   daily and ignore each other); proper navmesh before more NPCs.
+   daily and ignore each other — though they now trade rumors there);
+   proper navmesh before more NPCs; extract the shared sim core
+   (NPC/wildlife utility logic → one RefCounted, three presentations)
+   when the village lands.
 5. **Code: G5** — region tile pipeline (painted heightmaps) when the world
    wants to grow; biome mask when region #2 exists.
 6. **Code: G1 leftovers** — save slots, macOS export build.

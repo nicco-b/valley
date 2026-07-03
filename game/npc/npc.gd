@@ -29,6 +29,7 @@ var activities: Array = []
 var scarf_color := Color.TRANSPARENT
 
 const MAX_RUMORS := 12  # what one mind holds; the oldest falls out
+const STOCK_CAP := 10.0  # a pantry, not a warehouse
 
 var needs: Dictionary = {}  # need -> 0..100 (100 = content)
 var current: Dictionary = {}
@@ -36,6 +37,10 @@ var last_utilities: Dictionary = {}
 ## What this NPC knows, oldest first. Each fact mirrors to a WorldState
 ## flag npc.<id>.knows.<fact> so dialogue/quests condition on it.
 var rumors: Array = []
+## Goods produced while working (activities with "produces"), buffered
+## here and flushed to WorldState npc.<id>.stock.<item> hourly — the
+## stocks trading (G4) will read and prices will derive from.
+var _stock_accum: Dictionary = {}
 
 var far_mode := false
 var talking := false
@@ -97,6 +102,12 @@ func _save_state() -> void:
 		{"x": global_position.x, "z": global_position.z})
 	WorldState.set_value("npc.%s.activity" % npc_id, current.get("id", ""))
 	WorldState.set_value("npc.%s.rumors" % npc_id, rumors.duplicate())
+	for item in _stock_accum:
+		var key := "npc.%s.stock.%s" % [npc_id, item]
+		var stock: float = float(WorldState.get_value(key, 0.0))
+		WorldState.set_value(key,
+			snappedf(minf(stock + _stock_accum[item], STOCK_CAP), 0.01))
+	_stock_accum.clear()
 
 
 func knows(fact: String) -> bool:
@@ -229,6 +240,11 @@ func _satisfy(dt_hours: float) -> void:
 		needs[need] + float(current.get("rate", 6.0)) * SATISFY_SCALE * dt_hours,
 		0.0, 100.0
 	)
+	# Work makes goods: time spent at a producing activity accrues stock.
+	var produces: Dictionary = current.get("produces", {})
+	for item in produces:
+		_stock_accum[item] = float(_stock_accum.get(item, 0.0)) \
+				+ float(produces[item]) * dt_hours
 
 
 func _physics_process(delta: float) -> void:
@@ -368,6 +384,12 @@ func sim_debug() -> String:
 	lines.append("knows:")
 	for fact in rumors:
 		lines.append("  " + str(fact))
+	lines.append("")
+	lines.append("stock:")
+	for a in activities:
+		for item in a.get("produces", {}):
+			lines.append("  %-14s %5.2f" % [item, float(WorldState.get_value(
+				"npc.%s.stock.%s" % [npc_id, item], 0.0))])
 	return "\n".join(lines)
 
 

@@ -41,6 +41,7 @@ func save_game() -> void:
 		"civil": true,  # clock anchored to real local time (1:1 era)
 		"player": {"x": player.global_position.x, "z": player.global_position.z},
 		"state": WorldState.snapshot(),
+		"wear": InteractionField.wear_snapshot(),  # desire paths, world-anchored
 		"cells": {},  # future: per-cell world-state mutations
 	}
 	var file := FileAccess.open(PATH, FileAccess.WRITE)
@@ -62,6 +63,7 @@ func load_into_world() -> void:
 	# _ready runs before the save loads, so boot-time reads see defaults.
 	get_tree().call_group("world_state_reader", "load_state")
 	get_tree().call_group("npc", "load_state")
+	InteractionField.wear_restore(data.get("wear", {}))
 	# The world ran 1:1 while the app was closed — live the missed hours.
 	var away_hours := 0.0
 	if data.has("wall_time"):

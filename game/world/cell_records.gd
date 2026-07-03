@@ -46,7 +46,8 @@ func add(pos: Vector3, kit_id: String, yaw: float, scale: float) -> void:
 	if not _cells.has(cell):
 		_cells[cell] = []
 	_cells[cell].append({
-		"kit": kit_id, "x": pos.x, "y": pos.y, "z": pos.z, "yaw": yaw, "scale": scale
+		"kit": kit_id, "x": pos.x, "y": pos.y, "z": pos.z, "yaw": yaw, "scale": scale,
+		"day": GameClock.day,  # age of the placement — weathering reads this later
 	})
 	_save(cell)
 	changed.emit(cell)

@@ -13,7 +13,19 @@ const FADE_IN := 0.25
 const MAX_STAMPS := 400
 const AGING_INTERVAL := 0.35  # rebuild cadence when nothing new happened
 
+# Desire paths (IDEAS ★): every footstep also leaves a trace in a
+# long-memory wear layer — repeated walking wears visible trails that
+# outlive the fresh prints. Wear decays over game-months, not seconds
+# (selective memory: paths outlive seasons, not the world), and the map
+# is capped — the faintest cells are forgotten first.
+const WEAR_PER_STAMP := 0.04
+const WEAR_DECAY_PER_HOUR := 0.0006  # ~2 months to fade an unwalked path
+const WEAR_MIN := 0.02  # below this a cell is forgotten
+const WEAR_RENDER := 0.55  # the old path draws fainter than a fresh print
+const WEAR_MAX_CELLS := 8000
+
 var _stamps: Array = []  # [Vector2 world xz, float time_placed]
+var _wear: Dictionary = {}  # Vector2i 1m world cell -> accumulated wear
 var _clock := 0.0
 var _aging_accum := 0.0
 var _anchor := Vector2.INF
@@ -27,12 +39,51 @@ func _ready() -> void:
 	_texture = ImageTexture.create_from_image(_image)
 	RenderingServer.global_shader_parameter_set("trace_map", _texture)
 	RenderingServer.global_shader_parameter_set("trace_size", REGION_SIZE)
+	GameClock.hour_tick.connect(_age_wear)
 
 
 func stamp(world_xz: Vector2) -> void:
 	_stamps.append([world_xz, _clock])
 	if _stamps.size() > MAX_STAMPS:
 		_stamps.pop_front()
+	var cell := Vector2i(int(floor(world_xz.x)), int(floor(world_xz.y)))
+	_wear[cell] = minf(float(_wear.get(cell, 0.0)) + WEAR_PER_STAMP, 1.0)
+	_dirty = true
+
+
+func _age_wear(_h: int) -> void:
+	var doomed: Array = []
+	for c in _wear:
+		_wear[c] = float(_wear[c]) - WEAR_DECAY_PER_HOUR
+		if _wear[c] < WEAR_MIN:
+			doomed.append(c)
+	for c in doomed:
+		_wear.erase(c)
+	if _wear.size() > WEAR_MAX_CELLS:
+		var vals: Array = _wear.values()
+		vals.sort()
+		var cut: float = vals[_wear.size() - WEAR_MAX_CELLS]
+		for c in _wear.keys():
+			if float(_wear[c]) <= cut:
+				_wear.erase(c)
+	_dirty = true
+
+
+## Persistence (SaveGame carries the wear layer): world-anchored, string
+## keyed for JSON.
+func wear_snapshot() -> Dictionary:
+	var out := {}
+	for c in _wear:
+		out["%d_%d" % [c.x, c.y]] = snappedf(_wear[c], 0.001)
+	return out
+
+
+func wear_restore(data: Dictionary) -> void:
+	_wear.clear()
+	for k in data:
+		var parts := String(k).split("_")
+		if parts.size() == 2:
+			_wear[Vector2i(int(parts[0]), int(parts[1]))] = float(data[k])
 	_dirty = true
 
 
@@ -60,6 +111,13 @@ func _rebuild() -> void:
 	RenderingServer.global_shader_parameter_set("trace_center", _anchor)
 	_image.fill(Color(0, 0, 0))
 	var px_per_m := TEX_SIZE / REGION_SIZE
+	# The permanent layer first; fresh prints draw over it.
+	for c in _wear:
+		var wuv := (Vector2(c) + Vector2(0.5, 0.5) - _anchor) * px_per_m \
+				+ Vector2.ONE * (TEX_SIZE * 0.5)
+		if wuv.x < -4.0 or wuv.y < -4.0 or wuv.x >= TEX_SIZE + 4.0 or wuv.y >= TEX_SIZE + 4.0:
+			continue
+		_blob(int(wuv.x), int(wuv.y), float(_wear[c]) * WEAR_RENDER)
 	var alive: Array = []
 	for s in _stamps:
 		var age: float = _clock - s[1]

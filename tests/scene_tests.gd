@@ -17,6 +17,7 @@ func _ready() -> void:
 	_test_moon()
 	_test_rumors()
 	_test_wildlife()
+	_test_long_memory()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -271,3 +272,37 @@ func _test_wildlife() -> void:
 	var rows: Array = WorldState.get_value("wildlife.test_herd", [])
 	_check(rows.size() == 2, "herd persists to WorldState")
 	mgr.free()
+
+
+## Long memory: pantry stocks accrue from work; desire paths persist.
+func _test_long_memory() -> void:
+	var npc_script := load("res://game/npc/npc.gd")
+	var n: CharacterBody3D = npc_script.new()
+	n.npc_id = "test_worker"
+	n.needs = {"purpose": 50.0}
+	n.current = {"id": "tend", "satisfies": "purpose", "rate": 8.0,
+		"produces": {"offerings": 0.25}}
+	n._satisfy(2.0)  # two hours at the shrine
+	n._save_state()
+	var stock: float = float(WorldState.get_value("npc.test_worker.stock.offerings", 0.0))
+	_check(absf(stock - 0.5) < 0.01, "work accrues stock at the record's rate")
+	n._satisfy(1.0)
+	n._save_state()
+	_check(float(WorldState.get_value("npc.test_worker.stock.offerings", 0.0)) > stock,
+		"stock accumulates across flushes")
+	n.free()
+
+	var spot := Vector2(4321.5, -4321.5)  # far from any real trail
+	for i in 5:
+		InteractionField.stamp(spot)
+	var snap: Dictionary = InteractionField.wear_snapshot()
+	var key := "4321_-4322"
+	_check(snap.has(key), "footsteps wear a permanent cell")
+	_check(float(snap[key]) > 0.15, "repeated walking deepens the wear")
+	InteractionField._age_wear(0)
+	var aged: Dictionary = InteractionField.wear_snapshot()
+	_check(float(aged[key]) < float(snap[key]), "unwalked paths fade over hours")
+	InteractionField.wear_restore(snap)
+	_check(absf(float(InteractionField.wear_snapshot()[key]) - float(snap[key])) < 0.002,
+		"wear survives a save/load roundtrip")
+	InteractionField.wear_restore({})  # leave no test residue in the field

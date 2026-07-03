@@ -40,7 +40,10 @@
 			},
 			"satisfies": "food",
 			"rate": 7,
-			"wander": 18
+			"wander": 18,
+			"produces": {
+				"gathered_bulbs": 0.4
+			}
 		},
 		{
 			"id": "commune",

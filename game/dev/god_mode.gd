@@ -6,6 +6,7 @@ extends Node
 const FLY_SPEED := 30.0
 const FAST_MULT := 4.0
 const BRUSH_RATE := 14.0  # meters of height per second at brush center
+const BRUSH_INTERVAL := 0.05  # seconds between brush applications
 const MOUSE_SENSITIVITY := 0.003
 
 enum Tool { SCULPT, PLACE }
@@ -21,6 +22,7 @@ var _inspected: Node = null
 var _yaw := 0.0
 var _pitch := -0.9
 var _brush_radius := 12.0
+var _brush_accum := 0.0
 var _speed_mult := 1.0
 var _tool := Tool.SCULPT
 var _kit_index := 0
@@ -118,10 +120,16 @@ func _process(delta: float) -> void:
 		_cursor.scale = Vector3(r, 1.0, r)
 		if _tool == Tool.SCULPT and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
 				and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-			var amount := BRUSH_RATE * delta
-			if Input.is_action_pressed("sprint"):
-				amount = -amount
-			Terrain.apply_brush(hit, _brush_radius, amount)
+			# Fixed brush cadence, dt-scaled strength: the pixel loop is
+			# GDScript — at frame rate it ate the frame rate. Same sculpt
+			# speed, a fraction of the applications.
+			_brush_accum += delta
+			if _brush_accum >= BRUSH_INTERVAL:
+				var amount := BRUSH_RATE * _brush_accum
+				_brush_accum = 0.0
+				if Input.is_action_pressed("sprint"):
+					amount = -amount
+				Terrain.apply_brush(hit, _brush_radius, amount)
 
 
 func _ray_to_ground() -> Vector3:

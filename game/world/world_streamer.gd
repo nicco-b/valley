@@ -54,6 +54,8 @@ var _rebuild_cooldown := 0.0
 var _mesh_instances: Dictionary = {}  # Vector2i -> the cell's MeshInstance3D
 var _stale: Dictionary = {}  # sculpted cells awaiting their full rebuild
 var _quiet_cooldown := 0.0
+var _visual_pending: Dictionary = {}  # cell -> worker task (mesh-only rebuild)
+var _visual_results: Array = []  # [cell, mesh] guarded by _results_mutex
 
 
 func _ready() -> void:
@@ -90,14 +92,17 @@ func _process(delta: float) -> void:
 	_drain_terrain_results()
 	_rebuild_cooldown -= delta
 	if not _dirty.is_empty() and _rebuild_cooldown <= 0.0:
-		_rebuild_cooldown = 0.2
+		_rebuild_cooldown = 0.1
 		for c in _dirty.keys():
-			if _mesh_instances.has(c):
-				# Visual mesh only: the brush needs to see the clay move.
-				_mesh_instances[c].mesh = _build_terrain_mesh(c, false, false)[0]
+			if _mesh_instances.has(c) and not _visual_pending.has(c):
+				# Visual mesh only, built off-thread: the brush needs to
+				# see the clay move, the main thread needs to do nothing.
+				_visual_pending[c] = WorkerThreadPool.add_task(
+					_thread_visual_mesh.bind(c))
 				_stale[c] = true
 		_dirty.clear()
 		_quiet_cooldown = 0.8
+	_drain_visual_results()
 	_quiet_cooldown -= delta
 	if _dirty.is_empty() and _quiet_cooldown <= 0.0 and not _stale.is_empty():
 		for c in _stale.keys():
@@ -286,6 +291,28 @@ func _drain_terrain_results() -> void:
 func _add_terrain_sync(c: Vector2i) -> void:
 	var built := _build_terrain_mesh(c)
 	_finish_terrain(c, built[0], built[1], built[2])
+
+
+## Mesh-only rebuild for live sculpt feedback, off the main thread.
+func _thread_visual_mesh(c: Vector2i) -> void:
+	var built := _build_terrain_mesh(c, false, false)
+	_results_mutex.lock()
+	_visual_results.append([c, built[0]])
+	_results_mutex.unlock()
+
+
+func _drain_visual_results() -> void:
+	_results_mutex.lock()
+	var results := _visual_results.duplicate()
+	_visual_results.clear()
+	_results_mutex.unlock()
+	for r in results:
+		var c: Vector2i = r[0]
+		if _visual_pending.has(c):
+			WorkerThreadPool.wait_for_task_completion(_visual_pending[c])
+			_visual_pending.erase(c)
+		if _mesh_instances.has(c) and is_instance_valid(_mesh_instances[c]):
+			_mesh_instances[c].mesh = r[1]
 
 
 func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D,

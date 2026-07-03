@@ -272,6 +272,13 @@ func _test_wildlife() -> void:
 	var rows: Array = WorldState.get_value("wildlife.test_herd", [])
 	_check(rows.size() == 2, "herd persists to WorldState")
 	mgr.free()
+	var body_script := load("res://game/wildlife/wildlife_body.gd")
+	var noon: float = body_script.sense_range_for(12.0, 0.0)
+	var dark: float = body_script.sense_range_for(0.0, 0.0)
+	var moonlit: float = body_script.sense_range_for(0.0, 1.0)
+	_check(noon > dark, "creatures see farther by day than by night")
+	_check(moonlit > dark, "a full moon lends the night some sight")
+	_check(noon > moonlit, "but never as much as the sun")
 
 
 ## Long memory: pantry stocks accrue from work; desire paths persist.

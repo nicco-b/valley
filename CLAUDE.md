@@ -16,6 +16,8 @@ simulation-heavy. Read `docs/DESIGN.md` (what it is), `docs/FOUNDATIONS.md`
 - `./scripts/reimport.sh [name]` — reimport assets; with a name fragment,
   force-reimports by clearing that cache (needed when only `.import`
   settings changed)
+- `./scripts/soak.sh` — 30 game-days headless, twice: invariants +
+  determinism fingerprint must match. **Run before merging sim work.**
 
 ## Architecture (one source of truth per domain)
 

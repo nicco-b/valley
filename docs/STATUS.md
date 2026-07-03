@@ -98,11 +98,14 @@ picker).
 
 ## Next up (in rough priority)
 
-0. **PROPOSAL pending sign-off** — [SIM_ROADMAP.md](SIM_ROADMAP.md):
-   the Skyrim-level-or-better systems plan (AgentSim core, two-level
-   navigation, perception, event log + seed binding, then the per-system
-   ladder). Bless, amend, or strike it; items graduate into
-   FOUNDATIONS/DECISIONS when decided.
+0. **[SIM_ROADMAP.md](SIM_ROADMAP.md) Phase A — in progress** (started
+   2026-07-02 on "go"): ✅ A1 determinism (Rng streams) + soak harness
+   (30 days headless ×2, fingerprint-matched) · ✅ A2 AgentSim core
+   (wildlife ported, fingerprint bit-identical; NPC is the second
+   adopter, with the village) · ✅ perception v1 (wildlife wariness:
+   light-scaled sight, hearing, alert/flee/resume) · ⏳ remaining:
+   navmesh-per-cell (before NPC #3), far waypoint graph (with the first
+   authored road — an empty graph is scaffolding), NPC AgentSim port.
 
 1. **Asset track (humans)** — see ASSETS_NEEDED.md. Top: her ground-cover
    kit, his Blender rock family, real wind recording.

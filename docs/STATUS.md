@@ -20,7 +20,11 @@ ripples, sun glints); scattered flora from her 3 paintings + dense
 ground-cover stratum (placeholder SVGs); pond with wading/swimming and
 ripple wake; day/night palette cycle; custom sky (swelling red sun, stars);
 weather (calm/windy/storm) driving sway, audio, fog, dust, and NPC shelter;
-interaction field (footprints with relief, fading trails); ambient
+interaction field (80m coarse: desire-path wear, distant trails) +
+**SandField/SandPatch deformation** (4.7cm pressure field in a 24m
+window, shaped heel-toe/paw/boot stamps rotated to heading, dense 18.75cm
+patch replacing terrain underfoot — footprints are real geometry; wind
+erases, wet deepens; visual probe verifies from six framings); ambient
 particles (sand motes, dusk moths from her painting, night glow-motes).
 
 **Simulation** — GameClock (**1:1 real time** — a game day is a real day;

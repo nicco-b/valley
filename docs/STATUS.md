@@ -1,8 +1,8 @@
 # Status — read this first when resuming
 
-*As of 2026-07-01, end of the first build day (~70 commits, all pushed to
-github.com/nicco-b/valley). This file is the live state; update it when
-things change. The doc map: [DESIGN.md](DESIGN.md) = what the game is ·
+*As of 2026-07-02 (day two: the Blender creature pipeline; ~67 commits, all
+pushed to github.com/nicco-b/valley). This file is the live state; update it
+when things change. The doc map: [DESIGN.md](DESIGN.md) = what the game is ·
 [FOUNDATIONS.md](FOUNDATIONS.md) = build plan & backlog · [DEV_GUIDE.md](DEV_GUIDE.md)
 = how to work on it · [DECISIONS.md](DECISIONS.md) = settled questions ·
 [IDEAS.md](IDEAS.md) = the drawer · [ASSETS_NEEDED.md](ASSETS_NEEDED.md) =
@@ -36,10 +36,17 @@ Stillness—bends time while sitting/Swimming/Foraging); two inhabitants —
 the Wanderer (pink scarf) and the Keeper (teal, tends shrine) — who know
 each other; first errand quest "Between Two Solitudes".
 
+**Characters** — Blender creature pipeline live (assets/blender/creatures/
+README.md is the contract): scripted low-poly build → rig → clip set →
+glb export. Two creatures built: the biped fox (**now the player body**,
+from her painting) and the star hound (fully animated, currently unplaced).
+NPCs (Wanderer, Keeper) still ride the CC0 robot placeholder.
+
 **Shell/tools** — title screen, pause/settings, autosave; god mode (F1:
 fly/sculpt/place/inspect); live map (M, gestures); hot-reload of paintings;
 place mode writing cell records; gamepad support; CI on GitHub; test
-harness (unit + scene + dual smoke).
+harness (unit + scene + dual smoke). The home valley has hand-composed
+places (pond oasis + surrounds) authored via place mode — cells in data/cells/.
 
 ## Placeholder ledger (each has a named replacement path)
 

@@ -42,7 +42,9 @@ var _wear_cooldown := 0.0
 
 
 func _ready() -> void:
-	_image = Image.create(TEX_SIZE, TEX_SIZE, false, Image.FORMAT_RF)
+	# Mipmapped: the terrain vertex shader reads a blurred level for the
+	# ground-sinking displacement (sharp texels would shimmer).
+	_image = Image.create(TEX_SIZE, TEX_SIZE, true, Image.FORMAT_RF)
 	_wear_image = Image.create(TEX_SIZE, TEX_SIZE, false, Image.FORMAT_RF)
 	_texture = ImageTexture.create_from_image(_image)
 	RenderingServer.global_shader_parameter_set("trace_map", _texture)
@@ -50,8 +52,11 @@ func _ready() -> void:
 	GameClock.hour_tick.connect(_age_wear)
 
 
-func stamp(world_xz: Vector2) -> void:
-	_stamps.append([world_xz, _clock])
+## strength: how hard the ground was pressed — running presses harder,
+## hooves lighter, and wet sand takes every print more deeply (Climate).
+func stamp(world_xz: Vector2, strength := 1.0) -> void:
+	strength = minf(strength * (1.0 + 0.5 * Climate.wetness), 1.6)
+	_stamps.append([world_xz, _clock, strength])
 	if _stamps.size() > MAX_STAMPS:
 		_stamps.pop_front()
 	var cell := Vector2i(int(floor(world_xz.x)), int(floor(world_xz.y)))
@@ -149,10 +154,11 @@ func _rebuild() -> void:
 		if age > LIFETIME:
 			continue
 		alive.append(s)
-		var strength := minf(age / FADE_IN, 1.0) * (1.0 - age / LIFETIME)
+		var strength: float = minf(age / FADE_IN, 1.0) * (1.0 - age / LIFETIME) * s[2]
 		var uv: Vector2 = (s[0] - _anchor) * px_per_m + Vector2.ONE * (TEX_SIZE * 0.5)
 		_blob(_image, int(uv.x), int(uv.y), strength)
 	_stamps = alive
+	_image.generate_mipmaps()  # the vertex displacement reads a blurred level
 	_texture.update(_image)
 
 

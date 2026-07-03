@@ -225,7 +225,8 @@ func _physics_process(delta: float) -> void:
 		_step_accum += Vector2(velocity.x, velocity.z).length() * delta
 		if _step_accum >= 0.7:
 			_step_accum = 0.0
-			InteractionField.stamp(Vector2(global_position.x, global_position.z))
+			InteractionField.stamp(Vector2(global_position.x, global_position.z),
+				1.3 if Input.is_action_pressed("sprint") else 1.0)
 			if not swimming:
 				_sand_puff.global_position = global_position + Vector3(0, 0.06, 0)
 				_sand_puff.restart()

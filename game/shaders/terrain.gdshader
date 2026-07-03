@@ -24,6 +24,18 @@ varying float wslope;
 
 void vertex() {
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	// Trodden ground actually sinks (the RDR2-snow trick, painterly
+	// dose): a blurred read of the trace map presses the mesh down, so
+	// worn paths and fresh trails become real grooves with silhouettes.
+	// Fades at the region border so the moving window never pops.
+	vec2 t_uv = (wpos.xz - trace_center) / trace_size + 0.5;
+	if (all(greaterThan(t_uv, vec2(0.0))) && all(lessThan(t_uv, vec2(1.0)))) {
+		vec2 edge = min(t_uv, 1.0 - t_uv);
+		float region_fade = smoothstep(0.0, 0.06, min(edge.x, edge.y));
+		float press = textureLod(trace_map, t_uv, 2.0).r;
+		VERTEX.y -= press * 0.14 * region_fade;
+		wpos.y = VERTEX.y;
+	}
 	wnormal = NORMAL; // terrain meshes are unrotated: model = world
 	wslope = 1.0 - NORMAL.y;
 }
@@ -59,16 +71,21 @@ void fragment() {
 	n.xz += rip_dir * cos(phase) * 0.22 * sandiness;
 	col *= 1.0 - 0.06 * (crest * 0.5 + 0.5) * sandiness;
 
-	// Footprints: darkened AND pressed — a normal dimple from the trace
-	// gradient gives prints and trails actual relief.
+	// Footprints: pressed, darkened, and BERMED — the vertex pass sinks
+	// the ground; here the trace gradient dimples the normal for
+	// print-scale relief, the pit shades (compacted, shadowed sand),
+	// and displaced sand piles at the rim to catch the light.
 	vec2 trace_uv = (wpos.xz - trace_center) / trace_size + 0.5;
 	if (all(greaterThan(trace_uv, vec2(0.0))) && all(lessThan(trace_uv, vec2(1.0)))) {
 		float px = 1.0 / 256.0;
 		float tC = texture(trace_map, trace_uv).r;
 		float tX = texture(trace_map, trace_uv + vec2(px, 0.0)).r;
 		float tY = texture(trace_map, trace_uv + vec2(0.0, px)).r;
-		n.xz += vec2(tX - tC, tY - tC) * 6.0;
-		col *= 1.0 - 0.13 * tC;
+		vec2 grad = vec2(tX - tC, tY - tC);
+		n.xz += grad * 9.0;
+		col *= 1.0 - 0.16 * tC;
+		float rim = max(0.0, length(grad) * 5.0 - tC * 2.0) * sandiness;
+		col += vec3(0.055, 0.045, 0.03) * min(rim, 1.0);
 	}
 
 	NORMAL = normalize((VIEW_MATRIX * vec4(normalize(n), 0.0)).xyz);

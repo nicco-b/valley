@@ -28,6 +28,7 @@ var attention := Attention.CALM
 var _sim_target := Vector3.ZERO
 var _flee_target := Vector3.ZERO
 var _calm_accum := 0.0
+var _step_accum := 0.0
 var _nav := PathCursor.new()  # embodied walking follows the baked navmesh
 
 @onready var _anim: AnimationPlayer = $Body/Model/AnimationPlayer
@@ -93,6 +94,14 @@ func _physics_process(delta: float) -> void:
 	velocity.x = lerpf(velocity.x, target_velocity.x, blend)
 	velocity.z = lerpf(velocity.z, target_velocity.z, blend)
 	move_and_slide()
+
+	# Hooves press the sand too — herd routes wear into desire paths.
+	if is_on_floor():
+		_step_accum += Vector2(velocity.x, velocity.z).length() * delta
+		if _step_accum >= 0.7:
+			_step_accum = 0.0
+			InteractionField.stamp(
+				Vector2(global_position.x, global_position.z), 0.8)
 
 	var flat := Vector3(velocity.x, 0.0, velocity.z)
 	if flat.length() > 0.3:

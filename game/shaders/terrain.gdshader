@@ -32,8 +32,8 @@ void vertex() {
 	if (all(greaterThan(t_uv, vec2(0.0))) && all(lessThan(t_uv, vec2(1.0)))) {
 		vec2 edge = min(t_uv, 1.0 - t_uv);
 		float region_fade = smoothstep(0.0, 0.06, min(edge.x, edge.y));
-		float press = textureLod(trace_map, t_uv, 2.0).r;
-		VERTEX.y -= press * 0.14 * region_fade;
+		float press = min(textureLod(trace_map, t_uv, 1.0).r, 1.0);
+		VERTEX.y -= press * 0.09 * region_fade;
 		wpos.y = VERTEX.y;
 	}
 	wnormal = NORMAL; // terrain meshes are unrotated: model = world
@@ -82,10 +82,13 @@ void fragment() {
 		float tX = texture(trace_map, trace_uv + vec2(px, 0.0)).r;
 		float tY = texture(trace_map, trace_uv + vec2(0.0, px)).r;
 		vec2 grad = vec2(tX - tC, tY - tC);
-		n.xz += grad * 9.0;
-		col *= 1.0 - 0.16 * tC;
-		float rim = max(0.0, length(grad) * 5.0 - tC * 2.0) * sandiness;
-		col += vec3(0.055, 0.045, 0.03) * min(rim, 1.0);
+		n.xz += grad * 10.0;
+		// Dry sand doesn't stain — trodden ground reads as relief and
+		// shadow, and only darkens when the ground is wet.
+		col *= 1.0 - min(tC, 1.0) * (0.035 + 0.14 * ground_wetness);
+		// Kicked-up sand at the print's rim is looser and lighter.
+		float rim = max(0.0, length(grad) * 6.0 - tC * 1.5) * sandiness;
+		col += vec3(0.06, 0.05, 0.035) * min(rim, 1.0);
 	}
 
 	NORMAL = normalize((VIEW_MATRIX * vec4(normalize(n), 0.0)).xyz);

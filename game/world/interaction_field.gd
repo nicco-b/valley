@@ -104,7 +104,11 @@ func wear_restore(data: Dictionary) -> void:
 
 
 func _process(delta: float) -> void:
-	_clock += delta
+	# Sand behavior: the wind erases. Prints age with the wind — a storm
+	# scrubs them in under a minute, a dead-calm evening keeps them long
+	# — and the procedural ripples re-form over the erased ground.
+	# (The wear layer is untouched: worn paths outlast weather.)
+	_clock += delta * (0.5 + 2.0 * Weather.wind)
 	_aging_accum += delta
 	if _aging_accum >= AGING_INTERVAL:
 		_aging_accum = 0.0
@@ -156,20 +160,20 @@ func _rebuild() -> void:
 		alive.append(s)
 		var strength: float = minf(age / FADE_IN, 1.0) * (1.0 - age / LIFETIME) * s[2]
 		var uv: Vector2 = (s[0] - _anchor) * px_per_m + Vector2.ONE * (TEX_SIZE * 0.5)
-		_blob(_image, int(uv.x), int(uv.y), strength)
+		_blob(_image, int(uv.x), int(uv.y), strength, 3)  # fresh prints: tight
 	_stamps = alive
 	_image.generate_mipmaps()  # the vertex displacement reads a blurred level
 	_texture.update(_image)
 
 
-func _blob(img: Image, cx: int, cy: int, strength: float) -> void:
-	for dy in range(-4, 5):
-		for dx in range(-4, 5):
+func _blob(img: Image, cx: int, cy: int, strength: float, radius := 4) -> void:
+	for dy in range(-radius, radius + 1):
+		for dx in range(-radius, radius + 1):
 			var x := cx + dx
 			var y := cy + dy
 			if x < 0 or y < 0 or x >= TEX_SIZE or y >= TEX_SIZE:
 				continue
-			var falloff := smoothstep(1.0, 0.25, Vector2(dx, dy).length() / 4.0)
+			var falloff := smoothstep(1.0, 0.25, Vector2(dx, dy).length() / float(radius))
 			if falloff <= 0.0:
 				continue
 			var v := maxf(img.get_pixel(x, y).r, strength * falloff)

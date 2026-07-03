@@ -64,13 +64,14 @@ func _invariants(npcs: Node, wildlife: Node) -> void:
 		_check(npc.rumors.size() <= npc.MAX_RUMORS, "%s memory capped" % npc.npc_id)
 	for herd in wildlife.herds:
 		for ind in herd.individuals:
-			_check(ind.pos.is_finite(), "%s animal position finite" % herd.species)
-			_check((ind.pos - herd.home).length() < herd.range * 3.0,
+			var sim: AgentSim = ind.sim
+			_check(sim.pos.is_finite(), "%s animal position finite" % herd.species)
+			_check((sim.pos - sim.home).length() < sim.roam_range * 3.0,
 				"%s animal near its range" % herd.species)
-			for d in ind.drives:
-				var v: float = ind.drives[d]
+			for need in sim.needs:
+				var v: float = sim.needs[need]
 				_check(is_finite(v) and v >= 0.0 and v <= 100.0,
-					"%s drive %s bounded" % [herd.species, d])
+					"%s drive %s bounded" % [herd.species, need])
 	var size := JSON.stringify(WorldState.snapshot()).length()
 	_check(size < SNAPSHOT_BUDGET,
 		"save under budget (%d / %d bytes)" % [size, SNAPSHOT_BUDGET])
@@ -95,6 +96,7 @@ func _fingerprint(npcs: Node, wildlife: Node) -> int:
 			parts.append("%.2f" % npc.needs[need])
 	for herd in wildlife.herds:
 		for ind in herd.individuals:
-			parts.append("%.1f,%.1f" % [ind.pos.x, ind.pos.y])
-			parts.append(str(ind.activity.get("id", "")))
+			var sim: AgentSim = ind.sim
+			parts.append("%.1f,%.1f" % [sim.pos.x, sim.pos.y])
+			parts.append(str(sim.current.get("id", "")))
 	return hash("|".join(parts.map(func(p: Variant) -> String: return str(p))))

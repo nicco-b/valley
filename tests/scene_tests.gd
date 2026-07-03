@@ -254,20 +254,20 @@ func _test_wildlife() -> void:
 				"rate": 16.0, "hours": [5.0, 9.0]},
 			{"id": "prowl", "at": "roam", "satisfies": "wander", "rate": 5.0},
 		]})
-	var ind: Dictionary = herd.individuals[0]
+	var sim: AgentSim = herd.individuals[0].sim
 	var span: Vector2 = GameClock.daylight_span()
 	GameClock.hours = fposmod(span.x + 1.0, 24.0)  # solar ~7:00, drink window
-	ind.drives.thirst = 10.0
-	ind.drives.wander = 90.0
-	mgr.decide(herd, ind)
-	_check(ind.activity.id == "drink", "thirsty animal heads to water at dawn")
-	var start: Vector2 = ind.pos
-	mgr.advance_individual(herd, ind, 1.0)
-	_check((ind.pos - Vector2(50.0, 0.0)).length() < 12.0,
+	sim.needs.thirst = 10.0
+	sim.needs.wander = 90.0
+	sim.decide()
+	_check(sim.current.id == "drink", "thirsty animal heads to water at dawn")
+	var start: Vector2 = sim.pos
+	sim.advance(1.0)
+	_check((sim.pos - Vector2(50.0, 0.0)).length() < 12.0,
 		"an hour of data-tier time completes the journey")
-	_check(ind.pos != start, "data animal moved without a body")
-	mgr.advance_individual(herd, ind, 1.0)  # arrived: this hour is spent drinking
-	_check(ind.drives.thirst > 10.0, "drinking satisfies thirst")
+	_check(sim.pos != start, "data animal moved without a body")
+	sim.advance(1.0)  # arrived: this hour is spent drinking
+	_check(sim.needs.thirst > 10.0, "drinking satisfies thirst")
 	mgr._save_state()
 	var rows: Array = WorldState.get_value("wildlife.test_herd", [])
 	_check(rows.size() == 2, "herd persists to WorldState")

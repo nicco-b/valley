@@ -10,7 +10,7 @@ const ACCEL := 6.0
 const ARRIVE := 4.0
 
 var species := "creature"
-var info: Dictionary = {}  # the live individual record (shared reference)
+var sim: AgentSim = null  # the live mind (shared reference with the manager)
 
 var _target := Vector3.ZERO
 
@@ -62,12 +62,6 @@ func _physics_process(delta: float) -> void:
 
 ## One-line-per-fact dump for the god-mode sim inspector.
 func sim_debug() -> String:
-	var lines: Array[String] = ["%s (wild)" % species, ""]
-	lines.append("activity: %s" % str(info.get("activity", {}).get("id", "—")))
-	lines.append("")
-	var drives: Dictionary = info.get("drives", {})
-	for d in drives:
-		var v: float = drives[d]
-		var bar := "".rpad(int(v / 10.0), "█").rpad(10, "░")
-		lines.append("%-8s %s %3d" % [d, bar, int(v)])
-	return "\n".join(lines)
+	if sim == null:
+		return "%s (wild)" % species
+	return "%s (wild)\n\n%s" % [species, sim.debug_text()]

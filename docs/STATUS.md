@@ -98,6 +98,12 @@ picker).
 
 ## Next up (in rough priority)
 
+0. **PROPOSAL pending sign-off** — [SIM_ROADMAP.md](SIM_ROADMAP.md):
+   the Skyrim-level-or-better systems plan (AgentSim core, two-level
+   navigation, perception, event log + seed binding, then the per-system
+   ladder). Bless, amend, or strike it; items graduate into
+   FOUNDATIONS/DECISIONS when decided.
+
 1. **Asset track (humans)** — see ASSETS_NEEDED.md. Top: her ground-cover
    kit, his Blender rock family, real wind recording.
 2. **Canon track (kitchen table)** — the axioms conversation

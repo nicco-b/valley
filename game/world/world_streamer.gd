@@ -45,14 +45,15 @@ var _cover_meshes: Array[QuadMesh] = []
 
 var _dirty: Dictionary = {}
 var _rebuild_cooldown := 0.0
-# Sculpt-feedback split: the mesh rebuilds immediately (sculpting wants
-# it), but navmesh re-bakes are deferred to the worker thread and only
-# run once the brush goes quiet — baking + region sync per stroke made
-# editing choppy, and nobody notices the walkable surface lagging 1s.
-var _nav_dirty: Dictionary = {}  # cells whose navmesh lags a sculpt edit
-var _nav_pending: Dictionary = {}  # cell -> worker task id
-var _nav_results: Array = []  # [cell, navmesh] built off-thread
-var _nav_cooldown := 0.0
+# Sculpt-feedback split: while the brush is active only the VISUAL mesh
+# rebuilds (cheap, instant — the clay must move under the cursor); the
+# expensive cell rebuild — trimesh collision, flora scatter, ground
+# cover, navmesh, node churn — runs once through the normal threaded
+# pipeline after the brush goes quiet. The old collision/scatter/navmesh
+# serve in the interim; nobody notices them lagging a second.
+var _mesh_instances: Dictionary = {}  # Vector2i -> the cell's MeshInstance3D
+var _stale: Dictionary = {}  # sculpted cells awaiting their full rebuild
+var _quiet_cooldown := 0.0
 
 
 func _ready() -> void:
@@ -91,20 +92,20 @@ func _process(delta: float) -> void:
 	if not _dirty.is_empty() and _rebuild_cooldown <= 0.0:
 		_rebuild_cooldown = 0.2
 		for c in _dirty.keys():
-			if _terrain.has(c):
-				_terrain[c].queue_free()
-				_terrain.erase(c)
-				_add_terrain_sync(c, false)  # sculpting wants immediate feedback
-				_nav_dirty[c] = true  # the old navmesh serves until quiet
+			if _mesh_instances.has(c):
+				# Visual mesh only: the brush needs to see the clay move.
+				_mesh_instances[c].mesh = _build_terrain_mesh(c, false, false)[0]
+				_stale[c] = true
 		_dirty.clear()
-		_nav_cooldown = 0.8
-	_nav_cooldown -= delta
-	if _dirty.is_empty() and _nav_cooldown <= 0.0 and not _nav_dirty.is_empty():
-		for c in _nav_dirty.keys():
-			if _terrain.has(c) and not _nav_pending.has(c):
-				_nav_pending[c] = WorkerThreadPool.add_task(_thread_rebake_nav.bind(c))
-		_nav_dirty.clear()
-	_drain_nav_results()
+		_quiet_cooldown = 0.8
+	_quiet_cooldown -= delta
+	if _dirty.is_empty() and _quiet_cooldown <= 0.0 and not _stale.is_empty():
+		for c in _stale.keys():
+			if _terrain.has(c) and not _terrain_pending.has(c):
+				# Full rebuild off-thread; _drain_terrain_results swaps the
+				# cell (collision, scatter, cover, navmesh) when it lands.
+				_terrain_pending[c] = WorkerThreadPool.add_task(
+					_thread_build_terrain.bind(c))
 
 
 func _on_terrain_edited(world_rect: Rect2) -> void:
@@ -172,6 +173,8 @@ func _update_cells(sync: bool) -> void:
 		if _chebyshev(c - center) > unload_radius:
 			_terrain[c].queue_free()
 			_terrain.erase(c)
+			_mesh_instances.erase(c)
+			_stale.erase(c)
 			Nav.remove_cell(c)
 	for c in _content.keys():
 		if _chebyshev(c - center) > unload_radius:
@@ -199,7 +202,7 @@ func _poll_pending() -> void:
 ## the mesh, collision shape, and (unless deferred) baked navmesh — only
 ## reads Terrain + creates resources. The navmesh gets the same triangles
 ## minus anything submerged — nobody paths through the pond.
-func _build_terrain_mesh(c: Vector2i, with_nav := true) -> Array:
+func _build_terrain_mesh(c: Vector2i, with_nav := true, with_shape := true) -> Array:
 	var origin := Vector3(
 		c.x * CELL_SIZE - CELL_SIZE * 0.5, 0.0, c.y * CELL_SIZE - CELL_SIZE * 0.5
 	)
@@ -219,7 +222,8 @@ func _build_terrain_mesh(c: Vector2i, with_nav := true) -> Array:
 			var y := Terrain.height(wx, wz)
 			var i := iz * TERRAIN_RES + ix
 			pts[i] = Vector3(ix * step, y, iz * step)
-			wet[i] = 1 if y < Terrain.water_surface(wx, wz) - 0.05 else 0
+			if with_nav:
+				wet[i] = 1 if y < Terrain.water_surface(wx, wz) - 0.05 else 0
 			st.set_uv(Vector2(wx, wz) * 0.05)
 			st.add_vertex(pts[i])
 	var faces := PackedVector3Array()
@@ -245,7 +249,8 @@ func _build_terrain_mesh(c: Vector2i, with_nav := true) -> Array:
 	st.generate_normals()
 	var mesh := st.commit()
 	var navmesh: NavigationMesh = Nav.bake_navmesh(faces) if with_nav else null
-	return [mesh, mesh.create_trimesh_shape(), navmesh]
+	var shape: Shape3D = mesh.create_trimesh_shape() if with_shape else null
+	return [mesh, shape, navmesh]
 
 
 func _thread_build_terrain(c: Vector2i) -> void:
@@ -266,38 +271,21 @@ func _drain_terrain_results() -> void:
 			WorkerThreadPool.wait_for_task_completion(_terrain_pending[c])
 			_terrain_pending.erase(c)
 		if _terrain.has(c):
-			continue
+			if not _stale.has(c):
+				continue  # raced a normal load; the live cell wins
+			# Sculpt-stale swap: the fresh full rebuild replaces the old cell.
+			_terrain[c].queue_free()
+			_terrain.erase(c)
+			_mesh_instances.erase(c)
+			_stale.erase(c)
 		if _chebyshev(c - _player_cell()) > load_radius + 1:
 			continue  # streamed past it while building; let it lapse
 		_finish_terrain(c, r[1], r[2], r[3])
 
 
-func _add_terrain_sync(c: Vector2i, with_nav := true) -> void:
-	var built := _build_terrain_mesh(c, with_nav)
+func _add_terrain_sync(c: Vector2i) -> void:
+	var built := _build_terrain_mesh(c)
 	_finish_terrain(c, built[0], built[1], built[2])
-
-
-## Deferred navmesh rebake after sculpting, off the main thread.
-func _thread_rebake_nav(c: Vector2i) -> void:
-	var built := _build_terrain_mesh(c, true)
-	_results_mutex.lock()
-	_nav_results.append([c, built[2]])
-	_results_mutex.unlock()
-
-
-func _drain_nav_results() -> void:
-	_results_mutex.lock()
-	var results := _nav_results.duplicate()
-	_nav_results.clear()
-	_results_mutex.unlock()
-	for r in results:
-		var c: Vector2i = r[0]
-		if _nav_pending.has(c):
-			WorkerThreadPool.wait_for_task_completion(_nav_pending[c])
-			_nav_pending.erase(c)
-		if _terrain.has(c):
-			Nav.add_cell(c, r[1], Vector3(
-				c.x * CELL_SIZE - CELL_SIZE * 0.5, 0.0, c.y * CELL_SIZE - CELL_SIZE * 0.5))
 
 
 func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D,
@@ -313,6 +301,7 @@ func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	col.shape = shape
 	body.add_child(mi)
 	body.add_child(col)
+	_mesh_instances[c] = mi
 	body.position = origin
 	_add_scatter(c, body, origin)
 	_add_ground_cover(c, body, origin,

@@ -128,6 +128,12 @@ func _run() -> void:
 	for i in 30:
 		var t := float(i) * 0.5
 		InteractionField.stamp(Vector2(26.0 - t * 0.9, -78.0 - t * 0.55), 1.0)
+	# And the human test pattern: pacing and turning in place — crowded
+	# stamps must NOT merge into a saturated blob.
+	for i in 40:
+		var ang := float(i) * 1.7
+		InteractionField.stamp(Vector2(30.0, -74.0)
+			+ Vector2(cos(ang), sin(ang)) * (0.3 + 0.05 * float(i)), 1.0)
 	for i in 40:
 		var w := float(i) * 1.0
 		InteractionField._wear[Vector2i(int(20.0 - w * 0.8), int(-92.0 - w * 0.5))] = 1.0

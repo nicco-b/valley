@@ -327,6 +327,7 @@ func _test_long_memory() -> void:
 	var spot := Vector2(4321.5, -4321.5)  # far from any real trail
 	for i in 5:
 		InteractionField.stamp(spot)
+		InteractionField._clock += 30.0  # crowding guard: wear needs revisits, not shuffling
 	var snap: Dictionary = InteractionField.wear_snapshot()
 	var key := "4321_-4322"
 	_check(snap.has(key), "footsteps wear a permanent cell")

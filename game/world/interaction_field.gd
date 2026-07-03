@@ -57,7 +57,19 @@ func _ready() -> void:
 ## bug this replaces). Pressing harder = a WIDER print (radius), and wet
 ## ground presses deeper via the shader's displacement (ground_wetness),
 ## never by inflating the mask.
+##
+## Crowding guard: pacing, turning, and test-shuffling land many stamps
+## in the same square meter, and overlapping stamps max-blend into a
+## saturated PATCH — the flat dark blob again, by another road. Ground
+## freshly pressed stays pressed; it doesn't stack.
+const STAMP_SPACING := 0.4
+const STAMP_FRESH_SECONDS := 20.0
+
 func stamp(world_xz: Vector2, strength := 1.0, radius := 2) -> void:
+	for s in _stamps:
+		if _clock - s[1] < STAMP_FRESH_SECONDS \
+				and s[0].distance_squared_to(world_xz) < STAMP_SPACING * STAMP_SPACING:
+			return
 	_stamps.append([world_xz, _clock, minf(strength, 1.0), radius])
 	if _stamps.size() > MAX_STAMPS:
 		_stamps.pop_front()

@@ -45,6 +45,14 @@ var _cover_meshes: Array[QuadMesh] = []
 
 var _dirty: Dictionary = {}
 var _rebuild_cooldown := 0.0
+# Sculpt-feedback split: the mesh rebuilds immediately (sculpting wants
+# it), but navmesh re-bakes are deferred to the worker thread and only
+# run once the brush goes quiet — baking + region sync per stroke made
+# editing choppy, and nobody notices the walkable surface lagging 1s.
+var _nav_dirty: Dictionary = {}  # cells whose navmesh lags a sculpt edit
+var _nav_pending: Dictionary = {}  # cell -> worker task id
+var _nav_results: Array = []  # [cell, navmesh] built off-thread
+var _nav_cooldown := 0.0
 
 
 func _ready() -> void:
@@ -86,8 +94,17 @@ func _process(delta: float) -> void:
 			if _terrain.has(c):
 				_terrain[c].queue_free()
 				_terrain.erase(c)
-				_add_terrain_sync(c)  # sculpting wants immediate feedback
+				_add_terrain_sync(c, false)  # sculpting wants immediate feedback
+				_nav_dirty[c] = true  # the old navmesh serves until quiet
 		_dirty.clear()
+		_nav_cooldown = 0.8
+	_nav_cooldown -= delta
+	if _dirty.is_empty() and _nav_cooldown <= 0.0 and not _nav_dirty.is_empty():
+		for c in _nav_dirty.keys():
+			if _terrain.has(c) and not _nav_pending.has(c):
+				_nav_pending[c] = WorkerThreadPool.add_task(_thread_rebake_nav.bind(c))
+		_nav_dirty.clear()
+	_drain_nav_results()
 
 
 func _on_terrain_edited(world_rect: Rect2) -> void:
@@ -170,10 +187,10 @@ func _poll_pending() -> void:
 
 
 ## Heavy part of cell generation, safe to run on a worker thread: builds
-## the mesh, collision shape, and baked navmesh (only reads Terrain +
-## creates resources). The navmesh gets the same triangles minus anything
-## submerged — nobody paths through the pond.
-func _build_terrain_mesh(c: Vector2i) -> Array:
+## the mesh, collision shape, and (unless deferred) baked navmesh — only
+## reads Terrain + creates resources. The navmesh gets the same triangles
+## minus anything submerged — nobody paths through the pond.
+func _build_terrain_mesh(c: Vector2i, with_nav := true) -> Array:
 	var origin := Vector3(
 		c.x * CELL_SIZE - CELL_SIZE * 0.5, 0.0, c.y * CELL_SIZE - CELL_SIZE * 0.5
 	)
@@ -206,6 +223,8 @@ func _build_terrain_mesh(c: Vector2i) -> Array:
 			st.add_index(i + 1)
 			st.add_index(i + TERRAIN_RES + 1)
 			st.add_index(i + TERRAIN_RES)
+			if not with_nav:
+				continue
 			if wet[i] == 0 and wet[i + 1] == 0 and wet[i + TERRAIN_RES] == 0:
 				faces.append(pts[i])
 				faces.append(pts[i + 1])
@@ -216,7 +235,8 @@ func _build_terrain_mesh(c: Vector2i) -> Array:
 				faces.append(pts[i + TERRAIN_RES])
 	st.generate_normals()
 	var mesh := st.commit()
-	return [mesh, mesh.create_trimesh_shape(), Nav.bake_navmesh(faces)]
+	var navmesh: NavigationMesh = Nav.bake_navmesh(faces) if with_nav else null
+	return [mesh, mesh.create_trimesh_shape(), navmesh]
 
 
 func _thread_build_terrain(c: Vector2i) -> void:
@@ -243,9 +263,32 @@ func _drain_terrain_results() -> void:
 		_finish_terrain(c, r[1], r[2], r[3])
 
 
-func _add_terrain_sync(c: Vector2i) -> void:
-	var built := _build_terrain_mesh(c)
+func _add_terrain_sync(c: Vector2i, with_nav := true) -> void:
+	var built := _build_terrain_mesh(c, with_nav)
 	_finish_terrain(c, built[0], built[1], built[2])
+
+
+## Deferred navmesh rebake after sculpting, off the main thread.
+func _thread_rebake_nav(c: Vector2i) -> void:
+	var built := _build_terrain_mesh(c, true)
+	_results_mutex.lock()
+	_nav_results.append([c, built[2]])
+	_results_mutex.unlock()
+
+
+func _drain_nav_results() -> void:
+	_results_mutex.lock()
+	var results := _nav_results.duplicate()
+	_nav_results.clear()
+	_results_mutex.unlock()
+	for r in results:
+		var c: Vector2i = r[0]
+		if _nav_pending.has(c):
+			WorkerThreadPool.wait_for_task_completion(_nav_pending[c])
+			_nav_pending.erase(c)
+		if _terrain.has(c):
+			Nav.add_cell(c, r[1], Vector3(
+				c.x * CELL_SIZE - CELL_SIZE * 0.5, 0.0, c.y * CELL_SIZE - CELL_SIZE * 0.5))
 
 
 func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D,
@@ -267,7 +310,8 @@ func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 			Terrain.valley_factor(origin.x + CELL_SIZE * 0.5, origin.z + CELL_SIZE * 0.5))
 	add_child(body)
 	_terrain[c] = body
-	Nav.add_cell(c, navmesh, origin)
+	if navmesh != null:
+		Nav.add_cell(c, navmesh, origin)  # deferred rebakes keep the old region
 
 
 func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:

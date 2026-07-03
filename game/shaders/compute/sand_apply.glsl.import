@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://butqi1cm71c3l"
+path="res://.godot/imported/sand_apply.glsl-d2dfbd45aae280d98e3cecb1a16fd4c7.res"
+
+[deps]
+
+source_file="res://game/shaders/compute/sand_apply.glsl"
+dest_files=["res://.godot/imported/sand_apply.glsl-d2dfbd45aae280d98e3cecb1a16fd4c7.res"]
+
+[params]
+

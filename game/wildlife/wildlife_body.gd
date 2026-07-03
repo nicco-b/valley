@@ -100,8 +100,8 @@ func _physics_process(delta: float) -> void:
 		_step_accum += Vector2(velocity.x, velocity.z).length() * delta
 		if _step_accum >= 0.7:
 			_step_accum = 0.0
-			InteractionField.stamp(
-				Vector2(global_position.x, global_position.z), 0.8)
+			InteractionField.wear_only(
+				Vector2(global_position.x, global_position.z))
 			SandField.stamp(Vector2(global_position.x, global_position.z),
 				_body.rotation.y, SandField.Mask.PAW, 0.8)
 

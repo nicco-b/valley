@@ -52,6 +52,16 @@ func _ready() -> void:
 	GameClock.hour_tick.connect(_age_wear)
 
 
+## Walkers call this: long-memory wear only. Their visible fresh prints
+## live in the granular SandField now — this field keeps what outlasts
+## weather: the desire paths.
+func wear_only(world_xz: Vector2) -> void:
+	var cell := Vector2i(int(floor(world_xz.x)), int(floor(world_xz.y)))
+	_wear[cell] = minf(float(_wear.get(cell, 0.0)) + WEAR_PER_STAMP, 1.0)
+	_wear_dirty = true
+	_dirty = true
+
+
 ## strength caps at 1.0 — a saturated stamp has no gradient, and no
 ## gradient means no rim, no shading, no depth (flat dark craters, the
 ## bug this replaces). Pressing harder = a WIDER print (radius), and wet

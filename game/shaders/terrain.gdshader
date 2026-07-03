@@ -43,7 +43,7 @@ void vertex() {
 			sand = textureLod(deform_map, d_uv, 0.0).r;
 		}
 		v_fade = 1.0 - smoothstep(9.0, PATCH_HOLE, r);
-		float proud = 0.02 * smoothstep(8.8, 9.6, r);
+		float proud = 0.012 * smoothstep(8.8, 9.6, r);
 		VERTEX.y += proud + sand * v_fade;
 		wpos.y = VERTEX.y;
 	} else {
@@ -103,12 +103,11 @@ void fragment() {
 	n.xz += rip_dir * cos(phase) * 0.22 * sandiness;
 	col *= 1.0 - 0.06 * (crest * 0.5 + 0.5) * sandiness;
 
-	// Footprints: pressed, darkened, and BERMED — the vertex pass sinks
-	// the ground; here the trace gradient dimples the normal for
-	// print-scale relief, the pit shades (compacted, shadowed sand),
-	// and displaced sand piles at the rim to catch the light.
+	// Coarse-field relief (worn desire paths; fresh prints live in the
+	// granular patch now). Never doubled onto the patch.
 	vec2 trace_uv = (wpos.xz - trace_center) / trace_size + 0.5;
-	if (all(greaterThan(trace_uv, vec2(0.0))) && all(lessThan(trace_uv, vec2(1.0)))) {
+	if (!sand_patch
+			&& all(greaterThan(trace_uv, vec2(0.0))) && all(lessThan(trace_uv, vec2(1.0)))) {
 		// Full-res taps (textureLod 0): auto-mip blurred prints into
 		// soft ovals past ~10m — every gradient (rim, dimple) vanished
 		// with distance. The map is 512px; full-res is cheap.
@@ -135,8 +134,9 @@ void fragment() {
 	if (sand_patch) {
 		vec2 d_uv = (wpos.xz - deform_center) / deform_size + 0.5;
 		if (all(greaterThan(d_uv, vec2(0.0))) && all(lessThan(d_uv, vec2(1.0)))) {
-			float dpx = 1.0 / 256.0;
-			float texel_m = deform_size / 256.0;
+			float field_px = float(textureSize(deform_map, 0).x);
+			float dpx = 1.0 / field_px;
+			float texel_m = deform_size / field_px;
 			float dC = textureLod(deform_map, d_uv, 0.0).r;
 			float dXp = textureLod(deform_map, d_uv + vec2(dpx, 0.0), 0.0).r;
 			float dXm = textureLod(deform_map, d_uv - vec2(dpx, 0.0), 0.0).r;

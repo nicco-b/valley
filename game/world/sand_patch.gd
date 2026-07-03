@@ -10,7 +10,7 @@ extends Node3D
 ## serves until the new one lands.
 
 const SIZE := 24.0
-const RES := 257  # 9.4cm vertex grid: the geometry carries the pit, not paint
+const RES := 321  # 7.5cm vertex grid: the geometry carries the pit, not paint
 
 var _anchor := Vector2.INF
 var _pending_anchor := Vector2.INF

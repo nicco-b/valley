@@ -79,7 +79,7 @@ func _run() -> void:
 		var left := i % 2 == 0
 		SandField.stamp(pos + perp * (0.12 if left else -0.12), yaw,
 			SandField.Mask.FOOT_L if left else SandField.Mask.FOOT_R, 1.0)
-		InteractionField.stamp(pos, 1.0)
+		InteractionField.wear_only(pos)
 		prev = pos
 	for i in 40:
 		await get_tree().process_frame
@@ -139,7 +139,7 @@ func _run() -> void:
 		var wpos := Vector2(26.0 - t * 0.9, -78.0 - t * 0.55)
 		SandField.stamp(wpos, atan2(-0.9, -0.55),
 			SandField.Mask.FOOT_L if i % 2 == 0 else SandField.Mask.FOOT_R, 1.0)
-		InteractionField.stamp(wpos, 1.0)
+		InteractionField.wear_only(wpos)
 	# And the human test pattern: pacing and turning in place — crowded
 	# stamps must NOT merge into a saturated blob.
 	for i in 40:
@@ -148,7 +148,7 @@ func _run() -> void:
 			+ Vector2(cos(ang), sin(ang)) * (0.3 + 0.05 * float(i))
 		SandField.stamp(cpos, ang,
 			SandField.Mask.FOOT_L if i % 2 == 0 else SandField.Mask.FOOT_R, 1.0)
-		InteractionField.stamp(cpos, 1.0)
+		InteractionField.wear_only(cpos)
 	for i in 40:
 		var w := float(i) * 1.0
 		InteractionField._wear[Vector2i(int(20.0 - w * 0.8), int(-92.0 - w * 0.5))] = 1.0

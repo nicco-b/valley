@@ -1,39 +1,50 @@
 extends Node
-## SandField (autoload): a real granular heightfield simulation in a 20m
-## window around the player — not a decal layer. The field is SIGNED sand
-## volume in meters, conserved: a footstep displaces material into an
-## ejecta ridge; a plowing stride pushes a bow wave; a landing blasts a
-## crater with a rim. Every tick, cells steeper than the angle of repose
-## AVALANCHE into their neighbors, so pits slump shut, ridges slide, and
-## a wake carved across a dune face sends flows chasing downhill. Wet
-## sand holds steeper walls (repose rises with Climate.wetness); wind
-## slowly erodes the field back to rest.
+## SandField (autoload): the granular sand simulation around the player.
+## The field is SIGNED sand volume in meters, conserved: footsteps
+## displace material into ejecta ridges, landings blast craters with
+## thrown rims, moving feet plow bow waves, and cells steeper than the
+## angle of repose avalanche downhill every tick. Wet sand stands
+## steeper; wind erodes toward rest.
 ##
-## The sim runs on its own thread (the kernel is pure and unit-tested —
-## conservation is asserted, not assumed); the main thread posts stamps
-## and receives texture snapshots. Headless builds never start the
-## thread. Canon: this is the near-player response layer DECISIONS
-## reserves — the world-scale solver ban stands.
+## Two engines, one behavior:
+##  - GPU (the real one): 1024x1024 field at 2.3cm texels over 24m, the
+##    kernels in game/shaders/compute/ — apply, Jacobi relaxation with
+##    antisymmetric (mass-exact) flux, scroll. The renderer samples the
+##    display texture directly (Texture2DRD); the CPU never touches a
+##    texel.
+##  - CPU thread (reference + headless fallback): the same physics on a
+##    256-grid, sparse active-front relaxation. The kernel is pure and
+##    static; scene tests assert conservation, slumping, and downhill
+##    transport against IT — the spec the GPU implements.
 ##
-## Published globals: deform_map (meters, signed), deform_center,
-## deform_size. sand_patch.gd renders it as real geometry.
+## Canon: this is the near-player fine-response layer DECISIONS reserves;
+## the world-scale solver ban stands.
 
-const REGION := 20.0
-const GRID := 256  # 7.8cm cells
+const REGION := 20.0  # CPU-mode window
+const GRID := 256
 const CELL := REGION / GRID
 const REANCHOR := 5.0
-const MAX_DELTA := 0.3  # sand never piles/digs more than this locally
-const SNAPSHOT_INTERVAL := 0.05  # main-thread texture updates, seconds
-const REPOSE_DRY := 0.60  # tan(31°): dry sand's angle of repose
-const REPOSE_WET_BONUS := 0.55  # wet sand stands steeper
-const FLOW := 0.28  # fraction of excess moved per relax visit
-const BUDGET := 9000  # cell-updates per sim tick (sparse active set)
+const MAX_DELTA := 0.3
+const SNAPSHOT_INTERVAL := 0.05
+const REPOSE_DRY := 0.60  # tan(31°)
+const REPOSE_WET_BONUS := 0.55
+const FLOW := 0.28
+const BUDGET := 9000
 
 enum Mask { FOOT_L, FOOT_R, PAW, BOOT }
 
+var _gpu: SandGpu
+var _gpu_mode := false
+var _ops := PackedFloat32Array()
+var _op_count := 0
+var _base_pending := false
+var _base_task := -1
+var _base_result: PackedFloat32Array
+var _base_ready := false
+
 var _thread: Thread
 var _run := true
-var _inbox: Array = []  # thread-safe via _lock: stamps + params + reanchor
+var _inbox: Array = []
 var _lock := Mutex.new()
 var _snapshot: PackedByteArray = PackedByteArray()
 var _snap_ready := false
@@ -42,23 +53,39 @@ var _image: Image
 var _texture: ImageTexture
 var _anchor := Vector2.INF
 var _snap_accum := 0.0
-var _masks: Array = []  # signed, zero-sum PackedFloat32Array masks [w, h, data]
+var _masks: Array = []  # signed, zero-sum [w, h, PackedFloat32Array], meters
+
+
+func _region() -> float:
+	return SandGpu.REGION if _gpu_mode else REGION
+
+
+func _cell_m() -> float:
+	return (SandGpu.REGION / SandGpu.GRID) if _gpu_mode else CELL
 
 
 func _ready() -> void:
-	_image = Image.create(GRID, GRID, false, Image.FORMAT_RF)
-	_texture = ImageTexture.create_from_image(_image)
-	RenderingServer.global_shader_parameter_set("deform_map", _texture)
-	RenderingServer.global_shader_parameter_set("deform_size", REGION)
 	_masks = [
-		_signed_mask(_foot_shape(false), 0.06),
-		_signed_mask(_foot_shape(true), 0.06),
-		_signed_mask(_paw_shape(), 0.03),
-		_signed_mask(_boot_shape(), 0.05),
+		_signed_mask(_foot_shape(false), 0.085),
+		_signed_mask(_foot_shape(true), 0.085),
+		_signed_mask(_paw_shape(), 0.045),
+		_signed_mask(_boot_shape(), 0.07),
 	]
-	if DisplayServer.get_name() != "headless":
-		_thread = Thread.new()
-		_thread.start(_sim_loop)
+	_gpu = SandGpu.new()
+	if DisplayServer.get_name() != "headless" and _gpu.setup(_masks):
+		_gpu_mode = true
+		_ops.resize(SandGpu.MAX_OPS * 8)
+		RenderingServer.global_shader_parameter_set("deform_map", _gpu.display_texture)
+		print("[sand] granular sim on GPU: %dx%d, %.1fcm texels"
+			% [SandGpu.GRID, SandGpu.GRID, _cell_m() * 100.0])
+	else:
+		_image = Image.create(GRID, GRID, false, Image.FORMAT_RF)
+		_texture = ImageTexture.create_from_image(_image)
+		RenderingServer.global_shader_parameter_set("deform_map", _texture)
+		if DisplayServer.get_name() != "headless":
+			_thread = Thread.new()
+			_thread.start(_sim_loop)
+	RenderingServer.global_shader_parameter_set("deform_size", _region())
 
 
 func _exit_tree() -> void:
@@ -111,9 +138,8 @@ func _boot_shape() -> Array:
 	return [w, h, data]
 
 
-## Turn an unsigned pressure shape into a SIGNED, ZERO-SUM displacement
-## mask: the pit's volume reappears as a ridge ring around it — sand is
-## conserved from the first touch, and relaxation does the rest.
+## Signed, zero-sum: the pit's volume reappears as a ridge ring — sand is
+## conserved from the first touch; relaxation does the rest.
 func _signed_mask(shape: Array, depth: float) -> Array:
 	var w: int = shape[0]
 	var h: int = shape[1]
@@ -128,7 +154,6 @@ func _signed_mask(shape: Array, depth: float) -> Array:
 			var v := src[y * w + x] * depth
 			out[(y + 2) * out_w + (x + 2)] = -v
 			removed += v
-	# Ring: every border-adjacent empty cell near the pit takes a share.
 	var ring: Array[int] = []
 	for y in out_h:
 		for x in out_w:
@@ -154,19 +179,42 @@ func _signed_mask(shape: Array, depth: float) -> Array:
 ## --- main-thread API ------------------------------------------------------
 
 func stamp(world_xz: Vector2, yaw: float, mask: Mask, strength := 1.0) -> void:
-	_post({"op": "stamp", "pos": world_xz, "yaw": yaw,
-		"mask": mask, "strength": minf(strength, 1.0)})
+	if _gpu_mode:
+		_queue_op(world_xz, yaw, minf(strength, 1.0), float(mask), Vector2.ZERO, 0.0)
+	else:
+		_post({"op": "stamp", "pos": world_xz, "yaw": yaw,
+			"mask": mask, "strength": minf(strength, 1.0)})
 
 
-## A moving body shovels sand: dig under the feet, throw it along the
-## velocity direction. Sliding shovels much more than walking.
 func plow(world_xz: Vector2, dir: Vector2, amount: float) -> void:
-	_post({"op": "plow", "pos": world_xz, "dir": dir, "amount": amount})
+	if _gpu_mode:
+		_queue_op(world_xz, 0.0, amount, 5.0, dir * (0.5 / _cell_m()), 0.0)
+	else:
+		_post({"op": "plow", "pos": world_xz, "dir": dir, "amount": amount})
 
 
-## A landing blasts a crater with a thrown rim.
 func crater(world_xz: Vector2, radius_m: float, depth: float) -> void:
-	_post({"op": "crater", "pos": world_xz, "radius": radius_m, "depth": depth})
+	if _gpu_mode:
+		_queue_op(world_xz, 0.0, depth, 4.0, Vector2.ZERO, radius_m / _cell_m())
+	else:
+		_post({"op": "crater", "pos": world_xz, "radius": radius_m, "depth": depth})
+
+
+func _queue_op(pos: Vector2, yaw: float, strength: float, type: float,
+		aux: Vector2, radius_px: float) -> void:
+	if not _anchor.is_finite() or _op_count >= SandGpu.MAX_OPS:
+		return
+	var px := ((pos - _anchor) / _region() + Vector2(0.5, 0.5)) * SandGpu.GRID
+	var i := _op_count * 8
+	_ops[i] = px.x
+	_ops[i + 1] = px.y
+	_ops[i + 2] = yaw
+	_ops[i + 3] = strength
+	_ops[i + 4] = type
+	_ops[i + 5] = aux.x
+	_ops[i + 6] = aux.y
+	_ops[i + 7] = radius_px
+	_op_count += 1
 
 
 func _post(msg: Dictionary) -> void:
@@ -180,10 +228,30 @@ func _process(delta: float) -> void:
 	if player == null:
 		return
 	var p := Vector2(player.global_position.x, player.global_position.z)
-	if _anchor == Vector2.INF or p.distance_to(_anchor) > REANCHOR:
-		_anchor = p.snappedf(CELL * 4.0)
-		_post({"op": "anchor", "pos": _anchor})
+	var reanchor := _anchor == Vector2.INF or p.distance_to(_anchor) > REANCHOR
+	if reanchor:
+		var old := _anchor
+		_anchor = p.snappedf(_cell_m() * 8.0)
+		if _gpu_mode:
+			if old.is_finite():
+				_gpu.scroll(Vector2i(((_anchor - old) / _cell_m()).round()))
+			_start_base_bake()
+		else:
+			_post({"op": "anchor", "pos": _anchor})
 	RenderingServer.global_shader_parameter_set("deform_center", _anchor)
+
+	if _gpu_mode:
+		_drain_base_bake()
+		var repose := (REPOSE_DRY + REPOSE_WET_BONUS * Climate.wetness) * _cell_m()
+		var flow := 0.0 if _base_pending else FLOW
+		# Per-second erosion, applied per frame: calm keeps prints ~2min,
+		# a storm scrubs them in ~20s (the CPU path decays only active
+		# cells at 30Hz; this must NOT be hotter).
+		var decay := (0.0003 + 0.0025 * Weather.wind) * delta
+		_gpu.tick(_ops, _op_count, repose, flow, decay)
+		_op_count = 0
+		return
+
 	_post({"op": "env", "wet": Climate.wetness, "wind": Weather.wind})
 	_snap_accum += delta
 	if _snap_accum >= SNAPSHOT_INTERVAL and _snap_ready:
@@ -197,7 +265,43 @@ func _process(delta: float) -> void:
 			_texture.update(_image)
 
 
-## --- the sim thread --------------------------------------------------------
+## Base terrain heights for the GPU window, baked off-thread on re-anchor.
+## Relaxation pauses (flow 0) until the fresh base lands.
+func _start_base_bake() -> void:
+	_base_pending = true
+	var anchor := _anchor
+	var region := _region()
+	_base_task = WorkerThreadPool.add_task(func() -> void:
+		var g := SandGpu.BASE_GRID
+		var heights := PackedFloat32Array()
+		heights.resize(g * g)
+		var step := region / g
+		for y in g:
+			for x in g:
+				heights[y * g + x] = Terrain.height(
+					anchor.x + (x + 0.5) * step - region * 0.5,
+					anchor.y + (y + 0.5) * step - region * 0.5)
+		_lock.lock()
+		_base_result = heights
+		_base_ready = true
+		_lock.unlock())
+
+
+func _drain_base_bake() -> void:
+	if not _base_pending:
+		return
+	_lock.lock()
+	var ready := _base_ready
+	var heights := _base_result
+	_base_ready = false
+	_lock.unlock()
+	if ready:
+		WorkerThreadPool.wait_for_task_completion(_base_task)
+		_gpu.update_base(heights)
+		_base_pending = false
+
+
+## --- the CPU sim (reference implementation + headless fallback) -----------
 
 func _sim_loop() -> void:
 	var delta_field := PackedFloat32Array()
@@ -211,7 +315,6 @@ func _sim_loop() -> void:
 	var wet := 0.0
 	var wind := 0.1
 	while _run:
-		# Drain the inbox.
 		_lock.lock()
 		var msgs := _inbox.duplicate()
 		_inbox.clear()
@@ -222,10 +325,13 @@ func _sim_loop() -> void:
 					wet = m.wet
 					wind = m.wind
 				"anchor":
-					_shift_window(delta_field, base, anchor, m.pos)
+					_shift_window(delta_field, anchor, m.pos)
 					anchor = m.pos
 					_rebake_base(base, anchor)
-					_activate_all(active, queued)
+					active.clear()
+					for i in GRID * GRID:
+						queued[i] = 1
+						active.append(i)
 				"stamp":
 					if anchor.is_finite():
 						_apply_mask(delta_field, active, queued, anchor,
@@ -241,19 +347,17 @@ func _sim_loop() -> void:
 		if anchor.is_finite():
 			var repose := (REPOSE_DRY + REPOSE_WET_BONUS * wet) * CELL
 			relax(delta_field, base, active, queued, GRID, repose, FLOW, BUDGET)
-			_erode(delta_field, active, queued, wind)
-			# Post a snapshot.
+			var rate := 0.0004 + 0.002 * wind
+			for k in mini(active.size(), 2000):
+				delta_field[active[k]] = move_toward(delta_field[active[k]], 0.0, rate)
 			_lock.lock()
 			_snapshot = delta_field.to_byte_array()
 			_snap_ready = true
 			_lock.unlock()
-		OS.delay_msec(33)  # ~30Hz sim
+		OS.delay_msec(33)
 
 
-## One sparse relaxation pass: pure and static so tests can assert
-## conservation and slumping without threads. Cells steeper than the
-## repose height difference shed material downhill; both cells reactivate
-## so flows propagate as avalanche fronts.
+## The kernel, pure and static — the tested spec the GPU implements.
 static func relax(delta_field: PackedFloat32Array, base: PackedFloat32Array,
 		active: PackedInt32Array, queued: PackedByteArray,
 		grid: int, repose_h: float, flow: float, budget: int) -> void:
@@ -264,8 +368,8 @@ static func relax(delta_field: PackedFloat32Array, base: PackedFloat32Array,
 		idx += 1
 		processed += 1
 		queued[i] = 0
-		var hi := base[i] + delta_field[i]
 		var x := i % grid
+		@warning_ignore("integer_division")
 		var y := i / grid
 		for n in 4:
 			var nx := x + (1 if n == 0 else (-1 if n == 1 else 0))
@@ -284,29 +388,10 @@ static func relax(delta_field: PackedFloat32Array, base: PackedFloat32Array,
 				if queued[i] == 0:
 					queued[i] = 1
 					active.append(i)
-		hi = base[i] + delta_field[i]
-	# Compact the queue: drop the processed prefix.
 	if idx > 0:
 		var rest := active.slice(idx)
 		active.clear()
 		active.append_array(rest)
-
-
-func _erode(delta_field: PackedFloat32Array, active: PackedInt32Array,
-		queued: PackedByteArray, wind: float) -> void:
-	# The wind takes the field back toward rest, a little everywhere the
-	# sim is already looking (active cells) — undisturbed sand costs nothing.
-	var rate := 0.0004 + 0.002 * wind
-	for k in mini(active.size(), 2000):
-		var i := active[k]
-		delta_field[i] = move_toward(delta_field[i], 0.0, rate)
-
-
-func _activate_all(active: PackedInt32Array, queued: PackedByteArray) -> void:
-	active.clear()
-	for i in GRID * GRID:
-		queued[i] = 1
-		active.append(i)
 
 
 func _rebake_base(base: PackedFloat32Array, anchor: Vector2) -> void:
@@ -317,7 +402,7 @@ func _rebake_base(base: PackedFloat32Array, anchor: Vector2) -> void:
 				anchor.y + (y + 0.5) * CELL - REGION * 0.5)
 
 
-func _shift_window(delta_field: PackedFloat32Array, _base: PackedFloat32Array,
+func _shift_window(delta_field: PackedFloat32Array,
 		old_anchor: Vector2, new_anchor: Vector2) -> void:
 	if not old_anchor.is_finite():
 		return
@@ -376,7 +461,6 @@ func _apply_mask(delta_field: PackedFloat32Array, active: PackedInt32Array,
 func _apply_plow(delta_field: PackedFloat32Array, active: PackedInt32Array,
 		queued: PackedByteArray, anchor: Vector2,
 		world_xz: Vector2, dir: Vector2, amount: float) -> void:
-	# Dig a small scoop under the mover, throw it one step along dir.
 	var c := _to_cell(anchor, world_xz)
 	var throw := _to_cell(anchor, world_xz + dir * 0.5)
 	for dy in range(-2, 3):
@@ -415,9 +499,9 @@ func _apply_crater(delta_field: PackedFloat32Array, active: PackedInt32Array,
 			var i := y * GRID + x
 			var v := 0.0
 			if d < 1.0:
-				v = -depth * (1.0 - d * d)  # bowl
+				v = -depth * (1.0 - d * d)
 			elif d < 1.5:
-				v = depth * 0.9 * (1.5 - d) * 2.0  # thrown rim
+				v = depth * 0.9 * (1.5 - d) * 2.0
 			if v != 0.0:
 				delta_field[i] = clampf(delta_field[i] + v, -MAX_DELTA, MAX_DELTA)
 				_touch(active, queued, i)

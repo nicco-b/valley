@@ -21,7 +21,10 @@ ground-cover stratum (placeholder SVGs); pond with wading/swimming and
 ripple wake; day/night palette cycle; custom sky (swelling red sun, stars);
 weather (calm/windy/storm) driving sway, audio, fog, dust, and NPC shelter;
 interaction field (80m coarse: desire-path wear, distant trails) +
-**granular sand simulation** (a threaded heightfield sim in a 20m
+**granular sand simulation** (GPU compute when available — 1024x1024
+field at 2.3cm texels over 24m, apply/relax/scroll kernels, renderer
+samples the field directly via Texture2DRD, zero CPU texel work; CPU
+threaded reference otherwise — a heightfield sim in a 20m
 window: signed sand volume in meters, CONSERVED — footsteps displace
 material into ejecta ridges, landings blast craters with thrown rims,
 moving feet plow bow waves; cells past the angle of repose avalanche

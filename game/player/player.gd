@@ -327,8 +327,7 @@ func _physics_process(delta: float) -> void:
 				_body.rotation.y,
 				SandField.Mask.FOOT_L if _step_left else SandField.Mask.FOOT_R,
 				1.0)
-			InteractionField.stamp(foot_pos,
-				1.0, 3 if Input.is_action_pressed("sprint") else 2)
+			InteractionField.wear_only(foot_pos)
 			if not swimming:
 				_sand_puff.global_position = global_position + Vector3(0, 0.06, 0)
 				# Sand kicks back off the heel and drifts with the wind;

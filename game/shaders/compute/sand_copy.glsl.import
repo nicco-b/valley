@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://pabl243bunxc"
+path="res://.godot/imported/sand_copy.glsl-6d82a9fb2dbb5c0f59fbbc307f4f2aaa.res"
+
+[deps]
+
+source_file="res://game/shaders/compute/sand_copy.glsl"
+dest_files=["res://.godot/imported/sand_copy.glsl-6d82a9fb2dbb5c0f59fbbc307f4f2aaa.res"]
+
+[params]
+

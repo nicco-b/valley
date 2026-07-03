@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://8321bq3gcbds"
+path="res://.godot/imported/sand_relax.glsl-d936f288ae928af2aaae1098d4811633.res"
+
+[deps]
+
+source_file="res://game/shaders/compute/sand_relax.glsl"
+dest_files=["res://.godot/imported/sand_relax.glsl-d936f288ae928af2aaae1098d4811633.res"]
+
+[params]
+

@@ -82,7 +82,7 @@ void fragment() {
 		float tX = texture(trace_map, trace_uv + vec2(px, 0.0)).r;
 		float tY = texture(trace_map, trace_uv + vec2(0.0, px)).r;
 		vec2 grad = vec2(tX - tC, tY - tC);
-		n.xz += grad * 10.0;
+		n.xz += grad * 4.0;  // gentle: real displaced geometry shades itself now
 		// Dry sand doesn't stain — trodden ground reads as relief and
 		// shadow, and only darkens when the ground is wet.
 		col *= 1.0 - min(tC, 1.0) * (0.035 + 0.14 * ground_wetness);

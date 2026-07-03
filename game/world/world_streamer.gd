@@ -8,6 +8,11 @@ extends Node3D
 const CELL_SIZE := 128.0
 const CELLS_DIR := "res://game/world/cells"
 const TERRAIN_RES := 49  # vertices per cell side (~2.7m grid; gen is threaded)
+# Deformation ring: cells around the focus rebuild at ~0.66m vertex grid
+# so footsteps and trails press REAL geometry (the RDR2-snow read needs
+# vertices where the feet are). Nav faces and far cells stay coarse.
+const NEAR_RES := 193
+const NEAR_RING := 1  # Chebyshev radius of dense cells around the focus
 
 var load_radius := 2  # Chebyshev radius of cells kept loaded (map widens this)
 
@@ -17,7 +22,8 @@ var _content: Dictionary = {}  # Vector2i -> instanced authored scene
 var _records: Dictionary = {}  # Vector2i -> container of placed-record objects
 var _pending: Dictionary = {}  # Vector2i -> path in threaded load
 var _terrain_pending: Dictionary = {}  # Vector2i -> WorkerThreadPool task id
-var _terrain_results: Array = []  # [cell, mesh, shape] built off-thread
+var _terrain_results: Array = []  # [cell, mesh, shape, navmesh, res] off-thread
+var _terrain_res: Dictionary = {}  # Vector2i -> vertex res the cell was built at
 var _results_mutex := Mutex.new()
 
 # Flora kit: [texture path, height in meters, scatter weight]
@@ -98,7 +104,7 @@ func _process(delta: float) -> void:
 				# Visual mesh only, built off-thread: the brush needs to
 				# see the clay move, the main thread needs to do nothing.
 				_visual_pending[c] = WorkerThreadPool.add_task(
-					_thread_visual_mesh.bind(c))
+					_thread_visual_mesh.bind(c, _terrain_res.get(c, TERRAIN_RES)))
 				_stale[c] = true
 		_dirty.clear()
 		_quiet_cooldown = 0.8
@@ -110,7 +116,7 @@ func _process(delta: float) -> void:
 				# Full rebuild off-thread; _drain_terrain_results swaps the
 				# cell (collision, scatter, cover, navmesh) when it lands.
 				_terrain_pending[c] = WorkerThreadPool.add_task(
-					_thread_build_terrain.bind(c))
+					_thread_build_terrain.bind(c, _terrain_res.get(c, TERRAIN_RES)))
 
 
 func _on_terrain_edited(world_rect: Rect2) -> void:
@@ -164,7 +170,14 @@ func _update_cells(sync: bool) -> void:
 					_add_terrain_sync(c)
 				else:
 					_terrain_pending[c] = WorkerThreadPool.add_task(
-						_thread_build_terrain.bind(c))
+						_thread_build_terrain.bind(c, _res_for(c, center)))
+			elif _terrain.has(c) and not _terrain_pending.has(c) \
+					and _terrain_res.get(c, TERRAIN_RES) != _res_for(c, center):
+				# Deformation ring moved: promote/demote through the same
+				# stale-swap pipeline (built off-thread, swapped when ready).
+				_stale[c] = true
+				_terrain_pending[c] = WorkerThreadPool.add_task(
+					_thread_build_terrain.bind(c, _res_for(c, center)))
 			if not _records.has(c) and not CellRecords.records(c).is_empty():
 				_add_records(c)
 			if _authored.has(c) and not _content.has(c) and not _pending.has(c):
@@ -180,6 +193,7 @@ func _update_cells(sync: bool) -> void:
 			_terrain.erase(c)
 			_mesh_instances.erase(c)
 			_stale.erase(c)
+			_terrain_res.erase(c)
 			Nav.remove_cell(c)
 	for c in _content.keys():
 		if _chebyshev(c - center) > unload_radius:
@@ -205,52 +219,62 @@ func _poll_pending() -> void:
 
 ## Heavy part of cell generation, safe to run on a worker thread: builds
 ## the mesh, collision shape, and (unless deferred) baked navmesh — only
-## reads Terrain + creates resources. The navmesh gets the same triangles
-## minus anything submerged — nobody paths through the pond.
-func _build_terrain_mesh(c: Vector2i, with_nav := true, with_shape := true) -> Array:
+## reads Terrain + creates resources. res sets the visual vertex grid
+## (dense in the deformation ring, coarse beyond); nav faces are strided
+## back to ~2.7m at any res, minus anything submerged — pathing never
+## pays for footprint fidelity and nobody paths through the pond.
+func _build_terrain_mesh(c: Vector2i, with_nav := true, with_shape := true,
+		res := TERRAIN_RES) -> Array:
 	var origin := Vector3(
 		c.x * CELL_SIZE - CELL_SIZE * 0.5, 0.0, c.y * CELL_SIZE - CELL_SIZE * 0.5
 	)
-	var step := CELL_SIZE / (TERRAIN_RES - 1)
+	var step := CELL_SIZE / (res - 1)
 	var pts := PackedVector3Array()
-	pts.resize(TERRAIN_RES * TERRAIN_RES)
+	pts.resize(res * res)
 	var wet := PackedByteArray()
-	wet.resize(TERRAIN_RES * TERRAIN_RES)
+	wet.resize(res * res)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	st.set_material(_ground_material)
 	st.set_smooth_group(0)
-	for iz in TERRAIN_RES:
-		for ix in TERRAIN_RES:
+	for iz in res:
+		for ix in res:
 			var wx := origin.x + ix * step
 			var wz := origin.z + iz * step
 			var y := Terrain.height(wx, wz)
-			var i := iz * TERRAIN_RES + ix
+			var i := iz * res + ix
 			pts[i] = Vector3(ix * step, y, iz * step)
 			if with_nav:
 				wet[i] = 1 if y < Terrain.water_surface(wx, wz) - 0.05 else 0
 			st.set_uv(Vector2(wx, wz) * 0.05)
 			st.add_vertex(pts[i])
-	var faces := PackedVector3Array()
-	for iz in TERRAIN_RES - 1:
-		for ix in TERRAIN_RES - 1:
-			var i := iz * TERRAIN_RES + ix
+	for iz in res - 1:
+		for ix in res - 1:
+			var i := iz * res + ix
 			st.add_index(i)
 			st.add_index(i + 1)
-			st.add_index(i + TERRAIN_RES)
+			st.add_index(i + res)
 			st.add_index(i + 1)
-			st.add_index(i + TERRAIN_RES + 1)
-			st.add_index(i + TERRAIN_RES)
-			if not with_nav:
-				continue
-			if wet[i] == 0 and wet[i + 1] == 0 and wet[i + TERRAIN_RES] == 0:
-				faces.append(pts[i])
-				faces.append(pts[i + 1])
-				faces.append(pts[i + TERRAIN_RES])
-			if wet[i + 1] == 0 and wet[i + TERRAIN_RES + 1] == 0 and wet[i + TERRAIN_RES] == 0:
-				faces.append(pts[i + 1])
-				faces.append(pts[i + TERRAIN_RES + 1])
-				faces.append(pts[i + TERRAIN_RES])
+			st.add_index(i + res + 1)
+			st.add_index(i + res)
+	var faces := PackedVector3Array()
+	if with_nav:
+		var stride := maxi(1, (res - 1) / (TERRAIN_RES - 1))
+		var quads := (res - 1) / stride
+		for iz in quads:
+			for ix in quads:
+				var a := (iz * stride) * res + ix * stride
+				var b := a + stride
+				var d := a + stride * res
+				var e := d + stride
+				if wet[a] == 0 and wet[b] == 0 and wet[d] == 0:
+					faces.append(pts[a])
+					faces.append(pts[b])
+					faces.append(pts[d])
+				if wet[b] == 0 and wet[e] == 0 and wet[d] == 0:
+					faces.append(pts[b])
+					faces.append(pts[e])
+					faces.append(pts[d])
 	st.generate_normals()
 	var mesh := st.commit()
 	var navmesh: NavigationMesh = Nav.bake_navmesh(faces) if with_nav else null
@@ -258,11 +282,17 @@ func _build_terrain_mesh(c: Vector2i, with_nav := true, with_shape := true) -> A
 	return [mesh, shape, navmesh]
 
 
-func _thread_build_terrain(c: Vector2i) -> void:
-	var built := _build_terrain_mesh(c)
+func _thread_build_terrain(c: Vector2i, res: int) -> void:
+	var built := _build_terrain_mesh(c, true, true, res)
 	_results_mutex.lock()
-	_terrain_results.append([c, built[0], built[1], built[2]])
+	_terrain_results.append([c, built[0], built[1], built[2], res])
 	_results_mutex.unlock()
+
+
+## The vertex resolution a cell wants: dense inside the deformation ring,
+## coarse beyond.
+func _res_for(c: Vector2i, center: Vector2i) -> int:
+	return NEAR_RES if _chebyshev(c - center) <= NEAR_RING else TERRAIN_RES
 
 
 func _drain_terrain_results() -> void:
@@ -285,17 +315,18 @@ func _drain_terrain_results() -> void:
 			_stale.erase(c)
 		if _chebyshev(c - _player_cell()) > load_radius + 1:
 			continue  # streamed past it while building; let it lapse
-		_finish_terrain(c, r[1], r[2], r[3])
+		_finish_terrain(c, r[1], r[2], r[3], r[4])
 
 
 func _add_terrain_sync(c: Vector2i) -> void:
-	var built := _build_terrain_mesh(c)
-	_finish_terrain(c, built[0], built[1], built[2])
+	var res := _res_for(c, _player_cell())
+	var built := _build_terrain_mesh(c, true, true, res)
+	_finish_terrain(c, built[0], built[1], built[2], res)
 
 
 ## Mesh-only rebuild for live sculpt feedback, off the main thread.
-func _thread_visual_mesh(c: Vector2i) -> void:
-	var built := _build_terrain_mesh(c, false, false)
+func _thread_visual_mesh(c: Vector2i, res: int) -> void:
+	var built := _build_terrain_mesh(c, false, false, res)
 	_results_mutex.lock()
 	_visual_results.append([c, built[0]])
 	_results_mutex.unlock()
@@ -316,7 +347,8 @@ func _drain_visual_results() -> void:
 
 
 func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D,
-		navmesh: NavigationMesh) -> void:
+		navmesh: NavigationMesh, res := TERRAIN_RES) -> void:
+	_terrain_res[c] = res
 	var origin := Vector3(
 		c.x * CELL_SIZE - CELL_SIZE * 0.5, 0.0, c.y * CELL_SIZE - CELL_SIZE * 0.5
 	)

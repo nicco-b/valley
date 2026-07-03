@@ -112,15 +112,30 @@ func _play_footstep() -> void:
 func _make_sand_puff() -> GPUParticles3D:
 	var mat := ParticleProcessMaterial.new()
 	mat.direction = Vector3(0, 1, 0)
-	mat.spread = 55.0
-	mat.initial_velocity_min = 0.6
-	mat.initial_velocity_max = 1.3
-	mat.gravity = Vector3(0, -3.5, 0)
-	mat.scale_min = 0.5
-	mat.scale_max = 1.0
-	mat.color = Color(0.85, 0.78, 0.64, 0.5)
+	mat.spread = 65.0
+	mat.initial_velocity_min = 0.7
+	mat.initial_velocity_max = 1.8
+	mat.gravity = Vector3(0, -2.6, 0)
+	mat.damping_min = 1.2
+	mat.damping_max = 2.2
+	mat.scale_min = 0.6
+	mat.scale_max = 1.4
+	# Grows and thins as it drifts — kicked sand blooms, then settles.
+	var scale_curve := Curve.new()
+	scale_curve.add_point(Vector2(0.0, 0.5))
+	scale_curve.add_point(Vector2(0.4, 1.0))
+	scale_curve.add_point(Vector2(1.0, 1.5))
+	var scale_tex := CurveTexture.new()
+	scale_tex.curve = scale_curve
+	mat.scale_curve = scale_tex
+	var alpha := Gradient.new()
+	alpha.set_color(0, Color(0.87, 0.79, 0.63, 0.55))
+	alpha.set_color(1, Color(0.87, 0.79, 0.63, 0.0))
+	var alpha_tex := GradientTexture1D.new()
+	alpha_tex.gradient = alpha
+	mat.color_ramp = alpha_tex
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.09, 0.09)
+	quad.size = Vector2(0.16, 0.16)
 	var draw := StandardMaterial3D.new()
 	draw.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	draw.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -128,11 +143,11 @@ func _make_sand_puff() -> GPUParticles3D:
 	draw.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	quad.material = draw
 	var p := GPUParticles3D.new()
-	p.amount = 6
-	p.lifetime = 0.45
+	p.amount = 14
+	p.lifetime = 0.8
 	p.one_shot = true
 	p.emitting = false
-	p.explosiveness = 0.9
+	p.explosiveness = 0.85
 	p.process_material = mat
 	p.draw_pass_1 = quad
 	p.top_level = true  # puffs stay where they were kicked
@@ -229,6 +244,13 @@ func _physics_process(delta: float) -> void:
 				1.3 if Input.is_action_pressed("sprint") else 1.0)
 			if not swimming:
 				_sand_puff.global_position = global_position + Vector3(0, 0.06, 0)
+				# Sand kicks back off the heel and drifts with the wind;
+				# a sprint throws more of it.
+				var kick := -Vector3(velocity.x, 0.0, velocity.z).normalized()
+				var mat := _sand_puff.process_material as ParticleProcessMaterial
+				mat.direction = (Vector3.UP * 1.2 + kick * 0.8
+					+ Vector3(Weather.wind_dir.x, 0.0, Weather.wind_dir.y) * Weather.wind)
+				_sand_puff.amount_ratio = 1.0 if Input.is_action_pressed("sprint") else 0.6
 				_sand_puff.restart()
 				_play_footstep()
 

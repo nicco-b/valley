@@ -33,7 +33,7 @@ void vertex() {
 		vec2 edge = min(t_uv, 1.0 - t_uv);
 		float region_fade = smoothstep(0.0, 0.06, min(edge.x, edge.y));
 		float press = min(textureLod(trace_map, t_uv, 1.0).r, 1.0);
-		VERTEX.y -= press * 0.09 * region_fade;
+		VERTEX.y -= press * 0.16 * region_fade;
 		wpos.y = VERTEX.y;
 	}
 	wnormal = NORMAL; // terrain meshes are unrotated: model = world
@@ -82,13 +82,14 @@ void fragment() {
 		float tX = texture(trace_map, trace_uv + vec2(px, 0.0)).r;
 		float tY = texture(trace_map, trace_uv + vec2(0.0, px)).r;
 		vec2 grad = vec2(tX - tC, tY - tC);
-		n.xz += grad * 4.0;  // gentle: real displaced geometry shades itself now
-		// Dry sand doesn't stain — trodden ground reads as relief and
-		// shadow, and only darkens when the ground is wet.
-		col *= 1.0 - min(tC, 1.0) * (0.035 + 0.14 * ground_wetness);
-		// Kicked-up sand at the print's rim is looser and lighter.
-		float rim = max(0.0, length(grad) * 6.0 - tC * 1.5) * sandiness;
-		col += vec3(0.06, 0.05, 0.035) * min(rim, 1.0);
+		n.xz += grad * 6.0;
+		// Dry sand doesn't stain — the pit reads as shadowed relief, and
+		// only truly darkens when the ground is wet.
+		col *= 1.0 - min(tC, 1.0) * (0.075 + 0.14 * ground_wetness);
+		// Kicked-up sand at the print's rim is looser and lighter — the
+		// lit berm is what sells the depth at play-camera distance.
+		float rim = max(0.0, length(grad) * 7.0 - tC * 1.2) * sandiness;
+		col += vec3(0.09, 0.075, 0.05) * min(rim, 1.0);
 	}
 
 	NORMAL = normalize((VIEW_MATRIX * vec4(normalize(n), 0.0)).xyz);

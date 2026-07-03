@@ -78,10 +78,13 @@ void fragment() {
 	// and displaced sand piles at the rim to catch the light.
 	vec2 trace_uv = (wpos.xz - trace_center) / trace_size + 0.5;
 	if (all(greaterThan(trace_uv, vec2(0.0))) && all(lessThan(trace_uv, vec2(1.0)))) {
-		float px = 1.0 / 256.0;
-		float tC = texture(trace_map, trace_uv).r;
-		float tX = texture(trace_map, trace_uv + vec2(px, 0.0)).r;
-		float tY = texture(trace_map, trace_uv + vec2(0.0, px)).r;
+		// Full-res taps (textureLod 0): auto-mip blurred prints into
+		// soft ovals past ~10m — every gradient (rim, dimple) vanished
+		// with distance. The map is 512px; full-res is cheap.
+		float px = 1.0 / 512.0;
+		float tC = textureLod(trace_map, trace_uv, 0.0).r;
+		float tX = textureLod(trace_map, trace_uv + vec2(px, 0.0), 0.0).r;
+		float tY = textureLod(trace_map, trace_uv + vec2(0.0, px), 0.0).r;
 		vec2 grad = vec2(tX - tC, tY - tC);
 		n.xz += grad * 8.0;  // directional shading carries the read in any light
 		// Dry sand doesn't stain — the pit reads as shadowed relief, and

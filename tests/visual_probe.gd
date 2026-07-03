@@ -146,6 +146,19 @@ func _run() -> void:
 	for i in 5:
 		await get_tree().process_frame
 	_shot("wornwet")
+	# The distance that kept failing: prints receding 10-30m from a
+	# standard play framing — they must stay crisp, not mip-mushed.
+	cam.global_position = Vector3(30.0, Terrain.height(30.0, -74.0) + 3.2, -70.0)
+	cam.look_at(Vector3(12.0, 0.0, -90.0))
+	for i in 5:
+		await get_tree().process_frame
+	_shot("middistance")
+	# And low grazing dawn light on the shade side — prints must still
+	# read as prints (crisp darkening), even without rim sun.
+	GameClock.hours = GameClock.daylight_span().x + 0.8
+	for i in 10:
+		await get_tree().process_frame
+	_shot("dawn")
 	get_tree().quit(0)
 
 

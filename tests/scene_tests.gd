@@ -11,6 +11,7 @@ func _ready() -> void:
 	_test_quests()
 	_test_skills()
 	_test_clock()
+	_test_seasons()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -87,3 +88,28 @@ func _test_clock() -> void:
 	_check(absf(GameClock.hours - 2.0) < 0.001, "clock lands on the right hour")
 	_check(absf(GameClock.hours_delta(3600.0) - 1.0) < 0.001,
 		"1:1 time — one real hour is one game hour")
+
+
+## Seasons follow the real calendar; daylight and the solar-hour warp
+## derive from the real date.
+func _test_seasons() -> void:
+	_check(GameClock.season_for({"month": 1, "day": 15}) == "winter", "january is winter")
+	_check(GameClock.season_for({"month": 3, "day": 19}) == "winter", "mar 19 still winter")
+	_check(GameClock.season_for({"month": 3, "day": 20}) == "spring", "mar 20 turns spring")
+	_check(GameClock.season_for({"month": 7, "day": 2}) == "summer", "july is summer")
+	_check(GameClock.season_for({"month": 10, "day": 5}) == "autumn", "october is autumn")
+	_check(GameClock.season_for({"month": 12, "day": 21}) == "winter", "dec 21 turns winter")
+	var solstice_summer: float = GameClock.daylight_hours_for(172)
+	var solstice_winter: float = GameClock.daylight_hours_for(355)
+	_check(solstice_summer > 15.0, "summer solstice daylight is long")
+	_check(solstice_winter < 9.0, "winter solstice daylight is short")
+	_check(GameClock.season != "", "live season is set")
+	_check(WorldState.get_value("time.season") == GameClock.season,
+		"season mirrored to WorldState")
+	var span: Vector2 = GameClock.daylight_span()
+	GameClock.hours = span.x
+	_check(absf(GameClock.solar_hours() - 6.0) < 0.01, "sunrise maps to solar 6:00")
+	GameClock.hours = span.y - 0.001
+	_check(absf(GameClock.solar_hours() - 18.0) < 0.05, "sunset maps to solar 18:00")
+	GameClock.hours = 12.0
+	_check(absf(GameClock.solar_hours() - 12.0) < 0.01, "noon stays noon")

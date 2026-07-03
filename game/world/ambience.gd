@@ -7,7 +7,7 @@ extends Node
 
 
 func _process(_delta: float) -> void:
-	var h: float = GameClock.hours
+	var h: float = GameClock.solar_hours()  # dusk tracks the seasonal sunset
 	var nightness := clampf(
 		smoothstep(19.0, 21.5, h) + 1.0 - smoothstep(5.0, 7.0, h), 0.0, 1.0
 	)

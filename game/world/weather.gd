@@ -15,6 +15,9 @@ const TRANSITIONS := {
 	"storm": [["windy", 0.5], ["storm", 0.3], ["calm", 0.2]],
 }
 const EASE := 0.12  # per-second approach rate toward targets
+# Storm likelihood scales with the real season (GameClock.season):
+# winter broods, summer stretches calm.
+const SEASON_STORM_BIAS := {"winter": 1.6, "autumn": 1.25, "spring": 1.0, "summer": 0.6}
 
 var state := "calm"
 var wind: float = WIND_LEVELS.calm
@@ -42,10 +45,14 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _transition(_hour: int) -> void:
-	var roll := randf()
+	var bias: float = SEASON_STORM_BIAS.get(GameClock.season, 1.0)
+	var total := 0.0
+	for t in TRANSITIONS[state]:
+		total += t[1] * (bias if t[0] == "storm" else 1.0)
+	var roll := randf() * total
 	var acc := 0.0
 	for t in TRANSITIONS[state]:
-		acc += t[1]
+		acc += t[1] * (bias if t[0] == "storm" else 1.0)
 		if roll <= acc:
 			if t[0] != state:
 				state = t[0]

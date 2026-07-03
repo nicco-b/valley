@@ -12,7 +12,7 @@ func _process(delta: float) -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	if player == null:
 		return
-	var h: float = GameClock.hours
+	var h: float = GameClock.solar_hours()  # fireflies follow the sun, not the clock
 	var night := h >= 19.5 or h < 5.0
 
 	for fly in get_children():

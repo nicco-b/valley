@@ -23,7 +23,9 @@ Autoloads, in order: `WorldState` (all flags/values — dot-namespaced keys
 like `npc.wanderer.met`; everything consequence-shaped reads/writes here),
 `GameClock` (time, 1:1 with real time, wall-clock driven; `hour_tick`
 signal, `hours_delta()`, `advance_hours()` chunked catch-up — route ALL
-time skips through it), `FocusThrottle` (unfocused fps cap), `Terrain` (the
+time skips through it; real-calendar seasons — sun-following systems read
+`solar_hours()`, never raw hours), `FocusThrottle` (unfocused fps cap),
+`Terrain` (the
 global height function: noise + valley landform + sculpt edit layer),
 `Weather` (wind/storminess; publishes `wind_strength` global shader param),
 `Records` (validated JSON loading), `HUD` (all on-screen text: prompt/say/

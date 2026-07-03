@@ -24,7 +24,7 @@ func _process(_delta: float) -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	if player:
 		global_position = player.global_position
-	var h: float = GameClock.hours
+	var h: float = GameClock.solar_hours()  # creatures follow the sun, not the clock
 	_motes.emitting = true
 	_motes.speed_scale = 0.4 + Weather.wind * 1.6
 	_glow.emitting = h >= 19.5 or h < 5.0

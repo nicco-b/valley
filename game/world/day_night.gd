@@ -20,7 +20,9 @@ const KEYS := [
 
 
 func _process(_delta: float) -> void:
-	var h: float = GameClock.hours
+	# Solar hours: seasonally warped so sunrise lands at canonical 6:00 —
+	# the whole palette/arc below inherits real seasonal daylight.
+	var h: float = GameClock.solar_hours()
 
 	# Sun path: full circle around X; 6:00 rises, 12:00 zenith, 18:00 sets.
 	sun.rotation.x = -(h - 6.0) / 24.0 * TAU

@@ -68,6 +68,15 @@ All decided 2026-07-01 (first design day) unless noted.*
   of the ambient machine. Cut only computation with zero eventual
   consequence. Observability discipline (inspector for everything) is
   unchanged and matters more, not less.
+- **Real seasons, the real calendar** *(2026-07-02)*. The valley shares the
+  player's calendar: season (`GameClock.season`, mirrored to WorldState
+  `time.season` for quests/dialogue/seeds) and daylight length derive from
+  the real system date. Sun arc, sky palette, dusk audio, and night
+  creatures all read `GameClock.solar_hours()` — hour-of-day warped so
+  sunrise/sunset land on canonical 6:00/18:00 — so everything sun-shaped
+  inherits seasonal daylight from one seam. Weather storm odds are
+  season-biased. Northern-hemisphere arc (hemisphere setting later);
+  seasonal *palette/flora* changes await her seasonal paintings.
 - **Unfocused = watchable, throttled** *(2026-07-02)*. The unfocused window
   stays alive and glanceable (fps-capped, nothing dissolves, tiers stay
   distance-based); only a minimized window throttles near-idle. Good-citizen

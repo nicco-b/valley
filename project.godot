@@ -23,6 +23,7 @@ window/size/viewport_height=1120
 
 WorldState="*res://game/state/world_state.gd"
 GameClock="*res://game/world/game_clock.gd"
+FocusThrottle="*res://game/world/focus_throttle.gd"
 Terrain="*res://game/world/terrain.gd"
 Weather="*res://game/world/weather.gd"
 InteractionField="*res://game/world/interaction_field.gd"

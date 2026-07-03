@@ -23,9 +23,14 @@ weather (calm/windy/storm) driving sway, audio, fog, dust, and NPC shelter;
 interaction field (footprints with relief, fading trails); ambient
 particles (sand motes, dusk moths from her painting, night glow-motes).
 
-**Simulation** — GameClock (15-min days, hour_tick bus, time_scale);
-needs/utility NPC AI from records; two-tier (bodies dissolve >170m, coarse
-sim continues); sim inspector (god mode → right-click NPC).
+**Simulation** — GameClock (**1:1 real time** — a game day is a real day;
+wall-clock driven, hour_tick bus, time_scale for Stillness); the ambient
+machine: saves carry a wall-clock timestamp and time away/asleep is
+replayed via shared `GameClock.advance_hours()` catch-up (weather rolls,
+NPCs live the skipped hours — needs/position/activity persist hourly);
+FocusThrottle (unfocused window fps-capped but watchable, minimized
+near-idle); needs/utility NPC AI from records; two-tier (bodies dissolve
+>170m, coarse sim continues); sim inspector (god mode → right-click NPC).
 
 **RPG** — WorldState (all flags/values, saved); records loader with
 validation; interaction layer (E); items + satchel (I); fireflies (catch at

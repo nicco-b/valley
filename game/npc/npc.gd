@@ -57,6 +57,7 @@ func setup(data: Dictionary) -> void:
 
 func _ready() -> void:
 	add_to_group("npc")
+	add_to_group("sim_advance")  # steps through skipped time (GameClock.advance_hours)
 	for n in ["Idle", "Walking"]:
 		_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
 	_anim.play("Idle")
@@ -73,12 +74,41 @@ func _ready() -> void:
 		scarf.position = Vector3(0, 0.78, 0)
 		_body.add_child(scarf)
 
+	for need in needs_def:
+		needs[need] = 70.0
+	load_state()  # no-op on a fresh world; SaveGame calls it again post-restore
+	GameClock.hour_tick.connect(func(_h: int) -> void: _save_state())
+	_decide()
+
+
+## Hourly snapshot to WorldState: needs, position, current activity — so a
+## returning player finds everyone where the simulation left them, not
+## respawned at home.
+func _save_state() -> void:
+	WorldState.set_value("npc.%s.needs" % npc_id, needs.duplicate())
+	WorldState.set_value("npc.%s.pos" % npc_id,
+		{"x": global_position.x, "z": global_position.z})
+	WorldState.set_value("npc.%s.activity" % npc_id, current.get("id", ""))
+
+
+## Re-read persisted state from WorldState. Called from _ready (fresh boot)
+## and again by SaveGame after the save restores WorldState — spawn-time
+## _ready runs a frame before the load, so it only ever sees defaults.
+func load_state() -> void:
 	var saved: Dictionary = WorldState.get_value("npc.%s.needs" % npc_id, {})
 	for need in needs_def:
-		needs[need] = float(saved.get(need, 70.0))
-	GameClock.hour_tick.connect(func(_h: int) -> void:
-		WorldState.set_value("npc.%s.needs" % npc_id, needs.duplicate()))
-	_decide()
+		needs[need] = float(saved.get(need, needs[need]))
+	var pos: Dictionary = WorldState.get_value("npc.%s.pos" % npc_id, {})
+	if not pos.is_empty():
+		var x: float = pos.x
+		var z: float = pos.z
+		global_position = Vector3(x, Terrain.height(x, z) + 0.5, z)
+	var act_id: String = str(WorldState.get_value("npc.%s.activity" % npc_id, ""))
+	for a in activities:
+		if a.id == act_id:
+			current = a
+			_target = _resolve_at(a)
+			break
 
 
 func _process(delta: float) -> void:
@@ -123,8 +153,16 @@ func _embody() -> void:
 ## The same simulation, coarse: needs drain, decisions happen, position
 ## advances in straight lines. No physics, no animation, ~nothing per tick.
 func _coarse_tick(dt_real: float) -> void:
-	var dt_hours: float = GameClock.hours_delta(dt_real)
+	sim_advance_hours(GameClock.hours_delta(dt_real))
+
+
+## One coarse step, parameterized by game-hours — shared by the live far
+## tier and time catch-up (GameClock.advance_hours "sim_advance" group).
+## During catch-up an hour chunk covers kilometers, so journeys complete
+## and activities cycle hour by hour while the player is away.
+func sim_advance_hours(dt_hours: float) -> void:
 	_drain(dt_hours)
+	var dt_real := dt_hours * GameClock.day_length_minutes * 60.0 / 24.0
 	var to := Vector3(_target.x - global_position.x, 0.0, _target.z - global_position.z)
 	if to.length() < ARRIVE_DISTANCE:
 		_satisfy(dt_hours)

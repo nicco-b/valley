@@ -1,9 +1,11 @@
 extends Node
 ## Save system skeleton (autoload). Autosaves every 30s and on window
-## close; loads on startup. Carries player position, clock time, and a
-## versioned scaffold for per-cell world state (consequences live there
-## later). Placed records (data/cells) are authored content, not save
-## data — they stay separate.
+## close; loads on startup. Carries player position, clock time, a
+## wall-clock timestamp (time is 1:1 with the real world — the valley
+## keeps living while the app is closed; on load the elapsed real time is
+## replayed through GameClock.advance_hours), and a versioned scaffold for
+## per-cell world state (consequences live there later). Placed records
+## (data/cells) are authored content, not save data — they stay separate.
 
 const PATH := "user://save.json"
 const AUTOSAVE_SECONDS := 30.0
@@ -35,6 +37,7 @@ func save_game() -> void:
 		"version": 1,
 		"hours": GameClock.hours,
 		"day": GameClock.day,
+		"wall_time": Time.get_unix_time_from_system(),
 		"player": {"x": player.global_position.x, "z": player.global_position.z},
 		"state": WorldState.snapshot(),
 		"cells": {},  # future: per-cell world-state mutations
@@ -54,6 +57,14 @@ func load_into_world() -> void:
 	GameClock.hours = data.hours
 	GameClock.day = int(data.get("day", 0))
 	WorldState.restore(data.get("state", {}))
+	get_tree().call_group("npc", "load_state")
+	# The world ran 1:1 while the app was closed — live the missed hours.
+	var away_hours := 0.0
+	if data.has("wall_time"):
+		var elapsed: float = Time.get_unix_time_from_system() - float(data.wall_time)
+		away_hours = maxf(0.0, elapsed / 3600.0)
+	if away_hours > 0.01:
+		GameClock.advance_hours(away_hours)
 	var player := get_tree().get_first_node_in_group("player")
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if player:
@@ -63,5 +74,8 @@ func load_into_world() -> void:
 		player.velocity = Vector3.ZERO
 		if streamer:
 			streamer._update_cells(true)
-	print("[save] loaded")
-	HUD.notify("journey resumed — day %d" % GameClock.day)
+	print("[save] loaded (%.1f hours passed while away)" % away_hours)
+	if away_hours >= 1.0:
+		HUD.notify("day %d — the valley kept its own time while you were away" % GameClock.day)
+	else:
+		HUD.notify("journey resumed — day %d" % GameClock.day)

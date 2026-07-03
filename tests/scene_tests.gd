@@ -10,6 +10,7 @@ func _ready() -> void:
 	_test_dialogue()
 	_test_quests()
 	_test_skills()
+	_test_clock()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -68,3 +69,21 @@ func _test_skills() -> void:
 	WorldState.set_value("player.dist_walked", 0.0)
 	_check(Skills.level("wayfaring") == 0, "level derives, never sticks")
 	_check(Skills.level("nonexistent") == 0, "unknown skill is level 0")
+
+
+## advance_hours is the shared catch-up path (load, laptop sleep, debug
+## skip): it must tick every skipped hour and roll days across midnight.
+func _test_clock() -> void:
+	var ticks: Array = []
+	var on_tick := func(h: int) -> void: ticks.append(h)
+	GameClock.hour_tick.connect(on_tick)
+	GameClock.hours = 22.0
+	GameClock.day = 3
+	GameClock.advance_hours(4.0)
+	GameClock.hour_tick.disconnect(on_tick)
+	_check(ticks.size() == 4, "advance fires hour_tick for every skipped hour")
+	_check(ticks == [23, 0, 1, 2], "ticks pass through midnight in order")
+	_check(GameClock.day == 4, "day rolls over during advance")
+	_check(absf(GameClock.hours - 2.0) < 0.001, "clock lands on the right hour")
+	_check(absf(GameClock.hours_delta(3600.0) - 1.0) < 0.001,
+		"1:1 time — one real hour is one game hour")

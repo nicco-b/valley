@@ -21,7 +21,9 @@ simulation-heavy. Read `docs/DESIGN.md` (what it is), `docs/FOUNDATIONS.md`
 
 Autoloads, in order: `WorldState` (all flags/values — dot-namespaced keys
 like `npc.wanderer.met`; everything consequence-shaped reads/writes here),
-`GameClock` (time; `hour_tick` signal, `hours_delta()`), `Terrain` (the
+`GameClock` (time, 1:1 with real time, wall-clock driven; `hour_tick`
+signal, `hours_delta()`, `advance_hours()` chunked catch-up — route ALL
+time skips through it), `FocusThrottle` (unfocused fps cap), `Terrain` (the
 global height function: noise + valley landform + sculpt edit layer),
 `Weather` (wind/storminess; publishes `wind_strength` global shader param),
 `Records` (validated JSON loading), `HUD` (all on-screen text: prompt/say/

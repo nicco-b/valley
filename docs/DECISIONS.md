@@ -51,6 +51,27 @@ All decided 2026-07-01 (first design day) unless noted.*
   dressing on the sit — the point of sitting is seeing the world exactly as
   it is. (Camera pull-out and HUD fade stay; they remove, not add.)
 - **Repo: private GitHub (nicco-b/valley), plain git for binaries until ~1GB.**
+- **Time is 1:1 with the real world — always** *(2026-07-02, the ambient
+  machine; see [SESSION_2026-07-02_ambient_feel_and_combat.md](SESSION_2026-07-02_ambient_feel_and_combat.md))*.
+  A game day lasts a real day: playing, unfocused, or closed. The save
+  carries a wall-clock timestamp; time away (and laptop sleep) is replayed
+  through the shared `GameClock.advance_hours()` catch-up in hour chunks,
+  always at 1:1 — the valley is a place that keeps its own time, not a tape
+  you pause. Stillness (`time_scale`) stays the diegetic fast-forward.
+  Rate-1:1, *not* local-clock-synced: the world keeps its own calendar and
+  the red-sun fiction; matching the player's actual wall clock + real sun
+  position remains an optional future mode (IDEAS "celestial clockwork").
+- **Simulation depth is wanted beyond the directly visible** *(2026-07-02)*.
+  Amends the "player-visible or cut" clause of the simulation pillar: the
+  golden category is **"unseen now, seen later"** — deep offscreen/away
+  simulation whose *consequences* the player meets on return is the point
+  of the ambient machine. Cut only computation with zero eventual
+  consequence. Observability discipline (inspector for everything) is
+  unchanged and matters more, not less.
+- **Unfocused = watchable, throttled** *(2026-07-02)*. The unfocused window
+  stays alive and glanceable (fps-capped, nothing dissolves, tiers stay
+  distance-based); only a minimized window throttles near-idle. Good-citizen
+  behavior for leave-it-running, without sabotaging the glance.
 
 ## Open (deliberately undecided)
 

@@ -264,9 +264,10 @@ func _physics_process(delta: float) -> void:
 			_wander_accum += delta
 			if _wander_accum > 20.0:
 				_wander_accum = 0.0
+				var rng := Rng.stream("npc")
 				_target = _resolve_at(current) + Vector3(
-					randf_range(-1.0, 1.0) * float(current.wander), 0.0,
-					randf_range(-1.0, 1.0) * float(current.wander)
+					rng.randf_range(-1.0, 1.0) * float(current.wander), 0.0,
+					rng.randf_range(-1.0, 1.0) * float(current.wander)
 				)
 
 	_decide_accum += delta

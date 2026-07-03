@@ -57,8 +57,9 @@ func spawn_herd(data: Dictionary) -> Dictionary:
 	var drives := {}
 	for a in data.activities:
 		drives[a.satisfies] = 70.0
+	var rng := Rng.stream("wildlife")
 	for i in int(data.count):
-		var jitter := Vector2(randf_range(-1, 1), randf_range(-1, 1)) * 7.0
+		var jitter := Vector2(rng.randf_range(-1, 1), rng.randf_range(-1, 1)) * 7.0
 		herd.individuals.append({
 			"pos": home + jitter,
 			"target": home + jitter,
@@ -125,8 +126,9 @@ func _resolve_at(herd: Dictionary, a: Dictionary) -> Vector2:
 	if a.get("at") is Dictionary:
 		return Vector2(a.at.x, a.at.z)
 	# "roam": somewhere new inside the herd's range.
-	var ang := randf() * TAU
-	return herd.home + Vector2(cos(ang), sin(ang)) * randf_range(0.2, 1.0) * herd.range
+	var rng := Rng.stream("wildlife")
+	var ang := rng.randf() * TAU
+	return herd.home + Vector2(cos(ang), sin(ang)) * rng.randf_range(0.2, 1.0) * herd.range
 
 
 ## Catch-up: every animal lives the skipped hour as data (bodies are

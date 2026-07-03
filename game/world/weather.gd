@@ -54,7 +54,7 @@ func _transition(_hour: int) -> void:
 	var total := 0.0
 	for t in TRANSITIONS[state]:
 		total += t[1] * (bias if t[0] == "storm" else 1.0)
-	var roll := randf() * total
+	var roll := Rng.stream("weather").randf() * total
 	var acc := 0.0
 	for t in TRANSITIONS[state]:
 		acc += t[1] * (bias if t[0] == "storm" else 1.0)

@@ -129,14 +129,23 @@ func apply_brush(center: Vector3, radius: float, amount: float) -> void:
 	var r_px := int(ceil(radius / EDIT_M_PER_PX))
 	var cx := int((center.x + half) / EDIT_M_PER_PX)
 	var cz := int((center.z + half) / EDIT_M_PER_PX)
+	# Hot loop (held-brush cadence): iterate the disc row by row — the
+	# bounding square's corners are never touched — and keep per-pixel
+	# work to scalar math plus the two Image calls.
+	var r2 := radius * radius
+	var inv_r := 1.0 / radius
 	for pz in range(maxi(cz - r_px, 0), mini(cz + r_px + 1, EDIT_SIZE)):
-		for px in range(maxi(cx - r_px, 0), mini(cx + r_px + 1, EDIT_SIZE)):
-			var wx := px * EDIT_M_PER_PX - half
-			var wz := pz * EDIT_M_PER_PX - half
-			var d := Vector2(wx - center.x, wz - center.z).length()
-			if d >= radius:
+		var dz := pz * EDIT_M_PER_PX - half - center.z
+		var row_r2 := r2 - dz * dz
+		if row_r2 <= 0.0:
+			continue
+		var row_px := int(sqrt(row_r2) / EDIT_M_PER_PX) + 1
+		for px in range(maxi(cx - row_px, 0), mini(cx + row_px + 1, EDIT_SIZE)):
+			var dx := px * EDIT_M_PER_PX - half - center.x
+			var d2 := dx * dx + dz * dz
+			if d2 >= r2:
 				continue
-			var falloff := smoothstep(1.0, 0.0, d / radius)
+			var falloff := smoothstep(1.0, 0.0, sqrt(d2) * inv_r)
 			var h := _edits.get_pixel(px, pz).r + amount * falloff
 			_edits.set_pixel(px, pz, Color(h, 0, 0))
 	edited.emit(Rect2(center.x - radius, center.z - radius, radius * 2.0, radius * 2.0))

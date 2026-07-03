@@ -92,7 +92,7 @@ func _process(delta: float) -> void:
 	_drain_terrain_results()
 	_rebuild_cooldown -= delta
 	if not _dirty.is_empty() and _rebuild_cooldown <= 0.0:
-		_rebuild_cooldown = 0.1
+		_rebuild_cooldown = 0.066  # workers carry it; feedback stays snappy
 		for c in _dirty.keys():
 			if _mesh_instances.has(c) and not _visual_pending.has(c):
 				# Visual mesh only, built off-thread: the brush needs to

@@ -32,10 +32,18 @@ var _anchor := Vector2.INF
 var _dirty := true
 var _image: Image
 var _texture: ImageTexture
+# The wear layer is nearly static, so it renders to its own base image
+# only when it actually changes (new wear, hourly decay, re-anchor) —
+# the frequent stamp rebuild just memcpys it in. Blobbing hundreds of
+# wear cells every 0.35s forever was a permanent frame tax near paths.
+var _wear_image: Image
+var _wear_dirty := true
+var _wear_cooldown := 0.0
 
 
 func _ready() -> void:
 	_image = Image.create(TEX_SIZE, TEX_SIZE, false, Image.FORMAT_RF)
+	_wear_image = Image.create(TEX_SIZE, TEX_SIZE, false, Image.FORMAT_RF)
 	_texture = ImageTexture.create_from_image(_image)
 	RenderingServer.global_shader_parameter_set("trace_map", _texture)
 	RenderingServer.global_shader_parameter_set("trace_size", REGION_SIZE)
@@ -48,6 +56,7 @@ func stamp(world_xz: Vector2) -> void:
 		_stamps.pop_front()
 	var cell := Vector2i(int(floor(world_xz.x)), int(floor(world_xz.y)))
 	_wear[cell] = minf(float(_wear.get(cell, 0.0)) + WEAR_PER_STAMP, 1.0)
+	_wear_dirty = true  # rendered into the base at most 1/s
 	_dirty = true
 
 
@@ -59,6 +68,7 @@ func _age_wear(_h: int) -> void:
 			doomed.append(c)
 	for c in doomed:
 		_wear.erase(c)
+	_wear_dirty = true
 	if _wear.size() > WEAR_MAX_CELLS:
 		var vals: Array = _wear.values()
 		vals.sort()
@@ -84,6 +94,7 @@ func wear_restore(data: Dictionary) -> void:
 		var parts := String(k).split("_")
 		if parts.size() == 2:
 			_wear[Vector2i(int(parts[0]), int(parts[1]))] = float(data[k])
+	_wear_dirty = true
 	_dirty = true
 
 
@@ -100,6 +111,14 @@ func _process(delta: float) -> void:
 	var p := Vector2(player.global_position.x, player.global_position.z)
 	if _anchor == Vector2.INF or p.distance_to(_anchor) > REANCHOR_DISTANCE:
 		_anchor = p
+		_wear_dirty = true
+		_dirty = true
+
+	_wear_cooldown -= delta
+	if _wear_dirty and _wear_cooldown <= 0.0:
+		_wear_cooldown = 1.0
+		_wear_dirty = false
+		_render_wear_base()
 		_dirty = true
 
 	if _dirty:
@@ -107,17 +126,23 @@ func _process(delta: float) -> void:
 		_rebuild()
 
 
-func _rebuild() -> void:
-	RenderingServer.global_shader_parameter_set("trace_center", _anchor)
-	_image.fill(Color(0, 0, 0))
+## Render the permanent wear layer into its base image — called only
+## when the wear actually changes, never on the stamp cadence.
+func _render_wear_base() -> void:
+	_wear_image.fill(Color(0, 0, 0))
 	var px_per_m := TEX_SIZE / REGION_SIZE
-	# The permanent layer first; fresh prints draw over it.
 	for c in _wear:
 		var wuv := (Vector2(c) + Vector2(0.5, 0.5) - _anchor) * px_per_m \
 				+ Vector2.ONE * (TEX_SIZE * 0.5)
 		if wuv.x < -4.0 or wuv.y < -4.0 or wuv.x >= TEX_SIZE + 4.0 or wuv.y >= TEX_SIZE + 4.0:
 			continue
-		_blob(int(wuv.x), int(wuv.y), float(_wear[c]) * WEAR_RENDER)
+		_blob(_wear_image, int(wuv.x), int(wuv.y), float(_wear[c]) * WEAR_RENDER)
+
+
+func _rebuild() -> void:
+	RenderingServer.global_shader_parameter_set("trace_center", _anchor)
+	_image.copy_from(_wear_image)  # the static layer lands as one memcpy
+	var px_per_m := TEX_SIZE / REGION_SIZE
 	var alive: Array = []
 	for s in _stamps:
 		var age: float = _clock - s[1]
@@ -126,12 +151,12 @@ func _rebuild() -> void:
 		alive.append(s)
 		var strength := minf(age / FADE_IN, 1.0) * (1.0 - age / LIFETIME)
 		var uv: Vector2 = (s[0] - _anchor) * px_per_m + Vector2.ONE * (TEX_SIZE * 0.5)
-		_blob(int(uv.x), int(uv.y), strength)
+		_blob(_image, int(uv.x), int(uv.y), strength)
 	_stamps = alive
 	_texture.update(_image)
 
 
-func _blob(cx: int, cy: int, strength: float) -> void:
+func _blob(img: Image, cx: int, cy: int, strength: float) -> void:
 	for dy in range(-4, 5):
 		for dx in range(-4, 5):
 			var x := cx + dx
@@ -141,5 +166,5 @@ func _blob(cx: int, cy: int, strength: float) -> void:
 			var falloff := smoothstep(1.0, 0.25, Vector2(dx, dy).length() / 4.0)
 			if falloff <= 0.0:
 				continue
-			var v := maxf(_image.get_pixel(x, y).r, strength * falloff)
-			_image.set_pixel(x, y, Color(v, 0, 0))
+			var v := maxf(img.get_pixel(x, y).r, strength * falloff)
+			img.set_pixel(x, y, Color(v, 0, 0))

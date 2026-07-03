@@ -14,6 +14,7 @@ func _ready() -> void:
 	_test_seasons()
 	_test_climate()
 	_test_flora()
+	_test_moon()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -196,3 +197,16 @@ func _test_flora() -> void:
 	Climate.wetness = was_wet
 	WorldState.set_value("valley.bloom", false)
 	WorldState.set_value("valley.parched", false)
+
+
+## Moon phase: real synodic cycle, stateless in real time.
+func _test_moon() -> void:
+	var epoch: float = GameClock.NEW_MOON_EPOCH
+	_check(GameClock.moon_phase_at(epoch) < 0.001, "epoch is a new moon")
+	var half: float = GameClock.SYNODIC_DAYS * 0.5 * 86400.0
+	_check(absf(GameClock.moon_phase_at(epoch + half) - 0.5) < 0.001,
+		"half a synodic month later is full")
+	var full_light := 0.5 - 0.5 * cos(TAU * 0.5)
+	_check(absf(full_light - 1.0) < 0.001, "full moon is fully lit")
+	var phase: float = GameClock.moon_phase()
+	_check(phase >= 0.0 and phase < 1.0, "live phase in range")

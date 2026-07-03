@@ -28,6 +28,8 @@ func _process(_delta: float) -> void:
 	_motes.emitting = true
 	_motes.speed_scale = 0.4 + Weather.wind * 1.6
 	_glow.emitting = h >= 19.5 or h < 5.0
+	# The phenomenon prefers dark skies: sparse under a full moon.
+	_glow.amount_ratio = 0.4 + 0.6 * (1.0 - GameClock.moon_light())
 	_moths.emitting = h >= 16.5 and h < 23.0 and Weather.storminess < 0.4
 
 

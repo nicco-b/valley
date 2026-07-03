@@ -52,6 +52,7 @@ func _process(_delta: float) -> void:
 	mat.set_shader_parameter("sun_dir", sun.global_basis.z)
 	mat.set_shader_parameter("sun_size", 0.035 + 0.05 * (1.0 - clampf(absf(elevation) * 3.0, 0.0, 1.0)))
 	mat.set_shader_parameter("night", clampf(-elevation * 4.0, 0.0, 1.0))
+	mat.set_shader_parameter("moon_light", GameClock.moon_light())
 	# Storms thicken the air and dust the horizon color.
 	var env := world_environment.environment
 	env.fog_light_color = horizon.lerp(Color(0.8, 0.7, 0.58), Weather.storminess * 0.6)

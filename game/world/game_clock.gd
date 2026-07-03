@@ -42,6 +42,8 @@ const GAP_SECONDS := 10.0
 
 const SOLAR_ALTITUDE := -0.83  # degrees: sun-disc radius + refraction at rise/set
 const AXIAL_TILT := 23.44
+const SYNODIC_DAYS := 29.530588853  # real lunar month
+const NEW_MOON_EPOCH := 947182440.0  # 2000-01-06 18:14 UTC, a known new moon
 
 var _last_hour := -1
 var _last_unix := 0.0
@@ -183,6 +185,7 @@ func refresh_daylight() -> void:
 	if settings:
 		lat = settings.latitude
 		lon = settings.longitude
+	WorldState.set_value("sky.moon_phase", snappedf(moon_phase(), 0.01))
 	var dl := daylight_hours_for(doy, lat)
 	# Solar noon in civil time: timezone meridian vs. real longitude + EoT.
 	var tz_hours: float = Time.get_time_zone_from_system().bias / 60.0
@@ -197,6 +200,24 @@ func refresh_daylight() -> void:
 	if not first:
 		print("[clock] season -> ", s)
 		HUD.notify("the season turns — %s" % s)
+
+
+## Real lunar phase at a unix time: 0 new, 0.5 full, wrapping at 1.
+## Stateless in real time (kind-1: nothing to catch up).
+static func moon_phase_at(unix: float) -> float:
+	return fposmod((unix - NEW_MOON_EPOCH) / 86400.0, SYNODIC_DAYS) / SYNODIC_DAYS
+
+
+func moon_phase() -> float:
+	return moon_phase_at(Time.get_unix_time_from_system())
+
+
+## Illuminated fraction of the moon, 0 (new) .. 1 (full) — how bright the
+## night is. Dark-sky life (stars, glow-motes, fireflies) reads this.
+## Placeholder: no moon disc in the sky yet — what the moon *is* belongs
+## to the axioms conversation; this is the mechanical layer it will skin.
+func moon_light() -> float:
+	return 0.5 - 0.5 * cos(TAU * moon_phase())
 
 
 func clock_text() -> String:

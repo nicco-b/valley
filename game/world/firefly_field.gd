@@ -19,7 +19,9 @@ func _process(delta: float) -> void:
 		if not night or fly.global_position.distance_to(player.global_position) > 70.0:
 			fly.queue_free()
 
-	if night and get_child_count() < MAX_WILD:
+	# Dark nights teem; full-moon nights thin out (real lunar phase).
+	var max_wild := int(round(MAX_WILD * (0.5 + 0.7 * (1.0 - GameClock.moon_light()))))
+	if night and get_child_count() < max_wild:
 		_timer += delta
 		if _timer >= SPAWN_INTERVAL:
 			_timer = 0.0

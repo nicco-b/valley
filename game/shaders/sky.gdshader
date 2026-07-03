@@ -9,6 +9,7 @@ uniform vec3 sun_color : source_color = vec3(1.0, 0.45, 0.35);
 uniform vec3 sun_dir = vec3(0.0, 1.0, 0.0);
 uniform float sun_size = 0.04;
 uniform float night = 0.0;
+uniform float moon_light = 0.5; // illuminated fraction; full moon washes stars
 
 void sky() {
 	float t = clamp(EYEDIR.y, 0.0, 1.0);
@@ -31,7 +32,8 @@ void sky() {
 		vec2 off = vec2(fract(h * 17.0), fract(h * 91.0)) - 0.5;
 		float star = step(0.82, h) * smoothstep(0.09, 0.0, length(f - off * 0.8));
 		col += vec3(1.0, 0.96, 0.9) * star * night * (0.35 + 0.65 * fract(h * 7.0))
-				* smoothstep(0.02, 0.25, EYEDIR.y);
+				* smoothstep(0.02, 0.25, EYEDIR.y)
+				* (1.0 - 0.55 * moon_light);
 	}
 
 	COLOR = col;

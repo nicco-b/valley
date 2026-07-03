@@ -16,6 +16,7 @@ func _ready() -> void:
 	_test_flora()
 	_test_moon()
 	_test_rumors()
+	_test_wildlife()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -238,4 +239,35 @@ func _test_rumors() -> void:
 	_check(not a.knows("met_player"), "meeting someone is not a catchable rumor")
 	a.free()
 	b.free()
+	mgr.free()
+
+
+## Wildlife tier-3: pure-data animals live full days without a body.
+func _test_wildlife() -> void:
+	var mgr: Node = load("res://game/wildlife/wildlife_manager.gd").new()
+	var herd: Dictionary = mgr.spawn_herd({
+		"id": "test_herd", "count": 2.0,
+		"home": {"x": 0.0, "z": 0.0}, "range": 100.0,
+		"activities": [
+			{"id": "drink", "at": {"x": 50.0, "z": 0.0}, "satisfies": "thirst",
+				"rate": 16.0, "hours": [5.0, 9.0]},
+			{"id": "prowl", "at": "roam", "satisfies": "wander", "rate": 5.0},
+		]})
+	var ind: Dictionary = herd.individuals[0]
+	var span: Vector2 = GameClock.daylight_span()
+	GameClock.hours = fposmod(span.x + 1.0, 24.0)  # solar ~7:00, drink window
+	ind.drives.thirst = 10.0
+	ind.drives.wander = 90.0
+	mgr.decide(herd, ind)
+	_check(ind.activity.id == "drink", "thirsty animal heads to water at dawn")
+	var start: Vector2 = ind.pos
+	mgr.advance_individual(herd, ind, 1.0)
+	_check((ind.pos - Vector2(50.0, 0.0)).length() < 12.0,
+		"an hour of data-tier time completes the journey")
+	_check(ind.pos != start, "data animal moved without a body")
+	mgr.advance_individual(herd, ind, 1.0)  # arrived: this hour is spent drinking
+	_check(ind.drives.thirst > 10.0, "drinking satisfies thirst")
+	mgr._save_state()
+	var rows: Array = WorldState.get_value("wildlife.test_herd", [])
+	_check(rows.size() == 2, "herd persists to WorldState")
 	mgr.free()

@@ -1,0 +1,11 @@
+{
+	"id": "star_hounds",
+	"count": 4,
+	"home": {"x": -170, "z": -420},
+	"range": 160,
+	"activities": [
+		{"id": "drink", "at": {"x": 28, "z": -300}, "satisfies": "thirst", "rate": 16, "hours": [5, 9]},
+		{"id": "rest", "at": {"x": -190, "z": -450}, "satisfies": "rest", "rate": 10, "hours": [11, 16]},
+		{"id": "prowl", "at": "roam", "satisfies": "wander", "rate": 5}
+	]
+}

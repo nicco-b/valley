@@ -197,7 +197,7 @@ func _test_hydrology() -> void:
 	var storm_q: float = Hydrology.discharge("brook")
 	_check(storm_q > calm_q * 1.25 and storm_q - calm_q > 12.0,
 		"storm hours swell the brook (%.0f -> %.0f m3/h)" % [calm_q, storm_q])
-	var flood_level: float = Terrain.rivers[0].level
+	var flood_level: float = Terrain.river_levels[0]
 	_check(flood_level > Hydrology.RIVER_LEVEL_MIN, "flood raises the river surface")
 	Weather.state = "calm"
 	Climate.wetness = 0.1
@@ -208,15 +208,15 @@ func _test_hydrology() -> void:
 	# The live surface follows the level; the authored base never moves.
 	var w: Dictionary = Terrain.water_bodies[0]
 	var c: Vector2 = w.center
-	_check(is_equal_approx(Terrain.water_surface(c.x, c.y),
-			float(w.surface) + float(w.level)),
+	var lv := Terrain.lake_levels[0]
+	_check(is_equal_approx(Terrain.water_surface(c.x, c.y), float(w.surface) + lv),
 		"live water surface = authored + hydrology level")
 	_check(is_equal_approx(Terrain.water_surface_base(c.x, c.y), float(w.surface)),
 		"base water surface ignores the level")
 	# Levels stay on their rails and round-trip through WorldState.
-	_check(float(w.level) >= Hydrology.LAKE_LEVEL_MIN
-			and float(w.level) <= Hydrology.LAKE_LEVEL_MAX, "pond level on rails")
-	_check(float(WorldState.get_value("water.pond.level")) == float(w.level),
+	_check(lv >= Hydrology.LAKE_LEVEL_MIN and lv <= Hydrology.LAKE_LEVEL_MAX,
+		"pond level on rails")
+	_check(is_equal_approx(float(WorldState.get_value("water.pond.level")), lv),
 		"pond level mirrored to WorldState")
 	Weather.state = was_state
 	Climate.wetness = was_wet

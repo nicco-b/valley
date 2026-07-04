@@ -27,14 +27,15 @@ func _ready() -> void:
 		var mi := MeshInstance3D.new()
 		mi.name = String(w.id)
 		mi.mesh = mesh
-		mi.position = Vector3(center.x, float(w.surface) + float(w.level), center.y)
+		mi.position = Vector3(center.x,
+				float(w.surface) + Terrain.lake_levels[w.idx], center.y)
 		add_child(mi)
 		_lake_meshes[w.id] = mi
 	for r in Terrain.rivers:
 		var mi := MeshInstance3D.new()
 		mi.name = String(r.id)
 		var mat := _material(r.flow * _flow_speed(r.id))
-		mi.mesh = _ribbon(r.nodes, r.level)
+		mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx])
 		mi.mesh.surface_set_material(0, mat)
 		add_child(mi)
 		_river_meshes[r.id] = mi
@@ -46,11 +47,11 @@ func _on_levels_changed() -> void:
 	for w in Terrain.water_bodies:
 		var mi: MeshInstance3D = _lake_meshes.get(w.id)
 		if mi:
-			mi.position.y = float(w.surface) + float(w.level)
+			mi.position.y = float(w.surface) + Terrain.lake_levels[w.idx]
 	for r in Terrain.rivers:
 		var mi: MeshInstance3D = _river_meshes.get(r.id)
 		if mi:
-			mi.mesh = _ribbon(r.nodes, r.level)
+			mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx])
 			mi.mesh.surface_set_material(0, _river_mats[r.id])
 			_river_mats[r.id].set_shader_parameter("flow",
 					Vector2(r.flow) * _flow_speed(r.id))

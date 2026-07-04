@@ -19,18 +19,25 @@ const FLATTENS := [
 const WATER_DIR := "res://data/water"
 const RIVER_DIR := "res://data/water/rivers"
 
-# Loaded lake records, normalized: {id, center: Vector2, radius, surface,
-# basin_radius, basin_depth, level}. `surface` is authored; `level` is the
-# live offset Hydrology writes hourly. Geometry fields read-only after
-# _ready.
+# Loaded lake records, normalized: {id, idx, center: Vector2, radius,
+# surface, basin_radius, basin_depth}. Strictly read-only after _ready —
+# worker threads sample these concurrently, so NOTHING may write into
+# these dictionaries post-boot (a torn Variant write corrupts them).
 var water_bodies: Array[Dictionary] = []
 
-# Loaded river records, normalized: {id, depth, feather, flow: Vector2,
-# level, nodes: [{pos: Vector2, half: float, surface: float}]}. A river is
-# a spline: the bed is carved below the authored surface in height(), the
-# live surface (authored + Hydrology's level) returned by water_surface()
-# within the ribbon.
+# Loaded river records, normalized: {id, idx, depth, feather,
+# flow: Vector2, nodes, seg_*/bbox/grid index}. Read-only after _ready,
+# same rule as water_bodies. A river is a spline: the bed is carved below
+# the authored surface in height(), the live surface (authored + level)
+# returned by water_surface() within the ribbon.
 var rivers: Array[Dictionary] = []
+
+# Live level offsets, indexed by each record's idx. Hydrology writes these
+# hourly from the main thread while workers read: element stores into a
+# preallocated PackedFloat32Array are non-structural (no rehash, no COW
+# churn), so the worst case is a stale read, never corruption.
+var lake_levels := PackedFloat32Array()
+var river_levels := PackedFloat32Array()
 
 
 ## Live water surface height at a point (authored + hydrology level), or
@@ -40,11 +47,11 @@ func water_surface(x: float, z: float) -> float:
 	for w in water_bodies:
 		var c: Vector2 = w.center
 		if Vector2(x - c.x, z - c.y).length() < float(w.radius):
-			return float(w.surface) + float(w.level)
+			return float(w.surface) + lake_levels[w.idx]
 	for r in rivers:
-		var q := river_query(r, x, z)
-		if q.d < q.half:
-			return float(q.surface) + float(r.level)
+		var q := _river_probe(r, x, z)
+		if q.x < q.y:
+			return q.z + river_levels[r.idx]
 	return -1e12
 
 
@@ -57,32 +64,59 @@ func water_surface_base(x: float, z: float) -> float:
 		if Vector2(x - c.x, z - c.y).length() < float(w.radius):
 			return w.surface
 	for r in rivers:
-		var q := river_query(r, x, z)
-		if q.d < q.half:
-			return q.surface
+		var q := _river_probe(r, x, z)
+		if q.x < q.y:
+			return q.z
 	return -1e12
 
 
-## Closest point on a river's centerline to (x,z): {d, half, surface}
-## with half-width and surface height interpolated along the spline.
-func river_query(r: Dictionary, x: float, z: float) -> Dictionary:
+# Beyond this distance from a river's edge no consumer cares (moisture
+# reaches half+12, the carve half+feather): queries prune to O(1) via a
+# bounding box + coarse segment grid, exact inside the margin. height()
+# runs in every bulk sampler in the game (sand patch/base, cell builds,
+# wet flags) from several worker threads at once, so the hot probe must
+# never allocate: it returns a Vector3 (a value) and reads packed arrays.
+const RIVER_MARGIN := 18.0
+const RIVER_GRID_STEP := 32.0
+const _RIVER_FAR := Vector3(1e12, 0.0, -1e12)
+
+
+## Closest point on a river's centerline to (x,z) as (distance,
+## half-width, surface), interpolated along the spline. Points farther
+## than RIVER_MARGIN from the spline get the "far" answer.
+func _river_probe(r: Dictionary, x: float, z: float) -> Vector3:
+	var bbox: Rect2 = r.bbox
+	if x < bbox.position.x or z < bbox.position.y \
+			or x >= bbox.end.x or z >= bbox.end.y:
+		return _RIVER_FAR
+	var gx := int((x - bbox.position.x) / RIVER_GRID_STEP)
+	var gz := int((z - bbox.position.y) / RIVER_GRID_STEP)
+	var candidates: PackedInt32Array = r.grid[gz * int(r.grid_w) + gx]
+	if candidates.is_empty():
+		return _RIVER_FAR
 	var p := Vector2(x, z)
-	var nodes: Array = r.nodes
-	var best_d := 1e12
-	var best_half := 0.0
-	var best_surf := 0.0
-	for i in nodes.size() - 1:
-		var a: Dictionary = nodes[i]
-		var b: Dictionary = nodes[i + 1]
-		var pa: Vector2 = a.pos
-		var ab: Vector2 = b.pos - pa
-		var t := clampf((p - pa).dot(ab) / maxf(ab.length_squared(), 1e-4), 0.0, 1.0)
-		var d := p.distance_to(pa + ab * t)
-		if d < best_d:
-			best_d = d
-			best_half = lerpf(a.half, b.half, t)
-			best_surf = lerpf(a.surface, b.surface, t)
-	return {"d": best_d, "half": best_half, "surface": best_surf}
+	var seg_a: PackedVector2Array = r.seg_a
+	var seg_ab: PackedVector2Array = r.seg_ab
+	var seg_inv_l2: PackedFloat32Array = r.seg_inv_l2
+	var seg_half: PackedFloat32Array = r.seg_half
+	var seg_surf: PackedFloat32Array = r.seg_surf
+	var best := _RIVER_FAR
+	for i in candidates:
+		var rel := p - seg_a[i]
+		var t := clampf(rel.dot(seg_ab[i]) * seg_inv_l2[i], 0.0, 1.0)
+		var d := rel.distance_to(seg_ab[i] * t)
+		if d < best.x:
+			best = Vector3(d,
+				lerpf(seg_half[i], seg_half[i + 1], t),
+				lerpf(seg_surf[i], seg_surf[i + 1], t))
+	return best
+
+
+## Dictionary view of _river_probe for cold callers (Climate moisture,
+## Hydrology routing): {d, half, surface}.
+func river_query(r: Dictionary, x: float, z: float) -> Dictionary:
+	var q := _river_probe(r, x, z)
+	return {"d": q.x, "half": q.y, "surface": q.z}
 
 # The home valley: an authored landform. Centerline from behind spawn,
 # past the pond, to the shrine; floor stays low and dense, walls rise
@@ -157,16 +191,16 @@ func height(x: float, z: float) -> float:
 	# the half-width edge, feathered back to natural ground beyond. Only
 	# ever lower the terrain (min), so a river never builds a levee.
 	for r in rivers:
-		var q := river_query(r, x, z)
-		var half: float = q.half
+		var q := _river_probe(r, x, z)
+		var half := q.y
 		var feather: float = r.feather
-		if q.d > half + feather:
+		if q.x > half + feather:
 			continue
 		var target: float
-		if q.d <= half:
-			target = lerpf(q.surface - r.depth, q.surface, q.d / maxf(half, 1e-4))
+		if q.x <= half:
+			target = lerpf(q.z - r.depth, q.z, q.x / maxf(half, 1e-4))
 		else:
-			target = lerpf(q.surface, h, (q.d - half) / feather)
+			target = lerpf(q.z, h, (q.x - half) / feather)
 		h = minf(h, target)
 	return h + edit_height(x, z)
 
@@ -194,13 +228,14 @@ func _load_water() -> void:
 		var basin: Dictionary = rec.get("basin", {})
 		water_bodies.append({
 			"id": rec.get("id", f.trim_suffix(".json")),
+			"idx": water_bodies.size(),
 			"center": Vector2(float(center["x"]), float(center["z"])),
 			"radius": float(rec["radius"]),
 			"surface": float(rec["surface"]),
 			"basin_radius": float(basin.get("radius", rec["radius"])),
 			"basin_depth": float(basin.get("depth", 0.0)),
-			"level": 0.0,
 		})
+	lake_levels.resize(water_bodies.size())
 	_load_rivers()
 
 
@@ -233,14 +268,70 @@ func _load_rivers() -> void:
 		# Downstream flow direction: first node to last, in the XZ plane.
 		var flow: Vector2 = (nodes[nodes.size() - 1].pos - nodes[0].pos)
 		flow = flow.normalized() if flow.length() > 1e-4 else Vector2.ZERO
-		rivers.append({
+		var river := {
 			"id": rec.get("id", f.trim_suffix(".json")),
+			"idx": rivers.size(),
 			"depth": float(rec.get("depth", 1.2)),
 			"feather": float(rec.get("feather", 4.0)),
 			"flow": flow,
-			"level": 0.0,
 			"nodes": nodes,
-		})
+		}
+		_index_river(river)
+		rivers.append(river)
+	river_levels.resize(rivers.size())
+
+
+# Precompute the pruning structures _river_probe() needs: a margin-grown
+# bounding box, per-segment packed arrays (origin, direction, inverse
+# length², node half-widths and surfaces), and a coarse grid where each
+# cell lists the segments within RIVER_MARGIN of it (usually 1-3).
+func _index_river(r: Dictionary) -> void:
+	var nodes: Array = r.nodes
+	var first: Vector2 = nodes[0].pos
+	var bbox := Rect2(first, Vector2.ZERO)
+	var seg_a := PackedVector2Array()
+	var seg_ab := PackedVector2Array()
+	var seg_inv_l2 := PackedFloat32Array()
+	var seg_half := PackedFloat32Array()
+	var seg_surf := PackedFloat32Array()
+	for n in nodes:
+		bbox = bbox.expand(n.pos)
+		seg_half.append(n.half)
+		seg_surf.append(n.surface)
+	for i in nodes.size() - 1:
+		var pa: Vector2 = nodes[i].pos
+		var ab: Vector2 = nodes[i + 1].pos - pa
+		seg_a.append(pa)
+		seg_ab.append(ab)
+		seg_inv_l2.append(1.0 / maxf(ab.length_squared(), 1e-4))
+	r.seg_a = seg_a
+	r.seg_ab = seg_ab
+	r.seg_inv_l2 = seg_inv_l2
+	r.seg_half = seg_half
+	r.seg_surf = seg_surf
+	bbox = bbox.grow(RIVER_MARGIN)
+	var gw := int(ceil(bbox.size.x / RIVER_GRID_STEP))
+	var gh := int(ceil(bbox.size.y / RIVER_GRID_STEP))
+	var grid: Array = []
+	grid.resize(gw * gh)
+	for i in gw * gh:
+		grid[i] = PackedInt32Array()
+	for s in nodes.size() - 1:
+		var a: Vector2 = nodes[s].pos
+		var b: Vector2 = nodes[s + 1].pos
+		var seg := Rect2(a, Vector2.ZERO).expand(b).grow(RIVER_MARGIN)
+		var x0 := maxi(int((seg.position.x - bbox.position.x) / RIVER_GRID_STEP), 0)
+		var z0 := maxi(int((seg.position.y - bbox.position.y) / RIVER_GRID_STEP), 0)
+		var x1 := mini(int((seg.end.x - bbox.position.x) / RIVER_GRID_STEP), gw - 1)
+		var z1 := mini(int((seg.end.y - bbox.position.y) / RIVER_GRID_STEP), gh - 1)
+		for gz in range(z0, z1 + 1):
+			for gx in range(x0, x1 + 1):
+				var cell: PackedInt32Array = grid[gz * gw + gx]
+				cell.append(s)
+				grid[gz * gw + gx] = cell
+	r.bbox = bbox
+	r.grid = grid
+	r.grid_w = gw
 
 
 func _segment_distance(p: Vector2, a: Vector2, b: Vector2) -> float:

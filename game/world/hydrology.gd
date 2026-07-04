@@ -123,8 +123,8 @@ func _hourly(_h: int) -> void:
 		var q := storage * RIVER_K
 		storage -= q
 		river_storage[id] = snappedf(storage, 0.01)
-		r.level = snappedf(clampf(lerpf(RIVER_LEVEL_MIN, RIVER_LEVEL_MAX,
-				flow_norm(id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
+		Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
+				RIVER_LEVEL_MAX, flow_norm(id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
 		WorldState.set_value("water.%s.storage" % id, river_storage[id])
 		WorldState.set_value("water.%s.flow" % id, snappedf(flow_norm(id), 0.001))
 
@@ -146,7 +146,7 @@ func _hourly(_h: int) -> void:
 		level += inflow / lake_area - evap - outflow
 		level = snappedf(clampf(level, LAKE_LEVEL_MIN, LAKE_LEVEL_MAX), 0.001)
 		lake_level[id] = level
-		w.level = level
+		Terrain.lake_levels[w.idx] = level
 		WorldState.set_value("water.%s.level" % id, level)
 	levels_changed.emit()
 
@@ -161,10 +161,10 @@ func _river_feeds_lake(r: Dictionary, w: Dictionary) -> bool:
 
 func _push_levels() -> void:
 	for r in Terrain.rivers:
-		r.level = snappedf(clampf(lerpf(RIVER_LEVEL_MIN, RIVER_LEVEL_MAX,
-				flow_norm(r.id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
+		Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
+				RIVER_LEVEL_MAX, flow_norm(r.id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
 	for w in Terrain.water_bodies:
-		w.level = float(lake_level.get(w.id, 0.0))
+		Terrain.lake_levels[w.idx] = float(lake_level.get(w.id, 0.0))
 	levels_changed.emit()
 
 

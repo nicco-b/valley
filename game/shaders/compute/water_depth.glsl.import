@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bdhmmcntx847l"
+path="res://.godot/imported/water_depth.glsl-cc45b0a59c6c91cdd860e24db6d9df42.res"
+
+[deps]
+
+source_file="res://game/shaders/compute/water_depth.glsl"
+dest_files=["res://.godot/imported/water_depth.glsl-cc45b0a59c6c91cdd860e24db6d9df42.res"]
+
+[params]
+

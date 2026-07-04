@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://d20pxs68p3jbw"
+path="res://.godot/imported/water_probe.glsl-1f1336e11e5f07fa43f3a3970152425a.res"
+
+[deps]
+
+source_file="res://game/shaders/compute/water_probe.glsl"
+dest_files=["res://.godot/imported/water_probe.glsl-1f1336e11e5f07fa43f3a3970152425a.res"]
+
+[params]
+

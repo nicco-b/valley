@@ -217,6 +217,49 @@ this way; these generalize it.)*
   the sim (no fast travel past the weather, no reward loops on ambient
   acts — Stillness has it right: time spent IS the currency).
 
+## Terrain & water (2026-07-03 — the landscape conversation)
+
+*Skyrim's lesson, verified: heightmap carries landforms; a MODULAR
+CLIFF KIT carries verticality (heightfields can't overhang — every
+Skyrim mountain is ~30 reused slab meshes under one material); then
+boulders → rocks → clutter, each scale breaking the one above.
+Believability is geological logic (drainage, continuous ridgelines,
+consistent strata tilt) + composition (landmarks that pull), not tech.
+And Skyrim's water is flat planes + flow maps + waterfall meshes — no
+fluid sim, nobody ever noticed. Our two-layer canon is the shipped
+answer.*
+
+- ★ **The cliff kit is terrain, not decoration:** his Blender rock
+  family (already top of ASSETS_NEEDED) grows into a cliff/plateau kit
+  — slab-scale pieces for rims, overhangs, sheer faces, the slide
+  walls. Flat-shading hides kit seams for free (Skyrim needed careful
+  texturing; matte palette doesn't). Silhouette is king in a painted
+  world, and kit rock is silhouette.
+- ★ **Water bodies as records (unhardcode the pond):** data/water/
+  lakes = basin + surface height; Terrain.water_surface() reads
+  records; swimming, navmesh carving, moisture floors, submerged
+  culling all come free (they already read that one function).
+- ★ **Rivers as splines:** node polyline (position, width, surface
+  height) → ribbon mesh, painterly flow shader, stepped stretches
+  joined by waterfall meshes (each a positional audio emitter). Rivers
+  carve the navmesh → they partition the world → fords and bridges
+  matter → the far waypoint graph earns its keep.
+- ★★ **Seasonal fords — the sim opens the map:** river flow and lake
+  levels follow the Climate wetness integral + snowmelt; late-summer
+  drought drops a crossing and a region opens; autumn rains close it
+  behind you. Exploration-ring gating authored by the sim, zero
+  scripting — the loop-thesis and the landscape meeting in one
+  mechanic.
+- **River current as traversal:** swimming in flow pushes you
+  downstream — free rides, real danger above falls, upstream effort.
+- **Hydrology proposes, the author disposes:** the F3 erosion/
+  hydrology bake suggests river courses from real drainage on painted
+  tiles; she/he blesses or bends the spline; the record ships. Where
+  water flows answers "why is the settlement here."
+- **Geological believability checklist (for tile painting):** every
+  valley drains somewhere; ridgelines continue; strata tilt agrees
+  across a face; one landmark visible from every region edge.
+
 ## Later / bigger
 
 - **Seasonal drift:** not four hard seasons — slow bloom-cycles and light

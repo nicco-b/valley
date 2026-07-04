@@ -64,7 +64,6 @@ func _ready() -> void:
 	for w in Terrain.water_bodies:
 		lake_level[w.id] = 0.0
 	load_state()
-	_last_snow = Climate.snow
 	# The routing pass costs ~1s of pure Terrain reads — start it on a
 	# worker at boot so the first hour tick never hitches the frame.
 	_catch_task = WorkerThreadPool.add_task(_build_catchments)
@@ -88,6 +87,14 @@ func load_state() -> void:
 	for id in lake_level:
 		lake_level[id] = float(WorldState.get_value(
 			"water.%s.level" % id, lake_level[id]))
+	# Snowmelt is a per-hour delta (last hour's cover minus this hour's), so
+	# _last_snow must resume from the SAVED snow, not boot's 0.0 — otherwise
+	# the first replayed catch-up hour drops that hour's meltwater runoff and
+	# every river/lake diverges from continuous play. Read it straight from
+	# WorldState (fully restored before any load_state runs) so this doesn't
+	# depend on Climate's world_state_reader ordering. On a fresh boot the
+	# key is absent and this stays 0.0, matching Climate.snow.
+	_last_snow = float(WorldState.get_value("climate.snow", _last_snow))
 	_push_levels()
 
 

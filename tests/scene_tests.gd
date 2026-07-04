@@ -219,6 +219,19 @@ func _test_hydrology() -> void:
 		"pond level on rails")
 	_check(is_equal_approx(float(WorldState.get_value("water.pond.level")), lv),
 		"pond level mirrored to WorldState")
+	# Snowmelt catch-up (audit finding): _last_snow must resume from the
+	# SAVED snow, not boot's 0.0 — else the first replayed hour after a
+	# snowy reload drops that hour's meltwater and rivers/lakes diverge
+	# from continuous play. Simulate restore: set the saved key, corrupt
+	# _last_snow to the boot value, reload.
+	var saved_snow: float = float(WorldState.get_value("climate.snow", 0.0))
+	WorldState.set_value("climate.snow", 0.4)
+	Hydrology._last_snow = 0.0
+	Hydrology.load_state()
+	_check(is_equal_approx(Hydrology._last_snow, 0.4),
+		"load_state resumes _last_snow from saved snow (no dropped meltwater)")
+	WorldState.set_value("climate.snow", saved_snow)
+	Hydrology._last_snow = Climate.snow
 	Weather.state = was_state
 	Climate.wetness = was_wet
 

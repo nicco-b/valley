@@ -260,6 +260,33 @@ answer.*
   valley drains somewhere; ridgelines continue; strata tilt agrees
   across a face; one landmark visible from every region edge.
 
+### Skyrim's structure, not Skyrim's budget (the principle, 2026-07-03)
+
+*Take their patterns — kits, authored backbones, layered dressing, flat
+far water — because they're honest about what matters. But their
+budgets were 2011 console budgets; the two-layer-illusion boundary
+moves outward with hardware, and the granular sand sim already proved
+the near layer can be a REAL local simulation now. Water gets the same
+treatment:*
+
+- ★★ **Shallow-water sim in the near window (the sand pattern, second
+  field):** GPU depth+velocity fields over the local clipmap, flowing
+  over the real terrain, spline rivers as boundary inflow. Rain
+  gathers into live rivulets; storm water pools in sculpted hollows;
+  flash flows run the gullies and vanish; eddies form behind rocks;
+  the flow-map IS the velocity field (never hand-painted); current is
+  a real force on swimmers. Far tier stays authored splines — never
+  simulate the whole map. Rides on: sand_gpu architecture, water
+  records.
+- ★★ **The two sims couple — sediment:** flowing water transports sand
+  on the shared clipmap (pipe-model erosion): banks undercut live,
+  wading stirs murky plumes that drift downstream, rain erodes prints,
+  the busy ford deepens over a season. Two coupled 1024² fields ≈
+  <2ms GPU on M-series — the headroom exists precisely for this.
+- **Audio follows flow:** waterfall loudness tracks actual flow rate —
+  a drought year sounds quiet before it looks dry; foam appears where
+  the velocity field is turbulent, not where an artist painted it.
+
 ## Later / bigger
 
 - **Seasonal drift:** not four hard seasons — slow bloom-cycles and light

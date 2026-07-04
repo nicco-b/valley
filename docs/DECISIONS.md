@@ -112,6 +112,23 @@ All decided 2026-07-01 (first design day) unless noted.*
 - **Depth before visual R&D** *(2026-07-02)*. Stroke-space/whole-frame
   painterly rendering research declined for now; the risk budget goes to
   simulation depth (SIM_ROADMAP). The per-surface painterly stack stands.
+- **Water is simulated across the whole watershed** *(2026-07-04)*.
+  Overturns the 2026-07-03 IDEAS line "never simulate the whole map" —
+  written as 2011-console caution, not a law of our hardware. The wall is
+  area × resolution, not compute-per-year: near-window fidelity (2.3cm)
+  over the whole valley is ~10,000× out of budget forever, but resolution
+  is a choice per tier. So water runs in **three tiers, all real**:
+  (1) **canonical hydrology** — whole watershed, coarse grid catchments +
+  hourly water balance, CPU, deterministic; this tier is what saves,
+  catches up through `advance_hours`, and fingerprints. (2) **dynamics**
+  — whole watershed on one ~1024² GPU field at ~2m texels (same budget as
+  the sand field): live rivulets, pooling, flash flows, velocity
+  everywhere. (3) **near window** — the sand pattern at 2.3cm: wakes,
+  splashes, sediment coupling. GPU tiers are live presentation seeded
+  from tier 1 and are never authoritative (GPU float order isn't
+  bit-stable; a wave sim can't replay three closed weeks — the hourly
+  tier can). "All out" means all-out simulation depth — conservation,
+  routing, coupling, everywhere, always — not all-out texel count.
 
 ## Open (deliberately undecided)
 

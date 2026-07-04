@@ -26,7 +26,20 @@ basin/channel and answers `water_surface()`, ribbon/disc surface meshes
 built from records, painterly flow shader scrolls downstream — a new lake
 or brook is one JSON file; swimming, navmesh carving, moisture floors,
 flora/cover submersion all read the same records; first authored brook
-feeds the pond); pond with wading/swimming and
+feeds the pond); **whole-watershed hydrology** (DECISIONS 2026-07-04:
+tier 1 of 3 — the Hydrology autoload flow-routes the entire valley once
+at boot (priority-flood pit filling + D8 on a 256² grid, on a worker
+thread) giving every river/lake its real catchment, then runs an hourly
+water balance forever: storm runoff scaled by ground saturation,
+snowmelt, spring baseflow, river reservoirs, lake evaporation/outflow;
+water surfaces ride the live levels via `Terrain.water_surface()` while
+cell generation reads the authored base — the pond visibly swells in
+storms and drops through droughts, the brook's flow speed tracks real
+discharge, fords open and close unscripted; state is per-basin scalars
+on the sim contract: hour_tick, WorldState `water.*`, catch-up, soaked
+deterministic; GPU tiers 2/3 — whole-watershed ~2m dynamics field and
+the near-window sand-pattern sim — seed from this tier, next); pond
+with wading/swimming and
 ripple wake; day/night palette cycle; custom sky (swelling red sun, stars);
 weather (calm/windy/storm) driving sway, audio, fog, dust, and NPC shelter;
 interaction field (80m coarse: desire-path wear, distant trails) +

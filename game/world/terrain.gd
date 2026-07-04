@@ -20,18 +20,38 @@ const WATER_DIR := "res://data/water"
 const RIVER_DIR := "res://data/water/rivers"
 
 # Loaded lake records, normalized: {id, center: Vector2, radius, surface,
-# basin_radius, basin_depth}. Read-only after _ready.
+# basin_radius, basin_depth, level}. `surface` is authored; `level` is the
+# live offset Hydrology writes hourly. Geometry fields read-only after
+# _ready.
 var water_bodies: Array[Dictionary] = []
 
 # Loaded river records, normalized: {id, depth, feather, flow: Vector2,
-# nodes: [{pos: Vector2, half: float, surface: float}]}. Read-only after
-# _ready. A river is a spline: the bed is carved below the surface in
-# height(), the surface returned by water_surface() within the ribbon.
+# level, nodes: [{pos: Vector2, half: float, surface: float}]}. A river is
+# a spline: the bed is carved below the authored surface in height(), the
+# live surface (authored + Hydrology's level) returned by water_surface()
+# within the ribbon.
 var rivers: Array[Dictionary] = []
 
 
-## Water surface height at a point, or -INF when there's no water there.
+## Live water surface height at a point (authored + hydrology level), or
+## -INF when there's no water there. Physics, moisture, and rendering read
+## this; deterministic cell generation reads water_surface_base().
 func water_surface(x: float, z: float) -> float:
+	for w in water_bodies:
+		var c: Vector2 = w.center
+		if Vector2(x - c.x, z - c.y).length() < float(w.radius):
+			return float(w.surface) + float(w.level)
+	for r in rivers:
+		var q := river_query(r, x, z)
+		if q.d < q.half:
+			return float(q.surface) + float(r.level)
+	return -1e12
+
+
+## Authored water surface, ignoring the live hydrology level — the stable
+## reference cell generation (flora scatter, navmesh carve) builds against
+## so streamed cells stay reproducible whatever the season's water is doing.
+func water_surface_base(x: float, z: float) -> float:
 	for w in water_bodies:
 		var c: Vector2 = w.center
 		if Vector2(x - c.x, z - c.y).length() < float(w.radius):
@@ -179,6 +199,7 @@ func _load_water() -> void:
 			"surface": float(rec["surface"]),
 			"basin_radius": float(basin.get("radius", rec["radius"])),
 			"basin_depth": float(basin.get("depth", 0.0)),
+			"level": 0.0,
 		})
 	_load_rivers()
 
@@ -217,6 +238,7 @@ func _load_rivers() -> void:
 			"depth": float(rec.get("depth", 1.2)),
 			"feather": float(rec.get("feather", 4.0)),
 			"flow": flow,
+			"level": 0.0,
 			"nodes": nodes,
 		})
 

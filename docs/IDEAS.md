@@ -283,9 +283,12 @@ treatment:*
   gathers into live rivulets; storm water pools in sculpted hollows;
   flash flows run the gullies and vanish; eddies form behind rocks;
   the flow-map IS the velocity field (never hand-painted); current is
-  a real force on swimmers. Far tier stays authored splines — never
-  simulate the whole map. Rides on: sand_gpu architecture, water
-  records.
+  a real force on swimmers. ~~Far tier stays authored splines — never
+  simulate the whole map~~ *(superseded 2026-07-04, see DECISIONS: the
+  whole watershed IS simulated, in three resolution tiers — canonical
+  hourly hydrology (shipped as the Hydrology autoload), a ~2m whole-
+  watershed GPU dynamics field, and this near-window tier).* Rides on:
+  sand_gpu architecture, water records.
 - ★★ **The two sims couple — sediment:** flowing water transports sand
   on the shared clipmap (pipe-model erosion): banks undercut live,
   wading stirs murky plumes that drift downstream, rain erodes prints,

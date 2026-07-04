@@ -37,9 +37,10 @@ func _ready() -> void:
 	if _failures > 0:
 		print("SOAK FAIL: %d invariant(s) broken" % _failures)
 	else:
-		print("SOAK PASS: %d days in %dms, day=%d weather=%s wetness=%.3f vitality=%.3f"
+		print("SOAK PASS: %d days in %dms, day=%d weather=%s wetness=%.3f vitality=%.3f pond=%+.3f brook=%.0fm3/h"
 				% [DAYS, elapsed, GameClock.day, Weather.state,
-				Climate.wetness, FloraLife.vitality])
+				Climate.wetness, FloraLife.vitality,
+				Hydrology.lake_level.get("pond", 0.0), Hydrology.discharge("brook")])
 	print("SOAK FINGERPRINT %d" % fp)
 	get_tree().quit(1 if _failures > 0 else 0)
 
@@ -54,6 +55,13 @@ func _invariants(npcs: Node, wildlife: Node) -> void:
 	_check(GameClock.day == DAYS, "clock advanced exactly %d days" % DAYS)
 	_check(Climate.wetness >= 0.0 and Climate.wetness <= 1.0, "wetness in [0,1]")
 	_check(Climate.snow >= 0.0 and Climate.snow <= 1.0, "snow in [0,1]")
+	for id in Hydrology.lake_level:
+		var lv: float = Hydrology.lake_level[id]
+		_check(lv >= Hydrology.LAKE_LEVEL_MIN and lv <= Hydrology.LAKE_LEVEL_MAX,
+			"lake %s level on rails (%.3f)" % [id, lv])
+	for id in Hydrology.river_storage:
+		var s: float = Hydrology.river_storage[id]
+		_check(is_finite(s) and s >= 0.0, "river %s storage finite and non-negative" % id)
 	_check(absf(Weather.wind_dir.length() - 1.0) < 0.01, "wind_dir stays unit")
 	_check(FloraLife.vitality >= 0.05 and FloraLife.vitality <= 1.0, "vitality in rails")
 	for npc in npcs.get_children():
@@ -88,6 +96,8 @@ func _fingerprint(npcs: Node, wildlife: Node) -> int:
 		"%.4f" % Climate.snow,
 		"%.3f,%.3f" % [Weather.wind_dir.x, Weather.wind_dir.y],
 		"%.4f" % FloraLife.vitality,
+		str(Hydrology.lake_level),
+		str(Hydrology.river_storage),
 		GameClock.day,
 		WorldState.has_flag("valley.bloom"),
 		WorldState.has_flag("valley.parched"),

@@ -14,6 +14,7 @@ func _ready() -> void:
 	_test_seasons()
 	_test_climate()
 	_test_water()
+	_test_hydrology()
 	_test_flora()
 	_test_moon()
 	_test_rumors()
@@ -155,9 +156,10 @@ func _test_water() -> void:
 	# Records load: the pond as a lake, the brook as a river.
 	_check(Terrain.water_bodies.size() >= 1, "lake records load")
 	_check(Terrain.rivers.size() >= 1, "river records load")
-	# The pond surface answers within its radius, -INF outside.
-	_check(is_equal_approx(Terrain.water_surface(70.0, -310.0), -0.9),
-		"pond surface reads from the record")
+	# The pond surface answers within its radius, -INF outside. (The live
+	# surface rides Hydrology's level, so the authored check reads base.)
+	_check(is_equal_approx(Terrain.water_surface_base(70.0, -310.0), -0.9),
+		"pond base surface reads from the record")
 	_check(Terrain.water_surface(70.0, -120.0) < -1e6, "no water on dry ground")
 	# The brook: surface on the centerline, and the bed carved below it.
 	var mid := Vector2(63.0, -256.0)
@@ -172,6 +174,51 @@ func _test_water() -> void:
 	Climate.wetness = 0.0
 	_check(Climate.moisture(mid.x, mid.y) > Climate.moisture(30.0, -228.0),
 		"river banks stay damp through a dry spell")
+	Climate.wetness = was_wet
+
+
+func _test_hydrology() -> void:
+	# One tick builds the catchments from real flow routing.
+	var was_state: String = Weather.state
+	var was_wet: float = Climate.wetness
+	Weather.state = "calm"
+	Climate.wetness = 0.5
+	Hydrology._hourly(0)
+	_check(Hydrology.catchment_area.get("brook", 0.0) > 10_000.0,
+		"the brook drains a real catchment (routed, not authored)")
+	_check(Hydrology._river_feeds_lake(Terrain.rivers[0], Terrain.water_bodies[0]),
+		"the brook's mouth feeds the pond")
+	# Storm hours must raise the brook; calm hours must recede it.
+	var calm_q: float = Hydrology.discharge("brook")
+	Weather.state = "storm"
+	Climate.wetness = 0.8
+	for i in 6:
+		Hydrology._hourly(0)
+	var storm_q: float = Hydrology.discharge("brook")
+	_check(storm_q > calm_q * 1.25 and storm_q - calm_q > 12.0,
+		"storm hours swell the brook (%.0f -> %.0f m3/h)" % [calm_q, storm_q])
+	var flood_level: float = Terrain.rivers[0].level
+	_check(flood_level > Hydrology.RIVER_LEVEL_MIN, "flood raises the river surface")
+	Weather.state = "calm"
+	Climate.wetness = 0.1
+	for i in 48:
+		Hydrology._hourly(0)
+	_check(Hydrology.discharge("brook") < storm_q * 0.5,
+		"dry days recede the brook")
+	# The live surface follows the level; the authored base never moves.
+	var w: Dictionary = Terrain.water_bodies[0]
+	var c: Vector2 = w.center
+	_check(is_equal_approx(Terrain.water_surface(c.x, c.y),
+			float(w.surface) + float(w.level)),
+		"live water surface = authored + hydrology level")
+	_check(is_equal_approx(Terrain.water_surface_base(c.x, c.y), float(w.surface)),
+		"base water surface ignores the level")
+	# Levels stay on their rails and round-trip through WorldState.
+	_check(float(w.level) >= Hydrology.LAKE_LEVEL_MIN
+			and float(w.level) <= Hydrology.LAKE_LEVEL_MAX, "pond level on rails")
+	_check(float(WorldState.get_value("water.pond.level")) == float(w.level),
+		"pond level mirrored to WorldState")
+	Weather.state = was_state
 	Climate.wetness = was_wet
 
 

@@ -3,9 +3,16 @@ extends Node3D
 ## scene no longer hardcodes water geometry. Lakes become discs, rivers
 ## become ribbons that follow the spline. Physics (swimming), navmesh
 ## carving, and moisture all read the same records via Terrain, so a new
-## body of water is one JSON file.
+## body of water is one JSON file. Surfaces track Hydrology: lake discs
+## ride their live level, river ribbons rebuild at their offset, and flow
+## speed follows real discharge — a drought moves slower before it looks
+## shallower.
 
 const WATER_SHADER := preload("res://game/shaders/water.gdshader")
+
+var _lake_meshes: Dictionary = {}  # id -> MeshInstance3D
+var _river_meshes: Dictionary = {}  # id -> MeshInstance3D
+var _river_mats: Dictionary = {}  # id -> ShaderMaterial
 
 
 func _ready() -> void:
@@ -20,14 +27,39 @@ func _ready() -> void:
 		var mi := MeshInstance3D.new()
 		mi.name = String(w.id)
 		mi.mesh = mesh
-		mi.position = Vector3(center.x, w.surface, center.y)
+		mi.position = Vector3(center.x, float(w.surface) + float(w.level), center.y)
 		add_child(mi)
+		_lake_meshes[w.id] = mi
 	for r in Terrain.rivers:
 		var mi := MeshInstance3D.new()
 		mi.name = String(r.id)
-		mi.mesh = _ribbon(r.nodes)
-		mi.mesh.surface_set_material(0, _material(r.flow))
+		var mat := _material(r.flow * _flow_speed(r.id))
+		mi.mesh = _ribbon(r.nodes, r.level)
+		mi.mesh.surface_set_material(0, mat)
 		add_child(mi)
+		_river_meshes[r.id] = mi
+		_river_mats[r.id] = mat
+	Hydrology.levels_changed.connect(_on_levels_changed)
+
+
+func _on_levels_changed() -> void:
+	for w in Terrain.water_bodies:
+		var mi: MeshInstance3D = _lake_meshes.get(w.id)
+		if mi:
+			mi.position.y = float(w.surface) + float(w.level)
+	for r in Terrain.rivers:
+		var mi: MeshInstance3D = _river_meshes.get(r.id)
+		if mi:
+			mi.mesh = _ribbon(r.nodes, r.level)
+			mi.mesh.surface_set_material(0, _river_mats[r.id])
+			_river_mats[r.id].set_shader_parameter("flow",
+					Vector2(r.flow) * _flow_speed(r.id))
+
+
+## Stripe drift speed from real discharge: baseline flow ~1, floods ~2,
+## a drought crawls.
+func _flow_speed(river_id: String) -> float:
+	return 2.0 * Hydrology.flow_norm(river_id)
 
 
 func _material(flow: Vector2) -> ShaderMaterial:
@@ -41,7 +73,7 @@ func _material(flow: Vector2) -> ShaderMaterial:
 # its half-width along the local perpendicular, stitched into quads. Built
 # in world space so the shared water shader (which reads world position)
 # lines up seam-free with the pond.
-func _ribbon(nodes: Array) -> ArrayMesh:
+func _ribbon(nodes: Array, level: float) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var left := PackedVector3Array()
@@ -57,7 +89,7 @@ func _ribbon(nodes: Array) -> ArrayMesh:
 			tangent = (nodes[i + 1].pos - nodes[i - 1].pos)
 		tangent = tangent.normalized() if tangent.length() > 1e-4 else Vector2.RIGHT
 		var perp := Vector2(-tangent.y, tangent.x) * float(nodes[i].half)
-		var y: float = nodes[i].surface
+		var y: float = nodes[i].surface + level
 		left.append(Vector3(p.x + perp.x, y, p.y + perp.y))
 		right.append(Vector3(p.x - perp.x, y, p.y - perp.y))
 	for i in nodes.size() - 1:

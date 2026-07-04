@@ -245,7 +245,7 @@ func _build_terrain_mesh(c: Vector2i, with_nav := true, with_shape := true,
 			var i := iz * res + ix
 			pts[i] = Vector3(ix * step, y, iz * step)
 			if with_nav:
-				wet[i] = 1 if y < Terrain.water_surface(wx, wz) - 0.05 else 0
+				wet[i] = 1 if y < Terrain.water_surface_base(wx, wz) - 0.05 else 0
 			st.set_uv(Vector2(wx, wz) * 0.05)
 			st.add_vertex(pts[i])
 	for iz in res - 1:
@@ -398,7 +398,7 @@ func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 		if clear:
 			continue
 		var y := Terrain.height(wx, wz)
-		if y < Terrain.water_surface(wx, wz) + 0.3:  # nothing grows midstream
+		if y < Terrain.water_surface_base(wx, wz) + 0.3:  # nothing grows midstream
 			continue
 		var xf := Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)),
 				Vector3(lx, y, lz))
@@ -495,7 +495,7 @@ func _add_ground_cover(c: Vector2i, parent: Node3D, origin: Vector3, vf: float) 
 		if in_clearing:
 			continue
 		var y := Terrain.height(wx, wz)
-		if y < Terrain.water_surface(wx, wz) + 0.15:  # no cover midstream
+		if y < Terrain.water_surface_base(wx, wz) + 0.15:  # no cover midstream
 			continue
 		var variant := _pick_weighted(GROUND_COVER, rng.randf())
 		var s := rng.randf_range(0.7, 1.35)

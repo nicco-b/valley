@@ -3,10 +3,17 @@
 	"depth": 1.1,
 	"feather": 4.0,
 	"nodes": [
-		{"x": 52, "z": -198, "width": 4.0, "surface": 1.5},
-		{"x": 58, "z": -228, "width": 4.5, "surface": 1.05},
-		{"x": 63, "z": -256, "width": 5.0, "surface": -0.2},
-		{"x": 66, "z": -278, "width": 5.5, "surface": -0.6},
+		{"x": 45, "z": -60, "width": 2.5, "surface": -0.1},
+		{"x": 46, "z": -80, "width": 3.0, "surface": -0.14},
+		{"x": 47, "z": -100, "width": 3.0, "surface": -0.18},
+		{"x": 48, "z": -120, "width": 3.5, "surface": -0.25},
+		{"x": 49, "z": -140, "width": 3.5, "surface": -0.35},
+		{"x": 50, "z": -160, "width": 4.0, "surface": -0.45},
+		{"x": 51, "z": -180, "width": 4.0, "surface": -0.52},
+		{"x": 52, "z": -198, "width": 4.5, "surface": -0.58},
+		{"x": 58, "z": -228, "width": 5.0, "surface": -0.68},
+		{"x": 63, "z": -256, "width": 5.0, "surface": -0.76},
+		{"x": 66, "z": -278, "width": 5.5, "surface": -0.83},
 		{"x": 69, "z": -289, "width": 6.0, "surface": -0.9}
 	]
 }

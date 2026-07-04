@@ -112,6 +112,73 @@ ideas marked ★.*
   kicks them free. Old campfire stones half-swallowed by a week of
   wind. Effort: medium.
 
+### Batch two (2026-07-03, same session — the sim as author)
+
+- ★ **Seed drift:** when FloraLife crosses its seeding stage on a windy
+  day, visible fluff streams downwind for an afternoon — and next
+  season's scatter density shifts subtly downwind of parents. The WIND
+  authors the landscape over seasons. Effort: medium (needs per-cell
+  flora). Rides on: wind vector, FloraLife, scatter.
+- ★ **The pond breathes:** water level follows a weeks-scale wetness
+  integral — shorelines advance and recede, wet banks record deep
+  prints, and a long drought exposes ground (and things) normally
+  under water. Exploration gated by the sim itself: drought secrets.
+  Effort: small-medium. Rides on: Climate, water shader, granular sand.
+- ★ **Petrichor beat:** the first rain after a long dry spell is an
+  EVENT — dust puffs off the ground as the first drops land, the audio
+  holds a beat before the wind bed shifts. One dry-duration counter.
+  Effort: small. Rides on: Climate, particles, audio.
+- ★ **Insect chorus thermometer (Dolbear's law):** the cricket-analog
+  chorus rate literally tracks Climate.temperature, as real crickets
+  do — the valley's temperature is audible. A field recordist's
+  instrument before the mechanic even exists. Effort: small.
+- ★ **Tracks as information (the gameplay bridge):** species-shaped
+  prints + wind-aging already write a readable record into the ground —
+  who passed, which way, roughly when. Later, a tracking skill and
+  quests READ what the sim already writes. Build nothing now; protect
+  the property: every creature that moves must leave its true mark.
+- **Virgin crust:** sand untouched for days develops a delicate wind
+  crust — the first step through it reads and sounds different from
+  ground broken yesterday. Untouched places FEEL untouched. Effort:
+  small (age term in the field). Rides on: granular sim.
+- **Mud:** trampled + soaked ground churns (wear × wetness) — deep
+  slow tracks, splash steps; dries into a cracked crust that flakes
+  back to sand over days. NPCs route around the worst of it (utility
+  cost from moisture), so paths genuinely change after storms.
+  Effort: medium. Rides on: wear, Climate, navmesh costs.
+- **Distant lightning, delayed thunder:** night storm cells flash on
+  the horizon; thunder arrives seconds later by real distance (speed
+  of sound). Two lines of physics, enormous presence. Effort: small.
+- **Puddles:** concave spots (curvature is computable per cell offline)
+  hold water after storms, shrinking over hours, reflecting the sky.
+  Effort: medium. Rides on: Climate, water shader.
+- **Cold clear nights have more stars:** atmospheric extinction from
+  humidity/temperature — the star field breathes with Climate; the
+  clearest sky of the year is a cold dry winter night. Effort: tiny.
+- **Frost sparkle mornings:** below-freezing clear dawns intensify the
+  ground glints until the sun warms them off. Effort: tiny.
+- **Snow behaves in the granular sim:** powder lowers the repose angle
+  (deeper prints, softer slumps); melt clears south-facing slopes
+  first (aspect from the normal). Effort: small. Rides on: snow state,
+  granular sim.
+- **Moths to your lantern:** deployed fireflies attract the dusk moths
+  — two existing systems, one attraction rule, instant life. Effort:
+  tiny.
+- **Wind timbre from the land:** the wind bed's character shifts with
+  local flora density (rustle among growth, open hiss on bare flats) —
+  audio that knows where you're standing. Effort: small.
+- **The 4am hush:** the quietest hour mixes down to almost nothing —
+  your own steps become the loudest thing — so the dawn chorus, when
+  it arrives, lands like an event. Effort: small (mix state by hour).
+- **Long-absence homecoming:** return after weeks of real time and the
+  world says so — your worn paths healed, a new flora generation, an
+  inhabitant remarks on the gap. Catch-up already computes all of it;
+  this is surfacing, not simulating. Effort: small. Rides on: rumors.
+- **The world's breath:** one shared 1/f (pink-noise) conductor gently
+  modulating gust timing, chorus density, and mote drift so ambient
+  rhythms never feel metronomic — the difference between a loop and a
+  place. Effort: small, subtle, everywhere.
+
 ## Later / bigger
 
 - **Seasonal drift:** not four hard seasons — slow bloom-cycles and light

@@ -19,7 +19,11 @@ function feeding near terrain, far-terrain LOD to the horizon, and the map
 authored valley landform (spawn → pond ~310m → shrine ~620m); god-mode
 sculpt layer (EXR); painterly terrain shader (height/slope bands, wind
 ripples, sun glints); scattered flora from her 3 paintings + dense
-ground-cover stratum (placeholder SVGs); pond with wading/swimming and
+ground-cover stratum (placeholder SVGs); **water bodies as records**
+(`data/water/*.json` = basin + surface height; Terrain carves the basin
+and answers `water_surface()`, surface meshes built from records — a new
+lake is one JSON file; swimming, navmesh carving, moisture floors all
+read the same records); pond with wading/swimming and
 ripple wake; day/night palette cycle; custom sky (swelling red sun, stars);
 weather (calm/windy/storm) driving sway, audio, fog, dust, and NPC shelter;
 interaction field (80m coarse: desire-path wear, distant trails) +

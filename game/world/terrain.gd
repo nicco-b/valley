@@ -12,23 +12,22 @@ const FLATTENS := [
 	[70.0, -310.0, 45.0, 40.0],  # pond clearing (also keeps flora out of water)
 ]
 
-# Carved depressions: [center x, center z, radius, depth]
-const BASINS := [
-	[70.0, -310.0, 38.0, 3.2],  # the pond
-]
+# Water bodies come from data/water/*.json: circular lakes as basin +
+# surface height. Everything water-shaped (swimming, navmesh carving,
+# moisture floors, surface meshes) reads these records through here.
+const WATER_DIR := "res://data/water"
 
-# Water bodies: [center x, center z, radius, surface y]. The pond mesh in
-# valley.tscn mirrors this — keep them in sync until water becomes records.
-const WATER_BODIES := [
-	[70.0, -310.0, 27.0, -0.9],
-]
+# Loaded water records, normalized: {id, center: Vector2, radius,
+# surface, basin_radius, basin_depth}. Read-only after _ready.
+var water_bodies: Array[Dictionary] = []
 
 
 ## Water surface height at a point, or -INF when there's no water there.
 func water_surface(x: float, z: float) -> float:
-	for w in WATER_BODIES:
-		if Vector2(x - w[0], z - w[1]).length() < w[2]:
-			return w[3]
+	for w in water_bodies:
+		var c: Vector2 = w.center
+		if Vector2(x - c.x, z - c.y).length() < float(w.radius):
+			return w.surface
 	return -1e12
 
 # The home valley: an authored landform. Centerline from behind spawn,
@@ -58,6 +57,7 @@ var _ranges := FastNoiseLite.new()
 
 
 func _ready() -> void:
+	_load_water()
 	_hills.seed = 7
 	_hills.frequency = 0.0025
 	_hills.fractal_octaves = 4
@@ -95,10 +95,41 @@ func height(x: float, z: float) -> float:
 	for f in FLATTENS:
 		var d := Vector2(x - f[0], z - f[1]).length()
 		h *= smoothstep(f[2], f[2] + f[3], d)
-	for b in BASINS:
-		var d := Vector2(x - b[0], z - b[1]).length()
-		h -= b[3] * smoothstep(1.0, 0.0, d / b[2])
+	for w in water_bodies:
+		var c: Vector2 = w.center
+		var d := Vector2(x - c.x, z - c.y).length()
+		h -= float(w.basin_depth) * smoothstep(1.0, 0.0, d / float(w.basin_radius))
 	return h + edit_height(x, z)
+
+
+# Records loads after Terrain in the autoload order, so water records are
+# parsed here directly (same pattern as the edit-layer EXR).
+func _load_water() -> void:
+	var dir := DirAccess.open(WATER_DIR)
+	if dir == null:
+		return
+	var files := dir.get_files()
+	files.sort()  # deterministic load order regardless of filesystem
+	for f in files:
+		if not f.ends_with(".json"):
+			continue
+		var path := WATER_DIR + "/" + f
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if not (parsed is Dictionary and parsed.has("center")
+				and parsed.has("radius") and parsed.has("surface")):
+			push_error("[terrain] bad water record (needs center/radius/surface): " + path)
+			continue
+		var rec: Dictionary = parsed
+		var center: Dictionary = rec["center"]
+		var basin: Dictionary = rec.get("basin", {})
+		water_bodies.append({
+			"id": rec.get("id", f.trim_suffix(".json")),
+			"center": Vector2(float(center["x"]), float(center["z"])),
+			"radius": float(rec["radius"]),
+			"surface": float(rec["surface"]),
+			"basin_radius": float(basin.get("radius", rec["radius"])),
+			"basin_depth": float(basin.get("depth", 0.0)),
+		})
 
 
 func _segment_distance(p: Vector2, a: Vector2, b: Vector2) -> float:

@@ -86,9 +86,11 @@ static func snow_line_for(base_t: float) -> float:
 ## water (pond banks stay damp through a dry spell).
 func moisture(x: float, z: float) -> float:
 	var near := 0.0
-	for w in Terrain.WATER_BODIES:
-		var d := Vector2(x - w[0], z - w[1]).length()
-		near = maxf(near, 1.0 - smoothstep(w[2], w[2] + 18.0, d))
+	for w in Terrain.water_bodies:
+		var c: Vector2 = w.center
+		var r: float = w.radius
+		var d := Vector2(x - c.x, z - c.y).length()
+		near = maxf(near, 1.0 - smoothstep(r, r + 18.0, d))
 	return clampf(maxf(wetness, 0.85 * near), 0.0, 1.0)
 
 

@@ -1,8 +1,8 @@
-[gd_scene load_steps=27 format=3]
+[gd_scene load_steps=25 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" path="res://game/world/landmarks/shrine.tscn" id="5_shrine"]
-[ext_resource type="Shader" path="res://game/shaders/water.gdshader" id="6_water"]
+[ext_resource type="Script" path="res://game/world/water_bodies.gd" id="6_water"]
 [ext_resource type="Script" path="res://game/world/day_night.gd" id="2_daynight"]
 [ext_resource type="Script" path="res://game/world/world_streamer.gd" id="3_streamer"]
 [ext_resource type="AudioStream" path="res://assets/audio/wind_loop.wav" id="4_wind"]
@@ -39,16 +39,6 @@ billboard_mode = 3
 [sub_resource type="QuadMesh" id="Quad_dust"]
 size = Vector2(0.3, 0.3)
 material = SubResource("Material_dust")
-
-[sub_resource type="ShaderMaterial" id="Material_water"]
-shader = ExtResource("6_water")
-
-[sub_resource type="CylinderMesh" id="CylinderMesh_pond"]
-top_radius = 27.0
-bottom_radius = 27.0
-height = 0.1
-radial_segments = 64
-material = SubResource("Material_water")
 
 [sub_resource type="ShaderMaterial" id="SkyMaterial_valley"]
 shader = ExtResource("12_sky")
@@ -117,9 +107,8 @@ script = ExtResource("14_far")
 [node name="Shrine" parent="Landmarks" instance=ExtResource("5_shrine")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 120, 0, -620)
 
-[node name="Pond" type="MeshInstance3D" parent="Landmarks"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 70, -0.9, -310)
-mesh = SubResource("CylinderMesh_pond")
+[node name="WaterBodies" type="Node3D" parent="Landmarks"]
+script = ExtResource("6_water")
 
 [node name="PondStone" type="Area3D" parent="Landmarks" instance=ExtResource("10_pickup")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 66, -0.4, -278)

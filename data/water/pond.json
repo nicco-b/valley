@@ -1,0 +1,7 @@
+{
+	"id": "pond",
+	"center": {"x": 70, "z": -310},
+	"radius": 27,
+	"surface": -0.9,
+	"basin": {"radius": 38, "depth": 3.2}
+}

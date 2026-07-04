@@ -91,6 +91,9 @@ func moisture(x: float, z: float) -> float:
 		var r: float = w.radius
 		var d := Vector2(x - c.x, z - c.y).length()
 		near = maxf(near, 1.0 - smoothstep(r, r + 18.0, d))
+	for river in Terrain.rivers:
+		var q := Terrain.river_query(river, x, z)
+		near = maxf(near, 1.0 - smoothstep(q.half, q.half + 12.0, q.d))
 	return clampf(maxf(wetness, 0.85 * near), 0.0, 1.0)
 
 

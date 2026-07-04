@@ -239,11 +239,19 @@ answer.*
   lakes = basin + surface height; Terrain.water_surface() reads
   records; swimming, navmesh carving, moisture floors, submerged
   culling all come free (they already read that one function).
-- ★ **Rivers as splines:** node polyline (position, width, surface
-  height) → ribbon mesh, painterly flow shader, stepped stretches
-  joined by waterfall meshes (each a positional audio emitter). Rivers
-  carve the navmesh → they partition the world → fords and bridges
-  matter → the far waypoint graph earns its keep.
+- ★ **Rivers as splines** — *first increment shipped 2026-07-04:* node
+  polyline (position, width, surface height) in `data/water/rivers/*.json`
+  → ribbon mesh + painterly flow shader (scrolls downstream), channel
+  carved into the terrain, `water_surface()` answers within the ribbon so
+  swimming / navmesh-carve / moisture / flora-submersion all come free;
+  the first brook feeds the pond. *Still open:* stepped stretches joined
+  by waterfall meshes (each a positional audio emitter — the spline holds
+  one continuous surface today, so a big drop would vanish into a hill);
+  per-vertex flow so curved rivers carry current around bends (one flow
+  vector per river now); river current as a real force on swimmers
+  (below). Rivers already carve the navmesh (submerged cells drop from the
+  bake) → they partition the world → fords and bridges matter → the far
+  waypoint graph earns its keep.
 - ★★ **Seasonal fords — the sim opens the map:** river flow and lake
   levels follow the Climate wetness integral + snowmelt; late-summer
   drought drops a crossing and a region opens; autumn rains close it

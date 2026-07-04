@@ -13,6 +13,7 @@ func _ready() -> void:
 	_test_clock()
 	_test_seasons()
 	_test_climate()
+	_test_water()
 	_test_flora()
 	_test_moon()
 	_test_rumors()
@@ -150,6 +151,30 @@ func _test_seasons() -> void:
 
 
 ## Climate: the temperature/moisture substrate other systems read.
+func _test_water() -> void:
+	# Records load: the pond as a lake, the brook as a river.
+	_check(Terrain.water_bodies.size() >= 1, "lake records load")
+	_check(Terrain.rivers.size() >= 1, "river records load")
+	# The pond surface answers within its radius, -INF outside.
+	_check(is_equal_approx(Terrain.water_surface(70.0, -310.0), -0.9),
+		"pond surface reads from the record")
+	_check(Terrain.water_surface(70.0, -120.0) < -1e6, "no water on dry ground")
+	# The brook: surface on the centerline, and the bed carved below it.
+	var mid := Vector2(63.0, -256.0)
+	var surf: float = Terrain.water_surface(mid.x, mid.y)
+	_check(surf > -1e6, "brook has a surface on its centerline")
+	_check(Terrain.height(mid.x, mid.y) < surf - 0.5,
+		"the channel bed is carved below the brook surface")
+	# A few metres off the bank there's neither water nor a channel.
+	_check(Terrain.water_surface(30.0, -228.0) < -1e6, "brook is dry off to the side")
+	# Moisture is lifted along the river, like a lake's banks.
+	var was_wet: float = Climate.wetness
+	Climate.wetness = 0.0
+	_check(Climate.moisture(mid.x, mid.y) > Climate.moisture(30.0, -228.0),
+		"river banks stay damp through a dry spell")
+	Climate.wetness = was_wet
+
+
 func _test_climate() -> void:
 	var floor_temp: float = Climate.temperature(0.0, -100.0)
 	var ridge_temp: float = Climate.temperature(900.0, -100.0)

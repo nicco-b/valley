@@ -12,14 +12,22 @@ const FLATTENS := [
 	[70.0, -310.0, 45.0, 40.0],  # pond clearing (also keeps flora out of water)
 ]
 
-# Water bodies come from data/water/*.json: circular lakes as basin +
-# surface height. Everything water-shaped (swimming, navmesh carving,
-# moisture floors, surface meshes) reads these records through here.
+# Water bodies come from data/water/: circular lakes as basin + surface
+# height (top-level *.json), and rivers as node polylines (rivers/*.json).
+# Everything water-shaped (swimming, navmesh carving, moisture floors,
+# surface meshes) reads these records through here.
 const WATER_DIR := "res://data/water"
+const RIVER_DIR := "res://data/water/rivers"
 
-# Loaded water records, normalized: {id, center: Vector2, radius,
-# surface, basin_radius, basin_depth}. Read-only after _ready.
+# Loaded lake records, normalized: {id, center: Vector2, radius, surface,
+# basin_radius, basin_depth}. Read-only after _ready.
 var water_bodies: Array[Dictionary] = []
+
+# Loaded river records, normalized: {id, depth, feather, flow: Vector2,
+# nodes: [{pos: Vector2, half: float, surface: float}]}. Read-only after
+# _ready. A river is a spline: the bed is carved below the surface in
+# height(), the surface returned by water_surface() within the ribbon.
+var rivers: Array[Dictionary] = []
 
 
 ## Water surface height at a point, or -INF when there's no water there.
@@ -28,7 +36,33 @@ func water_surface(x: float, z: float) -> float:
 		var c: Vector2 = w.center
 		if Vector2(x - c.x, z - c.y).length() < float(w.radius):
 			return w.surface
+	for r in rivers:
+		var q := river_query(r, x, z)
+		if q.d < q.half:
+			return q.surface
 	return -1e12
+
+
+## Closest point on a river's centerline to (x,z): {d, half, surface}
+## with half-width and surface height interpolated along the spline.
+func river_query(r: Dictionary, x: float, z: float) -> Dictionary:
+	var p := Vector2(x, z)
+	var nodes: Array = r.nodes
+	var best_d := 1e12
+	var best_half := 0.0
+	var best_surf := 0.0
+	for i in nodes.size() - 1:
+		var a: Dictionary = nodes[i]
+		var b: Dictionary = nodes[i + 1]
+		var pa: Vector2 = a.pos
+		var ab: Vector2 = b.pos - pa
+		var t := clampf((p - pa).dot(ab) / maxf(ab.length_squared(), 1e-4), 0.0, 1.0)
+		var d := p.distance_to(pa + ab * t)
+		if d < best_d:
+			best_d = d
+			best_half = lerpf(a.half, b.half, t)
+			best_surf = lerpf(a.surface, b.surface, t)
+	return {"d": best_d, "half": best_half, "surface": best_surf}
 
 # The home valley: an authored landform. Centerline from behind spawn,
 # past the pond, to the shrine; floor stays low and dense, walls rise
@@ -99,11 +133,27 @@ func height(x: float, z: float) -> float:
 		var c: Vector2 = w.center
 		var d := Vector2(x - c.x, z - c.y).length()
 		h -= float(w.basin_depth) * smoothstep(1.0, 0.0, d / float(w.basin_radius))
+	# Rivers carve a banked channel: bed at the centerline, waterline at
+	# the half-width edge, feathered back to natural ground beyond. Only
+	# ever lower the terrain (min), so a river never builds a levee.
+	for r in rivers:
+		var q := river_query(r, x, z)
+		var half: float = q.half
+		var feather: float = r.feather
+		if q.d > half + feather:
+			continue
+		var target: float
+		if q.d <= half:
+			target = lerpf(q.surface - r.depth, q.surface, q.d / maxf(half, 1e-4))
+		else:
+			target = lerpf(q.surface, h, (q.d - half) / feather)
+		h = minf(h, target)
 	return h + edit_height(x, z)
 
 
 # Records loads after Terrain in the autoload order, so water records are
-# parsed here directly (same pattern as the edit-layer EXR).
+# parsed here directly (same pattern as the edit-layer EXR). Lakes live at
+# the top level of data/water/; rivers in the rivers/ subfolder.
 func _load_water() -> void:
 	var dir := DirAccess.open(WATER_DIR)
 	if dir == null:
@@ -117,7 +167,7 @@ func _load_water() -> void:
 		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
 		if not (parsed is Dictionary and parsed.has("center")
 				and parsed.has("radius") and parsed.has("surface")):
-			push_error("[terrain] bad water record (needs center/radius/surface): " + path)
+			push_error("[terrain] bad lake record (needs center/radius/surface): " + path)
 			continue
 		var rec: Dictionary = parsed
 		var center: Dictionary = rec["center"]
@@ -129,6 +179,45 @@ func _load_water() -> void:
 			"surface": float(rec["surface"]),
 			"basin_radius": float(basin.get("radius", rec["radius"])),
 			"basin_depth": float(basin.get("depth", 0.0)),
+		})
+	_load_rivers()
+
+
+func _load_rivers() -> void:
+	var dir := DirAccess.open(RIVER_DIR)
+	if dir == null:
+		return
+	var files := dir.get_files()
+	files.sort()
+	for f in files:
+		if not f.ends_with(".json"):
+			continue
+		var path := RIVER_DIR + "/" + f
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if not (parsed is Dictionary and parsed.has("nodes")):
+			push_error("[terrain] bad river record (needs nodes): " + path)
+			continue
+		var rec: Dictionary = parsed
+		var raw_nodes: Array = rec["nodes"]
+		if raw_nodes.size() < 2:
+			push_error("[terrain] river needs >=2 nodes: " + path)
+			continue
+		var nodes: Array[Dictionary] = []
+		for n in raw_nodes:
+			nodes.append({
+				"pos": Vector2(float(n["x"]), float(n["z"])),
+				"half": float(n["width"]) * 0.5,
+				"surface": float(n["surface"]),
+			})
+		# Downstream flow direction: first node to last, in the XZ plane.
+		var flow: Vector2 = (nodes[nodes.size() - 1].pos - nodes[0].pos)
+		flow = flow.normalized() if flow.length() > 1e-4 else Vector2.ZERO
+		rivers.append({
+			"id": rec.get("id", f.trim_suffix(".json")),
+			"depth": float(rec.get("depth", 1.2)),
+			"feather": float(rec.get("feather", 4.0)),
+			"flow": flow,
+			"nodes": nodes,
 		})
 
 

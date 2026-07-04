@@ -1,0 +1,12 @@
+{
+	"id": "brook",
+	"depth": 1.1,
+	"feather": 4.0,
+	"nodes": [
+		{"x": 52, "z": -198, "width": 4.0, "surface": 1.5},
+		{"x": 58, "z": -228, "width": 4.5, "surface": 1.05},
+		{"x": 63, "z": -256, "width": 5.0, "surface": -0.2},
+		{"x": 66, "z": -278, "width": 5.5, "surface": -0.6},
+		{"x": 69, "z": -289, "width": 6.0, "surface": -0.9}
+	]
+}

@@ -20,10 +20,13 @@ authored valley landform (spawn → pond ~310m → shrine ~620m); god-mode
 sculpt layer (EXR); painterly terrain shader (height/slope bands, wind
 ripples, sun glints); scattered flora from her 3 paintings + dense
 ground-cover stratum (placeholder SVGs); **water bodies as records**
-(`data/water/*.json` = basin + surface height; Terrain carves the basin
-and answers `water_surface()`, surface meshes built from records — a new
-lake is one JSON file; swimming, navmesh carving, moisture floors all
-read the same records); pond with wading/swimming and
+(`data/water/*.json` lakes = basin + surface height; `rivers/*.json`
+rivers = node polyline with per-node width + surface; Terrain carves
+basin/channel and answers `water_surface()`, ribbon/disc surface meshes
+built from records, painterly flow shader scrolls downstream — a new lake
+or brook is one JSON file; swimming, navmesh carving, moisture floors,
+flora/cover submersion all read the same records; first authored brook
+feeds the pond); pond with wading/swimming and
 ripple wake; day/night palette cycle; custom sky (swelling red sun, stars);
 weather (calm/windy/storm) driving sway, audio, fog, dust, and NPC shelter;
 interaction field (80m coarse: desire-path wear, distant trails) +

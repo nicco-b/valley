@@ -397,8 +397,11 @@ func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 				break
 		if clear:
 			continue
+		var y := Terrain.height(wx, wz)
+		if y < Terrain.water_surface(wx, wz) + 0.3:  # nothing grows midstream
+			continue
 		var xf := Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)),
-				Vector3(lx, Terrain.height(wx, wz), lz))
+				Vector3(lx, y, lz))
 		buckets[variant].append(xf)
 		if variant != 1:  # the shrub stays walkable; trees get trunks
 			colliders.append([variant, xf])
@@ -491,10 +494,13 @@ func _add_ground_cover(c: Vector2i, parent: Node3D, origin: Vector3, vf: float) 
 				break
 		if in_clearing:
 			continue
+		var y := Terrain.height(wx, wz)
+		if y < Terrain.water_surface(wx, wz) + 0.15:  # no cover midstream
+			continue
 		var variant := _pick_weighted(GROUND_COVER, rng.randf())
 		var s := rng.randf_range(0.7, 1.35)
 		buckets[variant].append(Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)),
-				Vector3(lx, Terrain.height(wx, wz) - 0.02, lz)))
+				Vector3(lx, y - 0.02, lz)))
 	for v in GROUND_COVER.size():
 		var transforms: Array[Transform3D] = buckets[v]
 		if transforms.is_empty():

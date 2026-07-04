@@ -14,6 +14,11 @@ const SPRINT_FOV := 81.0
 const SIT_ARM_LENGTH := 6.5
 const SIT_BODY_DROP := 0.0  # the sit animation handles the pose now
 const SIT_EASE := 3.0
+# River current push. Fights the input-to-zero lerp and (wading) bed
+# friction, so the felt brook drift lands ~0.5 m/s — a clear pull you
+# walk against; stronger afloat (no bed drag) and in a flood (the current
+# scales with real discharge). Measured by tests/current_probe.
+const CURRENT_PUSH := 10.0
 
 var _sitting := false
 var _target: Interactable = null
@@ -272,6 +277,18 @@ func _physics_process(delta: float) -> void:
 	var blend := 1.0 - exp(-ACCEL * delta)
 	velocity.x = lerpf(velocity.x, dir.x * speed, blend)
 	velocity.z = lerpf(velocity.z, dir.z * speed, blend)
+
+	# River current: standing in flowing water pushes you downstream — a
+	# free ride down, real effort up, danger above the falls. Full force
+	# afloat, gentler when only wading (feet still grip). Sourced from the
+	# live dynamics field, or the river's real discharge where the field
+	# has nothing to say (WaterField.current_at handles both).
+	if swimming or water_depth > 0.2:
+		var cur := WaterField.current_at(global_position)
+		if cur != Vector2.ZERO:
+			var grip := 1.0 if swimming else clampf(water_depth / 1.1, 0.25, 1.0)
+			velocity.x += cur.x * grip * delta * CURRENT_PUSH
+			velocity.z += cur.y * grip * delta * CURRENT_PUSH
 
 	# Sand-slide (the Journey move): steep loose ground stops holding you.
 	# Gravity's slope component wins over walking friction — you skid

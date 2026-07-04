@@ -1,4 +1,4 @@
-[gd_scene load_steps=25 format=3]
+[gd_scene load_steps=26 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="PackedScene" path="res://game/world/landmarks/shrine.tscn" id="5_shrine"]
@@ -17,6 +17,7 @@
 [ext_resource type="Script" path="res://game/world/firefly_field.gd" id="15_fireflies"]
 [ext_resource type="Script" path="res://game/wildlife/wildlife_manager.gd" id="16_wildlife"]
 [ext_resource type="Script" path="res://game/world/sand_patch.gd" id="17_sandpatch"]
+[ext_resource type="Script" path="res://game/world/water_sheet.gd" id="18_watersheet"]
 
 [sub_resource type="ParticleProcessMaterial" id="Particles_dust"]
 direction = Vector3(1, 0, 0.2)
@@ -138,6 +139,9 @@ script = ExtResource("16_wildlife")
 
 [node name="SandPatch" type="Node3D" parent="."]
 script = ExtResource("17_sandpatch")
+
+[node name="WaterSheet" type="Node3D" parent="."]
+script = ExtResource("18_watersheet")
 
 [node name="Player" parent="." instance=ExtResource("1_player")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 10)

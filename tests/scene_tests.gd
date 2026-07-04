@@ -15,6 +15,7 @@ func _ready() -> void:
 	_test_climate()
 	_test_water()
 	_test_hydrology()
+	_test_water_field()
 	_test_flora()
 	_test_moon()
 	_test_rumors()
@@ -220,6 +221,25 @@ func _test_hydrology() -> void:
 		"pond level mirrored to WorldState")
 	Weather.state = was_state
 	Climate.wetness = was_wet
+
+
+func _test_water_field() -> void:
+	# Tier 2 is presentation: headless (no RenderingDevice) it stays off,
+	# and the whole game must run without it — the canonical water is
+	# Hydrology. The scene-test runner is headless, so this is the
+	# disabled path, and it must never crash a caller.
+	_check(not WaterField.enabled, "tier-2 field disabled without a GPU (headless)")
+	_check(WaterField.depth_at(Vector3(70, 0, -310)) == 0.0,
+		"field depth reads 0 when disabled")
+	# The current fallback is the real gameplay path when the field is off
+	# (and everywhere the field has no water): a river pushes downstream at
+	# its real discharge. The brook flows toward the pond (-z), so the
+	# push on its centerline points down-valley.
+	var on_river := WaterField.current_at(Vector3(63, 0, -256))
+	_check(on_river.length() > 0.1, "current pushes a body standing in the brook")
+	_check(on_river.y < 0.0, "the brook's current runs downstream toward the pond")
+	_check(WaterField.current_at(Vector3(200, 0, -100)) == Vector2.ZERO,
+		"no current on dry ground")
 
 
 func _test_climate() -> void:

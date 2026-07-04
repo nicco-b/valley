@@ -30,6 +30,7 @@ Nav="*res://game/world/nav.gd"
 Weather="*res://game/world/weather.gd"
 Climate="*res://game/world/climate.gd"
 Hydrology="*res://game/world/hydrology.gd"
+WaterField="*res://game/world/water_field.gd"
 FloraLife="*res://game/world/flora_life.gd"
 InteractionField="*res://game/world/interaction_field.gd"
 SandField="*res://game/world/sand_field.gd"
@@ -114,6 +115,22 @@ patch_center={
 "value": Vector2(999999, 999999)
 }
 
+water_field_map={
+"type": "sampler2D",
+"value": ""
+}
+water_base_map={
+"type": "sampler2D",
+"value": ""
+}
+water_field_center={
+"type": "vec2",
+"value": Vector2(65, -285)
+}
+water_field_size={
+"type": "float",
+"value": 2048.0
+}
 [input]
 
 debug_weather={

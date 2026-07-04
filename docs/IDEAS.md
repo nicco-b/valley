@@ -277,18 +277,19 @@ moves outward with hardware, and the granular sand sim already proved
 the near layer can be a REAL local simulation now. Water gets the same
 treatment:*
 
-- ★★ **Shallow-water sim in the near window (the sand pattern, second
-  field):** GPU depth+velocity fields over the local clipmap, flowing
-  over the real terrain, spline rivers as boundary inflow. Rain
-  gathers into live rivulets; storm water pools in sculpted hollows;
-  flash flows run the gullies and vanish; eddies form behind rocks;
-  the flow-map IS the velocity field (never hand-painted); current is
-  a real force on swimmers. ~~Far tier stays authored splines — never
-  simulate the whole map~~ *(superseded 2026-07-04, see DECISIONS: the
-  whole watershed IS simulated, in three resolution tiers — canonical
-  hourly hydrology (shipped as the Hydrology autoload), a ~2m whole-
-  watershed GPU dynamics field, and this near-window tier).* Rides on:
-  sand_gpu architecture, water records.
+- ★★ **Whole-watershed water dynamics** — *tier 2 shipped 2026-07-04:*
+  GPU depth+flux field (WaterField/WaterGpu) over the WHOLE 2048m
+  watershed at 2m texels (not just the near clipmap — the "never
+  simulate the whole map" line fell, see DECISIONS). Pipe-model kernels
+  flow storm rain down the real terrain, pool it in hollows, drain it by
+  seepage (flat ground stays a sub-visible film) and into the authored
+  pond/rivers as sinks; a WaterSheet patch near the player renders the
+  live field; the flux field IS the velocity, read back to push the
+  player as real current. *Still open:* eddies behind rocks (needs
+  obstacle cells in the base bake); flash-flood spectacle wants the
+  landform gradient (below) so gullies exist to run; balance is tuned
+  for calm pooling, not yet drama. Rides on: sand_gpu architecture,
+  water records — both shipped.
 - ★★ **The two sims couple — sediment:** flowing water transports sand
   on the shared clipmap (pipe-model erosion): banks undercut live,
   wading stirs murky plumes that drift downstream, rain erodes prints,

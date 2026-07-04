@@ -37,8 +37,20 @@ cell generation reads the authored base — the pond visibly swells in
 storms and drops through droughts, the brook's flow speed tracks real
 discharge, fords open and close unscripted; state is per-basin scalars
 on the sim contract: hour_tick, WorldState `water.*`, catch-up, soaked
-deterministic; GPU tiers 2/3 — whole-watershed ~2m dynamics field and
-the near-window sand-pattern sim — seed from this tier, next); pond
+deterministic); **tier 2 — live water dynamics** (WaterField autoload +
+WaterGpu: one 1024² GPU depth field at 2m texels over the WHOLE 2048m
+watershed, same budget as the sand field; pipe-model flux kernels flow
+rain down the real terrain, pool it in hollows, drain it into the ground
+(seepage-bounded so flat ground never floods) and into the authored
+water bodies as sinks; a WaterSheet patch follows the player and lifts
+its vertices onto the live field, discarding where dry; a one-thread
+readback probe feeds `current_at()` — the river/field current now pushes
+the player downstream, real effort upstream; presentation-only —
+disabled headless, never saved, never fingerprinted; tier 3, the
+near-window sediment coupling, is the remaining seed); **water that
+reads as water** (the shader gained depth-fade transparency, fresnel,
+drifting ripple normals with sun glints and a bright painted shoreline —
+still tinted the pool's pink, no more flat ribbon); pond
 with wading/swimming and
 ripple wake; day/night palette cycle; custom sky (swelling red sun, stars);
 weather (calm/windy/storm) driving sway, audio, fog, dust, and NPC shelter;

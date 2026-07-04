@@ -179,6 +179,44 @@ ideas marked ★.*
   rhythms never feel metronomic — the difference between a loop and a
   place. Effort: small, subtle, everywhere.
 
+## Gameplay inherited from the sim (2026-07-03 — the loop design thesis)
+
+*The principle: don't write content, write READERS. The sim produces
+situations; gameplay is the player's relationship to situations. Every
+mechanic is a new way to read or enter the sim's causal chains — never
+a parallel system with its own fiction. ("The Dry Spell" already works
+this way; these generalize it.)*
+
+- ★ **Struggle is visible, help is derived:** a drought strains an
+  NPC's needs → their day visibly changes shape (more trips, longer
+  routes, wearier). A "help opportunity" is a QUERY (unmet need +
+  player has means), not a quest record; the journal shows an
+  observation, not an errand. Help, and their day relaxes. Rides on:
+  needs AI, stocks, mood (roadmap C).
+- ★ **Knowledge skills — perception as progression:** the sim computes
+  truth the player can't read yet; each skill is literacy, not power.
+  Tracking (prints/age/species), Weatherlore (the transition matrix
+  hints: "rain by dusk"), Fieldcraft (vitality points to water).
+  Horizontal canon, made concrete. Rides on: everything, free answers.
+- ★ **Gardening the valley — the player as climate actor:** carry
+  water to parched ground → local moisture → vitality → bloom → moths
+  and fireflies gather → the place is beautiful BECAUSE you tended it.
+  Stewardship loop, zero new systems once per-cell flora lands; the
+  world-shaping progression axis, mechanically true.
+- **Information as economy:** rumors distribute true sim facts
+  unevenly → leads → investigation by reading the world (tracks, flora,
+  weather history). The sim manufactures mysteries because it
+  manufactures causes. Trading inherits drama the same way: prices
+  move because of a sky the player watched darken.
+- **The year is the campaign:** festivals/rituals (post-axioms) are
+  RESPONSES to sim state, never dates — the bloom festival fires when
+  the sim blooms; a drought year barely has one, and that's the
+  memorable year. Rides on: seasons, seeds, calendar records.
+- **Guard-rails:** pacing by scarcity (cap active seeds per domain — a
+  drought is weather, not a quest dispenser); never mechanize against
+  the sim (no fast travel past the weather, no reward loops on ambient
+  acts — Stillness has it right: time spent IS the currency).
+
 ## Later / bigger
 
 - **Seasonal drift:** not four hard seasons — slow bloom-cycles and light

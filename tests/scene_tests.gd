@@ -260,6 +260,33 @@ func _test_water_field() -> void:
 	_check(WaterField.current_at(Vector3(200, 0, -100)) == Vector2.ZERO,
 		"no current on dry ground")
 	_check(not WaterWaves.enabled, "tier-2.5 wave field disabled without a GPU")
+	# The wave kernel spec (CPU reference = what the GLSL must do):
+	# a dent rings OUTWARD, total energy DECAYS, nothing blows up.
+	var n := 48
+	var prev := PackedFloat32Array()
+	prev.resize(n * n)
+	var curr := prev.duplicate()
+	curr[24 * n + 24] = -0.05  # the splat: a pressed dent
+	prev[24 * n + 24] = -0.05
+	var e0 := WaveReference.energy(curr)
+	var reached_at := -1
+	for step_i in 40:
+		var next := WaveReference.step(prev, curr, n)
+		prev = curr
+		curr = next
+		if reached_at < 0 and absf(curr[24 * n + 34]) > 0.0005:
+			reached_at = step_i  # the ring arrived 10 cells out
+	_check(reached_at > 5, "waves propagate at finite speed (arrived step %d)" % reached_at)
+	var e1 := WaveReference.energy(curr)
+	_check(e1 < e0 and e1 > 0.0, "wave energy decays but persists (%.5f -> %.5f)" % [e0, e1])
+	var bounded := true
+	for v in curr:
+		if not is_finite(v) or absf(v) > 0.1:
+			bounded = false
+	_check(bounded, "wave field stays bounded (CFL-stable at K=%.2f)" % WaveReference.K)
+	_check(is_equal_approx(WaveReference.K, WaveGpu.K)
+			and is_equal_approx(WaveReference.DAMP, WaveGpu.DAMP),
+		"CPU reference constants match the GPU driver")
 	# Every compute kernel must compile to SPIR-V — headless CI never
 	# creates a RenderingDevice, so import-time compilation is the only
 	# GLSL check any CI can run. Catches syntax errors before a human

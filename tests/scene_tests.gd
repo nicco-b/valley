@@ -22,6 +22,7 @@ func _ready() -> void:
 	_test_wildlife()
 	_test_long_memory()
 	_test_nav()
+	_test_roads()
 	_test_sand_sim()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
@@ -523,6 +524,23 @@ func _test_nav() -> void:
 
 ## The granular kernel: sand is conserved, spikes slump to repose, flows
 ## spread — pure math, no thread, no rendering.
+func _test_roads() -> void:
+	_check(WaypointGraph.points.size() >= 10, "road records load into the graph")
+	# Spawn -> shrine rides the valley road and passes the pond turn.
+	var r := WaypointGraph.route(Vector2(0, 0), Vector2(120, -620))
+	_check(r.size() >= 8, "route spans the road (%d waypoints)" % r.size())
+	_check(r[0].distance_to(Vector2(8, 10)) < 7.0, "route starts at the near end")
+	var near_pond := false
+	for w in r:
+		if w.distance_to(Vector2(88, -300)) < 7.0:
+			near_pond = true
+	_check(near_pond, "route passes the pond junction")
+	# Nav far tier: no navmesh in headless scene tests -> far journeys
+	# follow the road, not one blind line.
+	var p := Nav.path(Vector3(0, 0, 0), Vector3(120, 0, -620))
+	_check(p.size() > 4, "far Nav.path rides the road graph (%d pts)" % p.size())
+
+
 func _test_sand_sim() -> void:
 	var g := 16
 	var delta_field := PackedFloat32Array()

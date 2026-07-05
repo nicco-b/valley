@@ -55,6 +55,18 @@ func remove_cell(c: Vector2i) -> void:
 ## callers never need to know which tier they're on.
 func path(from: Vector3, to: Vector3) -> PackedVector3Array:
 	var p := NavigationServer3D.map_get_path(_map, from, to, true)
-	if p.size() < 2:
-		return PackedVector3Array([from, to])
-	return p
+	if p.size() >= 2:
+		return p
+	# No navmesh route. Far journeys follow the road graph (the data
+	# tier's honest approximation upgraded from one blind line); short
+	# hops keep the straight line.
+	if from.distance_to(to) > 128.0:
+		var road := WaypointGraph.route(
+			Vector2(from.x, from.z), Vector2(to.x, to.z))
+		if road.size() >= 2:
+			var out := PackedVector3Array([from])
+			for w in road:
+				out.append(Vector3(w.x, Terrain.height(w.x, w.y), w.y))
+			out.append(to)
+			return out
+	return PackedVector3Array([from, to])

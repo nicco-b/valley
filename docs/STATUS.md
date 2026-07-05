@@ -178,9 +178,12 @@ picker).
    (baked per streamed cell on the worker thread from terrain triangles,
    water carved out; NPCs and wildlife walk waypoints via PathCursor,
    straight-line fallback where no navmesh exists; god mode N toggles
-   the overlay) · ⏳ remaining: far waypoint graph (with the first
-   authored road — an empty graph is scaffolding), NPC AgentSim port
-   (with the village). **Phase B started:** ✅ snow (cover state +
+   the overlay) · ✅ far waypoint graph (roads as records in data/roads/;
+   graph derived — consecutive nodes edge, coincident nodes junction;
+   A* route(); Nav.path()'s far tier now follows the road instead of
+   one blind line; first authored road runs spawn → pond → shrine, a
+   disposable fixture for the 12km map) · ⏳ remaining: NPC AgentSim
+   port (with the village) — caravans unblocked next. **Phase B started:** ✅ snow (cover state +
    emergent snowline from the lapse rate, meltwater soaks the ground) ·
    ✅ wind direction (wanders hourly, swings in storms; sand ripples and
    dust follow it) · ✅ herd cohesion (roam draws around the group's

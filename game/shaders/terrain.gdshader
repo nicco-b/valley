@@ -22,6 +22,7 @@ global uniform float deform_size;
 global uniform vec2 patch_center; // where the dense patch covers the hole
 global uniform float sea_level; // LIVE sea surface (tide included)
 global uniform vec4 home_rect; // home island rect (xy=min, zw=max)
+global uniform float map_view; // MapScreen: 0 world, 1 flat map palette
 uniform bool far_lod = false; // far terrain yields to the real cells
 uniform bool sand_patch = false; // the dense patch replacing ground underfoot
 const float PATCH_HOLE = 9.8; // terrain discards inside; patch owns it
@@ -187,8 +188,27 @@ void fragment() {
 			* (1.0 - smoothstep(0.5, 0.8, wslope));
 	col = mix(col, vec3(0.93, 0.94, 0.97), snowiness * 0.85);
 
+	// Map view: recolor by elevation so land/sea read at any zoom — the
+	// water mesh doesn't reach the horizon, but the map must. Deep sea
+	// -> teal, shallows -> pale, land -> tan banded by height.
+	if (map_view > 0.001) {
+		float d = wpos.y - sea_level;
+		vec3 mcol;
+		if (d < 0.0) {
+			mcol = mix(vec3(0.28, 0.42, 0.55), vec3(0.55, 0.68, 0.72),
+				clamp(d / 30.0 + 1.0, 0.0, 1.0));
+		} else {
+			vec3 low = vec3(0.86, 0.80, 0.66);
+			vec3 high = vec3(0.66, 0.52, 0.40);
+			mcol = mix(low, high, clamp(d / 200.0, 0.0, 1.0));
+			mcol *= 1.0 - 0.12 * wslope; // faint relief: faces read darker
+		}
+		col = mix(col, mcol, map_view);
+	}
+
 	ALBEDO = col;
 	ROUGHNESS = mix(mix(1.0, 0.25, glint), 0.55, ground_wetness * sandiness * 0.6);
 	ROUGHNESS = mix(ROUGHNESS, 0.4, strand * 0.7); // wet strand sheen
+	ROUGHNESS = mix(ROUGHNESS, 1.0, map_view);
 	SPECULAR = mix(0.08, 0.6, glint);
 }

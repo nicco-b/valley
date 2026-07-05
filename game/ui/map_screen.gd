@@ -19,6 +19,7 @@ const ZOOM_MAX := 9000.0  # the whole archipelago in one view
 
 var active := false
 
+var _from_god := false  # opened from the free-fly cam, not the player
 var _cam: Camera3D
 var _markers: Control
 var _hint: Label
@@ -59,7 +60,7 @@ func wants_streaming() -> bool:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("map") and not GodMode.active:
+	if event.is_action_pressed("map"):
 		if active:
 			_close()
 		else:
@@ -107,9 +108,13 @@ func _open() -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	if player == null:
 		return  # not in the world (title screen)
+	_from_god = GodMode.active
+	# Center on whatever the map is opened over — the fly cam in god
+	# mode, the player otherwise.
+	var here: Vector3 = GodMode.cam_position() if _from_god else player.global_position
 	active = true
 	visible = true
-	_focus = Vector3(player.global_position.x, 0.0, player.global_position.z)
+	_focus = Vector3(here.x, 0.0, here.z)
 	if _cam == null:
 		_cam = Camera3D.new()
 		_cam.projection = Camera3D.PROJECTION_ORTHOGONAL
@@ -118,24 +123,28 @@ func _open() -> void:
 		_cam.far = 2500.0
 		add_child(_cam)
 	_cam.current = true
-	player.set_physics_process(false)
-	player.set_process_unhandled_input(false)
-	var streamer := get_tree().get_first_node_in_group("world_streamer")
-	if streamer:
-		streamer.load_radius = 4
+	RenderingServer.global_shader_parameter_set("map_view", 1.0)
+	if not _from_god:
+		player.set_physics_process(false)
+		player.set_process_unhandled_input(false)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
 
 func _close() -> void:
 	active = false
 	visible = false
+	RenderingServer.global_shader_parameter_set("map_view", 0.0)
+	var streamer := get_tree().get_first_node_in_group("world_streamer")
+	if streamer:
+		streamer.load_radius = 2
+	if _from_god:
+		# Hand the view back to the free-fly camera, not the player.
+		GodMode.resume_camera()
+		return
 	var player := get_tree().get_first_node_in_group("player")
 	player.set_physics_process(true)
 	player.set_process_unhandled_input(true)
 	(player.get_node("CameraRig/SpringArm3D/Camera3D") as Camera3D).current = true
-	var streamer := get_tree().get_first_node_in_group("world_streamer")
-	if streamer:
-		streamer.load_radius = 2
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
@@ -143,12 +152,19 @@ func _draw_markers() -> void:
 	if _cam == null:
 		return
 	var font := _markers.get_theme_default_font()
+	# The archipelago's islands, straight from the region records — a
+	# new landform on the map is a new JSON, nothing hand-listed here.
+	for r in Terrain.regions:
+		var c: Vector2 = r.center
+		if r.kind == "ridge" and not r.nodes.is_empty():
+			var nodes: PackedVector2Array = r.nodes
+			c = nodes[nodes.size() / 2]
+		_draw_place(font, c, _label_for(String(r.id)), Color(0.42, 0.30, 0.22))
+	for t in Terrain._tiles:
+		_draw_place(font, Vector2(t.x0 + t.size * 0.5, t.z0 + t.size * 0.5),
+			_label_for(String(t.id)), Color(0.30, 0.34, 0.5))
 	for m in MARKS:
-		var world := Vector3(m[1].x, Terrain.height(m[1].x, m[1].y) + 2.0, m[1].y)
-		var p := _cam.unproject_position(world)
-		_markers.draw_circle(p, 5.0, Color(0.55, 0.16, 0.30))
-		_markers.draw_circle(p, 5.0, Color.WHITE, false, 1.5)
-		_draw_label(font, p + Vector2(10, 5), m[0])
+		_draw_place(font, m[1], m[0], Color(0.55, 0.16, 0.30))
 	for npc in get_tree().get_nodes_in_group("npc"):
 		var p := _cam.unproject_position(npc.global_position + Vector3.UP * 2.0)
 		_markers.draw_circle(p, 5.0, Color(0.13, 0.35, 0.37))
@@ -166,12 +182,41 @@ func _draw_markers() -> void:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(1, 0.95, 0.9))
 	_markers.draw_line(Vector2(vp.x * 0.5, 44), Vector2(vp.x * 0.5, 58),
 			Color(1, 0.95, 0.9), 1.5)
-	var bar_px := 100.0 / _cam.size * vp.y
+	# Adaptive scale: pick the nicest round distance that draws ~120px
+	# wide (a fixed 100m bar vanishes at 9km zoom).
+	var m_per_px := _cam.size / vp.y
+	var target_m := 120.0 * m_per_px
+	var nice := 100.0
+	for step in [50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0]:
+		if step >= target_m:
+			nice = step
+			break
+		nice = step
+	var bar_px := nice / m_per_px
 	var bar_y := vp.y - 36.0
 	_markers.draw_line(Vector2(24, bar_y), Vector2(24 + bar_px, bar_y),
 			Color(1, 0.95, 0.9), 2.0)
-	_markers.draw_string(font, Vector2(24, bar_y - 8), "100 m",
+	var label := "%.0f m" % nice if nice < 1000.0 else "%.1f km" % (nice / 1000.0)
+	_markers.draw_string(font, Vector2(24, bar_y - 8), label,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 0.95, 0.9))
+
+
+## A named island dot, hidden when tiny/off-screen. Labels only when
+## the map is zoomed in enough that they won't pile up.
+func _draw_place(font: Font, xz: Vector2, text: String, col: Color) -> void:
+	var world := Vector3(xz.x, Terrain.height(xz.x, xz.y) + 2.0, xz.y)
+	var p := _cam.unproject_position(world)
+	if p.x < -40 or p.y < -40 or p.x > _markers.size.x + 40 or p.y > _markers.size.y + 40:
+		return
+	_markers.draw_circle(p, 5.0, col)
+	_markers.draw_circle(p, 5.0, Color.WHITE, false, 1.5)
+	if _ortho < 4000.0:
+		_draw_label(font, p + Vector2(10, 5), text)
+
+
+## region/tile id -> a readable place name (title-cased, "_" → space).
+func _label_for(id: String) -> String:
+	return id.replace("_", " ").capitalize()
 
 
 func _draw_label(font: Font, pos: Vector2, text: String) -> void:

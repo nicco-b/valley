@@ -32,6 +32,14 @@ func cam_position() -> Vector3:
 	return _cam.global_position
 
 
+## Re-assert the free-fly camera (the map borrows CURRENT while open;
+## closing it in god mode hands the view back here, not to the player).
+func resume_camera() -> void:
+	if _cam:
+		_cam.current = true
+	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("god_mode") and OS.is_debug_build():
 		_exit() if active else _enter()

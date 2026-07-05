@@ -144,10 +144,12 @@ func _scan_authored() -> void:
 func _focus_position() -> Vector3:
 	# Streaming follows the god camera or map focus when either is active.
 	var p := _player.global_position
-	if GodMode.active:
-		p = GodMode.cam_position()
-	elif MapScreen.active and MapScreen.wants_streaming():
+	# An open, streaming map drives the view even in god mode (so
+	# panning the map builds cells where you look, not at the fly cam).
+	if MapScreen.active and MapScreen.wants_streaming():
 		p = MapScreen.focus_position()
+	elif GodMode.active:
+		p = GodMode.cam_position()
 	return p
 
 

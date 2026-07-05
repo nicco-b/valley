@@ -403,7 +403,10 @@ func _add_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 	# Dense on the valley floor, sparse on the plateau.
 	var cell_center := Vector2(origin.x + CELL_SIZE * 0.5, origin.z + CELL_SIZE * 0.5)
 	var vf: float = Terrain.valley_factor(cell_center.x, cell_center.y)
-	var base_count := int(round(lerpf(34.0, 8.0, vf)))
+	# Biome density (Stage B): a desert cell scatters almost nothing, an
+	# oasis cell teems. 1.0 where no biome map (valley keeps its feel).
+	var biome_mult: float = Terrain.biome_density(cell_center.x, cell_center.y)
+	var base_count := int(round(lerpf(34.0, 8.0, vf) * biome_mult))
 	for i in rng.randi_range(base_count, base_count + 8):
 		var lx := rng.randf() * CELL_SIZE
 		var lz := rng.randf() * CELL_SIZE

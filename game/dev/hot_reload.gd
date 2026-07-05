@@ -45,6 +45,13 @@ func _process(delta: float) -> void:
 		if _mtimes.has(path) and _mtimes[path] != mtime:
 			Terrain.reload_tile(path)
 		_mtimes[path] = mtime
+	# The painted biome map reshapes the ground palette + flora density.
+	var bpath := "res://data/world/biome_map.png"
+	if FileAccess.file_exists(bpath):
+		var bm := FileAccess.get_modified_time(ProjectSettings.globalize_path(bpath))
+		if _mtimes.has(bpath) and _mtimes[bpath] != bm:
+			Terrain.reload_biomes()
+		_mtimes[bpath] = bm
 
 
 func _reload(path: String) -> void:

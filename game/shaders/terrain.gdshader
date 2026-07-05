@@ -23,6 +23,11 @@ global uniform vec2 patch_center; // where the dense patch covers the hole
 global uniform float sea_level; // LIVE sea surface (tide included)
 global uniform vec4 home_rect; // home island rect (xy=min, zw=max)
 global uniform float map_view; // MapScreen: 0 world, 1 flat map palette
+global uniform bool biome_present; // a painted biome map is loaded
+global uniform sampler2D biome_index_map; // R8 index/255 over the world
+global uniform vec4 biome_index_rect; // xy=origin, zw=size
+global uniform sampler2D biome_palette; // Nx1 ground albedo per biome
+global uniform int biome_count;
 uniform bool far_lod = false; // far terrain yields to the real cells
 uniform bool sand_patch = false; // the dense patch replacing ground underfoot
 const float PATCH_HOLE = 9.8; // terrain discards inside; patch owns it
@@ -96,6 +101,20 @@ void fragment() {
 	col = mix(col, rock_high, smoothstep(24.0, 46.0, h));
 	col = mix(col, rock_steep, smoothstep(0.45, 0.75, wslope));
 	col *= 0.95 + 0.10 * grain;
+
+	// Biome ground (Stage B): tint toward the painted biome's albedo.
+	// A tint, not a replace, so the painterly bands/grain/relief survive
+	// — the biome recolors the wash, it doesn't flatten it. Skipped in
+	// map view (that has its own elevation palette).
+	if (biome_present && map_view < 0.5) {
+		vec2 buv = (wpos.xz - biome_index_rect.xy) / biome_index_rect.zw;
+		if (all(greaterThanEqual(buv, vec2(0.0))) && all(lessThan(buv, vec2(1.0)))) {
+			float bidx = floor(texture(biome_index_map, buv).r * 255.0 + 0.5);
+			vec3 g = texture(biome_palette,
+					vec2((bidx + 0.5) / float(biome_count), 0.5)).rgb;
+			col = mix(col, col * 0.5 + g * 0.5, 0.6);
+		}
+	}
 
 	// Sand lives on low, flat ground; rock faces get none of the detail.
 	float sandiness = (1.0 - smoothstep(16.0, 28.0, wpos.y))

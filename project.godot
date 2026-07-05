@@ -79,6 +79,26 @@ map_view={
 "type": "float",
 "value": 0.0
 }
+biome_present={
+"type": "bool",
+"value": false
+}
+biome_index_map={
+"type": "sampler2D",
+"value": ""
+}
+biome_index_rect={
+"type": "vec4",
+"value": Vector4(-8192, -8192, 16384, 16384)
+}
+biome_palette={
+"type": "sampler2D",
+"value": ""
+}
+biome_count={
+"type": "int",
+"value": 8
+}
 home_rect={
 "type": "vec4",
 "value": Vector4(-959, -1309, 1089, 739)

@@ -293,6 +293,20 @@ const EDIT_PATH := "res://data/terrain/edit_layer.exr"
 
 signal edited(world_rect: Rect2)
 
+# The biome substrate (Stage B, 2026-07-05): a painted indexed map over
+# the whole world (data/world/biome_map.png, matched to the palette in
+# biomes.json). Pure PRESENTATION + flora density — never touches
+# height(), so the soak is untouched. Consumers read biome_at(x,z) /
+# biome_density(x,z); the terrain shader samples the index + palette
+# textures directly (global params). Hot-reloads.
+const BIOME_MAP_PATH := "res://data/world/biome_map.png"
+const BIOME_PALETTE_PATH := "res://data/world/biomes.json"
+var biomes: Array[Dictionary] = []  # palette (index order)
+var _biome_img: Image  # R8 index map for CPU reads (biome_at)
+var _biome_origin := Vector2.ZERO
+var _biome_size := 0.0
+var _biome_res := 0
+
 var _edits: Image
 var _hills := FastNoiseLite.new()
 var _dunes := FastNoiseLite.new()
@@ -307,6 +321,7 @@ func _ready() -> void:
 	_clock = get_node_or_null("/root/GameClock")
 	_load_water()
 	_load_regions()
+	_load_biomes()
 	var ws: Variant = JSON.parse_string(
 		FileAccess.get_file_as_string(WATERSHED_PATH))
 	if ws is Dictionary and ws.has("center") and ws.has("size"):
@@ -765,6 +780,106 @@ func _load_regions() -> void:
 		_reg_bbox.append(bbox.position.y)
 		_reg_bbox.append(bbox.end.x)
 		_reg_bbox.append(bbox.end.y)
+
+
+# Load the biome palette + painted map. The colored paint image is
+# matched per-pixel to the nearest palette `ink` and stored as an R8
+# INDEX image (CPU reads + a global index texture for the shader); a
+# 1D palette texture carries each biome's ground albedo to the GPU.
+# Missing map = no biomes (shader falls back to its height bands).
+func _load_biomes() -> void:
+	biomes.clear()
+	var pal: Variant = JSON.parse_string(
+		FileAccess.get_file_as_string(BIOME_PALETTE_PATH))
+	if not (pal is Dictionary and pal.has("biomes")):
+		return
+	var inks := PackedColorArray()
+	for b: Variant in pal["biomes"]:
+		var g: Array = b["ground"]
+		var ink: Array = b["ink"]
+		biomes.append({"id": b.get("id", "biome"),
+			"ground": Color(g[0], g[1], g[2]),
+			"flora": float(b.get("flora", 0.5)),
+			"repose": float(b.get("repose", 0.3)),
+			"dust": float(b.get("dust", 0.3))})
+		inks.append(Color(ink[0], ink[1], ink[2]))
+	# The world rect the biome map covers (same framing as the guide).
+	_biome_origin = Vector2(-8192.0, -8192.0)
+	_biome_size = 16384.0
+	# Palette texture: N×1, each texel a biome's ground albedo.
+	var pal_img := Image.create(biomes.size(), 1, false, Image.FORMAT_RGB8)
+	for i in biomes.size():
+		pal_img.set_pixel(i, 0, biomes[i].ground)
+	var pal_tex := ImageTexture.create_from_image(pal_img)
+	RenderingServer.global_shader_parameter_set("biome_palette", pal_tex)
+	RenderingServer.global_shader_parameter_set("biome_count", biomes.size())
+	if not FileAccess.file_exists(BIOME_MAP_PATH):
+		RenderingServer.global_shader_parameter_set("biome_present", false)
+		return
+	var painted := Image.load_from_file(ProjectSettings.globalize_path(BIOME_MAP_PATH))
+	_biome_res = painted.get_width()
+	# Match each painted pixel to the nearest palette ink → index image.
+	_biome_img = Image.create(_biome_res, _biome_res, false, Image.FORMAT_R8)
+	for z in _biome_res:
+		for x in _biome_res:
+			var c := painted.get_pixel(x, z)
+			var best := 0
+			var best_d := 1e9
+			for i in inks.size():
+				var d := Vector3(c.r - inks[i].r, c.g - inks[i].g,
+					c.b - inks[i].b).length_squared()
+				if d < best_d:
+					best_d = d
+					best = i
+			# R8 stores index/255; the shader multiplies back by 255.
+			_biome_img.set_pixel(x, z, Color8(best, 0, 0))
+	var idx_tex := ImageTexture.create_from_image(_biome_img)
+	RenderingServer.global_shader_parameter_set("biome_index_map", idx_tex)
+	RenderingServer.global_shader_parameter_set("biome_index_rect", Vector4(
+		_biome_origin.x, _biome_origin.y, _biome_size, _biome_size))
+	RenderingServer.global_shader_parameter_set("biome_present", true)
+
+
+## Water-proximity 0..1 from Terrain data alone (no Climate/autoloads),
+## for the biome derive and any cold caller: near lakes/rivers/sea → 1.
+func moisture_static(x: float, z: float) -> float:
+	var near := 0.0
+	for w in water_bodies:
+		var c: Vector2 = w.center
+		near = maxf(near, 1.0 - smoothstep(w.radius, w.radius + 40.0,
+			Vector2(x - c.x, z - c.y).length()))
+	for r in rivers:
+		var q := _river_probe(r, x, z)
+		if q.x < q.y + 30.0:
+			near = maxf(near, 1.0 - smoothstep(q.y, q.y + 30.0, q.x))
+	if sea_level > -1e11 and home_guard(x, z) > 0.0:
+		near = maxf(near, 1.0 - smoothstep(sea_level + 1.0, sea_level + 12.0,
+			height(x, z)))
+	return near
+
+
+## Biome index at a world point (-1 if no biome map). CPU consumers
+## (flora density, sand physicality) read this.
+func biome_at(x: float, z: float) -> int:
+	if _biome_img == null:
+		return -1
+	var u := (x - _biome_origin.x) / _biome_size
+	var v := (z - _biome_origin.y) / _biome_size
+	if u < 0.0 or v < 0.0 or u >= 1.0 or v >= 1.0:
+		return -1
+	return _biome_img.get_pixel(int(u * _biome_res), int(v * _biome_res)).r8
+
+
+## Flora-density multiplier at a point (1.0 where no biome map).
+func biome_density(x: float, z: float) -> float:
+	var i := biome_at(x, z)
+	return float(biomes[i].flora) if i >= 0 and i < biomes.size() else 1.0
+
+
+## Dev hot-reload of the painted biome map (re-match + re-upload).
+func reload_biomes() -> void:
+	_load_biomes()
+	edited.emit(Rect2(_biome_origin, Vector2(_biome_size, _biome_size)))
 
 
 ## Load one painted-tile record: image → float array, once at boot

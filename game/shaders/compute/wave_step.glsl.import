@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://d36qo0vvd6jn2"
+path="res://.godot/imported/wave_step.glsl-cab5fe60483370eb37a8d046d2d9f44d.res"
+
+[deps]
+
+source_file="res://game/shaders/compute/wave_step.glsl"
+dest_files=["res://.godot/imported/wave_step.glsl-cab5fe60483370eb37a8d046d2d9f44d.res"]
+
+[params]
+

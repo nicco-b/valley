@@ -1,32 +1,28 @@
 extends Node3D
 ## Builds the water surface meshes for every record in data/water/ — the
-## scene no longer hardcodes water geometry. Lakes become discs, rivers
-## become ribbons that follow the spline. Physics (swimming), navmesh
-## carving, and moisture all read the same records via Terrain, so a new
-## body of water is one JSON file. Surfaces track Hydrology: lake discs
-## ride their live level, river ribbons rebuild at their offset, and flow
-## speed follows real discharge — a drought moves slower before it looks
-## shallower.
+## scene no longer hardcodes water geometry. Lakes become vertex-dense
+## discs, rivers dense ribbons, because tier 2.5 (the wave field)
+## displaces water VERTICES — a flat quad can't ripple. Surfaces track
+## Hydrology levels; river flow speed follows real discharge.
 
 const WATER_SHADER := preload("res://game/shaders/water.gdshader")
+const DISC_STEP := 0.9  # meters between lake verts (ripple-scale)
+const RIBBON_STEP := 1.8  # meters between river cross-sections
+const RIBBON_ACROSS := 5
 
-var _lake_meshes: Dictionary = {}  # id -> MeshInstance3D
-var _river_meshes: Dictionary = {}  # id -> MeshInstance3D
-var _river_mats: Dictionary = {}  # id -> ShaderMaterial
+var _lake_meshes: Dictionary = {}
+var _river_meshes: Dictionary = {}
+var _river_mats: Dictionary = {}
 
 
 func _ready() -> void:
 	for w in Terrain.water_bodies:
 		var center: Vector2 = w.center
-		var mesh := CylinderMesh.new()
-		mesh.top_radius = w.radius
-		mesh.bottom_radius = w.radius
-		mesh.height = 0.1
-		mesh.radial_segments = 64
-		mesh.material = _material(Vector2.ZERO)
 		var mi := MeshInstance3D.new()
 		mi.name = String(w.id)
-		mi.mesh = mesh
+		mi.mesh = _disc(float(w.radius))
+		mi.mesh.surface_set_material(0, _material(Vector2.ZERO))
+		mi.extra_cull_margin = 2.0  # waves leave the flat AABB
 		mi.position = Vector3(center.x,
 				float(w.surface) + Terrain.lake_levels[w.idx], center.y)
 		add_child(mi)
@@ -37,6 +33,7 @@ func _ready() -> void:
 		var mat := _material(r.flow * _flow_speed(r.id))
 		mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx])
 		mi.mesh.surface_set_material(0, mat)
+		mi.extra_cull_margin = 2.0
 		add_child(mi)
 		_river_meshes[r.id] = mi
 		_river_mats[r.id] = mat
@@ -57,8 +54,7 @@ func _on_levels_changed() -> void:
 					Vector2(r.flow) * _flow_speed(r.id))
 
 
-## Stripe drift speed from real discharge: baseline flow ~1, floods ~2,
-## a drought crawls.
+## Stripe drift speed from real discharge: baseline ~1, floods ~2.
 func _flow_speed(river_id: String) -> float:
 	return 2.0 * Hydrology.flow_norm(river_id)
 
@@ -70,35 +66,91 @@ func _material(flow: Vector2) -> ShaderMaterial:
 	return mat
 
 
-# A flat ribbon through the river nodes: each node offset left/right by
-# its half-width along the local perpendicular, stitched into quads. Built
-# in world space so the shared water shader (which reads world position)
-# lines up seam-free with the pond.
-func _ribbon(nodes: Array, level: float) -> ArrayMesh:
+# A vertex-dense disc: a DISC_STEP grid clamped to the circle rim, cells
+# kept when any corner falls inside. Local coordinates; the node carries
+# the world position (the shader reads world via MODEL_MATRIX).
+func _disc(radius: float) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var left := PackedVector3Array()
-	var right := PackedVector3Array()
-	for i in nodes.size():
-		var p: Vector2 = nodes[i].pos
-		var tangent: Vector2
-		if i == 0:
-			tangent = nodes[1].pos - p
-		elif i == nodes.size() - 1:
-			tangent = p - nodes[i - 1].pos
-		else:
-			tangent = (nodes[i + 1].pos - nodes[i - 1].pos)
-		tangent = tangent.normalized() if tangent.length() > 1e-4 else Vector2.RIGHT
-		var perp := Vector2(-tangent.y, tangent.x) * float(nodes[i].half)
-		var y: float = nodes[i].surface + level
-		left.append(Vector3(p.x + perp.x, y, p.y + perp.y))
-		right.append(Vector3(p.x - perp.x, y, p.y - perp.y))
-	for i in nodes.size() - 1:
-		_quad(st, left[i], right[i], left[i + 1], right[i + 1])
+	var n := int(ceil(radius * 2.0 / DISC_STEP)) + 1
+	var verts := {}
+	var idx := 0
+	var index_of := func(ix: int, iz: int) -> int:
+		var key := ix * 10000 + iz
+		if not verts.has(key):
+			var p := Vector2(ix * DISC_STEP - radius, iz * DISC_STEP - radius)
+			if p.length() > radius:
+				p = p.normalized() * radius
+			st.set_normal(Vector3.UP)
+			st.add_vertex(Vector3(p.x, 0.0, p.y))
+			verts[key] = idx
+			idx += 1
+		return verts[key]
+	for iz in n:
+		for ix in n:
+			var inside := 0
+			for c in [[ix, iz], [ix + 1, iz], [ix, iz + 1], [ix + 1, iz + 1]]:
+				var p := Vector2(c[0] * DISC_STEP - radius, c[1] * DISC_STEP - radius)
+				if p.length() <= radius:
+					inside += 1
+			if inside == 0:
+				continue
+			var a: int = index_of.call(ix, iz)
+			var b: int = index_of.call(ix + 1, iz)
+			var c2: int = index_of.call(ix, iz + 1)
+			var d: int = index_of.call(ix + 1, iz + 1)
+			st.add_index(a)
+			st.add_index(b)
+			st.add_index(c2)
+			st.add_index(b)
+			st.add_index(d)
+			st.add_index(c2)
 	return st.commit()
 
 
-func _quad(st: SurfaceTool, l0: Vector3, r0: Vector3, l1: Vector3, r1: Vector3) -> void:
-	for v in [l0, r0, l1, r0, r1, l1]:  # two triangles; cull_disabled, so winding is free
-		st.set_normal(Vector3.UP)
-		st.add_vertex(v)
+# A dense ribbon: the spline resampled every RIBBON_STEP meters with
+# RIBBON_ACROSS verts per cross-section. World-space (seam-free with the
+# pond under the shared world-reading shader).
+func _ribbon(nodes: Array, level: float) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Resample the polyline.
+	var rows: Array = []
+	var carry := 0.0
+	for i in nodes.size() - 1:
+		var a: Dictionary = nodes[i]
+		var b: Dictionary = nodes[i + 1]
+		var pa: Vector2 = a.pos
+		var ab: Vector2 = b.pos - pa
+		var seg_len := ab.length()
+		if seg_len < 1e-4:
+			continue
+		var s := carry
+		while s < seg_len:
+			var f := s / seg_len
+			rows.append([pa + ab * f, lerpf(a.half, b.half, f),
+				lerpf(a.surface, b.surface, f), ab.normalized()])
+			s += RIBBON_STEP
+		carry = s - seg_len
+	var last: Dictionary = nodes[nodes.size() - 1]
+	var prev: Dictionary = nodes[nodes.size() - 2]
+	rows.append([last.pos, float(last.half), float(last.surface),
+		(Vector2(last.pos) - Vector2(prev.pos)).normalized()])
+	# Emit rows of verts, stitch quads.
+	for row in rows:
+		var perp: Vector2 = Vector2(-row[3].y, row[3].x)
+		for k in RIBBON_ACROSS:
+			var u := (float(k) / (RIBBON_ACROSS - 1)) * 2.0 - 1.0
+			var p: Vector2 = row[0] + perp * (u * row[1])
+			st.set_normal(Vector3.UP)
+			st.add_vertex(Vector3(p.x, row[2] + level, p.y))
+	for i in rows.size() - 1:
+		for k in RIBBON_ACROSS - 1:
+			var a := i * RIBBON_ACROSS + k
+			st.add_index(a)
+			st.add_index(a + 1)
+			st.add_index(a + RIBBON_ACROSS)
+			st.add_index(a + 1)
+			st.add_index(a + RIBBON_ACROSS + 1)
+			st.add_index(a + RIBBON_ACROSS)
+	return st.commit()

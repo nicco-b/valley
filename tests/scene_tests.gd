@@ -259,6 +259,18 @@ func _test_water_field() -> void:
 	_check(on_river.y < 0.0, "the brook's current runs downstream toward the pond")
 	_check(WaterField.current_at(Vector3(200, 0, -100)) == Vector2.ZERO,
 		"no current on dry ground")
+	_check(not WaterWaves.enabled, "tier-2.5 wave field disabled without a GPU")
+	# Every compute kernel must compile to SPIR-V — headless CI never
+	# creates a RenderingDevice, so import-time compilation is the only
+	# GLSL check any CI can run. Catches syntax errors before a human
+	# hits them in a windowed session.
+	for kernel in ["sand_apply", "sand_relax", "sand_copy",
+			"water_flux", "water_depth", "water_probe",
+			"wave_splat", "wave_step", "wave_copy"]:
+		var src: RDShaderFile = load("res://game/shaders/compute/%s.glsl" % kernel)
+		var ok := src != null and src.get_spirv() != null \
+			and src.get_spirv().compile_error_compute == ""
+		_check(ok, "compute kernel compiles: " + kernel)
 
 
 func _test_climate() -> void:

@@ -47,10 +47,20 @@ its vertices onto the live field, discarding where dry; a one-thread
 readback probe feeds `current_at()` — the river/field current now pushes
 the player downstream, real effort upstream; presentation-only —
 disabled headless, never saved, never fingerprinted; tier 3, the
-near-window sediment coupling, is the remaining seed); **water that
-reads as water** (the shader gained depth-fade transparency, fresnel,
-drifting ripple normals with sun glints and a bright painted shoreline —
-still tinted the pool's pink, no more flat ribbon); pond
+near-window sediment coupling, is the remaining seed); **tier 2.5 —
+the wave field** (WaterWaves autoload + WaveGpu: a 512² damped
+wave-equation window at 12.5cm texels following the player; wading
+strides ring the surface, storm rain pocks it, wind keeps a chop; the
+water shader displaces VERTICES by the field — lake discs and river
+ribbons are now vertex-dense so the surface actually moves; scrolls
+with the focus, presentation-only, off headless); **water that
+reads as water** (the shader composites the refracted bed
+through the surface — screen-space refraction bent by ripple + wave
+normals, light drunk toward the deep pink with depth — plus painted
+posterized foam at shorelines, wave crests, fast water, and stirred
+wading; still the pool's pink language, Elden Ring's recipe in gouache;
+the compute-kernel compile check now runs headless in scene tests so CI
+catches GLSL errors); pond
 with wading/swimming and
 ripple wake; day/night palette cycle; custom sky (swelling red sun, stars);
 weather (calm/windy/storm) driving sway, audio, fog, dust, and NPC shelter;

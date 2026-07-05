@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://0wa0hw733drc"
+path="res://.godot/imported/wave_splat.glsl-b5a15be2fadfd0cd69f53f72c2db9f54.res"
+
+[deps]
+
+source_file="res://game/shaders/compute/wave_splat.glsl"
+dest_files=["res://.godot/imported/wave_splat.glsl-b5a15be2fadfd0cd69f53f72c2db9f54.res"]
+
+[params]
+

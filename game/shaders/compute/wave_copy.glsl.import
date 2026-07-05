@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://8l7r4f4c0uto"
+path="res://.godot/imported/wave_copy.glsl-55fc0ae661da3be5808fd2c450f4a9a7.res"
+
+[deps]
+
+source_file="res://game/shaders/compute/wave_copy.glsl"
+dest_files=["res://.godot/imported/wave_copy.glsl-55fc0ae661da3be5808fd2c450f4a9a7.res"]
+
+[params]
+

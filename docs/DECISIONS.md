@@ -143,9 +143,15 @@ All decided 2026-07-01 (first design day) unless noted.*
   dynamics / near window) stand unchanged beneath it. This closes the
   "are we doing real fluid sim?" question: we already are, in the only
   class of fluid sim a persistent world can honestly run.
-- **World scale: ~15–25km, density over size — a vertical archipelago**
+- **World scale: ~12km to start, density over size — a vertical
+  archipelago that grows down before it grows out**
   *(2026-07-04; extends the quilt posture. An earlier 80–100km draft
-  from the same session is superseded — density won the argument)*.
+  was superseded by ~15–25km in discussion, then settled same day at
+  ~12km of authored "interesting" surface — one Elden Ring
+  Lands-Between — inside a barren allowed to breathe larger; grow the
+  surface only if the world proves it needs it. Density budget goes
+  DOWN first: underworld heightfield layers, see IDEAS "The
+  underworld")*.
   The binding constraint is authoring hours, not coordinates or
   compute; the shape that spends them correctly: **dense handcrafted
   oases separated by deliberate emptiness, built VERTICALLY**.

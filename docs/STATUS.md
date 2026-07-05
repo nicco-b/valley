@@ -291,6 +291,29 @@ recordings). Soak moved once (3180831281), bit-stable. Kitchen-table
 items: volumetric-fog gouache look; rain-curtain texture is a painted
 slot.
 
+**The map pipeline, stage A (2026-07-05, the Toolkit): paint →
+bake → world.** `data/world/elevation_guide.exr` (1024px, 16m/px,
+EXR meters — paint it in any image editor) + `guide.json` (bake
+settings) → `tests/bake_world.gd` runs the kernel's `bake_terrain`:
+bilinear upsample + fractal relief + thermal talus + **hydraulic
+droplet erosion** (400k droplets on 2048² in ~0.4s — coherent
+dendritic drainage, alluvial fans, sediment; the believability
+engine) → written as an F3 painted-tile record covering the world.
+Baked EXR + record are LOCAL CACHE (gitignored; regenerate with one
+command — missing bake just means procedural records show through).
+The guide is the source of truth; `tests/derive_guide.gd` seeded it
+from the v4 archipelago, so the current world IS the first painting.
+The running game hot-reloads the tile when a bake lands: repaint →
+rebake (sub-second) → the world reshapes under you. Stage B queued:
+painted BIOME map + `biome_at(x,z)` substrate (shader palettes,
+per-biome flora species/density, Climate/Weather biome response,
+sand physicality) — the palette is a kitchen-table item. Stage C:
+river proposal from the erosion flow map (Hydrology-compatible
+records), beach rules. Same-day Toolkit pass: god-mode WORLD PANEL
+(O — every system's summary live), sculpt flatten (Ctrl) + stroke
+undo (Z), map right-click teleport, summary() coverage completed
+(Climate/Hydrology/Sand/WaterField/Flora/Wear/Nav).
+
 ## Placeholder ledger (each has a named replacement path)
 
 Biped fox player (hers, replaced the star hound as the player body

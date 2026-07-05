@@ -61,6 +61,9 @@ void TerrainKernel::_bind_methods() {
 			&TerrainKernel::build_far);
 	ClassDB::bind_method(D_METHOD("debug_parts", "x", "z"),
 			&TerrainKernel::debug_parts);
+	ClassDB::bind_method(D_METHOD("bake_terrain", "guide", "guide_res",
+								  "world_size", "out_res", "seed", "params"),
+			&TerrainKernel::bake_terrain);
 }
 
 void TerrainKernel::set_base(const Ref<FastNoiseLite> &p_hills,
@@ -702,5 +705,156 @@ Dictionary TerrainKernel::build_far(double ox, double oz, double size,
 	out["vertices"] = vertices;
 	out["normals"] = normals;
 	out["indices"] = indices;
+	return out;
+}
+
+// ============================================================
+// The bake (map pipeline stage A). See header.
+// ============================================================
+#include <random>
+
+PackedFloat32Array TerrainKernel::bake_terrain(
+		const PackedFloat32Array &p_guide, int p_guide_res,
+		double p_world_size, int p_out_res, int p_seed,
+		const Dictionary &p_params) const {
+	const int N = p_out_res;
+	const int G = p_guide_res;
+	PackedFloat32Array out;
+	out.resize(N * N);
+	float *H = out.ptrw();
+	const float *guide = p_guide.ptr();
+
+	// --- 1. Bilinear upsample of the painted guide -------------------
+	for (int z = 0; z < N; z++) {
+		double gz = (double)z / (N - 1) * (G - 1);
+		int iz = MIN((int)gz, G - 2);
+		double fz = gz - iz;
+		for (int x = 0; x < N; x++) {
+			double gx = (double)x / (N - 1) * (G - 1);
+			int ix = MIN((int)gx, G - 2);
+			double fx = gx - ix;
+			double v = (guide[iz * G + ix] * (1 - fx) + guide[iz * G + ix + 1] * fx) * (1 - fz) +
+					(guide[(iz + 1) * G + ix] * (1 - fx) + guide[(iz + 1) * G + ix + 1] * fx) * fz;
+			H[z * N + x] = v;
+		}
+	}
+
+	// --- 2. Fractal relief, scaled by height above sea ---------------
+	double detail_amp = p_params.get("detail_amp", 14.0);
+	double detail_freq = p_params.get("detail_freq", 0.0025);
+	double sea = p_params.get("sea_level", -2.0);
+	double m_per_px = p_world_size / N;
+	std::mt19937 rng((uint32_t)p_seed);
+	double ox1 = (double)(rng() % 100000), oz1 = (double)(rng() % 100000);
+	if (island.is_valid()) {
+		for (int z = 0; z < N; z++) {
+			for (int x = 0; x < N; x++) {
+				double wx = x * m_per_px, wz = z * m_per_px;
+				double land = CLAMP((H[z * N + x] - sea) / 25.0, 0.0, 1.0);
+				double n = island->get_noise_2d(wx * detail_freq * 100.0 + ox1,
+						wz * detail_freq * 100.0 + oz1) +
+						0.35 * island->get_noise_2d(wx * detail_freq * 430.0 + oz1,
+								wz * detail_freq * 430.0 + ox1);
+				H[z * N + x] += n * detail_amp * land;
+			}
+		}
+	}
+
+	// --- 3. Thermal talus: scree finds its angle of repose ------------
+	int talus_passes = p_params.get("talus_passes", 24);
+	double talus_tan = p_params.get("talus_tan", 0.9); // ~42 deg
+	double max_dh = talus_tan * m_per_px;
+	for (int pass = 0; pass < talus_passes; pass++) {
+		for (int z = 1; z < N - 1; z++) {
+			for (int x = 1; x < N - 1; x++) {
+				int i = z * N + x;
+				// steepest of the 4-neighborhood
+				int lo = i;
+				float hmin = H[i];
+				const int nb[4] = { i - 1, i + 1, i - N, i + N };
+				for (int k = 0; k < 4; k++) {
+					if (H[nb[k]] < hmin) { hmin = H[nb[k]]; lo = nb[k]; }
+				}
+				float dh = H[i] - hmin;
+				if (dh > max_dh) {
+					float move = (dh - max_dh) * 0.25f;
+					H[i] -= move;
+					H[lo] += move;
+				}
+			}
+		}
+	}
+
+	// --- 4. Hydraulic droplet erosion: the believability engine ------
+	int droplets = p_params.get("droplets", 350000);
+	double inertia = p_params.get("inertia", 0.08);
+	double capacity_k = p_params.get("capacity", 3.2);
+	double deposit_k = p_params.get("deposition", 0.28);
+	double erode_k = p_params.get("erosion", 0.28);
+	double evaporate = p_params.get("evaporation", 0.015);
+	int max_steps = p_params.get("max_steps", 72);
+
+	auto h_at = [&](double px, double pz) -> double {
+		int ix = (int)px, iz = (int)pz;
+		double fx = px - ix, fz = pz - iz;
+		return H[iz * N + ix] * (1 - fx) * (1 - fz) + H[iz * N + ix + 1] * fx * (1 - fz) +
+				H[(iz + 1) * N + ix] * (1 - fx) * fz + H[(iz + 1) * N + ix + 1] * fx * fz;
+	};
+	auto grad_at = [&](double px, double pz, double &gx, double &gz) {
+		int ix = (int)px, iz = (int)pz;
+		double fx = px - ix, fz = pz - iz;
+		double h00 = H[iz * N + ix], h10 = H[iz * N + ix + 1];
+		double h01 = H[(iz + 1) * N + ix], h11 = H[(iz + 1) * N + ix + 1];
+		gx = (h10 - h00) * (1 - fz) + (h11 - h01) * fz;
+		gz = (h01 - h00) * (1 - fx) + (h11 - h10) * fx;
+	};
+	std::uniform_real_distribution<double> uni(1.0, N - 2.0);
+	for (int d = 0; d < droplets; d++) {
+		double px = uni(rng), pz = uni(rng);
+		double dx = 0, dz = 0, speed = 1.0, water = 1.0, sediment = 0.0;
+		for (int step = 0; step < max_steps; step++) {
+			double gx, gz;
+			grad_at(px, pz, gx, gz);
+			dx = dx * inertia - gx * (1.0 - inertia);
+			dz = dz * inertia - gz * (1.0 - inertia);
+			double len = Math::sqrt(dx * dx + dz * dz);
+			if (len < 1e-8) break;
+			dx /= len; dz /= len;
+			double h_old = h_at(px, pz);
+			double nx = px + dx, nz = pz + dz;
+			if (nx < 1 || nz < 1 || nx >= N - 2 || nz >= N - 2) break;
+			double h_new = h_at(nx, nz);
+			double dh = h_new - h_old;
+			// stop eroding underwater: droplets die at the sea
+			if (h_old < sea) break;
+			double cap = MAX(-dh, 0.01) * speed * water * capacity_k;
+			if (sediment > cap || dh > 0) {
+				// deposit (fills pits, builds fans)
+				double amount = (dh > 0) ? MIN(dh, sediment)
+						: (sediment - cap) * deposit_k;
+				sediment -= amount;
+				int ix = (int)px, iz = (int)pz;
+				double fx = px - ix, fz = pz - iz;
+				H[iz * N + ix] += amount * (1 - fx) * (1 - fz);
+				H[iz * N + ix + 1] += amount * fx * (1 - fz);
+				H[(iz + 1) * N + ix] += amount * (1 - fx) * fz;
+				H[(iz + 1) * N + ix + 1] += amount * fx * fz;
+			} else {
+				// erode (carves the drainage)
+				double amount = MIN((cap - sediment) * erode_k, -dh);
+				sediment += amount;
+				int ix = (int)px, iz = (int)pz;
+				double fx = px - ix, fz = pz - iz;
+				H[iz * N + ix] -= amount * (1 - fx) * (1 - fz);
+				H[iz * N + ix + 1] -= amount * fx * (1 - fz);
+				H[(iz + 1) * N + ix] -= amount * (1 - fx) * fz;
+				H[(iz + 1) * N + ix + 1] -= amount * fx * fz;
+			}
+			speed = Math::sqrt(MAX(speed * speed + dh * -4.0, 0.0));
+			water *= (1.0 - evaporate);
+			px = nx; pz = nz;
+			if (water < 0.05) break;
+		}
+	}
 	return out;
 }

@@ -149,6 +149,16 @@ public:
 	Dictionary build_far(double ox, double oz, double size, int res,
 			double sink, double skirt) const;
 	Dictionary debug_parts(double x, double z) const;
+
+	// The bake (map pipeline stage A): painted elevation guide ->
+	// believable terrain. Bilinear upsample + fractal relief +
+	// thermal talus + hydraulic droplet erosion (the believability
+	// engine: coherent drainage, alluvial fans, sediment). Seeded,
+	// deterministic. Returns the eroded heightfield (out_res^2,
+	// meters); params tune droplet count/strength/talus.
+	PackedFloat32Array bake_terrain(const PackedFloat32Array &p_guide,
+			int p_guide_res, double p_world_size, int p_out_res,
+			int p_seed, const Dictionary &p_params) const;
 };
 
 } // namespace godot

@@ -7,3 +7,8 @@
 
 # macOS
 .DS_Store
+
+# Map-pipeline bake output: local cache, regenerate with
+# tests/bake_world.gd (the guide in data/world/ is the source of truth).
+data/terrain/tiles/baked_*.exr
+data/regions/baked_*.json

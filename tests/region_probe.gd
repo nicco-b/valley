@@ -9,22 +9,20 @@ extends Node
 ##     --fixed-fps 15 res://tests/region_probe.tscn
 # Vantages: focus (player park, off camera axis), cam, aim.
 const SHOTS := {
-	"rim": {  # the landmark law: mesa from the valley's plateau rim
-		# Focus parked deeper than the camera: the far-terrain LOD only
-		# recenters when the focus moves >600m from its boot anchor, and
-		# the rim itself is too close — anchored at spawn, the far mesh
-		# ends at z≈-3450 and clips the mesa (-3600).
+	"rim": {  # the landmark law: mesa across the sea from the valley rim
+		# Focus parked deeper than the camera so the far-terrain LOD
+		# recenters (>600m from its boot anchor) and covers the mesa.
 		"focus": Vector3(440, 0, -1000),
-		"cam": Vector3(440, 14.0, -660), "aim": Vector3(1400, 340, -3600)},
-	"barren": {  # scale shot across the empty quarter
-		"focus": Vector3(850, 0, -2340),
-		"cam": Vector3(920, 20.0, -2420), "aim": Vector3(1400, 300, -3600)},
+		"cam": Vector3(440, 14.0, -660), "aim": Vector3(1200, 160, -3000)},
+	"causeway": {  # the walk to the city: strand, sea both sides
+		"focus": Vector3(700, 0, -2150),
+		"cam": Vector3(700, 12.0, -2150), "aim": Vector3(1200, 140, -3000)},
 	"mesa": {  # close portrait: does the tiered flank read?
-		"focus": Vector3(1330, 0, -2440),
-		"cam": Vector3(1400, 30.0, -2500), "aim": Vector3(1400, 260, -3600)},
+		"focus": Vector3(1150, 0, -2650),
+		"cam": Vector3(1150, 25.0, -2680), "aim": Vector3(1200, 120, -3000)},
 	"aerial": {  # overview of the island layout, high and steep
-		"focus": Vector3(1000, 3000, -2600),
-		"cam": Vector3(1000, 2800, -2600), "aim": Vector3(1400, 0, -3600),
+		"focus": Vector3(400, 3000, -1500),
+		"cam": Vector3(400, 2800, -1500), "aim": Vector3(1200, 0, -3000),
 		"absolute": true},
 }
 

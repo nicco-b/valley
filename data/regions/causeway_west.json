@@ -1,0 +1,13 @@
+{
+	"id": "causeway_west",
+	"layer": "surface",
+	"kind": "ridge",
+	"nodes": [
+		{"x": -1050, "z": -200},
+		{"x": -1600, "z": 600},
+		{"x": -2150, "z": 1300}
+	],
+	"inner": 60,
+	"feather": 130,
+	"height": 48
+}

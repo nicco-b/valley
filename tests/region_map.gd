@@ -13,7 +13,7 @@ func _init() -> void:
 
 	# Landmark law: angular elevation along the rim→mesa sightline.
 	var cam := Vector3(440.0, t.height(440.0, -660.0) + 14.0, -660.0)
-	var dir := (Vector2(1400, -3600) - Vector2(cam.x, cam.z)).normalized()
+	var dir := (Vector2(1200, -3000) - Vector2(cam.x, cam.z)).normalized()
 	var best := -90.0
 	var best_at := 0.0
 	var dune_best := -90.0

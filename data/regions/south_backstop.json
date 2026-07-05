@@ -1,9 +1,0 @@
-{
-	"id": "south_backstop",
-	"layer": "surface",
-	"kind": "dome",
-	"center": {"x": 2000, "z": -5400},
-	"radius": 800,
-	"feather": 500,
-	"height": 300
-}

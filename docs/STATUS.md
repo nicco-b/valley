@@ -155,25 +155,32 @@ because git-lfs isn't installed here yet; install on both machines, then
 commit the attributes and (optionally, history rewrite — coordinate!)
 `git lfs migrate`.
 
-**Archipelago feel-prototype (2026-07-04, the Loom)** — the decided
-~12km world shape as a disposable draft to fly and walk: authored
-island landforms as **region records** (`data/regions/*.json` — mesa/
-ridge/dome shapes plus a "barren" mask that quiets the procedural
-ranges so islands read against emptiness; every record carries the
-`layer` field the F3 schema will need, "surface" for now). Terrain
-sums them only OUTSIDE the home watershed rect (guard ramps in over
-150–550m past the rect from the watershed record), so the valley, its
-hydrology, and the soak fingerprint are bit-untouched (verified: same
-fingerprint before/after). Seven landforms: the metropolis mesa (320m,
-5 tiers — the landmark, clears the rim's near horizon by ~3°), two
-gate domes, the stairstep ridge, the terraced hill, the east crest, a
-south backstop. NOT the final map — calibration for scale/silhouette/
-verticality before region tiles (F3). Toolkit hooks:
-`Terrain.regions_summary()`; `tests/region_map.gd` (headless hillshade
-overview + landmark-law check, no window); `tests/region_probe.tscn`
-(in-engine screenshots — runs under Movie Maker mode, minimized;
-NOTE: the far-terrain recenter starvation it caught is fixed —
-far_terrain now builds on its own thread, not the worker pool).
+**Archipelago feel-prototype v2 (2026-07-04, the Loom; v1 desert bowl
+redone same day on Nicco's call: literal water, bounded world, smaller
+city)** — the ~12km world shape as a disposable draft to fly and walk:
+a **world sea** (`data/water/sea.json`, surface −2m; not a lake — no
+basin, no hydrology reservoir) fills everything below it outside the
+home guard; the ground beyond the valley sinks to a seabed (−35m) and
+the procedural ranges fade out with it, so the horizon is water — the
+sea IS the world's bound. Authored islands are **region records**
+(`data/regions/*.json`, mesa/ridge/dome; every record carries the
+`layer` field the F3 schema will need). The home valley is island #1:
+`Terrain.home_guard()` (rect from the watershed record + 150–550m
+noise-wobbled coast ramp) keeps every sample the Hydrology grid sees
+bit-identical — soak fingerprint unchanged through the whole rework.
+Islands: the metropolis mesa (210m, 5 tiers, rounded-riser terraces),
+gate-dome islets, the stairstep ridge, the 7-tier terrace hill, a big
+low barren isle; low **causeway ridges** link them until boats are a
+thing. Sea renders as a wave-window patch following the focus + a
+coarse horizon disc (water_bodies.gd). Hot path is packed
+(region sampling ~+15% over valley baseline). NOT the final map.
+Toolkit: `Terrain.regions_summary()`; `tests/region_map.gd` (headless
+hillshade + landmark check); `tests/region_bench.gd` (throughput +
+steepest-grade); `tests/region_probe.tscn` (Movie Maker screenshots,
+minimized). Far-terrain rebuilds moved to a dedicated thread (was
+starving behind cell builds on the shared pool). Open feel questions:
+fog vs landmark (calm fog eats 91% contrast at 3km), causeway vs boat
+traversal, coast silhouette still square-ish.
 
 ## Placeholder ledger (each has a named replacement path)
 

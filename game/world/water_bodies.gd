@@ -14,8 +14,34 @@ var _lake_meshes: Dictionary = {}
 var _river_meshes: Dictionary = {}
 var _river_mats: Dictionary = {}
 
+# The world sea (Terrain.sea_level): two meshes. A wave-capable patch
+# rides with the focus (the 512² wave window is what displaces verts —
+# density past it is wasted), and a coarse static disc carries the
+# surface to the horizon. Far disc sits 15cm lower to avoid z-fighting
+# where they overlap.
+const SEA_NEAR_RADIUS := 300.0
+const SEA_NEAR_STEP := 3.0
+const SEA_FAR_RADIUS := 9000.0
+const SEA_FAR_STEP := 250.0
+var _sea_near: MeshInstance3D
+var _sea_far: MeshInstance3D
+
 
 func _ready() -> void:
+	if Terrain.sea_level > -1e11:
+		_sea_near = MeshInstance3D.new()
+		_sea_near.name = "sea_near"
+		_sea_near.mesh = _disc(SEA_NEAR_RADIUS, SEA_NEAR_STEP)
+		_sea_near.mesh.surface_set_material(0, _material(Vector2.ZERO))
+		_sea_near.extra_cull_margin = 4.0
+		_sea_near.position.y = Terrain.sea_level
+		add_child(_sea_near)
+		_sea_far = MeshInstance3D.new()
+		_sea_far.name = "sea_far"
+		_sea_far.mesh = _disc(SEA_FAR_RADIUS, SEA_FAR_STEP)
+		_sea_far.mesh.surface_set_material(0, _material(Vector2.ZERO))
+		_sea_far.position.y = Terrain.sea_level - 0.15
+		add_child(_sea_far)
 	for w in Terrain.water_bodies:
 		var center: Vector2 = w.center
 		var mi := MeshInstance3D.new()
@@ -38,6 +64,25 @@ func _ready() -> void:
 		_river_meshes[r.id] = mi
 		_river_mats[r.id] = mat
 	Hydrology.levels_changed.connect(_on_levels_changed)
+
+
+func _process(_delta: float) -> void:
+	if _sea_near == null:
+		return
+	var focus := Vector2.ZERO
+	var player := get_tree().get_first_node_in_group("player")
+	if GodMode.active:
+		var p := GodMode.cam_position()
+		focus = Vector2(p.x, p.z)
+	elif MapScreen.active:
+		var p := MapScreen.focus_position()
+		focus = Vector2(p.x, p.z)
+	elif player:
+		focus = Vector2(player.global_position.x, player.global_position.z)
+	# Snapped so the wave-sampling verts don't shimmer as the focus moves.
+	var snapped_focus := focus.snappedf(SEA_NEAR_STEP * 2.0)
+	_sea_near.position.x = snapped_focus.x
+	_sea_near.position.z = snapped_focus.y
 
 
 func _on_levels_changed() -> void:
@@ -71,13 +116,13 @@ func _material(flow: Vector2) -> ShaderMaterial:
 # no lambda captures (a captured int counter froze and degenerated every
 # triangle to vertex 0: mesh present, nothing drawn. The invisible-pond
 # bug of 2026-07-04.)
-func _disc(radius: float) -> ArrayMesh:
+func _disc(radius: float, step: float = DISC_STEP) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var n := int(ceil(radius * 2.0 / DISC_STEP)) + 2
+	var n := int(ceil(radius * 2.0 / step)) + 2
 	for iz in n:
 		for ix in n:
-			var p := Vector2(ix * DISC_STEP - radius, iz * DISC_STEP - radius)
+			var p := Vector2(ix * step - radius, iz * step - radius)
 			if p.length() > radius:
 				p = p.normalized() * radius
 			st.set_normal(Vector3.UP)
@@ -86,7 +131,7 @@ func _disc(radius: float) -> ArrayMesh:
 		for ix in n - 1:
 			var inside := 0
 			for c in [[ix, iz], [ix + 1, iz], [ix, iz + 1], [ix + 1, iz + 1]]:
-				var p := Vector2(c[0] * DISC_STEP - radius, c[1] * DISC_STEP - radius)
+				var p := Vector2(c[0] * step - radius, c[1] * step - radius)
 				if p.length() <= radius:
 					inside += 1
 			if inside == 0:

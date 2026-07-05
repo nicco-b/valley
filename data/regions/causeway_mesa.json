@@ -1,0 +1,13 @@
+{
+	"id": "causeway_mesa",
+	"layer": "surface",
+	"kind": "ridge",
+	"nodes": [
+		{"x": 250, "z": -1420},
+		{"x": 700, "z": -2150},
+		{"x": 1150, "z": -2650}
+	],
+	"inner": 60,
+	"feather": 130,
+	"height": 48
+}

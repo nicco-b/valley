@@ -19,14 +19,17 @@ const FLATTENS := [
 const WATER_DIR := "res://data/water"
 const RIVER_DIR := "res://data/water/rivers"
 
-# Region landforms (the Loom, feel-prototype draft 2026-07-04): the
-# archipelago beyond the home valley comes from data/regions/*.json —
-# authored island shapes (mesa/ridge/dome) plus a "barren" mask that
-# quiets the procedural ranges so islands read against emptiness. First
-# step toward the F3 region-record schema: every record carries a
-# `layer` field ("surface" today; the underworld will be a second
-# layer). All region contribution is gated OUTSIDE the home watershed
-# (HOME_GUARD_*), so the valley and its hydrology are untouched.
+# Region landforms (the Loom, feel-prototype draft v2 2026-07-04): a
+# LITERAL archipelago — beyond the home valley the ground drops to a
+# seabed under a world sea (data/water/sea.json), and authored islands
+# (mesa/ridge/dome records in data/regions/*.json) rise out of it,
+# linked by low causeway ridges until boats exist. The sea is the
+# world's bound: the procedural ranges fade out with the guard, so the
+# horizon is water, not endless mountains. First step toward the F3
+# region-record schema: every record carries a `layer` field ("surface"
+# today; the underworld will be a second layer). All region and sea
+# contribution is gated OUTSIDE the home watershed rect (guard below),
+# so the valley and its hydrology are untouched.
 const REGION_DIR := "res://data/regions"
 # Regions only act OUTSIDE the home watershed rect (from the watershed
 # record, data/water/watersheds/home.json), so every terrain sample the
@@ -45,7 +48,6 @@ var _home_rect := Rect2(-959, -1309, 2048, 2048)  # fallback; loaded in _ready
 # per-sample loop must be packed reads + scalar math, no Dictionary
 # access, no String match (the river-carve lesson, 2026-07-04).
 var regions: Array[Dictionary] = []
-var _barrens: Array[Dictionary] = []
 
 const REG_MESA := 0
 const REG_DOME := 1
@@ -59,9 +61,6 @@ var _reg_inner := PackedFloat32Array()
 var _reg_height := PackedFloat32Array()
 var _reg_tiers := PackedFloat32Array()
 var _reg_nodes: Array = []  # PackedVector2Array per region (ridges)
-var _bar_center := PackedVector2Array()
-var _bar_radius := PackedFloat32Array()
-var _bar_feather := PackedFloat32Array()
 
 # Loaded lake records, normalized: {id, idx, center: Vector2, radius,
 # surface, basin_radius, basin_depth}. Strictly read-only after _ready —
@@ -83,6 +82,14 @@ var rivers: Array[Dictionary] = []
 var lake_levels := PackedFloat32Array()
 var river_levels := PackedFloat32Array()
 
+# The world sea (data/water/sea.json, {"sea": true, "surface": -2}):
+# a single surface height filling everything below it OUTSIDE the home
+# guard. Not a lake record — no basin carve, no hydrology reservoir
+# (the Watershed's domain ends at the home rect); the seabed comes from
+# the guard lerp in height().
+var sea_level := -1e12
+const SEABED := -35.0
+
 
 ## Live water surface height at a point (authored + hydrology level), or
 ## -INF when there's no water there. Physics, moisture, and rendering read
@@ -96,6 +103,8 @@ func water_surface(x: float, z: float) -> float:
 		var q := _river_probe(r, x, z)
 		if q.x < q.y:
 			return q.z + river_levels[r.idx]
+	if sea_level > -1e11 and home_guard(x, z) > 0.0:
+		return sea_level
 	return -1e12
 
 
@@ -111,6 +120,8 @@ func water_surface_base(x: float, z: float) -> float:
 		var q := _river_probe(r, x, z)
 		if q.x < q.y:
 			return q.z
+	if sea_level > -1e11 and home_guard(x, z) > 0.0:
+		return sea_level
 	return -1e12
 
 
@@ -243,6 +254,21 @@ func _ready() -> void:
 		_edits = Image.create(EDIT_SIZE, EDIT_SIZE, false, Image.FORMAT_RF)
 
 
+## 0.0 anywhere in/near the home watershed rect, ramping to 1.0 over
+## HOME_GUARD_IN..OUT meters past its edge — the seam where the home
+## island ends and the sea/archipelago begins. Everything the Hydrology
+## grid or the soak fingerprint can see has guard == 0.0 exactly.
+func home_guard(x: float, z: float) -> float:
+	var gdx := maxf(maxf(_home_rect.position.x - x, x - _home_rect.end.x), 0.0)
+	var gdz := maxf(maxf(_home_rect.position.y - z, z - _home_rect.end.y), 0.0)
+	# Coast noise breaks the rect silhouette into bays and headlands.
+	# The ramp start stays >= 30m past the rect edge, so guard is still
+	# exactly 0.0 on every sample the watershed can see.
+	var wobble := _hills.get_noise_2d(x * 2.0, z * 2.0) * 120.0
+	return smoothstep(HOME_GUARD_IN + wobble, HOME_GUARD_OUT + wobble,
+		sqrt(gdx * gdx + gdz * gdz))
+
+
 ## 0.0 on the valley floor, 1.0 on the surrounding plateau.
 func valley_factor(x: float, z: float) -> float:
 	var p := Vector2(x, z)
@@ -259,13 +285,15 @@ func height(x: float, z: float) -> float:
 	# Mountain ranges: absent near home, real and walkable beyond ~1.2km.
 	var range_envelope := smoothstep(1200.0, 2400.0, Vector2(x, z).length())
 	var range_term := maxf(_ranges.get_noise_2d(x, z), 0.0) * 320.0 * range_envelope
-	# The archipelago draft: outside the home watershed, barren records
-	# quiet the noise ranges and authored islands rise from records.
-	var gdx := maxf(maxf(_home_rect.position.x - x, x - _home_rect.end.x), 0.0)
-	var gdz := maxf(maxf(_home_rect.position.y - z, z - _home_rect.end.y), 0.0)
-	var guard := smoothstep(HOME_GUARD_IN, HOME_GUARD_OUT, sqrt(gdx * gdx + gdz * gdz))
+	# The archipelago: outside the home guard the plateau sinks to the
+	# seabed, the ranges fade with it (the sea bounds the world — no
+	# endless mountains), and authored islands rise from records.
+	var guard := home_guard(x, z)
 	if guard > 0.0:
-		range_term *= 1.0 - _barren_mask(x, z) * guard
+		var seabed := SEABED + _hills.get_noise_2d(x, z) * 4.0 \
+			+ _dunes.get_noise_2d(x, z) * 1.5
+		h = lerpf(h, seabed, guard)
+		range_term *= 1.0 - guard
 		h += _region_height(x, z) * guard
 	h += range_term
 	for f in FLATTENS:
@@ -307,6 +335,9 @@ func _load_water() -> void:
 			continue
 		var path := WATER_DIR + "/" + f
 		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if parsed is Dictionary and parsed.get("sea", false):
+			sea_level = float(parsed.get("surface", -2.0))
+			continue
 		if not (parsed is Dictionary and parsed.has("center")
 				and parsed.has("radius") and parsed.has("surface")):
 			push_error("[terrain] bad lake record (needs center/radius/surface): " + path)
@@ -432,9 +463,8 @@ func _index_river(r: Dictionary) -> void:
 #   mesa   — flat-topped tiered island (the hill-city shape): center,
 #            radius (plateau edge), feather (skirt), height, tiers
 #   ridge  — a crest polyline: nodes[{x,z}], inner, feather, height
+#            (also the causeway shape: a low ridge between islands)
 #   dome   — a plain rounded island: center, radius, feather, height
-#   barren — no height of its own; masks the procedural ranges inside
-#            its footprint so the desert stays deliberately empty
 # Every record carries `layer` ("surface" for now — the underworld will
 # add a second value; baking the field in from day one per IDEAS).
 func _load_regions() -> void:
@@ -473,12 +503,6 @@ func _load_regions() -> void:
 			for n in rec["nodes"]:
 				pts.append(Vector2(float(n["x"]), float(n["z"])))
 			reg.nodes = pts
-		if kind == "barren":
-			_barrens.append(reg)
-			_bar_center.append(reg.center)
-			_bar_radius.append(reg.radius)
-			_bar_feather.append(reg.feather)
-			continue
 		regions.append(reg)
 		var is_ridge := kind == "ridge"
 		var reach: float = (reg.inner if is_ridge else reg.radius) + reg.feather
@@ -499,17 +523,6 @@ func _load_regions() -> void:
 		_reg_bbox.append(bbox.position.y)
 		_reg_bbox.append(bbox.end.x)
 		_reg_bbox.append(bbox.end.y)
-
-
-## 0..1: how strongly the procedural ranges are suppressed here (union
-## of all barren records' footprints, feathered at the edge).
-func _barren_mask(x: float, z: float) -> float:
-	var m := 0.0
-	var p := Vector2(x, z)
-	for i in _bar_center.size():
-		var d := p.distance_to(_bar_center[i])
-		m = maxf(m, 1.0 - smoothstep(_bar_radius[i], _bar_radius[i] + _bar_feather[i], d))
-	return m
 
 
 ## Summed authored island height at (x,z). Hot path (every bulk height
@@ -560,15 +573,12 @@ func _region_height(x: float, z: float) -> float:
 ## Toolkit: one line per loaded region record, plus the guard band.
 func regions_summary() -> String:
 	var lines := PackedStringArray()
-	lines.append("regions: %d landforms, %d barrens (guard %d..%dm past %s)" % [
-		regions.size(), _barrens.size(),
+	lines.append("regions: %d landforms, sea=%.1fm (guard %d..%dm past %s)" % [
+		regions.size(), sea_level,
 		int(HOME_GUARD_IN), int(HOME_GUARD_OUT), _home_rect])
 	for r in regions:
 		lines.append("  %s [%s/%s] h=%.0fm at (%.0f, %.0f)" % [
 			r.id, r.layer, r.kind, r.height, r.center.x, r.center.y])
-	for b in _barrens:
-		lines.append("  %s [%s/barren] r=%.0fm at (%.0f, %.0f)" % [
-			b.id, b.layer, b.radius, b.center.x, b.center.y])
 	return "\n".join(lines)
 
 

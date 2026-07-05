@@ -2,8 +2,8 @@
 	"id": "gate_dome_east",
 	"layer": "surface",
 	"kind": "dome",
-	"center": {"x": 2350, "z": -3000},
-	"radius": 280,
-	"feather": 220,
-	"height": 105
+	"center": {"x": 2000, "z": -2400},
+	"radius": 200,
+	"feather": 180,
+	"height": 65
 }

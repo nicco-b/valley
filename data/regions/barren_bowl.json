@@ -1,8 +1,0 @@
-{
-	"id": "barren_bowl",
-	"layer": "surface",
-	"kind": "barren",
-	"center": {"x": 200, "z": -1500},
-	"radius": 5200,
-	"feather": 1600
-}

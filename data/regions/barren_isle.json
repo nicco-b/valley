@@ -1,0 +1,9 @@
+{
+	"id": "barren_isle",
+	"layer": "surface",
+	"kind": "dome",
+	"center": {"x": 2700, "z": -1300},
+	"radius": 900,
+	"feather": 600,
+	"height": 75
+}

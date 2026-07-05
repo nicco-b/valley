@@ -257,9 +257,20 @@ hour_tick + "weather" Rng stream + `weather.fronts` in WorldState +
 catch-up; soak fingerprint moved once (3242764635), bit-stable.
 Toolkit: `force_kind()` (Y key + all probes/tests use it — writing
 `.state` no longer reaches spatial consumers), `summary()` lists all
-fronts. Phase C queued: rain curtains under distant storm bands,
-lightning over open water. Kitchen-table item: keeping volumetric fog
-gouache (posterized banks) is a look decision for her.
+fronts. **Phase C (same day): seven kinds, continuous properties,
+storm bodies.** A kind is a bundle of numbers (wind/rain/cloud/dust/
+menace), not a switch: calm, overcast, drizzle, windy, gale (dry
+sand-blasting — summer's violence), squall (narrow, 5.5m/s, vicious),
+storm; wet kinds favor winter. Consumers read the numbers:
+`rain_at()` wets Climate/Hydrology continuously (drizzle = slow soak),
+dust hazes and thickens motes, cloud dims without menace; legacy
+names kept so saves/probes migrate free. Presentation: posterized
+rain CURTAINS hang under rainy fronts within 9km (the approaching
+storm has a body); double-pulse LIGHTNING near heavy rain
+(presentation-only randomness; thunder audio = placeholder for his
+recordings). Soak moved once (3180831281), bit-stable. Kitchen-table
+items: volumetric-fog gouache look; rain-curtain texture is a painted
+slot.
 
 ## Placeholder ledger (each has a named replacement path)
 

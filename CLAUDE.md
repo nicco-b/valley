@@ -44,6 +44,20 @@ deterministic flora scatter (seeded by cell coords), authored cell scenes
 Content is data: NPCs, items, placements in `data/` as JSON, loaded through
 `Records` with schema validation. Prefer adding records over adding code.
 
+## System names (blessed 2026-07-04 — use in commits, docs, inspectors)
+
+**The Watershed** water tiers (Hydrology/WaterField/WaterWaves/records) ·
+**the Almanac** GameClock: real calendar/sun/moon/seasons · **the
+Ambient Machine** advance_hours catch-up + FocusThrottle · **the Grain**
+sand field/patch/slide · **the Elements** Weather/Climate/FloraLife/snow ·
+**the Loom** world streamer/terrain/far LOD · **the Ways**
+Nav/WaypointGraph/roads · **the Traces** InteractionField wear/desire
+paths · **the Understory** AgentSim/NPCs/wildlife/rumors (offscreen
+lives) · **the Chronicle** WorldState/SaveGame/Records/CellRecords ·
+**the Campfire** Dialogue/Journal/quests/Skills · **the Toolkit** god
+mode/place mode/sculpt/hot-reload/module layer (the Creation Kit
+decision). Tag new scripts' ## doc comments with their system name.
+
 ## Hard-won gotchas (do not relearn these)
 
 - Hand-written `.tscn`: ALL `[sub_resource]` blocks must precede the first

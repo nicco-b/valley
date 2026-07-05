@@ -1,0 +1,16 @@
+{
+ "id": "pali_isle",
+ "layer": "surface",
+ "kind": "volcano",
+ "center": {
+  "x": 4700,
+  "z": -1600
+ },
+ "radius": 620,
+ "feather": 250,
+ "height": 260,
+ "ridges": 7,
+ "ridge_depth": 0.45,
+ "coast_amp": 140,
+ "coast_freq": 0.0045
+}

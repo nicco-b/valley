@@ -63,6 +63,7 @@ var regions: Array[Dictionary] = []
 const REG_MESA := 0
 const REG_DOME := 1
 const REG_RIDGE := 2
+const REG_VOLCANO := 3  # cone + radial ridge/ravine drainage (Hawaii)
 var _reg_kind := PackedInt32Array()
 var _reg_bbox := PackedFloat32Array()  # x0,z0,x1,z1 per region (reach-grown)
 var _reg_center := PackedVector2Array()
@@ -72,6 +73,28 @@ var _reg_inner := PackedFloat32Array()
 var _reg_height := PackedFloat32Array()
 var _reg_tiers := PackedFloat32Array()
 var _reg_nodes: Array = []  # PackedVector2Array per region (ridges)
+# Coastline noise (per landform): perturbs the radial distance so
+# island edges become coves and headlands instead of circles.
+var _reg_coast_amp := PackedFloat32Array()
+var _reg_coast_freq := PackedFloat32Array()
+# Volcano drainage: radial ridge count + ravine depth (0..1).
+var _reg_ridges := PackedFloat32Array()
+var _reg_ridge_depth := PackedFloat32Array()
+# over_bays: landforms that rise OUT of a bay (bay islands) — added
+# after the bay carve instead of being erased by it.
+var _reg_over_bay := PackedInt32Array()
+
+# Bays: SUBTRACTIVE regions — the sea reaching into an island (the
+# SF-bay interior). Applied after landforms, before painted tiles:
+# inside the (coast-noised) footprint the ground pulls down to the
+# bay floor. Guard-gated like everything else.
+var _bays: Array[Dictionary] = []  # readable (Toolkit/map markers)
+var _bay_center := PackedVector2Array()
+var _bay_radius := PackedFloat32Array()
+var _bay_feather := PackedFloat32Array()
+var _bay_floor := PackedFloat32Array()
+var _bay_amp := PackedFloat32Array()
+var _bay_freq := PackedFloat32Array()
 
 # Painted tiles, normalized: {id, path, x0, z0, size, feather, hmin,
 # hmax, res, data: PackedFloat32Array}. Read-only after boot; a dev
@@ -360,7 +383,11 @@ func _init_kernel() -> void:
 			"seg_surf": r.seg_surf, "bbox": r.bbox, "grid": r.grid,
 			"grid_w": r.grid_w, "depth": r.depth, "feather": r.feather})
 	kernel.set_regions(_reg_kind, _reg_bbox, _reg_center, _reg_radius,
-		_reg_reach, _reg_inner, _reg_height, _reg_tiers, _reg_nodes)
+		_reg_reach, _reg_inner, _reg_height, _reg_tiers, _reg_nodes,
+		_reg_coast_amp, _reg_coast_freq, _reg_ridges, _reg_ridge_depth,
+		_reg_over_bay)
+	kernel.set_bays(_bay_center, _bay_radius, _bay_feather, _bay_floor,
+		_bay_amp, _bay_freq)
 	kernel.set_tiles(_tiles)
 	print("[terrain] native kernel live: worker sampling runs in C++")
 
@@ -457,6 +484,10 @@ func height(x: float, z: float) -> float:
 		h = lerpf(h, seabed, guard)
 		range_term *= 1.0 - guard
 		h += _region_height(x, z) * guard
+		if not _bay_center.is_empty():
+			h = _bay_carve(x, z, h, guard)
+			# Bay islands rise out of the carved water.
+			h += _region_height(x, z, 1) * guard
 	h += range_term
 	# Painted tiles replace whatever the procedural stack made; the
 	# water carves and the sculpt layer still apply below/after.
@@ -663,6 +694,11 @@ func _load_regions() -> void:
 			"feather": float(rec.get("feather", 200.0)),
 			"tiers": int(rec.get("tiers", 0)),
 			"inner": float(rec.get("inner", 100.0)),
+			"coast_amp": float(rec.get("coast_amp", 0.0)),
+			"coast_freq": float(rec.get("coast_freq", 0.0035)),
+			"ridges": int(rec.get("ridges", 9)),
+			"ridge_depth": float(rec.get("ridge_depth", 0.35)),
+			"over_bays": bool(rec.get("over_bays", false)),
 			"center": Vector2.ZERO,
 			"nodes": PackedVector2Array(),
 		}
@@ -674,11 +710,28 @@ func _load_regions() -> void:
 			for n in rec["nodes"]:
 				pts.append(Vector2(float(n["x"]), float(n["z"])))
 			reg.nodes = pts
+		if kind == "bay":
+			_bays.append(reg)
+			_bay_center.append(reg.center)
+			_bay_radius.append(reg.radius)
+			_bay_feather.append(reg.feather)
+			_bay_floor.append(float(rec.get("floor", -8.0)))
+			_bay_amp.append(reg.coast_amp)
+			_bay_freq.append(reg.coast_freq)
+			continue
 		regions.append(reg)
 		var is_ridge := kind == "ridge"
-		var reach: float = (reg.inner if is_ridge else reg.radius) + reg.feather
-		_reg_kind.append(REG_RIDGE if is_ridge
-			else (REG_MESA if kind == "mesa" and reg.tiers > 1 else REG_DOME))
+		# Coast noise pushes the envelope outward by up to its amplitude.
+		var reach: float = (reg.inner if is_ridge else reg.radius) \
+			+ reg.feather + reg.coast_amp
+		var kind_id := REG_DOME
+		if is_ridge:
+			kind_id = REG_RIDGE
+		elif kind == "volcano":
+			kind_id = REG_VOLCANO
+		elif kind == "mesa" and reg.tiers > 1:
+			kind_id = REG_MESA
+		_reg_kind.append(kind_id)
 		_reg_center.append(reg.center)
 		_reg_radius.append(reg.radius)
 		_reg_reach.append(reach)
@@ -686,6 +739,11 @@ func _load_regions() -> void:
 		_reg_height.append(reg.height)
 		_reg_tiers.append(float(reg.tiers))
 		_reg_nodes.append(reg.nodes)
+		_reg_coast_amp.append(reg.coast_amp)
+		_reg_coast_freq.append(reg.coast_freq)
+		_reg_ridges.append(float(reg.ridges))
+		_reg_ridge_depth.append(reg.ridge_depth)
+		_reg_over_bay.append(1 if reg.over_bays else 0)
 		var bbox := Rect2(reg.center, Vector2.ZERO)
 		for n: Vector2 in reg.nodes:
 			bbox = bbox.expand(n)
@@ -760,11 +818,13 @@ func _tile_blend(x: float, z: float, h: float, guard: float) -> float:
 ## Summed authored island height at (x,z). Hot path (every bulk height
 ## sampler): packed reads only; bbox reject before any shape math; the
 ## detail-noise sample is shared and taken at most once per call.
-func _region_height(x: float, z: float) -> float:
+func _region_height(x: float, z: float, over_bay_phase: int = 0) -> float:
 	var p := Vector2(x, z)
 	var total := 0.0
 	var detail := 1e12  # sentinel: noise not yet sampled
 	for i in _reg_kind.size():
+		if _reg_over_bay[i] != over_bay_phase:
+			continue
 		var b := i * 4
 		if x < _reg_bbox[b] or z < _reg_bbox[b + 1] \
 				or x >= _reg_bbox[b + 2] or z >= _reg_bbox[b + 3]:
@@ -785,21 +845,63 @@ func _region_height(x: float, z: float) -> float:
 			var d := p.distance_to(_reg_center[i])
 			if d >= _reg_reach[i]:
 				continue
-			# 1 on the plateau/summit, feathered to 0 at the skirt edge.
-			env = 1.0 - smoothstep(_reg_radius[i] * 0.35, _reg_reach[i], d)
-			if kind == REG_MESA:
-				# Terraces with rounded risers: flat treads (the city
-				# districts) joined by climbable ramps — smoothstepped
-				# so no cliff face goes vertical (feel note 2026-07-04:
-				# hard-quantized tiers read as bad, too-vertical walls).
-				var t := env * _reg_tiers[i]
-				var stepped := (floorf(t) + smoothstep(0.15, 0.85, t - floorf(t))) \
-					/ _reg_tiers[i]
-				env = lerpf(env, stepped, 0.7)
+			# Coastline noise: wobble the radial distance so the shore
+			# becomes coves and headlands instead of a circle.
+			if _reg_coast_amp[i] > 0.0:
+				d = maxf(d + _island.get_noise_2d(
+					x * _reg_coast_freq[i] * 100.0,
+					z * _reg_coast_freq[i] * 100.0) * _reg_coast_amp[i], 0.0)
+				if d >= _reg_reach[i]:
+					continue
+			if kind == REG_VOLCANO:
+				# Eroded volcanic island (Moorea, not a smooth shield):
+				# concave flanks steepening toward the summit, cut by
+				# radial ravines — strongest mid-flank, fading at the
+				# summit plateau and the coast. Drainage for free.
+				var t := 1.0 - smoothstep(0.0, _reg_reach[i], d)
+				var profile := pow(t, 1.55)
+				var ang := atan2(z - _reg_center[i].y, x - _reg_center[i].x)
+				var wob := _island.get_noise_2d(
+					_reg_center[i].x + cos(ang) * 900.0,
+					_reg_center[i].y + sin(ang) * 900.0) * 2.2
+				var rib := 0.5 + 0.5 * sin(ang * _reg_ridges[i] + wob)
+				var ravine_band := smoothstep(0.12, 0.5, t) * (1.0 - smoothstep(0.8, 0.97, t))
+				env = profile * (1.0 - _reg_ridge_depth[i] * rib * ravine_band)
+			else:
+				# 1 on the plateau/summit, feathered to 0 at the skirt edge.
+				env = 1.0 - smoothstep(_reg_radius[i] * 0.35, _reg_reach[i], d)
+				if kind == REG_MESA:
+					# Terraces with rounded risers: flat treads (the city
+					# districts) joined by climbable ramps — smoothstepped
+					# so no cliff face goes vertical (feel note 2026-07-04:
+					# hard-quantized tiers read as bad, too-vertical walls).
+					var t := env * _reg_tiers[i]
+					var stepped := (floorf(t) + smoothstep(0.15, 0.85, t - floorf(t))) \
+						/ _reg_tiers[i]
+					env = lerpf(env, stepped, 0.7)
 		if detail == 1e12:
 			detail = _island.get_noise_2d(x, z)
 		total += _reg_height[i] * (env + detail * 0.06 * env)
 	return total
+
+
+## Bays: pull the ground down toward each bay's floor inside its
+## (coast-noised) footprint — the sea reaching into the island.
+func _bay_carve(x: float, z: float, h: float, guard: float) -> float:
+	var p := Vector2(x, z)
+	for i in _bay_center.size():
+		var reach := _bay_radius[i] + _bay_feather[i] + _bay_amp[i]
+		var d := p.distance_to(_bay_center[i])
+		if d >= reach:
+			continue
+		if _bay_amp[i] > 0.0:
+			d = maxf(d + _island.get_noise_2d(
+				x * _bay_freq[i] * 100.0,
+				z * _bay_freq[i] * 100.0) * _bay_amp[i], 0.0)
+		var w := (1.0 - smoothstep(_bay_radius[i], reach, d)) * guard
+		if w > 0.0:
+			h = lerpf(h, _bay_floor[i], w)
+	return h
 
 
 ## Toolkit: one line per loaded region record, plus the guard band.
@@ -811,6 +913,9 @@ func regions_summary() -> String:
 	for r in regions:
 		lines.append("  %s [%s/%s] h=%.0fm at (%.0f, %.0f)" % [
 			r.id, r.layer, r.kind, r.height, r.center.x, r.center.y])
+	for b in _bays:
+		lines.append("  %s [%s/bay] r=%.0fm at (%.0f, %.0f)" % [
+			b.id, b.layer, b.radius, b.center.x, b.center.y])
 	for t in _tiles:
 		lines.append("  %s [tile %dpx] %s %.0fm at (%.0f, %.0f) h=%.0f..%.0fm" % [
 			t.id, t.res, t.path.get_file(), t.size, t.x0, t.z0, t.hmin, t.hmax])

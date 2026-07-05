@@ -155,6 +155,25 @@ because git-lfs isn't installed here yet; install on both machines, then
 commit the attributes and (optionally, history rewrite — coordinate!)
 `git lfs migrate`.
 
+**Archipelago v3 — the Big Island (2026-07-05, Nicco's map-scale
+call: "2-3x bigger, Hawaii, detailed coastlines, satellite chain, SF-
+bay interior").** Usable land 15→49 km² (Big Island 42 km², one
+landmass): **Mauna**, an 850m Throat-of-the-World-class volcano
+(new `volcano` region kind — concave flanks + radial ridge/ravine
+drainage; winter snowline crosses it, so the seasonal snowcap falls
+out of the lapse-rate sim), the home valley untouched at its foot;
+connecting lobes with **fractal coast noise** (new coast_amp/
+coast_freq on all landforms — coves and headlands, not circles);
+**the Bay** (new subtractive `bay` kind + `over_bays` flag) — an
+SF-style enclosed interior sea east of the valley with Alcatraz-
+Rock/Angel-Isle/Yerba islets, an eastern peninsula arm, and a gate
+strait; the tiered city on the bay's SW shore; a trailing 7-island
+chain ESE (pali volcano-mini, 7-tier terrace hill, barren isle,
+stairstep ridge, smoke isle, skerries, the painted atoll). All
+kernel-mirrored (parity <7e-5m), soak fingerprint UNCHANGED
+(2183523517 — the watershed never saw a moved sample). Map zoom to
+13km. Superseded entry below kept for the record.
+
 **Archipelago feel-prototype v2 (2026-07-04, the Loom; v1 desert bowl
 redone same day on Nicco's call: literal water, bounded world, smaller
 city)** — the ~12km world shape as a disposable draft to fly and walk:

@@ -1,0 +1,15 @@
+{
+ "id": "alcatraz_rock",
+ "layer": "surface",
+ "kind": "dome",
+ "center": {
+  "x": 1900,
+  "z": -350
+ },
+ "radius": 130,
+ "feather": 90,
+ "height": 22,
+ "coast_amp": 45,
+ "coast_freq": 0.008,
+ "over_bays": true
+}

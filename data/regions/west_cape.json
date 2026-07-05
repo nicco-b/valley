@@ -1,0 +1,14 @@
+{
+ "id": "west_cape",
+ "layer": "surface",
+ "kind": "dome",
+ "center": {
+  "x": -2500,
+  "z": 400
+ },
+ "radius": 1100,
+ "feather": 400,
+ "height": 100,
+ "coast_amp": 240,
+ "coast_freq": 0.0034
+}

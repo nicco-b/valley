@@ -1,0 +1,14 @@
+{
+ "id": "the_bay",
+ "layer": "surface",
+ "kind": "bay",
+ "center": {
+  "x": 2000,
+  "z": -500
+ },
+ "radius": 1150,
+ "feather": 350,
+ "floor": -7.0,
+ "coast_amp": 200,
+ "coast_freq": 0.004
+}

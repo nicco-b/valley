@@ -1,0 +1,15 @@
+{
+ "id": "gate_head",
+ "layer": "surface",
+ "kind": "dome",
+ "center": {
+  "x": 2900,
+  "z": 300
+ },
+ "radius": 350,
+ "feather": 250,
+ "height": 55,
+ "coast_amp": 110,
+ "coast_freq": 0.005,
+ "over_bays": true
+}

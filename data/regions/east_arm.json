@@ -1,0 +1,23 @@
+{
+ "id": "east_arm",
+ "layer": "surface",
+ "kind": "ridge",
+ "nodes": [
+  {
+   "x": 2600,
+   "z": -2000
+  },
+  {
+   "x": 3150,
+   "z": -1100
+  },
+  {
+   "x": 3150,
+   "z": -300
+  }
+ ],
+ "inner": 220,
+ "feather": 380,
+ "height": 60,
+ "over_bays": true
+}

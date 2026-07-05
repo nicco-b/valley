@@ -1,0 +1,15 @@
+{
+ "id": "yerba_islet",
+ "layer": "surface",
+ "kind": "dome",
+ "center": {
+  "x": 1750,
+  "z": -900
+ },
+ "radius": 100,
+ "feather": 80,
+ "height": 16,
+ "coast_amp": 35,
+ "coast_freq": 0.009,
+ "over_bays": true
+}

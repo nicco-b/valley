@@ -1,9 +1,14 @@
 {
-	"id": "barren_isle",
-	"layer": "surface",
-	"kind": "dome",
-	"center": {"x": 2700, "z": -1300},
-	"radius": 900,
-	"feather": 600,
-	"height": 75
+ "id": "barren_isle",
+ "layer": "surface",
+ "kind": "dome",
+ "center": {
+  "x": 4300,
+  "z": 900
+ },
+ "radius": 700,
+ "feather": 450,
+ "height": 55,
+ "coast_amp": 220,
+ "coast_freq": 0.0038
 }

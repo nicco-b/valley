@@ -15,7 +15,7 @@ const CAM_DISTANCE := 400.0
 # with collision and navmesh (the old map hitching).
 const STREAM_ZOOM := 900.0
 const ZOOM_MIN := 130.0
-const ZOOM_MAX := 9000.0  # the whole archipelago in one view
+const ZOOM_MAX := 13000.0  # the Big Island + the whole chain in one view
 
 var active := false
 

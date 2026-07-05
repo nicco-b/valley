@@ -30,8 +30,13 @@ void TerrainKernel::_bind_methods() {
 			&TerrainKernel::add_river);
 	ClassDB::bind_method(D_METHOD("set_regions", "kind", "bbox", "center",
 								  "radius", "reach", "inner", "height",
-								  "tiers", "nodes"),
+								  "tiers", "nodes", "coast_amp",
+								  "coast_freq", "ridges", "ridge_depth",
+								  "over_bay"),
 			&TerrainKernel::set_regions);
+	ClassDB::bind_method(D_METHOD("set_bays", "center", "radius", "feather",
+								  "floor", "amp", "freq"),
+			&TerrainKernel::set_bays);
 	ClassDB::bind_method(D_METHOD("home_guard", "x", "z"),
 			&TerrainKernel::home_guard);
 	ClassDB::bind_method(D_METHOD("height", "x", "z"),
@@ -122,7 +127,12 @@ void TerrainKernel::set_regions(const PackedInt32Array &p_kind,
 		const PackedFloat32Array &p_bbox, const PackedVector2Array &p_center,
 		const PackedFloat32Array &p_radius, const PackedFloat32Array &p_reach,
 		const PackedFloat32Array &p_inner, const PackedFloat32Array &p_height,
-		const PackedFloat32Array &p_tiers, const Array &p_nodes) {
+		const PackedFloat32Array &p_tiers, const Array &p_nodes,
+		const PackedFloat32Array &p_coast_amp,
+		const PackedFloat32Array &p_coast_freq,
+		const PackedFloat32Array &p_ridges,
+		const PackedFloat32Array &p_ridge_depth,
+		const PackedInt32Array &p_over_bay) {
 	reg_kind = p_kind;
 	reg_bbox = p_bbox;
 	reg_center = p_center;
@@ -131,11 +141,53 @@ void TerrainKernel::set_regions(const PackedInt32Array &p_kind,
 	reg_inner = p_inner;
 	reg_height = p_height;
 	reg_tiers = p_tiers;
+	reg_coast_amp = p_coast_amp;
+	reg_coast_freq = p_coast_freq;
+	reg_ridges = p_ridges;
+	reg_ridge_depth = p_ridge_depth;
+	reg_over_bay = p_over_bay;
 	reg_nodes.clear();
 	reg_nodes.reserve(p_nodes.size());
 	for (int i = 0; i < p_nodes.size(); i++) {
 		reg_nodes.push_back(PackedVector2Array(p_nodes[i]));
 	}
+}
+
+void TerrainKernel::set_bays(const PackedVector2Array &p_center,
+		const PackedFloat32Array &p_radius,
+		const PackedFloat32Array &p_feather,
+		const PackedFloat32Array &p_floor, const PackedFloat32Array &p_amp,
+		const PackedFloat32Array &p_freq) {
+	bay_center = p_center;
+	bay_radius = p_radius;
+	bay_feather = p_feather;
+	bay_floor = p_floor;
+	bay_amp = p_amp;
+	bay_freq = p_freq;
+}
+
+// Mirrors terrain.gd _bay_carve.
+double TerrainKernel::bay_carve(double x, double z, double h,
+		double guard) const {
+	Vector2 p(x, z);
+	for (int i = 0; i < bay_center.size(); i++) {
+		double reach = (double)bay_radius[i] + (double)bay_feather[i] +
+				(double)bay_amp[i];
+		double d = p.distance_to(bay_center[i]);
+		if (d >= reach) {
+			continue;
+		}
+		if (bay_amp[i] > 0.0f) {
+			d = Math::max(d + island->get_noise_2d(
+					x * (double)bay_freq[i] * 100.0,
+					z * (double)bay_freq[i] * 100.0) * (double)bay_amp[i], 0.0);
+		}
+		double w = (1.0 - gd_smoothstep((double)bay_radius[i], reach, d)) * guard;
+		if (w > 0.0) {
+			h = gd_lerp(h, (double)bay_floor[i], w);
+		}
+	}
+	return h;
 }
 
 void TerrainKernel::set_tiles(const Array &p_tiles) {
@@ -224,13 +276,18 @@ Vector3 TerrainKernel::river_probe(const River &r, double x, double z) const {
 	return best;
 }
 
-double TerrainKernel::region_height(double x, double z) const {
+double TerrainKernel::region_height(double x, double z,
+		int over_bay_phase) const {
 	Vector2 p(x, z);
 	double total = 0.0;
 	double detail = 1e12; // sentinel: noise not yet sampled
 	const int32_t *kinds = reg_kind.ptr();
 	const float *bbox = reg_bbox.ptr();
+	const int32_t *over = reg_over_bay.ptr();
 	for (int i = 0; i < reg_kind.size(); i++) {
+		if (over[i] != over_bay_phase) {
+			continue;
+		}
 		int b = i * 4;
 		if (x < (double)bbox[b] || z < (double)bbox[b + 1] ||
 				x >= (double)bbox[b + 2] || z >= (double)bbox[b + 3]) {
@@ -260,15 +317,38 @@ double TerrainKernel::region_height(double x, double z) const {
 			if (d >= (double)reg_reach[i]) {
 				continue;
 			}
-			env = 1.0 - gd_smoothstep((double)reg_radius[i] * 0.35,
-							  (double)reg_reach[i], d);
-			if (kind == 0) { // mesa: rounded-riser terraces
-				double t = env * (double)reg_tiers[i];
-				double stepped =
-						(Math::floor(t) +
-								gd_smoothstep(0.15, 0.85, t - Math::floor(t))) /
-						(double)reg_tiers[i];
-				env = gd_lerp(env, stepped, 0.7);
+			if (reg_coast_amp[i] > 0.0f) {
+				d = Math::max(d + island->get_noise_2d(
+						x * (double)reg_coast_freq[i] * 100.0,
+						z * (double)reg_coast_freq[i] * 100.0) *
+						(double)reg_coast_amp[i], 0.0);
+				if (d >= (double)reg_reach[i]) {
+					continue;
+				}
+			}
+			if (kind == 3) { // volcano: concave flanks + radial ravines
+				double t = 1.0 - gd_smoothstep(0.0, (double)reg_reach[i], d);
+				double profile = Math::pow(t, 1.55);
+				double ang = Math::atan2(z - (double)reg_center[i].y,
+						x - (double)reg_center[i].x);
+				double wob = island->get_noise_2d(
+						(double)reg_center[i].x + Math::cos(ang) * 900.0,
+						(double)reg_center[i].y + Math::sin(ang) * 900.0) * 2.2;
+				double rib = 0.5 + 0.5 * Math::sin(ang * (double)reg_ridges[i] + wob);
+				double ravine_band = gd_smoothstep(0.12, 0.5, t) *
+						(1.0 - gd_smoothstep(0.8, 0.97, t));
+				env = profile * (1.0 - (double)reg_ridge_depth[i] * rib * ravine_band);
+			} else {
+				env = 1.0 - gd_smoothstep((double)reg_radius[i] * 0.35,
+								  (double)reg_reach[i], d);
+				if (kind == 0) { // mesa: rounded-riser terraces
+					double t = env * (double)reg_tiers[i];
+					double stepped =
+							(Math::floor(t) +
+									gd_smoothstep(0.15, 0.85, t - Math::floor(t))) /
+							(double)reg_tiers[i];
+					env = gd_lerp(env, stepped, 0.7);
+				}
 			}
 		}
 		if (detail == 1e12) {
@@ -332,7 +412,11 @@ double TerrainKernel::height(double x, double z) const {
 		double sb = seabed + hills_n * 4.0 + dunes->get_noise_2d(x, z) * 1.5;
 		h = gd_lerp(h, sb, guard);
 		range_term *= 1.0 - guard;
-		h += region_height(x, z) * guard;
+		h += region_height(x, z, 0) * guard;
+		if (!bay_center.is_empty()) {
+			h = bay_carve(x, z, h, guard);
+			h += region_height(x, z, 1) * guard; // bay islands rise out
+		}
 	}
 	h += range_term;
 	if (!tiles.empty() && guard > 0.0) {

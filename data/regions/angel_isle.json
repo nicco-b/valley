@@ -1,0 +1,15 @@
+{
+ "id": "angel_isle",
+ "layer": "surface",
+ "kind": "dome",
+ "center": {
+  "x": 2250,
+  "z": -750
+ },
+ "radius": 190,
+ "feather": 110,
+ "height": 35,
+ "coast_amp": 60,
+ "coast_freq": 0.007,
+ "over_bays": true
+}

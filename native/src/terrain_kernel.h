@@ -69,12 +69,19 @@ class TerrainKernel : public RefCounted {
 	// Regions (the archipelago; packed mirrors of terrain.gd).
 	PackedInt32Array reg_kind;
 	PackedFloat32Array reg_bbox, reg_radius, reg_reach, reg_inner,
-			reg_height, reg_tiers;
+			reg_height, reg_tiers, reg_coast_amp, reg_coast_freq,
+			reg_ridges, reg_ridge_depth;
+	PackedInt32Array reg_over_bay;
 	PackedVector2Array reg_center;
 	std::vector<PackedVector2Array> reg_nodes;
 
+	// Bays: subtractive sea-reach carve (after landforms).
+	PackedVector2Array bay_center;
+	PackedFloat32Array bay_radius, bay_feather, bay_floor, bay_amp, bay_freq;
+	double bay_carve(double x, double z, double h, double guard) const;
+
 	Vector3 river_probe(const River &r, double x, double z) const;
-	double region_height(double x, double z) const;
+	double region_height(double x, double z, int over_bay_phase) const;
 	double edit_height(double x, double z) const;
 
 protected:
@@ -104,7 +111,18 @@ public:
 			const PackedFloat32Array &p_reach,
 			const PackedFloat32Array &p_inner,
 			const PackedFloat32Array &p_height,
-			const PackedFloat32Array &p_tiers, const Array &p_nodes);
+			const PackedFloat32Array &p_tiers, const Array &p_nodes,
+			const PackedFloat32Array &p_coast_amp,
+			const PackedFloat32Array &p_coast_freq,
+			const PackedFloat32Array &p_ridges,
+			const PackedFloat32Array &p_ridge_depth,
+			const PackedInt32Array &p_over_bay);
+	void set_bays(const PackedVector2Array &p_center,
+			const PackedFloat32Array &p_radius,
+			const PackedFloat32Array &p_feather,
+			const PackedFloat32Array &p_floor,
+			const PackedFloat32Array &p_amp,
+			const PackedFloat32Array &p_freq);
 	void set_tiles(const Array &p_tiles);
 
 	double home_guard(double x, double z) const;

@@ -314,6 +314,20 @@ records), beach rules. Same-day Toolkit pass: god-mode WORLD PANEL
 undo (Z), map right-click teleport, summary() coverage completed
 (Climate/Hydrology/Sand/WaterField/Flora/Wear/Nav).
 
+**Map pipeline stage B — the biome substrate (2026-07-05).** A
+painted biome map (`data/world/biome_map.png`, committed painted
+source; palette in `biomes.json`) is matched to an R8 index image and
+fed to rendering + flora. `tests/derive_biomes.gd` seeds a believable
+starting map from terrain rules (height/slope/water-proximity: grey
+bare peaks → volcanic rock → green mid-slopes → sandy strand → sea).
+`Terrain.biome_at/biome_density`; a global index texture + Nx1 palette
+texture drive the shader (ground tinted toward the biome albedo — a
+tint, not a replace); flora scatter scales by biome density (deserts
+bare, oases teeming). 8 PLACEHOLDER biomes (rename at the kitchen
+table). Pure presentation + flora — soak untouched (2183523517).
+Hot-reloads. Stage C (rivers proposed from the erosion flow map)
+queued.
+
 ## Placeholder ledger (each has a named replacement path)
 
 Biped fox player (hers, replaced the star hound as the player body

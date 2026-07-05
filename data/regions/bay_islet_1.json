@@ -1,5 +1,5 @@
 {
- "id": "alcatraz_rock",
+ "id": "bay_islet_1",
  "layer": "surface",
  "kind": "dome",
  "center": {
@@ -7,9 +7,9 @@
   "z": -350
  },
  "radius": 130,
- "feather": 90,
+ "feather": 71,
  "height": 22,
- "coast_amp": 45,
+ "coast_amp": 55,
  "coast_freq": 0.008,
  "over_bays": true
 }

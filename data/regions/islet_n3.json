@@ -1,0 +1,14 @@
+{
+ "id": "islet_n3",
+ "layer": "surface",
+ "kind": "dome",
+ "center": {
+  "x": 900,
+  "z": 1900
+ },
+ "radius": 120,
+ "feather": 66,
+ "height": 15,
+ "coast_amp": 70,
+ "coast_freq": 0.007
+}

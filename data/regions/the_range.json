@@ -1,0 +1,30 @@
+{
+ "id": "the_range",
+ "layer": "surface",
+ "kind": "ridge",
+ "nodes": [
+  {
+   "x": -5000,
+   "z": -3800
+  },
+  {
+   "x": -3800,
+   "z": -3500
+  },
+  {
+   "x": -2700,
+   "z": -3200
+  },
+  {
+   "x": -1900,
+   "z": -2600
+  }
+ ],
+ "inner": 300,
+ "feather": 900,
+ "height": 950,
+ "peak_amp": 0.4,
+ "peak_len": 1300,
+ "coast_amp": 380,
+ "coast_freq": 0.0022
+}

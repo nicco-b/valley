@@ -1,0 +1,15 @@
+{
+ "id": "step_w1",
+ "layer": "surface",
+ "kind": "dome",
+ "center": {
+  "x": -1050,
+  "z": -1950
+ },
+ "radius": 90,
+ "feather": 49,
+ "height": 12,
+ "coast_amp": 45,
+ "coast_freq": 0.009,
+ "over_bays": true
+}

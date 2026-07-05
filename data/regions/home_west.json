@@ -1,0 +1,14 @@
+{
+ "id": "home_west",
+ "layer": "surface",
+ "kind": "dome",
+ "center": {
+  "x": -1600,
+  "z": 100
+ },
+ "radius": 700,
+ "feather": 385,
+ "height": 80,
+ "coast_amp": 360,
+ "coast_freq": 0.003
+}

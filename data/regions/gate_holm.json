@@ -1,15 +1,15 @@
 {
- "id": "gate_head",
+ "id": "gate_holm",
  "layer": "surface",
  "kind": "dome",
  "center": {
   "x": 2900,
   "z": 300
  },
- "radius": 350,
- "feather": 250,
- "height": 55,
- "coast_amp": 110,
+ "radius": 320,
+ "feather": 176,
+ "height": 50,
+ "coast_amp": 140,
  "coast_freq": 0.005,
  "over_bays": true
 }

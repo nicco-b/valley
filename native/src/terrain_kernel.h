@@ -29,7 +29,7 @@ class TerrainKernel : public RefCounted {
 	GDCLASS(TerrainKernel, RefCounted)
 
 	// Base landform (mirrors terrain.gd constants + noises).
-	Ref<FastNoiseLite> hills, dunes, ranges, island;
+	Ref<FastNoiseLite> hills, dunes, ranges, island, coast;
 	Ref<Image> edits;
 	double edit_size = 2048.0;
 	double edit_m_per_px = 2.0;
@@ -72,6 +72,8 @@ class TerrainKernel : public RefCounted {
 			reg_height, reg_tiers, reg_coast_amp, reg_coast_freq,
 			reg_ridges, reg_ridge_depth;
 	PackedInt32Array reg_over_bay;
+	PackedFloat32Array reg_peak_amp, reg_peak_len;
+	double coast_wobble(double x, double z, double amp, double freq) const;
 	PackedVector2Array reg_center;
 	std::vector<PackedVector2Array> reg_nodes;
 
@@ -116,7 +118,10 @@ public:
 			const PackedFloat32Array &p_coast_freq,
 			const PackedFloat32Array &p_ridges,
 			const PackedFloat32Array &p_ridge_depth,
-			const PackedInt32Array &p_over_bay);
+			const PackedInt32Array &p_over_bay,
+			const PackedFloat32Array &p_peak_amp,
+			const PackedFloat32Array &p_peak_len);
+	void set_coast(const Ref<FastNoiseLite> &p_coast);
 	void set_bays(const PackedVector2Array &p_center,
 			const PackedFloat32Array &p_radius,
 			const PackedFloat32Array &p_feather,

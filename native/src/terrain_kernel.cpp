@@ -32,8 +32,10 @@ void TerrainKernel::_bind_methods() {
 								  "radius", "reach", "inner", "height",
 								  "tiers", "nodes", "coast_amp",
 								  "coast_freq", "ridges", "ridge_depth",
-								  "over_bay"),
+								  "over_bay", "peak_amp", "peak_len"),
 			&TerrainKernel::set_regions);
+	ClassDB::bind_method(D_METHOD("set_coast", "coast"),
+			&TerrainKernel::set_coast);
 	ClassDB::bind_method(D_METHOD("set_bays", "center", "radius", "feather",
 								  "floor", "amp", "freq"),
 			&TerrainKernel::set_bays);
@@ -132,7 +134,9 @@ void TerrainKernel::set_regions(const PackedInt32Array &p_kind,
 		const PackedFloat32Array &p_coast_freq,
 		const PackedFloat32Array &p_ridges,
 		const PackedFloat32Array &p_ridge_depth,
-		const PackedInt32Array &p_over_bay) {
+		const PackedInt32Array &p_over_bay,
+		const PackedFloat32Array &p_peak_amp,
+		const PackedFloat32Array &p_peak_len) {
 	reg_kind = p_kind;
 	reg_bbox = p_bbox;
 	reg_center = p_center;
@@ -146,11 +150,25 @@ void TerrainKernel::set_regions(const PackedInt32Array &p_kind,
 	reg_ridges = p_ridges;
 	reg_ridge_depth = p_ridge_depth;
 	reg_over_bay = p_over_bay;
+	reg_peak_amp = p_peak_amp;
+	reg_peak_len = p_peak_len;
 	reg_nodes.clear();
 	reg_nodes.reserve(p_nodes.size());
 	for (int i = 0; i < p_nodes.size(); i++) {
 		reg_nodes.push_back(PackedVector2Array(p_nodes[i]));
 	}
+}
+
+void TerrainKernel::set_coast(const Ref<FastNoiseLite> &p_coast) {
+	coast = p_coast;
+}
+
+// Mirrors terrain.gd _coast_wobble (two scales, multi-octave noise).
+double TerrainKernel::coast_wobble(double x, double z, double amp,
+		double freq) const {
+	double f = freq * 100.0;
+	return coast->get_noise_2d(x * f, z * f) * amp +
+			coast->get_noise_2d(x * f * 4.7 + 310.0, z * f * 4.7) * amp * 0.4;
 }
 
 void TerrainKernel::set_bays(const PackedVector2Array &p_center,
@@ -178,9 +196,8 @@ double TerrainKernel::bay_carve(double x, double z, double h,
 			continue;
 		}
 		if (bay_amp[i] > 0.0f) {
-			d = Math::max(d + island->get_noise_2d(
-					x * (double)bay_freq[i] * 100.0,
-					z * (double)bay_freq[i] * 100.0) * (double)bay_amp[i], 0.0);
+			d = Math::max(d + coast_wobble(x, z, (double)bay_amp[i],
+					(double)bay_freq[i]), 0.0);
 		}
 		double w = (1.0 - gd_smoothstep((double)bay_radius[i], reach, d)) * guard;
 		if (w > 0.0) {
@@ -295,16 +312,30 @@ double TerrainKernel::region_height(double x, double z,
 		}
 		int kind = kinds[i];
 		double env;
-		if (kind == 2) { // ridge
+		if (kind == 2) { // ridge / range spine
 			const PackedVector2Array &nodes = reg_nodes[i];
 			double d = 1e12;
+			double s_along = 0.0;
+			double walked = 0.0;
 			for (int s = 0; s < nodes.size() - 1; s++) {
 				Vector2 a = nodes[s];
 				Vector2 ab = nodes[s + 1] - a;
+				double seg_len = ab.length();
 				double t = Math::clamp(
-						(double)(p - a).dot(ab) / (double)ab.length_squared(),
+						(double)(p - a).dot(ab) /
+								Math::max((double)ab.length_squared(), 1e-4),
 						0.0, 1.0);
-				d = Math::min(d, (double)p.distance_to(a + ab * (real_t)t));
+				double sd = p.distance_to(a + ab * (real_t)t);
+				if (sd < d) {
+					d = sd;
+					s_along = walked + t * seg_len;
+				}
+				walked += seg_len;
+			}
+			if (reg_coast_amp[i] > 0.0f) {
+				d = Math::max(d + coast_wobble(x, z,
+						(double)reg_coast_amp[i],
+						(double)reg_coast_freq[i]), 0.0);
 			}
 			if (d >= (double)reg_reach[i]) {
 				continue;
@@ -312,16 +343,20 @@ double TerrainKernel::region_height(double x, double z,
 			env = 1.0 - gd_smoothstep((double)reg_inner[i],
 							  (double)reg_reach[i], d);
 			env = env * env * (3.0 - 2.0 * env);
+			if (reg_peak_amp[i] > 0.0f) {
+				env *= 1.0 - (double)reg_peak_amp[i] *
+						(0.5 + 0.5 * Math::sin(s_along * Math_TAU /
+								(double)reg_peak_len[i]));
+			}
 		} else {
 			double d = p.distance_to(reg_center[i]);
 			if (d >= (double)reg_reach[i]) {
 				continue;
 			}
 			if (reg_coast_amp[i] > 0.0f) {
-				d = Math::max(d + island->get_noise_2d(
-						x * (double)reg_coast_freq[i] * 100.0,
-						z * (double)reg_coast_freq[i] * 100.0) *
-						(double)reg_coast_amp[i], 0.0);
+				d = Math::max(d + coast_wobble(x, z,
+						(double)reg_coast_amp[i],
+						(double)reg_coast_freq[i]), 0.0);
 				if (d >= (double)reg_reach[i]) {
 					continue;
 				}

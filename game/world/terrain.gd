@@ -83,6 +83,10 @@ var _reg_ridge_depth := PackedFloat32Array()
 # over_bays: landforms that rise OUT of a bay (bay islands) — added
 # after the bay carve instead of being erased by it.
 var _reg_over_bay := PackedInt32Array()
+# Range spines: peak/saddle modulation along a ridge polyline — a
+# mountain RANGE with summits instead of one uniform crest.
+var _reg_peak_amp := PackedFloat32Array()
+var _reg_peak_len := PackedFloat32Array()
 
 # Bays: SUBTRACTIVE regions — the sea reaching into an island (the
 # SF-bay interior). Applied after landforms, before painted tiles:
@@ -296,6 +300,7 @@ var _ranges := FastNoiseLite.new()
 
 
 var _island := FastNoiseLite.new()
+var _coast := FastNoiseLite.new()  # multi-octave: ragged coastlines
 
 
 func _ready() -> void:
@@ -316,6 +321,9 @@ func _ready() -> void:
 	_island.seed = 91
 	_island.frequency = 0.0015
 	_island.fractal_octaves = 2
+	_coast.seed = 55
+	_coast.frequency = 0.001
+	_coast.fractal_octaves = 5
 	_hills.seed = 7
 	_hills.frequency = 0.0025
 	_hills.fractal_octaves = 4
@@ -357,6 +365,7 @@ func _init_kernel() -> void:
 		flat.append(f[1])
 		flat.append(f[2])
 		flat.append(f[3])
+	kernel.set_coast(_coast)
 	kernel.set_base(_hills, _dunes, _ranges, _island, _edits,
 		float(EDIT_SIZE), EDIT_M_PER_PX, flat,
 		PackedVector2Array(VALLEY_PATH),
@@ -385,7 +394,7 @@ func _init_kernel() -> void:
 	kernel.set_regions(_reg_kind, _reg_bbox, _reg_center, _reg_radius,
 		_reg_reach, _reg_inner, _reg_height, _reg_tiers, _reg_nodes,
 		_reg_coast_amp, _reg_coast_freq, _reg_ridges, _reg_ridge_depth,
-		_reg_over_bay)
+		_reg_over_bay, _reg_peak_amp, _reg_peak_len)
 	kernel.set_bays(_bay_center, _bay_radius, _bay_feather, _bay_floor,
 		_bay_amp, _bay_freq)
 	kernel.set_tiles(_tiles)
@@ -699,6 +708,8 @@ func _load_regions() -> void:
 			"ridges": int(rec.get("ridges", 9)),
 			"ridge_depth": float(rec.get("ridge_depth", 0.35)),
 			"over_bays": bool(rec.get("over_bays", false)),
+			"peak_amp": float(rec.get("peak_amp", 0.0)),
+			"peak_len": float(rec.get("peak_len", 1400.0)),
 			"center": Vector2.ZERO,
 			"nodes": PackedVector2Array(),
 		}
@@ -744,6 +755,8 @@ func _load_regions() -> void:
 		_reg_ridges.append(float(reg.ridges))
 		_reg_ridge_depth.append(reg.ridge_depth)
 		_reg_over_bay.append(1 if reg.over_bays else 0)
+		_reg_peak_amp.append(reg.peak_amp)
+		_reg_peak_len.append(reg.peak_len)
 		var bbox := Rect2(reg.center, Vector2.ZERO)
 		for n: Vector2 in reg.nodes:
 			bbox = bbox.expand(n)
@@ -815,6 +828,14 @@ func _tile_blend(x: float, z: float, h: float, guard: float) -> float:
 	return h
 
 
+## Ragged-coast distance wobble: two scales of the multi-octave coast
+## noise — big bites AND fine crenellation. Shared by landforms + bays.
+func _coast_wobble(x: float, z: float, amp: float, freq: float) -> float:
+	var f := freq * 100.0
+	return _coast.get_noise_2d(x * f, z * f) * amp \
+		+ _coast.get_noise_2d(x * f * 4.7 + 310.0, z * f * 4.7) * amp * 0.4
+
+
 ## Summed authored island height at (x,z). Hot path (every bulk height
 ## sampler): packed reads only; bbox reject before any shape math; the
 ## detail-noise sample is shared and taken at most once per call.
@@ -834,13 +855,30 @@ func _region_height(x: float, z: float, over_bay_phase: int = 0) -> float:
 		if kind == REG_RIDGE:
 			var nodes: PackedVector2Array = _reg_nodes[i]
 			var d := 1e12
+			var s_along := 0.0
+			var walked := 0.0
 			for s in nodes.size() - 1:
-				d = minf(d, _segment_distance(p, nodes[s], nodes[s + 1]))
+				var a := nodes[s]
+				var ab := nodes[s + 1] - a
+				var seg_len := ab.length()
+				var t := clampf((p - a).dot(ab) / maxf(ab.length_squared(), 1e-4), 0.0, 1.0)
+				var sd := p.distance_to(a + ab * t)
+				if sd < d:
+					d = sd
+					s_along = walked + t * seg_len
+				walked += seg_len
+			if _reg_coast_amp[i] > 0.0:
+				d = maxf(d + _coast_wobble(x, z, _reg_coast_amp[i],
+					_reg_coast_freq[i]), 0.0)
 			if d >= _reg_reach[i]:
 				continue
 			env = 1.0 - smoothstep(_reg_inner[i], _reg_reach[i], d)
 			# Ridged profile: sharp crest, long walkable shoulders.
 			env = env * env * (3.0 - 2.0 * env)
+			if _reg_peak_amp[i] > 0.0:
+				# Summits and saddles along the spine: a RANGE, not a wall.
+				env *= 1.0 - _reg_peak_amp[i] \
+					* (0.5 + 0.5 * sin(s_along * TAU / _reg_peak_len[i]))
 		else:
 			var d := p.distance_to(_reg_center[i])
 			if d >= _reg_reach[i]:
@@ -848,9 +886,8 @@ func _region_height(x: float, z: float, over_bay_phase: int = 0) -> float:
 			# Coastline noise: wobble the radial distance so the shore
 			# becomes coves and headlands instead of a circle.
 			if _reg_coast_amp[i] > 0.0:
-				d = maxf(d + _island.get_noise_2d(
-					x * _reg_coast_freq[i] * 100.0,
-					z * _reg_coast_freq[i] * 100.0) * _reg_coast_amp[i], 0.0)
+				d = maxf(d + _coast_wobble(x, z, _reg_coast_amp[i],
+					_reg_coast_freq[i]), 0.0)
 				if d >= _reg_reach[i]:
 					continue
 			if kind == REG_VOLCANO:
@@ -895,9 +932,7 @@ func _bay_carve(x: float, z: float, h: float, guard: float) -> float:
 		if d >= reach:
 			continue
 		if _bay_amp[i] > 0.0:
-			d = maxf(d + _island.get_noise_2d(
-				x * _bay_freq[i] * 100.0,
-				z * _bay_freq[i] * 100.0) * _bay_amp[i], 0.0)
+			d = maxf(d + _coast_wobble(x, z, _bay_amp[i], _bay_freq[i]), 0.0)
 		var w := (1.0 - smoothstep(_bay_radius[i], reach, d)) * guard
 		if w > 0.0:
 			h = lerpf(h, _bay_floor[i], w)

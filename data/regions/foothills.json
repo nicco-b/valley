@@ -1,0 +1,14 @@
+{
+ "id": "foothills",
+ "layer": "surface",
+ "kind": "dome",
+ "center": {
+  "x": -1900,
+  "z": -2000
+ },
+ "radius": 500,
+ "feather": 280,
+ "height": 100,
+ "coast_amp": 300,
+ "coast_freq": 0.003
+}

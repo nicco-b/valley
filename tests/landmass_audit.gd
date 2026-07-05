@@ -15,7 +15,8 @@ func _init() -> void:
 	var cell_km2 := (step * step) / 1e6
 	# Per-island tallies: name -> [center, radius, count]
 	var islands := {
-		"big island (all)": [Vector2(-400, -1000), 4600.0, 0],
+		"range isle": [Vector2(-3300, -3100), 2600.0, 0],
+		"home+bay isle": [Vector2(500, -600), 2900.0, 0],
 		"pali isle": [Vector2(4700, -1600), 1100.0, 0],
 		"barren isle": [Vector2(4300, 900), 1300.0, 0],
 		"terrace hill": [Vector2(5900, -400), 800.0, 0],

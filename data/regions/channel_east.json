@@ -1,0 +1,14 @@
+{
+ "id": "channel_east",
+ "layer": "surface",
+ "kind": "bay",
+ "center": {
+  "x": 1230,
+  "z": -1500
+ },
+ "radius": 380,
+ "feather": 240,
+ "floor": -6.0,
+ "coast_amp": 140,
+ "coast_freq": 0.005
+}

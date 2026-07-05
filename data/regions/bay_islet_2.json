@@ -1,5 +1,5 @@
 {
- "id": "angel_isle",
+ "id": "bay_islet_2",
  "layer": "surface",
  "kind": "dome",
  "center": {
@@ -7,9 +7,9 @@
   "z": -750
  },
  "radius": 190,
- "feather": 110,
+ "feather": 104,
  "height": 35,
- "coast_amp": 60,
+ "coast_amp": 75,
  "coast_freq": 0.007,
  "over_bays": true
 }

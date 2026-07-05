@@ -19,5 +19,7 @@
  "inner": 220,
  "feather": 380,
  "height": 60,
- "over_bays": true
+ "over_bays": true,
+ "coast_amp": 150,
+ "coast_freq": 0.005
 }

@@ -347,6 +347,47 @@ treatment:*
   spends no surface kilometers, so ~10–12km of interesting surface can
   sit inside a larger barren and still play "bigger" than 25km flat.
 
+## The atmosphere & the sea (2026-07-05 — the climate-v2 conversation;
+## substrate items live in SIM_ROADMAP "Climate v2", these are the readers)
+
+- ★ **Spring/neap tides + tide readers:** the tide is SHIPPED
+  (`Terrain.sea_surface()`: stateless semidiurnal sine, 12.42h, 0.45m)
+  but it's a pure clock sine — modulate amplitude by the real
+  `sky.moon_phase` (spring tides at full/new moon, neaps at quarters);
+  let the strand moisture band follow the LIVE surface (climate.gd
+  still reads static sea level — its "without a tide (yet)" comment
+  is stale); tidal causeways/fords that open on a learnable real
+  schedule (~50 min later each day); the gate-strait current; tide
+  pools on the intertidal band. Effort: small each. Rides on: tide
+  (shipped), real moon (shipped), water field.
+- ★ **Geothermal on the volcano:** hot springs on the flanks — warm
+  water in cold air, a snow-free anomaly patch inside the winter
+  snowcap, wildlife converging there in winter; the comfort loop's
+  best set piece. Effort: small (a heat-source term in Climate + a
+  water record). Rides on: Climate, snow state, wildlife.
+- ★ **Scent field — the third sense:** agents deposit scent, wind
+  advects it on the 80m interaction field, predators/prey (and later
+  the player's tracking skill) read it; approach-from-downwind
+  becomes real gameplay and tracking gains a dimension prints don't
+  carry. Effort: medium. Rides on: wind vector, InteractionField,
+  perception P3.
+- **Spoilage & drying — humidity's first inventory reader:** food
+  records decay by local temperature × humidity; fish dries into a
+  keepable good in dry leeward air, things rot in the humid lowlands.
+  Climate made legible through the satchel; preservation quietly
+  seeds why trade routes exist. Effort: small-medium. Rides on:
+  Climate v2 humidity, items.
+- **Flotsam:** after a storm front passes, driftwood and oddities
+  beach on windward shores — beachcombing steered by the weather the
+  player watched. Effort: small. Rides on: fronts (shipped), wind.
+- **Birds as weather instruments:** tier-3 flocks (positions only, no
+  navmesh — cheaper than the herd); flocks ground before a front
+  arrives, Weatherlore's most readable tell; seabirds mark fish
+  later. Effort: medium. Rides on: AgentSim pattern, fronts.
+- **Parked: wildfire.** The classic next sim, declined for now —
+  off-tone for the gentle-comfort law and a griefing engine against
+  persistent flora.
+
 ## Later / bigger
 
 - **Seasonal drift:** not four hard seasons — slow bloom-cycles and light

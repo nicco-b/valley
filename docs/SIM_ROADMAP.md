@@ -80,6 +80,37 @@ temperature — material-states layer from F1.5) and a **wind vector**
 (direction, not just strength — dunes, audio panning, seed drift read
 it). Interface now, one region while the world is one valley.
 
+**Climate v2 — the spatial atmosphere (added 2026-07-05, the
+climate conversation; concretizes "regionalize the fields" now that
+the world is an archipelago with traveling fronts and a volcano).**
+Hawaii's fact: one mountain interrupting one prevailing wind makes a
+dozen climates. Four rules buy it:
+- **Rain shadow (orographic lift):** fronts (Weather phase B/C)
+  already travel along a wind heading; when a front's path crests
+  high terrain it drops extra rain windward and arrives dry leeward.
+  Windward flanks run lush, leeward runs dry — *derived, not
+  painted* — and Hydrology's windward catchments fill for free.
+- **Humidity as its own field:** air humidity ≠ ground wetness —
+  distance-to-sea downwind, evaporation off warm water, recent rain,
+  falling with altitude. The honest substrate under dew fog, dew at
+  dawn, star extinction, and the cricket thermometer (all currently
+  proxying off wetness), and the diurnal-swing knob below.
+- **Maritime moderation + aspect:** damp the diurnal temperature
+  swing near the sea and by humidity (deserts freeze at night,
+  coasts don't); warm equator-facing slopes by dot(normal, mean sun)
+  (IDEAS already wants aspect for snowmelt).
+- **Soil fertility from the erosion bake:** the map pipeline's
+  hydraulic erosion already computes sediment deposition (alluvial
+  fans) — persist it as a third substrate field. Flora density reads
+  it now, agriculture later; "why is the farm *here*" gets a true
+  answer.
+Payoff: **biomes derived from climate equilibrium** (map stage B′) —
+run climate to steady state, classify temperature × moisture
+(Whittaker), and hand the result to `derive_biomes` as a better seed
+for the painted map; sim proposes, author disposes, same as the
+stage-C river plan. Slot after stage C. First gameplay readers:
+spoilage/drying, geothermal and tidal set pieces (IDEAS 2026-07-05).
+
 **Weather** — from global state machine to **fronts that travel**: a
 weather system is a position + heading on the region map; you *see the
 storm coming over the west ridge* before it arrives (readability beats

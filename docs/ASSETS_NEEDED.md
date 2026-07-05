@@ -46,6 +46,36 @@ impact within each section. Specs referenced from [ART_BIBLE.md](ART_BIBLE.md).*
 | ★★ | **Decision: no-compass Morrowind navigation?** | Must precede quest/dialogue writing style |
 | ★ | Naming language + first place names | The map's labels, the lore bible's spine |
 
+## Scale discipline (2026-07-05 — read before the biome build-out)
+
+The future asset load is a combinatorics problem, not a volume
+problem: 8 biomes × ~8 flora species × 4 lifecycle stages × seasonal
+states is 1,000+ paintings — no solo illustrator survives that.
+The mitigations, in force from now on:
+
+- **2–3 signature species per biome + one shared filler set.** A
+  biome's identity is its signature silhouettes; filler repeats
+  everywhere and nobody notices.
+- **Stages and seasons via shader, not repaint.** `flora_vitality`
+  straw-drying already proves it; the stage-B biome palette tint is
+  the same lever. Paint a species once; the sim recolors it.
+- **Kits, not pieces** (rocks/cliffs/architecture — already canon).
+- **One shared creature clip taxonomy** (Idle/Walk/Run/Drink/Rest/
+  Alert/Flee + one special per species) so every new species drops
+  into AgentSim's activity→clip mapping with zero code. ~8–15
+  species is a full-feeling valley.
+- **Icons rendered from a Blender turntable rig** — never paint an
+  item twice.
+
+Code will meet the art halfway (Toolkit-shaped, build as needed):
+species records name their art slots (drop a file, never touch
+code — mostly true already); a derived asset manifest (walk the
+records, report filled vs. placeholder — this document's tables
+become a generated report); a hot-reloading lineup scene (every
+species × stage × biome light, so a new painting is judged
+in-context in seconds); Blender export validation in test.sh
+(clip names, +Z facing, `-col` meshes — fail at import, not in-game).
+
 ## Already handled by code (no assets needed)
 
 Terrain color/variation, ambient occlusion, soft shadows, palette grading,

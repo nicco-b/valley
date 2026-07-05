@@ -158,7 +158,9 @@ commit the attributes and (optionally, history rewrite — coordinate!)
 **Archipelago v3 — the Big Island (2026-07-05, Nicco's map-scale
 call: "2-3x bigger, Hawaii, detailed coastlines, satellite chain, SF-
 bay interior").** Usable land 15→49 km² (Big Island 42 km², one
-landmass): **Mauna**, an 850m Throat-of-the-World-class volcano
+landmass): an 850m Throat-of-the-World-class volcano (v3 called it
+"Mauna"; v4's plain-names pass retired explicit Hawaii naming — real
+names wait on the naming-language canon item)
 (new `volcano` region kind — concave flanks + radial ridge/ravine
 drainage; winter snowline crosses it, so the seasonal snowcap falls
 out of the lapse-rate sim), the home valley untouched at its foot;

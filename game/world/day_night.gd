@@ -28,7 +28,7 @@ func _process(_delta: float) -> void:
 	sun.rotation.x = -(h - 6.0) / 24.0 * TAU
 	var elevation := sin((h - 6.0) / 24.0 * TAU)
 	sun.light_energy = clampf(elevation * 1.2, 0.0, 0.95) \
-			* (1.0 - 0.55 * Weather.storminess)
+			* (1.0 - 0.4 * Weather.storminess - 0.3 * Weather.cloud)
 
 	# Sky palette: lerp between bracketing keyframes.
 	var a: Array = KEYS[0]
@@ -66,7 +66,7 @@ func _process(_delta: float) -> void:
 	var fog := Weather.fog_amount()
 	env.fog_light_color = horizon.lerp(Color(0.8, 0.7, 0.58), Weather.storminess * 0.6) \
 		.lerp(Color(0.92, 0.88, 0.86), fog * 0.5)
-	env.fog_density = lerpf(0.00022, 0.0045, Weather.storminess)
+	env.fog_density = lerpf(0.00022, 0.0045, maxf(Weather.storminess, Weather.dust * 0.85))
 	env.fog_sky_affect = 0.3 + 0.5 * Weather.storminess  # sky survives dew fog
 	env.fog_height = 8.0 + 18.0 * fog
 	# Per-meter extinction INSIDE the layer: ~100m visibility at full

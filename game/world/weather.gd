@@ -7,21 +7,64 @@ extends Node
 ## The wind value is also published as the global shader parameter
 ## "wind_strength" so vegetation reacts without per-material plumbing.
 
-const WIND_LEVELS := {"calm": 0.12, "windy": 0.55, "storm": 1.0}
-# state -> [[next state, probability], ...] rolled each game hour
+# The taxonomy (phase C, 2026-07-05): a kind is a BUNDLE of continuous
+# properties, not a switch — consumers read the numbers (rain, cloud,
+# dust, wind, menace), the string is just its name. Seven kinds:
+#   calm      still, bright — the desert default
+#   overcast  grey lid, dim light, dry
+#   drizzle   soft rain that wets the world SLOWLY, low drama
+#   windy     honest wind, some dust, loose weather
+#   gale      dry sand-blasting wind — the desert's own violence
+#   squall    narrow, fast, vicious — wind AND rain, gone in minutes
+#   storm     the full system: rain, wind, menace, hours wide
+# menace is what the old 'storminess' meant: shelter-seeking, sun
+# dimming, dread. wind/rain/cloud/dust each drive their own systems.
+const KINDS := {
+	"calm": {"wind": 0.12, "rain": 0.0, "cloud": 0.08, "dust": 0.05,
+		"menace": 0.0, "speed": 2.2, "width": [7000.0, 16000.0]},
+	"overcast": {"wind": 0.22, "rain": 0.0, "cloud": 0.75, "dust": 0.0,
+		"menace": 0.15, "speed": 2.6, "width": [6000.0, 12000.0]},
+	"drizzle": {"wind": 0.3, "rain": 0.3, "cloud": 0.9, "dust": 0.0,
+		"menace": 0.3, "speed": 2.8, "width": [4000.0, 9000.0]},
+	"windy": {"wind": 0.55, "rain": 0.0, "cloud": 0.3, "dust": 0.35,
+		"menace": 0.2, "speed": 3.2, "width": [4000.0, 9000.0]},
+	"gale": {"wind": 0.85, "rain": 0.0, "cloud": 0.2, "dust": 0.9,
+		"menace": 0.55, "speed": 3.8, "width": [2800.0, 6000.0]},
+	"squall": {"wind": 0.95, "rain": 0.85, "cloud": 0.9, "dust": 0.1,
+		"menace": 0.9, "speed": 5.5, "width": [1100.0, 2400.0]},
+	"storm": {"wind": 1.0, "rain": 1.0, "cloud": 1.0, "dust": 0.05,
+		"menace": 1.0, "speed": 4.0, "width": [2600.0, 6500.0]},
+}
+# kind -> [[next kind, probability], ...] — the spawn chain windward.
 const TRANSITIONS := {
-	"calm": [["calm", 0.65], ["windy", 0.28], ["storm", 0.07]],
-	"windy": [["windy", 0.4], ["calm", 0.4], ["storm", 0.2]],
-	"storm": [["windy", 0.5], ["storm", 0.3], ["calm", 0.2]],
+	"calm": [["calm", 0.5], ["overcast", 0.16], ["windy", 0.16],
+		["gale", 0.08], ["drizzle", 0.05], ["squall", 0.02], ["storm", 0.03]],
+	"overcast": [["overcast", 0.28], ["calm", 0.22], ["drizzle", 0.24],
+		["storm", 0.12], ["squall", 0.06], ["windy", 0.08]],
+	"drizzle": [["overcast", 0.32], ["drizzle", 0.28], ["storm", 0.2],
+		["calm", 0.2]],
+	"windy": [["windy", 0.3], ["calm", 0.3], ["gale", 0.18],
+		["overcast", 0.12], ["squall", 0.1]],
+	"gale": [["calm", 0.34], ["gale", 0.26], ["windy", 0.22],
+		["squall", 0.18]],
+	"squall": [["calm", 0.3], ["overcast", 0.3], ["windy", 0.22],
+		["squall", 0.18]],
+	"storm": [["overcast", 0.36], ["drizzle", 0.24], ["storm", 0.2],
+		["calm", 0.2]],
 }
 const EASE := 0.12  # per-second approach rate toward targets
-# Storm likelihood scales with the real season (GameClock.season):
-# winter broods, summer stretches calm.
+# Wet-weather likelihood scales with the real season; the gale is the
+# dry season's own violence.
 const SEASON_STORM_BIAS := {"winter": 1.6, "autumn": 1.25, "spring": 1.0, "summer": 0.6}
+const SEASON_GALE_BIAS := {"winter": 0.7, "autumn": 0.9, "spring": 1.0, "summer": 1.7}
+const WET_KINDS := ["storm", "squall", "drizzle"]
 
 var state := "calm"
-var wind: float = WIND_LEVELS.calm
-var storminess := 0.0
+var wind := 0.12
+var storminess := 0.0  # menace at the focus (the old meaning, eased)
+var rain := 0.0        # rainfall at the focus, 0..1
+var cloud := 0.08      # cloud cover at the focus, 0..1
+var dust := 0.05       # airborne sand at the focus, 0..1
 
 # Fronts (the Elements phase B, 2026-07-05): weather is BANDS with
 # positions, not one global switch. Each front spawns windward of the
@@ -40,9 +83,6 @@ var storminess := 0.0
 # replayed by catch-up, fingerprinted by the soak.
 const WORLD_R := 13000.0
 const LEAD_SOFT := 800.0  # meters of soft leading edge
-const FRONT_SPEED := {"calm": 2.2, "windy": 3.2, "storm": 4.0}  # m/s
-const FRONT_WIDTH := {"calm": [7000.0, 16000.0],
-	"windy": [4000.0, 9000.0], "storm": [2600.0, 6500.0]}
 var fronts: Array[Dictionary] = []
 var _last_kind := "calm"  # spawn chain state (TRANSITIONS walks this)
 # Fog (the Elements, 2026-07-05): a STATELESS function of the sim —
@@ -76,9 +116,10 @@ func fog_amount() -> float:
 ## Toolkit: the air at the focus, then every front on the map.
 func summary() -> String:
 	var lines := PackedStringArray()
-	lines.append("%s  wind=%.2f dir=(%.2f, %.2f)  storminess=%.2f  fog=%.2f%s" % [
-		state, wind, wind_dir.x, wind_dir.y, storminess, fog_amount(),
-		"" if fog_override < 0.0 else " (OVERRIDE)"])
+	lines.append("%s  wind=%.2f rain=%.2f cloud=%.2f dust=%.2f menace=%.2f fog=%.2f dir=(%.2f, %.2f)%s" % [
+		state, wind, rain, cloud, dust, storminess, fog_amount(),
+		wind_dir.x, wind_dir.y,
+		"" if fog_override < 0.0 else " (FOG OVERRIDE)"])
 	for f in fronts:
 		lines.append("  front %s  edge=%.0fm/%0.f  width=%.0fm  dir=(%.2f, %.2f)  %.1fm/s" % [
 			f.kind, f.edge, WORLD_R, f.width, f.dx, f.dz, f.speed])
@@ -92,7 +133,7 @@ func _ready() -> void:
 
 
 func load_state() -> void:
-	wind = float(WorldState.get_value("weather.wind", WIND_LEVELS.calm))
+	wind = float(WorldState.get_value("weather.wind", 0.12))
 	_wind_angle = float(WorldState.get_value("weather.wind_angle", _wind_angle))
 	wind_dir = Vector2(cos(_wind_angle), sin(_wind_angle))
 	fronts.clear()
@@ -107,11 +148,11 @@ func load_state() -> void:
 		# Fresh world or legacy save: one band of the old global state
 		# covering everything, already fully entered.
 		var kind := String(WorldState.get_value("weather.state", "calm"))
-		if not TRANSITIONS.has(kind):
+		if not KINDS.has(kind):
 			kind = "calm"
 		fronts.append({"kind": kind, "dx": wind_dir.x, "dz": wind_dir.y,
 			"edge": WORLD_R, "width": WORLD_R * 2.5,
-			"speed": float(FRONT_SPEED[kind])})
+			"speed": float(KINDS[kind].speed)})
 	_last_kind = fronts[fronts.size() - 1].kind
 	state = String(fronts[fronts.size() - 1].kind)  # refined next _process
 
@@ -134,10 +175,22 @@ func state_at(x: float, z: float) -> String:
 	return _local(x, z).kind
 
 
-## Storm intensity over a world position (soft leading edge included).
-func storminess_at(x: float, z: float) -> float:
+## Continuous local properties (lead-softened): the numbers consumers
+## should read. prop in [wind, rain, cloud, dust, menace].
+func property_at(x: float, z: float, prop: String) -> float:
 	var lw := _local(x, z)
-	return lw.lead if lw.kind == "storm" else 0.0
+	return float(KINDS[lw.kind][prop]) * lw.lead
+
+
+## Storm/menace intensity over a world position (the old meaning).
+func storminess_at(x: float, z: float) -> float:
+	return property_at(x, z, "menace")
+
+
+## Rainfall over a world position, 0..1 — drizzle wets slowly, storms
+## pour; Hydrology and Climate read THIS, so rain is continuous.
+func rain_at(x: float, z: float) -> float:
+	return property_at(x, z, "rain")
 
 
 func _focus_xz() -> Vector2:
@@ -156,9 +209,12 @@ func _process(delta: float) -> void:
 		state = lw.kind
 		print("[weather] front over focus -> ", state)
 	var blend := 1.0 - exp(-EASE * delta)
-	wind = lerpf(wind, WIND_LEVELS[state] * lerpf(0.55, 1.0, lw.lead), blend)
-	storminess = lerpf(storminess,
-		lw.lead if state == "storm" else 0.0, blend)
+	var k: Dictionary = KINDS[state]
+	wind = lerpf(wind, float(k.wind) * lerpf(0.55, 1.0, lw.lead), blend)
+	storminess = lerpf(storminess, float(k.menace) * lw.lead, blend)
+	rain = lerpf(rain, float(k.rain) * lw.lead, blend)
+	cloud = lerpf(cloud, float(k.cloud) * lerpf(0.5, 1.0, lw.lead), blend)
+	dust = lerpf(dust, float(k.dust) * lw.lead, blend)
 	RenderingServer.global_shader_parameter_set("wind_strength", wind)
 	RenderingServer.global_shader_parameter_set("wind_dir", wind_dir)
 
@@ -170,7 +226,7 @@ func _process(delta: float) -> void:
 func force_kind(kind: String) -> void:
 	fronts.append({"kind": kind, "dx": wind_dir.x, "dz": wind_dir.y,
 		"edge": WORLD_R, "width": WORLD_R * 2.5,
-		"speed": float(FRONT_SPEED[kind])})
+		"speed": float(KINDS[kind].speed)})
 	_last_kind = kind
 	state = kind
 
@@ -215,22 +271,29 @@ func _door_open() -> bool:
 	return float(last.edge) - float(last.width) >= -WORLD_R
 
 
+func _weight(kind: String, base: float) -> float:
+	if kind in WET_KINDS:
+		return base * float(SEASON_STORM_BIAS.get(GameClock.season, 1.0))
+	if kind == "gale":
+		return base * float(SEASON_GALE_BIAS.get(GameClock.season, 1.0))
+	return base
+
+
 func _spawn_front() -> void:
-	var bias: float = SEASON_STORM_BIAS.get(GameClock.season, 1.0)
 	var total := 0.0
 	for t in TRANSITIONS[_last_kind]:
-		total += t[1] * (bias if t[0] == "storm" else 1.0)
+		total += _weight(t[0], t[1])
 	var roll := Rng.stream("weather").randf() * total
 	var acc := 0.0
 	var kind: String = _last_kind
 	for t in TRANSITIONS[_last_kind]:
-		acc += t[1] * (bias if t[0] == "storm" else 1.0)
+		acc += _weight(t[0], t[1])
 		if roll <= acc:
 			kind = t[0]
 			break
-	var wrange: Array = FRONT_WIDTH[kind]
+	var wrange: Array = KINDS[kind].width
 	var width: float = Rng.stream("weather").randf_range(wrange[0], wrange[1])
 	fronts.append({"kind": kind, "dx": wind_dir.x, "dz": wind_dir.y,
-		"edge": -WORLD_R, "width": width, "speed": float(FRONT_SPEED[kind])})
+		"edge": -WORLD_R, "width": width, "speed": float(KINDS[kind].speed)})
 	_last_kind = kind
 	print("[weather] front spawned windward: ", kind, " (", int(width), "m)")

@@ -60,7 +60,7 @@ func _process(delta: float) -> void:
 	if _base_pending:
 		_drain_base()
 		return
-	var rain := RAIN_VIS * delta if Weather.state == "storm" else 0.0
+	var rain := RAIN_VIS * Weather.rain * delta
 	var soak := (SOAK_BASE + SOAK_DRY_BONUS * (1.0 - Climate.wetness)) * delta
 	_gpu.tick(rain, soak, SEEP * delta)
 	_probe_accum += delta

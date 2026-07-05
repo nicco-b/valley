@@ -106,16 +106,16 @@ func moisture(x: float, z: float) -> float:
 
 func _hourly(_h: int) -> void:
 	var t := temperature(REFERENCE.x, REFERENCE.y)
-	# Phase-B fronts: the valley gets wet when a storm band is OVER the
-	# valley, not wherever the player happens to be standing.
-	var local_storm := Weather.state_at(REFERENCE.x, REFERENCE.y) == "storm"
-	if local_storm:
-		wetness = minf(wetness + RAIN_RATE, 1.0)
+	# Continuous rain over the VALLEY (phase C): drizzle wets slowly, a
+	# storm soaks — and none of it depends on where the player stands.
+	var local_rain := Weather.rain_at(REFERENCE.x, REFERENCE.y)
+	if local_rain > 0.05:
+		wetness = minf(wetness + RAIN_RATE * local_rain, 1.0)
 	else:
 		wetness = maxf(wetness - BASE_DRY_RATE - WARM_DRY_RATE * maxf(t, 0.0), 0.0)
-	# Snow falls in storms that reach freezing into the valley's relief;
+	# Snow: any freezing rainfall reaching the valley's relief;
 	# melt runs off as wetness — spring mud comes free.
-	if local_storm and snow_line() < 60.0:
+	if local_rain > 0.05 and snow_line() < 60.0:
 		snow = minf(snow + SNOW_FALL, 1.0)
 	elif snow > 0.0:
 		var melt := minf(SNOW_MELT_BASE + SNOW_MELT_WARM * maxf(t, 0.0), snow)

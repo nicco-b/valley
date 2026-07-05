@@ -144,9 +144,9 @@ func flow_norm(river_id: String) -> float:
 
 func _hourly(_h: int) -> void:
 	_ensure_catchments()
-	# Phase-B fronts: rain lands in the watershed when a storm band is
-	# over IT (the player may be standing in sun two islands away).
-	var rain := STORM_RAIN_M if Weather.state_at(center.x, center.y) == "storm" else 0.0
+	# Continuous rain over the watershed (phase C): drizzle feeds the
+	# brook gently, a storm floods it; player position irrelevant.
+	var rain := STORM_RAIN_M * Weather.rain_at(center.x, center.y)
 	var runoff := lerpf(RUNOFF_DRY, RUNOFF_WET, Climate.wetness)
 	# Snowmelt: Climate already decided how much cover melted this hour
 	# (it runs first on hour_tick); the drop becomes meltwater depth.

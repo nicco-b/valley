@@ -78,14 +78,13 @@ func _process(delta: float) -> void:
 	# Splats land anywhere in the window — only water meshes sample the
 	# field, so dry-land splats simply never render.
 	var rate := 0.0
-	if Weather.state == "storm":
-		rate += RAIN_PER_SEC
+	rate += RAIN_PER_SEC * Weather.rain
 	rate += CHOP_PER_SEC * Weather.wind
 	_emit_accum += rate * delta
 	while _emit_accum >= 1.0 and _op_count < WaveGpu.MAX_OPS:
 		_emit_accum -= 1.0
 		var off := Vector2(_rng.randf() - 0.5, _rng.randf() - 0.5) * WaveGpu.REGION
-		var rain := Weather.state == "storm"
+		var rain := Weather.rain > 0.3
 		disturb(_anchor + off, 0.35 if rain else 1.6,
 			(0.008 if rain else 0.002) * (0.5 + _rng.randf()))
 		if not rain:

@@ -20,6 +20,11 @@ func _ready() -> void:
 func _run() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
+	# Run under Movie Maker (--write-movie --fixed-fps 15) minimized:
+	# frames advance while unfocused and no window beach-balls the
+	# desktop (macOS throttles/flags unfocused Godot windows).
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED)
+	FocusThrottle.queue_free()
 	var player: CharacterBody3D = get_tree().get_first_node_in_group("player")
 	# First: the player's REAL save spot with the REAL wear — the ground
 	# the human actually tests on. Stamp a short line and look at it.

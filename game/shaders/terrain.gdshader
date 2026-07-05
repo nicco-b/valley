@@ -36,7 +36,13 @@ void vertex() {
 		// The dense patch renders the granular sim: deform_map is SIGNED
 		// sand volume in METERS (pits negative, ridges positive, mass
 		// conserved by the sim). The geometry simply follows it.
-		float r = length(VERTEX.xz);
+		// Distance from the PATCH center in WORLD space — the kernel-
+		// built patch mesh is corner-origin, so local VERTEX.xz no
+		// longer measures from the patch center (lost-footsteps bug,
+		// 2026-07-05). patch_center, not deform_center: the fade ring
+		// must track the hole in the terrain, and the field anchor
+		// snaps on a different grid.
+		float r = length(wpos.xz - patch_center);
 		vec2 d_uv = (wpos.xz - deform_center) / deform_size + 0.5;
 		float sand = 0.0;
 		if (all(greaterThan(d_uv, vec2(0.0))) && all(lessThan(d_uv, vec2(1.0)))) {

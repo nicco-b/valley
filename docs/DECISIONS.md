@@ -199,6 +199,22 @@ All decided 2026-07-01 (first design day) unless noted.*
   Rides on: waypoint graph (SIM_ROADMAP P2), NPC stocks (long memory,
   built), rumors (built), Hydrology (built). Outranks further ecology
   rungs in build order.
+- **The clock stays pure 1:1 — morning exists only in the morning**
+  *(2026-07-04, Nicco, settling the planning session's open question)*.
+  No compression, no player-directed time travel. If you want to see
+  dawn in the valley, you are awake at dawn in your world; most players
+  will never see most painted palettes, and that scarcity is the point —
+  light you had to be present for is light that means something. This
+  is the ambient-sim thesis applied to time itself: the game keeps the
+  world's hours, not the player's convenience. `advance_hours` keeps
+  its one meaning (catch-up replay of a world that ran without you).
+  Corollaries: dev time travel stays dev-only; seasonal/palette content
+  is long-tail by design (a February player and a July player play
+  different valleys); one standing tension to revisit deliberately —
+  the Stillness skill already bends time while sitting (time_scale),
+  the single sanctioned diegetic exception; decide at the kitchen table
+  whether it survives contact with this entry or becomes pure presence
+  (unchanged clock, changed attention).
 - **Gameplay loops: posture, not decision — decide after the caravan
   and navigation layers exist** *(2026-07-04)*. The sim-first bet earns
   deciding late. Candidates on the table, to be playtested against the
@@ -224,12 +240,8 @@ All decided 2026-07-01 (first design day) unless noted.*
   remembered forever. To settle: what does the world remember forever,
   and who repairs the rest? Gates dense settlements; decide before the
   village.)
-- **The 1:1 clock's consequence** (a 7–9pm player sees only 7–9pm
-  forever — most painted palettes go unseen. Options: pure 1:1;
-  anchored-but-compressed (game day ≈ 4 real hours); or 1:1 with
-  diegetic time travel — sleeping/Stillness choosing when to wake.
-  Third is the leaning favorite but changes `advance_hours` semantics
-  from "catch up" to "player-directed", so it's upstream of code.)
+- ~~The 1:1 clock's consequence~~ — settled same day: pure 1:1, see
+  the decision above. Only the Stillness-exception question remains.
 - Field-recordist player character (signature-mechanic candidate — leaning yes)
 - No-compass/no-markers Morrowind navigation (decide before quest content)
 - Fast travel: diegetic-or-none (decide with world size)

@@ -122,8 +122,12 @@ NPCs (Wanderer, Keeper) still ride the CC0 robot placeholder.
 refreshed ≤ every 10 min, load falls back live → bak1 → bak2 with a
 warning — a torn save costs minutes, never the world); god mode (F1:
 fly/sculpt/place/inspect); live map (M, gestures); hot-reload of paintings;
-place mode writing cell records; gamepad support; physics interpolation
-on (Jolt ticks 60Hz, ProMotion displays 120 — no micro-judder); CI on
+place mode writing cell records; gamepad support (physics interpolation
+was tried 2026-07-04 and REVERTED: a streamed world teleports/adds nodes
+every frame — cells, scatter, sand patch, water sheet — and each arrival
+renders as a white streak without a per-node reset_physics_interpolation
+pass; adopt deliberately later with interpolation OFF on procedural
+nodes, or accept the 60/120Hz micro-judder); CI on
 GitHub (Linux + **macOS-14/Apple Silicon** — the shipping platform;
 note test.sh is headless, so Metal compute kernels still only run under
 a local windowed session); test

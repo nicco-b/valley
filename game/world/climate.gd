@@ -55,6 +55,13 @@ var wetness: float:
 
 var _shader_wetness := 0.25
 var _shader_snow := 0.0
+# Static terrain facts per grid cell (swing, gradient, height), cached
+# so the hourly field tick — and every catch-up replay hour — pays for
+# terrain probes exactly once. Cleared when the terrain itself moves
+# (a bake hot-reload reshapes the world under the cache).
+var _cell_swing := PackedFloat32Array()
+var _cell_grad := PackedFloat32Array()
+var _cell_h := PackedFloat32Array()
 
 
 static func _fresh_grid() -> PackedFloat32Array:
@@ -68,6 +75,10 @@ func _ready() -> void:
 	add_to_group("world_state_reader")  # SaveGame re-calls load_state post-restore
 	load_state()
 	GameClock.hour_tick.connect(_hourly)
+	Terrain.edited.connect(func(_r: Rect2) -> void:
+		_cell_swing.clear()
+		_cell_grad.clear()
+		_cell_h.clear())
 
 
 func load_state() -> void:
@@ -115,21 +126,94 @@ func wetness_at(x: float, z: float) -> float:
 	return wet_grid[_cell_index(x, z)]
 
 
+# The thermal field (Climate v2 phase 2, 2026-07-05): temperature is
+# still stateless, but now it knows WHERE it is beyond altitude —
+#   maritime: the sea damps the diurnal swing (coasts never bake or
+#     freeze the way the interior does; inland stays exactly as tuned).
+#   aspect: this world's sun rises at +Z, passes overhead, sets at -Z
+#     (day_night.gd), so there is no permanent warm side — instead,
+#     slopes facing the sun's CURRENT bearing run warmer: east flanks
+#     thaw first in the morning, west flanks hold the evening heat.
+const MARITIME_R := 1800.0  # how far the sea's moderation reaches
+const MARITIME_SWING := 0.6  # coastal diurnal swing factor (1.0 inland)
+const ASPECT_GAIN := 1.8  # degrees on a full-tilt sun-facing slope
+const ASPECT_STEP := 25.0  # gradient sampling baseline (m)
+
+
 ## The valley-floor air, before altitude: season (via daylight length,
 ## so calendar/hemisphere come from GameClock), time of day (coldest
 ## pre-dawn, warmest mid-afternoon, flattened under storm cloud), storm
 ## chill.
 func base_temperature() -> float:
+	return _seasonal() + _diurnal() - 3.0 * Weather.storminess
+
+
+func _seasonal() -> float:
 	var span := GameClock.daylight_span()
-	var seasonal := lerpf(0.0, 26.0, clampf(((span.y - span.x) - 8.5) / 7.0, 0.0, 1.0))
-	var diurnal := -cos(TAU * (GameClock.solar_hours() - 3.0) / 24.0) \
+	return lerpf(0.0, 26.0, clampf(((span.y - span.x) - 8.5) / 7.0, 0.0, 1.0))
+
+
+func _diurnal() -> float:
+	return -cos(TAU * (GameClock.solar_hours() - 3.0) / 24.0) \
 			* 5.0 * (1.0 - 0.5 * Weather.storminess)
-	return seasonal + diurnal - 3.0 * Weather.storminess
 
 
-## Air temperature (degrees-ish; mood, not meteorology) at a position.
+## Air temperature (degrees-ish; mood, not meteorology) at a position:
+## season + diurnal (sea-damped) + storm chill + altitude lapse +
+## sun-facing slope warmth.
 func temperature(x: float, z: float) -> float:
-	return base_temperature() - LAPSE * maxf(Terrain.height(x, z), 0.0)
+	return _seasonal() + _diurnal() * _swing(x, z) - 3.0 * Weather.storminess \
+			- LAPSE * maxf(Terrain.height(x, z), 0.0) \
+			+ aspect_term(_gradient_z(x, z), GameClock.solar_hours())
+
+
+## Diurnal swing factor: 1.0 deep inland (the valley keeps its tuned
+## feel), damped toward MARITIME_SWING by how much open sea sits within
+## MARITIME_R. Deterministic terrain reads.
+func _swing(x: float, z: float) -> float:
+	if Terrain.sea_level < -1e11:
+		return 1.0
+	var sea := 0.0
+	if Terrain.height(x + MARITIME_R, z) < Terrain.sea_level:
+		sea += 0.25
+	if Terrain.height(x - MARITIME_R, z) < Terrain.sea_level:
+		sea += 0.25
+	if Terrain.height(x, z + MARITIME_R) < Terrain.sea_level:
+		sea += 0.25
+	if Terrain.height(x, z - MARITIME_R) < Terrain.sea_level:
+		sea += 0.25
+	return lerpf(1.0, MARITIME_SWING, sea)
+
+
+func _ensure_cell_cache() -> void:
+	if _cell_swing.size() == GRID_N * GRID_N:
+		return
+	_cell_swing.resize(GRID_N * GRID_N)
+	_cell_grad.resize(GRID_N * GRID_N)
+	_cell_h.resize(GRID_N * GRID_N)
+	for i in GRID_N * GRID_N:
+		var cx := GRID_ORIGIN + (float(i % GRID_N) + 0.5) * GRID_CELL
+		var cz := GRID_ORIGIN + (float(i / GRID_N) + 0.5) * GRID_CELL
+		_cell_swing[i] = _swing(cx, cz)
+		_cell_grad[i] = _gradient_z(cx, cz)
+		_cell_h[i] = maxf(Terrain.height(cx, cz), 0.0)
+
+
+## North-south terrain gradient dh/dz — the only axis the sun's arc
+## crosses, so the only aspect that matters under this sky.
+func _gradient_z(x: float, z: float) -> float:
+	return (Terrain.height(x, z + ASPECT_STEP) - Terrain.height(x, z - ASPECT_STEP)) \
+			/ (2.0 * ASPECT_STEP)
+
+
+## Sun-facing slope warmth, pure: gradient_z is dh/dz, solar_h the solar
+## hour. The sun's horizontal bearing runs +Z (sunrise) -> overhead ->
+## -Z (sunset); a slope FACING +Z has dh/dz < 0. Zero at night and
+## under the noon zenith; peaks mid-morning / mid-afternoon.
+static func aspect_term(gradient_z: float, solar_h: float) -> float:
+	var up := maxf(sin(TAU * (solar_h - 6.0) / 24.0), 0.0)  # day gate
+	var bearing := cos(TAU * (solar_h - 6.0) / 24.0)  # +1 dawn .. -1 dusk
+	return ASPECT_GAIN * up * bearing * clampf(-gradient_z, -1.0, 1.0)
 
 
 ## The altitude where the air crosses freezing — the snowline literally
@@ -193,6 +277,11 @@ func _hourly(_h: int) -> void:
 	snow = snappedf(snow, 0.001)
 	# The field: every cell lives under ITS OWN sky — rain (with the
 	# shadow already in it) soaks, local warmth dries, meltwater soaks.
+	_ensure_cell_cache()
+	var seasonal := _seasonal()
+	var diurnal := _diurnal()
+	var chill := 3.0 * Weather.storminess
+	var solar: float = GameClock.solar_hours()
 	for i in GRID_N * GRID_N:
 		var cx := GRID_ORIGIN + (float(i % GRID_N) + 0.5) * GRID_CELL
 		var cz := GRID_ORIGIN + (float(i / GRID_N) + 0.5) * GRID_CELL
@@ -201,8 +290,9 @@ func _hourly(_h: int) -> void:
 		if local_rain > 0.05:
 			w = minf(w + RAIN_RATE * local_rain, 1.0)
 		else:
-			w = maxf(w - BASE_DRY_RATE
-					- WARM_DRY_RATE * maxf(temperature(cx, cz), 0.0), 0.0)
+			var t := seasonal + diurnal * _cell_swing[i] - chill \
+					- LAPSE * _cell_h[i] + aspect_term(_cell_grad[i], solar)
+			w = maxf(w - BASE_DRY_RATE - WARM_DRY_RATE * maxf(t, 0.0), 0.0)
 		wet_grid[i] = snappedf(minf(w + melt * MELTWATER, 1.0), 0.001)
 	WorldState.set_value("climate.wetness", wetness)
 	WorldState.set_value("climate.snow", snow)

@@ -200,8 +200,11 @@ func property_at(x: float, z: float, prop: String) -> float:
 # One mountain interrupting one wind = a dozen climates.
 const ORO_UP := [400.0, 800.0, 1300.0, 1900.0, 2600.0]  # upwind barrier probes (m)
 const ORO_DOWN := [450.0, 950.0]  # downwind rise probes (m)
-const ORO_CLEAR := 60.0  # a barrier must top us by this before it shades
-const ORO_DEEP := 260.0  # excess barrier height for a full-depth shadow
+# A valley does NOT sit in the shadow of its own rim — rain falls over
+# small barriers; only a big sustained wall (the Range) wrings the air
+# dry. Hence the generous clearance before any shading begins.
+const ORO_CLEAR := 120.0  # a barrier must top us by this before it shades
+const ORO_DEEP := 500.0  # excess barrier height for a full-depth shadow
 const ORO_SHADOW := 0.82  # fraction of rain a deep lee loses
 const ORO_LIFT := 0.5  # windward-slope bonus at full rise
 

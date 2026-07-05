@@ -311,8 +311,27 @@ migrate by flooding the field with their scalar. Fog dew now reads
 wetness at the focus. Sim contract intact (hour_tick, catch-up,
 `climate.wet_grid` mirror, no randomness); soak moved once
 (1071113081, the grid digest + shadowed valley rain), bit-stable,
-30 days ~1s. Still open in Climate v2: humidity as its own field,
-maritime/aspect temperature, soil from the erosion bake, biome-from-
+30 days ~1s. **Phase 2 (same day): the thermal field.**
+`temperature(x,z)` knows where it is beyond altitude: the sea damps
+the diurnal swing within ~1.8km (coasts never bake or freeze like
+the interior — and the home valley itself reads mildly maritime,
+because it IS 1.4km from the east shore), and slopes facing the
+sun's CURRENT bearing run warmer (this sky's sun rises +Z, passes
+overhead, sets −Z — no permanent warm side exists, so aspect is
+time-of-day: east flanks thaw first, west flanks hold evening heat;
+pure `aspect_term`, unit-tested). Rain-shadow clearance raised
+(120m/500m): a valley does NOT sit in the shadow of its own rim —
+only a big sustained wall wrings the air dry (found honestly: the
+tightened constants broke the brook-swell test through the west
+rim). Per-cell static terrain facts (swing/gradient/height) cached
+once, cleared on Terrain.edited — the hourly field tick costs no
+terrain probes on dry hours, soak back to ~0.75s. Fingerprint moved
+once (1333567381), bit-stable. Fun fact the soak taught: in summer
+the maritime damping doesn't change 30-day drying at all — the
+swing is symmetric and drying is linear in temperature, so warmer
+nights buy back exactly what milder afternoons lose; the asymmetry
+arrives with winter's freezing clamp. Still open in Climate v2:
+humidity as its own field, soil from the erosion bake, biome-from-
 climate (SIM_ROADMAP).
 
 **The map pipeline, stage A (2026-07-05, the Toolkit): paint →

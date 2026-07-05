@@ -397,6 +397,38 @@ func _test_climate_v2() -> void:
 	_check(absf(Climate.wetness_at(-6000.0, 6000.0) - 0.42) < 0.001,
 		"migration floods every cell")
 	Climate.wetness = keep_wet
+	# Phase 2 — the thermal field. Aspect is pure: slopes facing the
+	# sun's current bearing run warmer, nothing at night or under the
+	# noon zenith, and mirrored slopes mirror.
+	_check(Climate.aspect_term(-0.5, 9.0) > 0.3,
+		"morning warms the east-facing slope")
+	_check(Climate.aspect_term(-0.5, 15.0) < -0.3,
+		"the same slope cools in the afternoon shade")
+	_check(absf(Climate.aspect_term(-0.5, 12.0)) < 0.01,
+		"the zenith sun plays no favorites")
+	_check(Climate.aspect_term(-0.5, 0.0) == 0.0, "no aspect at night")
+	_check(absf(Climate.aspect_term(0.5, 9.0) + Climate.aspect_term(-0.5, 9.0)) < 0.001,
+		"mirrored slopes mirror")
+	# Maritime: the swing damps with sea proximity. The home valley is
+	# itself ~1.4km from the east shore (it IS an island), so it reads
+	# mildly maritime — the shore must read MORE so, and both bounded.
+	var valley_swing: float = Climate._swing(Climate.REFERENCE.x, Climate.REFERENCE.y)
+	_check(valley_swing > Climate.MARITIME_SWING and valley_swing <= 1.0,
+		"valley swing bounded (%.2f)" % valley_swing)
+	var open_sea := Vector2.INF
+	for step in range(1, 30):
+		var px := Climate.REFERENCE.x + step * 400.0
+		if Terrain.height(px, Climate.REFERENCE.y) < Terrain.sea_level:
+			open_sea = Vector2(px + 2400.0, Climate.REFERENCE.y)
+			break
+	if open_sea.x == INF or Terrain.height(open_sea.x, open_sea.y) >= Terrain.sea_level:
+		print("  (skip maritime: no open sea east of the valley)")
+	else:
+		_check(Climate._swing(open_sea.x, open_sea.y) < valley_swing,
+			"open water reads more maritime than the valley")
+	_check(absf(Climate.temperature(Climate.REFERENCE.x, Climate.REFERENCE.y)
+			- Climate.base_temperature()) < 1.0,
+		"the valley thermometer still reads the valley")
 	_check(absf(Weather.wind_dir.length() - 1.0) < 0.001,
 		"wind direction stays a unit vector as it wanders")
 

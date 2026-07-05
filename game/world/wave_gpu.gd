@@ -95,6 +95,11 @@ func scroll(off: Vector2i) -> void:
 		var t: RID = _ring[idx]
 		_ring[idx] = spare
 		spare = t
+	# The leftover texture becomes the scratch slot — without this the
+	# scratch slot ALIASES the prev slot, the next step reads and writes
+	# the same image, and the feedback pumps the field to the clamp rail
+	# forever ("nice ripples until I walked, then permanent chop").
+	_ring[(_i + 2) % 3] = spare
 	_publish()
 
 

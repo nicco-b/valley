@@ -129,6 +129,11 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	# The map is a chart: hide the weather FX (rain, curtains, fog bank,
+	# bolts) so nothing floats over it.
+	visible = not MapScreen.active
+	if MapScreen.active:
+		return
 	var player := get_tree().get_first_node_in_group("player")
 	if player:
 		global_position = player.global_position

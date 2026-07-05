@@ -132,6 +132,18 @@ func _open() -> void:
 		_cam.rotation.x = PITCH
 		_cam.size = _ortho
 		_cam.far = 2500.0
+		# The map is a CHART, not a window: its own fog-free environment
+		# so weather never obscures it. Strong flat ambient keeps the
+		# terrain readable even when a storm has dimmed the real sun;
+		# background is sea-toned so unbuilt distance reads as ocean.
+		var env := Environment.new()
+		env.background_mode = Environment.BG_COLOR
+		env.background_color = Color(0.32, 0.47, 0.60)
+		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		env.ambient_light_color = Color(1.0, 0.98, 0.94)
+		env.ambient_light_energy = 1.15
+		env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+		_cam.environment = env
 		add_child(_cam)
 	_cam.current = true
 	RenderingServer.global_shader_parameter_set("map_view", 1.0)

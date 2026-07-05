@@ -18,10 +18,17 @@ extends Node
 
 signal levels_changed  # water surface offsets moved (at most hourly)
 
-# Catchment grid: the whole home watershed at coarse resolution.
+# Catchment grid resolution; the DOMAIN (center + size) comes from
+# data/water/watersheds/*.json — the map is replaceable, the system
+# isn't. One watershed record for now; field-per-watershed when the
+# world grows regions.
 const GRID_N := 256
-const GRID_M := 8.0  # meters per cell -> 2048m square
-const GRID_CENTER := Vector2(65.0, -285.0)  # valley centroid
+const WATERSHED_DIR := "res://data/water/watersheds"
+
+# Loaded watershed domain (defaults match the home valley fixture).
+var center := Vector2(65.0, -285.0)
+var domain := 2048.0
+var grid_m := 8.0  # domain / GRID_N
 
 # Water balance (mood-physics: dimensioned, tuned to feel right).
 const STORM_RAIN_M := 0.004  # rain per storm hour (4mm/h)
@@ -59,6 +66,7 @@ var _last_snow := 0.0
 
 func _ready() -> void:
 	add_to_group("world_state_reader")  # SaveGame re-calls load_state post-restore
+	_load_watershed()
 	for r in Terrain.rivers:
 		river_storage[r.id] = SPRING_M3H / RIVER_K  # boot at baseflow equilibrium
 	for w in Terrain.water_bodies:
@@ -98,6 +106,30 @@ func load_state() -> void:
 	_push_levels()
 
 
+# The watershed record: which patch of world this instance simulates.
+# Records loads after us in autoload order, so parse directly (the
+# Terrain pattern). Missing dir/file keeps the fixture defaults.
+func _load_watershed() -> void:
+	var dir := DirAccess.open(WATERSHED_DIR)
+	if dir == null:
+		return
+	var files := dir.get_files()
+	files.sort()
+	for f in files:
+		if not f.ends_with(".json"):
+			continue
+		var parsed: Variant = JSON.parse_string(
+			FileAccess.get_file_as_string(WATERSHED_DIR + "/" + f))
+		if parsed is Dictionary and parsed.has("center") and parsed.has("size"):
+			var rec: Dictionary = parsed
+			var c: Dictionary = rec["center"]
+			center = Vector2(float(c["x"]), float(c["z"]))
+			domain = float(rec["size"])
+			grid_m = domain / GRID_N
+			return  # one watershed for now; per-region instances later
+		push_error("[hydrology] bad watershed record (needs center/size): " + f)
+
+
 ## River discharge right now, m^3/h.
 func discharge(river_id: String) -> float:
 	return float(river_storage.get(river_id, 0.0)) * RIVER_K
@@ -118,7 +150,7 @@ func _hourly(_h: int) -> void:
 	# (it runs first on hour_tick); the drop becomes meltwater depth.
 	var melt_m := maxf(_last_snow - Climate.snow, 0.0) * SNOW_MELT_M
 	_last_snow = Climate.snow
-	var t := Climate.temperature(GRID_CENTER.x, GRID_CENTER.y)
+	var t := Climate.temperature(center.x, center.y)
 
 	# Rivers: catchment runoff + springs in, reservoir recession out.
 	for r in Terrain.rivers:
@@ -150,6 +182,12 @@ func _hourly(_h: int) -> void:
 		var level: float = lake_level[id]
 		var evap := EVAP_M_PER_DEG * maxf(t, 0.0)
 		var outflow := LAKE_OUT_K * maxf(level - LAKE_LEVEL_MIN, 0.0)
+		# The outflow goes where the record says: into a downstream
+		# river's storage (chained water bodies), or "aquifer" — the
+		# ground, until the underworld exists to receive it.
+		var outlet: String = w.get("outlet", "aquifer")
+		if river_storage.has(outlet):
+			river_storage[outlet] = float(river_storage[outlet]) + outflow * lake_area
 		level += inflow / lake_area - evap - outflow
 		level = snappedf(clampf(level, LAKE_LEVEL_MIN, LAKE_LEVEL_MAX), 0.001)
 		lake_level[id] = level
@@ -186,14 +224,14 @@ func _push_levels() -> void:
 func _build_catchments() -> void:
 	var t0 := Time.get_ticks_msec()
 	var n := GRID_N
-	var half := n * GRID_M * 0.5
+	var half := domain * 0.5
 	var heights := PackedFloat32Array()
 	heights.resize(n * n)
 	for iz in n:
 		for ix in n:
 			heights[iz * n + ix] = Terrain.height(
-				GRID_CENTER.x - half + ix * GRID_M,
-				GRID_CENTER.y - half + iz * GRID_M)
+				center.x - half + ix * grid_m,
+				center.y - half + iz * grid_m)
 	var basins: Array[String] = []
 	for w in Terrain.water_bodies:
 		basins.append(w.id)
@@ -239,7 +277,7 @@ func _build_catchments() -> void:
 			if terminal >= 0:
 				counts[terminal] += 1
 	for b in basins.size():
-		catchment_area[basins[b]] = counts[b] * GRID_M * GRID_M
+		catchment_area[basins[b]] = counts[b] * grid_m * grid_m
 	basin_grid = basin
 	basin_names = basins
 	_catchments_built = true
@@ -251,9 +289,9 @@ func _build_catchments() -> void:
 ## "outside" the routed domain.
 func basin_at_world(x: float, z: float) -> String:
 	_ensure_catchments()
-	var half := GRID_N * GRID_M * 0.5
-	var ix := int((x - GRID_CENTER.x + half) / GRID_M)
-	var iz := int((z - GRID_CENTER.y + half) / GRID_M)
+	var half := domain * 0.5
+	var ix := int((x - center.x + half) / grid_m)
+	var iz := int((z - center.y + half) / grid_m)
 	if ix < 0 or iz < 0 or ix >= GRID_N or iz >= GRID_N:
 		return "outside"
 	var b := basin_grid[iz * GRID_N + ix]
@@ -353,9 +391,9 @@ func _heap_pop() -> int:
 ## Which water body (if any) is under grid cell i — index into the
 ## lakes-then-rivers basin list, or -1.
 func _basin_at(i: int, n: int, half: float) -> int:
-	var x := GRID_CENTER.x - half + (i % n) * GRID_M
+	var x := center.x - half + (i % n) * grid_m
 	@warning_ignore("integer_division")
-	var z := GRID_CENTER.y - half + (i / n) * GRID_M
+	var z := center.y - half + (i / n) * grid_m
 	var b := 0
 	for w in Terrain.water_bodies:
 		var c: Vector2 = w.center

@@ -47,9 +47,8 @@ func _ready() -> void:
 		return
 	RenderingServer.global_shader_parameter_set("water_field_map", _gpu.display_texture)
 	RenderingServer.global_shader_parameter_set("water_base_map", _gpu.base_texture)
-	RenderingServer.global_shader_parameter_set("water_field_center",
-		Hydrology.GRID_CENTER)
-	RenderingServer.global_shader_parameter_set("water_field_size", WaterGpu.REGION)
+	RenderingServer.global_shader_parameter_set("water_field_center", Hydrology.center)
+	RenderingServer.global_shader_parameter_set("water_field_size", Hydrology.domain)
 	# The base bake: 1M terrain samples + the sink mask, once, off-thread.
 	# The field sits still (no flow kernel needs it zeroed) until it lands.
 	_base_pending = true
@@ -71,8 +70,8 @@ func _process(delta: float) -> void:
 		var player := get_tree().get_first_node_in_group("player")
 		if player:
 			var p: Vector3 = player.global_position
-			var uv := (Vector2(p.x, p.z) - Hydrology.GRID_CENTER) \
-				/ WaterGpu.REGION + Vector2(0.5, 0.5)
+			var uv := (Vector2(p.x, p.z) - Hydrology.center) \
+				/ Hydrology.domain + Vector2(0.5, 0.5)
 			_gpu.dispatch_probe(uv)
 			_probe_pending = true
 
@@ -105,8 +104,8 @@ func _bake_base() -> void:
 	heights.resize(WaterGpu.GRID * WaterGpu.GRID)
 	var sinks := PackedFloat32Array()
 	sinks.resize(WaterGpu.GRID * WaterGpu.GRID)
-	var step := WaterGpu.REGION / WaterGpu.GRID
-	var origin := Hydrology.GRID_CENTER - Vector2.ONE * (WaterGpu.REGION * 0.5)
+	var step := Hydrology.domain / WaterGpu.GRID
+	var origin := Hydrology.center - Vector2.ONE * (Hydrology.domain * 0.5)
 	for iz in WaterGpu.GRID:
 		var wz := origin.y + (iz + 0.5) * step
 		for ix in WaterGpu.GRID:
@@ -130,4 +129,4 @@ func _drain_base() -> void:
 		_gpu.update_base(_base_heights, _base_sinks)
 		_base_pending = false
 		print("[water] tier-2 field live: %dx%d at %.1fm texels" % [
-			WaterGpu.GRID, WaterGpu.GRID, WaterGpu.REGION / WaterGpu.GRID])
+			WaterGpu.GRID, WaterGpu.GRID, Hydrology.domain / WaterGpu.GRID])

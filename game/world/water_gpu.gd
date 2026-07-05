@@ -10,8 +10,7 @@ extends RefCounted
 ## needs. Presentation tier: never saved, never fingerprinted — the
 ## canonical water is Hydrology's hourly balance (tier 1).
 
-const GRID := 1024
-const REGION := 2048.0  # meters — matches Hydrology's routed domain
+const GRID := 1024  # texel size scales with the watershed record (domain/GRID)
 const SUBSTEPS := 2
 const FLOW := 0.22  # per-substep surface-diff transfer (stable < 0.25)
 

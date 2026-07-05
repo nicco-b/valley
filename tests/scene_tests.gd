@@ -184,6 +184,12 @@ func _test_hydrology() -> void:
 	var was_wet: float = Climate.wetness
 	Weather.state = "calm"
 	Climate.wetness = 0.5
+	# The domain comes from the watershed record, not code (the map is
+	# replaceable; the system isn't).
+	_check(Hydrology.center == Vector2(65.0, -285.0) and Hydrology.domain == 2048.0,
+		"watershed domain loads from data/water/watersheds/home.json")
+	_check(String(Terrain.water_bodies[0].outlet) == "aquifer",
+		"pond outlet defaults to the aquifer (chain-ready)")
 	Hydrology._hourly(0)
 	_check(Hydrology.catchment_area.get("brook", 0.0) > 10_000.0,
 		"the brook drains a real catchment (routed, not authored)")

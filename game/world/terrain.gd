@@ -234,6 +234,7 @@ func _load_water() -> void:
 			"surface": float(rec["surface"]),
 			"basin_radius": float(basin.get("radius", rec["radius"])),
 			"basin_depth": float(basin.get("depth", 0.0)),
+			"outlet": rec.get("outlet", "aquifer"),
 		})
 	lake_levels.resize(water_bodies.size())
 	_load_rivers()

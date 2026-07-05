@@ -47,8 +47,10 @@ void TerrainKernel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("build_cell", "ox", "oz", "cell_size",
 								  "res", "with_wet"),
 			&TerrainKernel::build_cell);
+	ClassDB::bind_method(D_METHOD("set_tiles", "tiles"),
+			&TerrainKernel::set_tiles);
 	ClassDB::bind_method(D_METHOD("build_far", "ox", "oz", "size", "res",
-								  "sink"),
+								  "sink", "skirt"),
 			&TerrainKernel::build_far);
 	ClassDB::bind_method(D_METHOD("debug_parts", "x", "z"),
 			&TerrainKernel::debug_parts);
@@ -134,6 +136,55 @@ void TerrainKernel::set_regions(const PackedInt32Array &p_kind,
 	for (int i = 0; i < p_nodes.size(); i++) {
 		reg_nodes.push_back(PackedVector2Array(p_nodes[i]));
 	}
+}
+
+void TerrainKernel::set_tiles(const Array &p_tiles) {
+	tiles.clear();
+	tiles.reserve(p_tiles.size());
+	for (int i = 0; i < p_tiles.size(); i++) {
+		Dictionary d = p_tiles[i];
+		Tile t;
+		t.x0 = (double)d["x0"];
+		t.z0 = (double)d["z0"];
+		t.size = (double)d["size"];
+		t.feather = (double)d["feather"];
+		t.hmin = (double)d["hmin"];
+		t.hmax = (double)d["hmax"];
+		t.res = (int)d["res"];
+		t.data = d["data"];
+		tiles.push_back(t);
+	}
+}
+
+// Mirrors terrain.gd _tile_blend (painted heightmap replaces ground).
+double TerrainKernel::tile_blend(double x, double z, double h,
+		double guard) const {
+	for (const Tile &t : tiles) {
+		if (x < t.x0 || z < t.z0 || x >= t.x0 + t.size ||
+				z >= t.z0 + t.size) {
+			continue;
+		}
+		const float *data = t.data.ptr();
+		double px = (x - t.x0) / t.size * (t.res - 1);
+		double pz = (z - t.z0) / t.size * (t.res - 1);
+		int ix = Math::min((int)px, t.res - 2);
+		int iz = Math::min((int)pz, t.res - 2);
+		double fx = px - ix;
+		double fz = pz - iz;
+		double v = gd_lerp(
+				gd_lerp((double)data[iz * t.res + ix],
+						(double)data[iz * t.res + ix + 1], fx),
+				gd_lerp((double)data[(iz + 1) * t.res + ix],
+						(double)data[(iz + 1) * t.res + ix + 1], fx),
+				fz);
+		double target = t.hmin + v * (t.hmax - t.hmin);
+		double edge = Math::min(
+				Math::min(x - t.x0, t.x0 + t.size - x),
+				Math::min(z - t.z0, t.z0 + t.size - z));
+		double w = gd_smoothstep(0.0, t.feather, edge) * guard;
+		h = gd_lerp(h, target, w);
+	}
+	return h;
 }
 
 // Mirrors terrain.gd _river_probe exactly (Vector2/Vector3 real_t math).
@@ -284,6 +335,9 @@ double TerrainKernel::height(double x, double z) const {
 		h += region_height(x, z) * guard;
 	}
 	h += range_term;
+	if (!tiles.empty() && guard > 0.0) {
+		h = tile_blend(x, z, h, guard);
+	}
 	const double *fl = flattens.ptr();
 	for (int i = 0; i + 3 < flattens.size(); i += 4) {
 		double fd = Vector2(x - (double)fl[i], z - (double)fl[i + 1]).length();
@@ -452,10 +506,12 @@ Dictionary TerrainKernel::build_cell(double ox, double oz, double cell_size,
 }
 
 Dictionary TerrainKernel::build_far(double ox, double oz, double size,
-		int res, double sink) const {
+		int res, double sink, double skirt) const {
 	double step = size / (res - 1);
+	int body = res * res;
+	int skirt_verts = skirt > 0.0 ? res * 4 : 0;
 	PackedVector3Array vertices;
-	vertices.resize(res * res);
+	vertices.resize(body + skirt_verts);
 	Vector3 *vw = vertices.ptrw();
 	for (int iz = 0; iz < res; iz++) {
 		for (int ix = 0; ix < res; ix++) {
@@ -464,8 +520,18 @@ Dictionary TerrainKernel::build_far(double ox, double oz, double size,
 			vw[iz * res + ix] = Vector3(wx, height(wx, wz) - sink, wz);
 		}
 	}
+	if (skirt > 0.0) {
+		// Perimeter duplicated and dropped: north, south, west, east.
+		for (int i = 0; i < res; i++) {
+			vw[body + i] = vw[i] + Vector3(0, -skirt, 0);
+			vw[body + res + i] = vw[(res - 1) * res + i] + Vector3(0, -skirt, 0);
+			vw[body + res * 2 + i] = vw[i * res] + Vector3(0, -skirt, 0);
+			vw[body + res * 3 + i] = vw[i * res + res - 1] + Vector3(0, -skirt, 0);
+		}
+	}
+	int quads = (res - 1) * (res - 1) + (skirt > 0.0 ? (res - 1) * 4 : 0);
 	PackedInt32Array indices;
-	indices.resize((res - 1) * (res - 1) * 6);
+	indices.resize(quads * 6);
 	int32_t *iw = indices.ptrw();
 	int n = 0;
 	for (int iz = 0; iz < res - 1; iz++) {
@@ -479,8 +545,27 @@ Dictionary TerrainKernel::build_far(double ox, double oz, double size,
 			iw[n++] = i + res;
 		}
 	}
+	if (skirt > 0.0) {
+		for (int i = 0; i < res - 1; i++) {
+			// North edge (z = oz): top verts i..i+1, skirt below.
+			iw[n++] = i; iw[n++] = body + i + 1; iw[n++] = body + i;
+			iw[n++] = i; iw[n++] = i + 1; iw[n++] = body + i + 1;
+			// South edge.
+			int s0 = (res - 1) * res + i;
+			iw[n++] = s0; iw[n++] = body + res + i; iw[n++] = body + res + i + 1;
+			iw[n++] = s0; iw[n++] = body + res + i + 1; iw[n++] = s0 + 1;
+			// West edge (x = ox).
+			int w0 = i * res;
+			iw[n++] = w0; iw[n++] = body + res * 2 + i; iw[n++] = body + res * 2 + i + 1;
+			iw[n++] = w0; iw[n++] = body + res * 2 + i + 1; iw[n++] = w0 + res;
+			// East edge.
+			int e0 = i * res + res - 1;
+			iw[n++] = e0; iw[n++] = body + res * 3 + i + 1; iw[n++] = body + res * 3 + i;
+			iw[n++] = e0; iw[n++] = e0 + res; iw[n++] = body + res * 3 + i + 1;
+		}
+	}
 	PackedVector3Array normals;
-	normals.resize(res * res);
+	normals.resize(vertices.size()); // body + skirt (skirt tris index past res*res)
 	Vector3 *nw = normals.ptrw();
 	for (int i = 0; i < indices.size(); i += 3) {
 		const Vector3 &a = vw[iw[i]];

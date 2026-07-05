@@ -19,6 +19,17 @@ const FLATTENS := [
 const WATER_DIR := "res://data/water"
 const RIVER_DIR := "res://data/water/rivers"
 
+# Region tiles (F3, 2026-07-05): PAINTED heightmaps as region records —
+# kind "tile", a grayscale/EXR image mapped over a world rect:
+#   {id, layer, kind:"tile", origin:{x,z}, size, feather,
+#    heightmap:"res://data/terrain/tiles/*.exr", height_min, height_max}
+# value = height_min + pixel * (height_max - height_min); the tile
+# REPLACES the procedural ground inside its rect (feathered at the
+# edge, home-guard gated), then rivers/lakes/sculpt still apply on
+# top. This is the pipeline the real 12km map will be painted
+# through; the procedural archipelago underneath is the disposable
+# draft. Tiles hot-reload in dev (HotReload watches the images).
+#
 # Region landforms (the Loom, feel-prototype draft v2 2026-07-04): a
 # LITERAL archipelago — beyond the home valley the ground drops to a
 # seabed under a world sea (data/water/sea.json), and authored islands
@@ -62,6 +73,12 @@ var _reg_height := PackedFloat32Array()
 var _reg_tiers := PackedFloat32Array()
 var _reg_nodes: Array = []  # PackedVector2Array per region (ridges)
 
+# Painted tiles, normalized: {id, path, x0, z0, size, feather, hmin,
+# hmax, res, data: PackedFloat32Array}. Read-only after boot; a dev
+# hot-reload swaps the ARRAY (and the kernel instance) wholesale —
+# workers keep sampling the old one mid-build, never a torn mix.
+var _tiles: Array[Dictionary] = []
+
 # Loaded lake records, normalized: {id, idx, center: Vector2, radius,
 # surface, basin_radius, basin_depth}. Strictly read-only after _ready —
 # worker threads sample these concurrently, so NOTHING may write into
@@ -101,11 +118,19 @@ const TIDE_AMP := 0.45
 const TIDE_PERIOD_H := 12.42
 
 
+var _clock: Node = null  # GameClock, resolved at runtime: a direct
+# identifier would break headless -s dev scripts (parity/map/bench
+# load terrain.gd without autoloads and the script won't compile).
+
+
 ## Live sea surface height (authored level + tide), or -1e12 if no sea.
+## Without a clock (dev scripts) the tide sits at mean water.
 func sea_surface() -> float:
 	if sea_level < -1e11:
 		return -1e12
-	return sea_level + TIDE_AMP * sin(TAU * GameClock.hours / TIDE_PERIOD_H)
+	if _clock == null:
+		return sea_level
+	return sea_level + TIDE_AMP * sin(TAU * _clock.hours / TIDE_PERIOD_H)
 
 # The native kernel (native/, GDExtension): a bit-exact C++ port of
 # height()/water_surface_base() plus block/mesh builders. Worker-thread
@@ -251,6 +276,7 @@ var _island := FastNoiseLite.new()
 
 
 func _ready() -> void:
+	_clock = get_node_or_null("/root/GameClock")
 	_load_water()
 	_load_regions()
 	var ws: Variant = JSON.parse_string(
@@ -335,7 +361,34 @@ func _init_kernel() -> void:
 			"grid_w": r.grid_w, "depth": r.depth, "feather": r.feather})
 	kernel.set_regions(_reg_kind, _reg_bbox, _reg_center, _reg_radius,
 		_reg_reach, _reg_inner, _reg_height, _reg_tiers, _reg_nodes)
+	kernel.set_tiles(_tiles)
 	print("[terrain] native kernel live: worker sampling runs in C++")
+
+
+## Dev hot-reload of one painted tile: reload the image, swap the tile
+## array and a FRESH kernel wholesale (workers mid-build keep a ref to
+## the old one — never a torn mix), then invalidate the tile's rect so
+## cells and the far quadtree rebuild. Returns true if a tile matched.
+func reload_tile(image_path: String) -> bool:
+	for i in _tiles.size():
+		var t: Dictionary = _tiles[i]
+		if t.path != image_path:
+			continue
+		var rec := {"id": t.id, "origin": {"x": t.x0, "z": t.z0},
+			"size": t.size, "feather": t.feather, "heightmap": t.path,
+			"height_min": t.hmin, "height_max": t.hmax}
+		var fresh := _load_tile(rec, t.id)
+		if fresh.is_empty():
+			return true
+		var swapped := _tiles.duplicate()
+		swapped[i] = fresh
+		_tiles = swapped
+		if kernel:
+			_init_kernel()  # builds a fresh, fully-configured instance
+		edited.emit(Rect2(t.x0, t.z0, t.size, t.size))
+		print("[terrain] tile reloaded: ", t.id)
+		return true
+	return false
 
 
 ## Bulk height samples, row-major nz rows of nx — THE call worker-thread
@@ -405,6 +458,10 @@ func height(x: float, z: float) -> float:
 		range_term *= 1.0 - guard
 		h += _region_height(x, z) * guard
 	h += range_term
+	# Painted tiles replace whatever the procedural stack made; the
+	# water carves and the sculpt layer still apply below/after.
+	if not _tiles.is_empty() and guard > 0.0:
+		h = _tile_blend(x, z, h, guard)
 	for f in FLATTENS:
 		var d := Vector2(x - f[0], z - f[1]).length()
 		h *= smoothstep(f[2], f[2] + f[3], d)
@@ -592,6 +649,11 @@ func _load_regions() -> void:
 			continue
 		var rec: Dictionary = parsed
 		var kind: String = rec["kind"]
+		if kind == "tile":
+			var tile := _load_tile(rec, f.trim_suffix(".json"))
+			if not tile.is_empty():
+				_tiles.append(tile)
+			continue
 		var reg := {
 			"id": rec.get("id", f.trim_suffix(".json")),
 			"layer": rec.get("layer", "surface"),
@@ -632,6 +694,67 @@ func _load_regions() -> void:
 		_reg_bbox.append(bbox.position.y)
 		_reg_bbox.append(bbox.end.x)
 		_reg_bbox.append(bbox.end.y)
+
+
+## Load one painted-tile record: image → float array, once at boot
+## (and on dev hot-reload). Cold path; any failure skips the tile.
+func _load_tile(rec: Dictionary, fallback_id: String) -> Dictionary:
+	if not (rec.has("origin") and rec.has("size") and rec.has("heightmap")):
+		push_error("[terrain] tile record needs origin/size/heightmap: " + fallback_id)
+		return {}
+	var path: String = rec["heightmap"]
+	var img := Image.load_from_file(ProjectSettings.globalize_path(path))
+	if img == null or img.is_empty():
+		push_error("[terrain] tile heightmap missing/unreadable: " + path)
+		return {}
+	img.convert(Image.FORMAT_RF)
+	var res := img.get_width()
+	if img.get_height() != res:
+		push_error("[terrain] tile heightmap must be square: " + path)
+		return {}
+	var data := img.get_data().to_float32_array()
+	var origin: Dictionary = rec["origin"]
+	return {
+		"id": rec.get("id", fallback_id),
+		"path": path,
+		"x0": float(origin["x"]),
+		"z0": float(origin["z"]),
+		"size": float(rec["size"]),
+		"feather": float(rec.get("feather", 100.0)),
+		"hmin": float(rec.get("height_min", 0.0)),
+		"hmax": float(rec.get("height_max", 1.0)),
+		"res": res,
+		"data": data,
+	}
+
+
+## Painted-tile blend at (x,z): replaces `h` inside any tile's rect,
+## feathered at the edge, scaled by the home guard. GDScript reference
+## for the kernel path (and the non-macOS fallback).
+func _tile_blend(x: float, z: float, h: float, guard: float) -> float:
+	for t in _tiles:
+		var x0: float = t.x0
+		var z0: float = t.z0
+		var size: float = t.size
+		if x < x0 or z < z0 or x >= x0 + size or z >= z0 + size:
+			continue
+		var res: int = t.res
+		var data: PackedFloat32Array = t.data
+		var px := (x - x0) / size * (res - 1)
+		var pz := (z - z0) / size * (res - 1)
+		var ix := mini(int(px), res - 2)
+		var iz := mini(int(pz), res - 2)
+		var fx := px - ix
+		var fz := pz - iz
+		var v := lerpf(
+			lerpf(data[iz * res + ix], data[iz * res + ix + 1], fx),
+			lerpf(data[(iz + 1) * res + ix], data[(iz + 1) * res + ix + 1], fx),
+			fz)
+		var target: float = t.hmin + v * (t.hmax - t.hmin)
+		var edge := minf(minf(x - x0, x0 + size - x), minf(z - z0, z0 + size - z))
+		var w: float = smoothstep(0.0, t.feather, edge) * guard
+		h = lerpf(h, target, w)
+	return h
 
 
 ## Summed authored island height at (x,z). Hot path (every bulk height
@@ -688,6 +811,9 @@ func regions_summary() -> String:
 	for r in regions:
 		lines.append("  %s [%s/%s] h=%.0fm at (%.0f, %.0f)" % [
 			r.id, r.layer, r.kind, r.height, r.center.x, r.center.y])
+	for t in _tiles:
+		lines.append("  %s [tile %dpx] %s %.0fm at (%.0f, %.0f) h=%.0f..%.0fm" % [
+			t.id, t.res, t.path.get_file(), t.size, t.x0, t.z0, t.hmin, t.hmax])
 	return "\n".join(lines)
 
 

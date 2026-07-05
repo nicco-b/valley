@@ -57,6 +57,15 @@ class TerrainKernel : public RefCounted {
 	};
 	std::vector<River> rivers;
 
+	// Painted tiles (F3): heightmap rect replaces procedural ground.
+	struct Tile {
+		double x0 = 0, z0 = 0, size = 1, feather = 100, hmin = 0, hmax = 1;
+		int res = 0;
+		PackedFloat32Array data;
+	};
+	std::vector<Tile> tiles;
+	double tile_blend(double x, double z, double h, double guard) const;
+
 	// Regions (the archipelago; packed mirrors of terrain.gd).
 	PackedInt32Array reg_kind;
 	PackedFloat32Array reg_bbox, reg_radius, reg_reach, reg_inner,
@@ -96,6 +105,7 @@ public:
 			const PackedFloat32Array &p_inner,
 			const PackedFloat32Array &p_height,
 			const PackedFloat32Array &p_tiers, const Array &p_nodes);
+	void set_tiles(const Array &p_tiles);
 
 	double home_guard(double x, double z) const;
 	double height(double x, double z) const;
@@ -110,9 +120,11 @@ public:
 	// indices, wet flags, pts (cell-local, for nav faces).
 	Dictionary build_cell(double ox, double oz, double cell_size, int res,
 			bool with_wet) const;
-	// Far-LOD sheet: world-space vertices sunk by p_sink, normals, indices.
+	// Far-LOD sheet: world-space vertices sunk by p_sink, normals,
+	// indices; p_skirt > 0 adds a perimeter skirt dropped by that many
+	// meters (hides cracks between quadtree LOD levels).
 	Dictionary build_far(double ox, double oz, double size, int res,
-			double sink) const;
+			double sink, double skirt) const;
 	Dictionary debug_parts(double x, double z) const;
 };
 

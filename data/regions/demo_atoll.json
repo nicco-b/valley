@@ -1,0 +1,11 @@
+{
+	"id": "demo_atoll",
+	"layer": "surface",
+	"kind": "tile",
+	"origin": {"x": 3400, "z": 400},
+	"size": 1024,
+	"feather": 140,
+	"heightmap": "res://data/terrain/tiles/demo_atoll.exr",
+	"height_min": -35.0,
+	"height_max": 28.0
+}

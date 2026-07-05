@@ -5,6 +5,7 @@ extends Node
 ## without restarting the game.
 
 const WATCH_DIR := "res://assets/paintings"
+const TILE_DIR := "res://data/terrain/tiles"  # painted heightmaps (F3)
 
 var _mtimes: Dictionary = {}
 var _accum := 0.0
@@ -29,6 +30,20 @@ func _process(delta: float) -> void:
 		var mtime := FileAccess.get_modified_time(ProjectSettings.globalize_path(path))
 		if _mtimes.has(path) and _mtimes[path] != mtime:
 			_reload(path)
+		_mtimes[path] = mtime
+	# Painted terrain tiles: a re-export reshapes the live ground —
+	# Terrain swaps the tile + kernel and emits edited(rect), so cells
+	# and the far quadtree rebuild under her brush.
+	var tdir := DirAccess.open(TILE_DIR)
+	if tdir == null:
+		return
+	for f in tdir.get_files():
+		if not (f.ends_with(".exr") or f.ends_with(".png")):
+			continue
+		var path := TILE_DIR + "/" + f
+		var mtime := FileAccess.get_modified_time(ProjectSettings.globalize_path(path))
+		if _mtimes.has(path) and _mtimes[path] != mtime:
+			Terrain.reload_tile(path)
 		_mtimes[path] = mtime
 
 

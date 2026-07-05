@@ -175,11 +175,35 @@ func state_at(x: float, z: float) -> String:
 	return _local(x, z).kind
 
 
-## Continuous local properties (lead-softened): the numbers consumers
-## should read. prop in [wind, rain, cloud, dust, menace].
+## Continuous local properties (lead-softened, BIOME-shaped): the
+## numbers consumers should read. prop in [wind, rain, cloud, dust,
+## menace].
 func property_at(x: float, z: float, prop: String) -> float:
 	var lw := _local(x, z)
-	return float(KINDS[lw.kind][prop]) * lw.lead
+	return _biome_scale(x, z, prop, float(KINDS[lw.kind][prop]) * lw.lead)
+
+
+## Terrain shapes the weather (the biome response): high ground wrings
+## rain out of passing fronts (orographic lift — the mesa drinks what
+## the barren never sees) and runs windier; the open sea feeds rain and
+## kills dust; low dry ground starves rain and breeds it. Deterministic
+## (pure terrain reads), so the hourly sims fingerprint cleanly.
+func _biome_scale(x: float, z: float, prop: String, v: float) -> float:
+	if v <= 0.0:
+		return v
+	var h: float = Terrain.height(x, z)
+	match prop:
+		"rain":
+			v *= 0.85 + 0.7 * smoothstep(50.0, 220.0, h)
+			if h < Terrain.sea_level + 0.5:
+				v *= 1.15  # open water feeds the band
+		"dust":
+			if h < Terrain.sea_level + 1.0:
+				return 0.0  # no sand to lift off open water
+			v *= 0.6 + 0.8 * (1.0 - smoothstep(40.0, 180.0, h))  # low dry basins breed it
+		"wind":
+			v *= 1.0 + 0.3 * smoothstep(60.0, 220.0, h)  # ridge-tops run windier
+	return v
 
 
 ## Storm/menace intensity over a world position (the old meaning).
@@ -210,11 +234,14 @@ func _process(delta: float) -> void:
 		print("[weather] front over focus -> ", state)
 	var blend := 1.0 - exp(-EASE * delta)
 	var k: Dictionary = KINDS[state]
-	wind = lerpf(wind, float(k.wind) * lerpf(0.55, 1.0, lw.lead), blend)
+	var fx := _focus_xz()
+	# wind keeps a floor at band edges (presentation), then the ridge boost.
+	wind = lerpf(wind, _biome_scale(fx.x, fx.y, "wind",
+		float(k.wind) * lerpf(0.55, 1.0, lw.lead)), blend)
 	storminess = lerpf(storminess, float(k.menace) * lw.lead, blend)
-	rain = lerpf(rain, float(k.rain) * lw.lead, blend)
+	rain = lerpf(rain, property_at(fx.x, fx.y, "rain"), blend)
 	cloud = lerpf(cloud, float(k.cloud) * lerpf(0.5, 1.0, lw.lead), blend)
-	dust = lerpf(dust, float(k.dust) * lw.lead, blend)
+	dust = lerpf(dust, property_at(fx.x, fx.y, "dust"), blend)
 	RenderingServer.global_shader_parameter_set("wind_strength", wind)
 	RenderingServer.global_shader_parameter_set("wind_dir", wind_dir)
 

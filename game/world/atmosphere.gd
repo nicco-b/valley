@@ -28,8 +28,17 @@ var _curtain_mats: Array[ShaderMaterial] = []
 # near. Presentation-only randomness (never fingerprinted). Thunder
 # audio is a named placeholder → his recordings (ASSETS_NEEDED).
 var _bolt: OmniLight3D
+var _bolt_mesh: MeshInstance3D
+var _bolt_im: ImmediateMesh
 var _bolt_t := 0.0
 var _next_bolt := 8.0
+
+# Rain (phase C follow-up: it was never RENDERED, only simulated —
+# wave pocks and wet ground had no falling water). Y-billboard streak
+# particles around the player, count driven by Weather.rain, drift
+# tilted by the wind. PLACEHOLDER look → her painted droplet streak.
+var _rain: GPUParticles3D
+var _rain_mat: ParticleProcessMaterial
 
 
 func _ready() -> void:
@@ -65,11 +74,50 @@ func _ready() -> void:
 		_curtains.append(mi)
 		_curtain_mats.append(mat)
 	_bolt = OmniLight3D.new()
-	_bolt.omni_range = 900.0
+	_bolt.omni_range = 1600.0
 	_bolt.light_energy = 0.0
 	_bolt.light_color = Color(0.92, 0.93, 1.0)
 	_bolt.shadow_enabled = false
 	add_child(_bolt)
+	_bolt_im = ImmediateMesh.new()
+	_bolt_mesh = MeshInstance3D.new()
+	_bolt_mesh.mesh = _bolt_im
+	var bolt_mat := StandardMaterial3D.new()
+	bolt_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bolt_mat.albedo_color = Color(0.97, 0.96, 1.0)
+	bolt_mat.emission_enabled = true
+	bolt_mat.emission = Color(0.9, 0.9, 1.0)
+	bolt_mat.emission_energy_multiplier = 6.0
+	_bolt_mesh.material_override = bolt_mat
+	_bolt_mesh.extra_cull_margin = 2000.0
+	_bolt_mesh.visible = false
+	add_child(_bolt_mesh)
+	# Rain: dense falling streaks in a box riding above the player.
+	_rain = GPUParticles3D.new()
+	_rain.amount = 1400
+	_rain.lifetime = 0.9
+	_rain.visibility_aabb = AABB(Vector3(-40, -20, -40), Vector3(80, 50, 80))
+	_rain_mat = ParticleProcessMaterial.new()
+	_rain_mat.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	_rain_mat.emission_box_extents = Vector3(32, 2, 32)
+	_rain_mat.direction = Vector3(0, -1, 0)
+	_rain_mat.spread = 0.0
+	_rain_mat.initial_velocity_min = 22.0
+	_rain_mat.initial_velocity_max = 30.0
+	_rain_mat.gravity = Vector3(0, -12, 0)
+	_rain_mat.color = Color(0.78, 0.8, 0.88, 0.34)
+	_rain.process_material = _rain_mat
+	var streak := QuadMesh.new()
+	streak.size = Vector2(0.028, 0.55)
+	var streak_mat := StandardMaterial3D.new()
+	streak_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	streak_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	streak_mat.vertex_color_use_as_albedo = true
+	streak_mat.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
+	streak.material = streak_mat
+	_rain.draw_pass_1 = streak
+	_rain.emitting = false
+	add_child(_rain)
 	_motes = _make_particles(150, 6.0, 0.05, Color(0.9, 0.82, 0.68, 0.16), 0.6, 2.0)
 	_glow = _make_particles(26, 9.0, 0.07, Color(0.95, 0.42, 0.56, 0.85), 0.15, 0.6)
 	var glow_mat: StandardMaterial3D = _glow.draw_pass_1.surface_get_material(0)
@@ -98,6 +146,13 @@ func _process(delta: float) -> void:
 		global_position.z + _bank_drift.y)
 	_update_curtains()
 	_update_lightning(delta)
+	# Rain streaks: density from actual rainfall; the wind tilts the fall.
+	_rain.emitting = Weather.rain > 0.05
+	if _rain.emitting:
+		_rain.amount_ratio = clampf(Weather.rain, 0.1, 1.0)
+		_rain.position = Vector3(0, 22.0, 0)
+		_rain_mat.direction = Vector3(Weather.wind_dir.x * Weather.wind * 0.7,
+			-1.0, Weather.wind_dir.y * Weather.wind * 0.7).normalized()
 	_motes.emitting = true
 	_motes.speed_scale = 0.4 + Weather.wind * 1.6
 	# Motes drift the way the wind actually blows; gales thicken them.
@@ -144,16 +199,23 @@ func _update_lightning(delta: float) -> void:
 	var menace: float = maxf(Weather.rain, Weather.storminess)
 	if _bolt_t > 0.0:
 		_bolt_t -= delta
-		# Double pulse: bright, dip, brighter, out.
+		# Double pulse: bright, dip, brighter, out — sky, light, and the
+		# bolt itself blink together.
 		var t := 0.45 - _bolt_t
 		var e := 0.0
 		if t < 0.08:
-			e = 26.0 * (t / 0.08)
+			e = t / 0.08
 		elif t < 0.16:
-			e = 8.0
+			e = 0.3
 		elif t < 0.3:
-			e = 42.0 * (1.0 - (t - 0.16) / 0.14)
-		_bolt.light_energy = maxf(e, 0.0)
+			e = 1.4 * (1.0 - (t - 0.16) / 0.14)
+		e = maxf(e, 0.0)
+		_bolt.light_energy = e * 55.0
+		_bolt_mesh.visible = e > 0.12
+		RenderingServer.global_shader_parameter_set("lightning_flash", minf(e, 1.0))
+		if _bolt_t <= 0.0:
+			_bolt_mesh.visible = false
+			RenderingServer.global_shader_parameter_set("lightning_flash", 0.0)
 		return
 	_bolt.light_energy = 0.0
 	if menace < 0.55:
@@ -161,11 +223,30 @@ func _update_lightning(delta: float) -> void:
 	_next_bolt -= delta
 	if _next_bolt <= 0.0:
 		var ang := randf() * TAU  # presentation-only randomness
-		var d := 250.0 + randf() * 1100.0
-		_bolt.global_position = global_position \
-			+ Vector3(cos(ang) * d, 260.0 + randf() * 140.0, sin(ang) * d)
+		var d := 220.0 + randf() * 900.0
+		var strike := global_position \
+			+ Vector3(cos(ang) * d, 0.0, sin(ang) * d)
+		strike.y = Terrain.height(strike.x, strike.z)
+		_bolt.global_position = strike + Vector3(0, 180.0, 0)
+		_draw_bolt(strike)
 		_bolt_t = 0.45
-		_next_bolt = 3.0 + randf() * 14.0 * (1.6 - menace)
+		_next_bolt = 2.5 + randf() * 12.0 * (1.6 - menace)
+
+
+## A jagged emissive polyline from the cloud base to the strike point.
+func _draw_bolt(ground: Vector3) -> void:
+	_bolt_im.clear_surfaces()
+	_bolt_im.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	var p := ground + Vector3(0, 420.0, 0)
+	var segs := 8
+	for i in segs + 1:
+		var f := float(i) / segs
+		var pt := p.lerp(ground, f)
+		if i > 0 and i < segs:
+			pt += Vector3(randf_range(-22, 22), 0, randf_range(-22, 22)) * (1.0 - f * 0.5)
+		_bolt_im.surface_add_vertex(pt - _bolt_mesh.global_position)
+	_bolt_im.surface_end()
+	_bolt_mesh.visible = true
 
 
 func _make_particles(amount: int, lifetime: float, size: float, color: Color,

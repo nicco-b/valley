@@ -10,6 +10,7 @@ uniform vec3 sun_dir = vec3(0.0, 1.0, 0.0);
 uniform float sun_size = 0.04;
 uniform float night = 0.0;
 uniform float moon_light = 0.5; // illuminated fraction; full moon washes stars
+global uniform float lightning_flash; // Atmosphere pulses this 0..1
 
 void sky() {
 	float t = clamp(EYEDIR.y, 0.0, 1.0);
@@ -36,5 +37,7 @@ void sky() {
 				* (1.0 - 0.55 * moon_light);
 	}
 
+	// Lightning: the whole sky blinks toward white-violet for a beat.
+	col = mix(col, vec3(0.93, 0.93, 1.0), clamp(lightning_flash, 0.0, 1.0) * 0.85);
 	COLOR = col;
 }

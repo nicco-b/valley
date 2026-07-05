@@ -8,6 +8,14 @@ const MARKS := [["Shrine", Vector2(120, -620)], ["Pond", Vector2(70, -310)]]
 const COLOR_INK := Color(0.30, 0.17, 0.16)
 const PITCH := -1.134  # ~65 degrees down
 const CAM_DISTANCE := 400.0
+# Past this zoom the map stops driving the cell streamer entirely —
+# the far-terrain quadtree (which follows the map focus and caches
+# its tiles) IS the renderer at region scale. Panning a zoomed-out
+# map costs one cheap cached tile at a time instead of 81 full cells
+# with collision and navmesh (the old map hitching).
+const STREAM_ZOOM := 900.0
+const ZOOM_MIN := 130.0
+const ZOOM_MAX := 9000.0  # the whole archipelago in one view
 
 var active := false
 
@@ -44,6 +52,12 @@ func focus_position() -> Vector3:
 	return _focus
 
 
+## The streamer only follows the map while zoomed in close enough for
+## full-res cells to matter; zoomed out, the quadtree carries the view.
+func wants_streaming() -> bool:
+	return active and _ortho < STREAM_ZOOM
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("map") and not GodMode.active:
 		if active:
@@ -55,12 +69,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_ortho = clampf(_ortho * 0.85, 130.0, 1500.0)
+			_ortho = clampf(_ortho * 0.85, ZOOM_MIN, ZOOM_MAX)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_ortho = clampf(_ortho / 0.85, 130.0, 1500.0)
+			_ortho = clampf(_ortho / 0.85, ZOOM_MIN, ZOOM_MAX)
 	elif event is InputEventMagnifyGesture:
 		# Trackpad pinch.
-		_ortho = clampf(_ortho / event.factor, 130.0, 1500.0)
+		_ortho = clampf(_ortho / event.factor, ZOOM_MIN, ZOOM_MAX)
 	elif event is InputEventPanGesture:
 		# Trackpad two-finger pan.
 		var scale := _ortho / get_viewport().get_visible_rect().size.y
@@ -79,7 +93,13 @@ func _process(delta: float) -> void:
 	_focus.x += pan.x * _ortho * 0.9 * delta
 	_focus.z += pan.y * _ortho * 0.9 * delta
 	_cam.size = lerpf(_cam.size, _ortho, 1.0 - exp(-10.0 * delta))
-	_cam.global_position = _focus + Vector3(0.0, 0.906, 0.423) * CAM_DISTANCE
+	# Rig scales with zoom so tall islands never clip the frustum.
+	var dist := maxf(CAM_DISTANCE, _ortho * 0.55)
+	_cam.far = dist * 8.0
+	_cam.global_position = _focus + Vector3(0.0, 0.906, 0.423) * dist
+	var streamer := get_tree().get_first_node_in_group("world_streamer")
+	if streamer:
+		streamer.load_radius = 4 if wants_streaming() else 2
 	_markers.queue_redraw()
 
 

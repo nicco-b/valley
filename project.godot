@@ -71,6 +71,10 @@ sea_level={
 "type": "float",
 "value": -1000000.0
 }
+lightning_flash={
+"type": "float",
+"value": 0.0
+}
 home_rect={
 "type": "vec4",
 "value": Vector4(-959, -1309, 1089, 739)

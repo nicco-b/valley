@@ -146,7 +146,7 @@ func _focus_position() -> Vector3:
 	var p := _player.global_position
 	if GodMode.active:
 		p = GodMode.cam_position()
-	elif MapScreen.active:
+	elif MapScreen.active and MapScreen.wants_streaming():
 		p = MapScreen.focus_position()
 	return p
 

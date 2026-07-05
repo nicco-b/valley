@@ -401,6 +401,20 @@ on a presentation knob). Verified soak 2183523517, parity holds. The
 map draws all rivers. Re-run with a different FLOW_PCTILE for more/
 fewer. **The paint→bake→world pipeline is complete**: elevation guide
 + biome map in → eroded terrain + biomes + drainage out.
+**Proposal quality rebuilt (2026-07-05, same day, from playtest
+screenshots — the first pass wrote 40 near-duplicate rectangular
+gullies whose ribbons floated over dips):** now ≤10 major rivers — a
+wide claim mask coalesces parallel gullies, tributaries junction into
+trunks, and only channels reaching the sea or a trunk survive;
+flow-guided descent (max-flow lower neighbor, not steepest) keeps
+traces in the valley floors; Chaikin ×3 + uniform 45m resample kills
+the grid corners; node surfaces are bilinear from the BAKED
+heightfield (never Terrain.height) with a monotone downstream clamp,
+so ribbons lie in the carved channels. Verified visually by the new
+`tests/river_probe.tscn` (RIVER_SHOT=close|flank|wide, Movie Maker +
+minimized, region_probe's recipe); soak 4124434361 bit-stable
+(unchanged — the current fingerprint since the flora-depletion entry;
+gen rivers stay no_sim).
 
 ## Placeholder ledger (each has a named replacement path)
 

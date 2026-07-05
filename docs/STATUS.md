@@ -330,6 +330,20 @@ table). Pure presentation + flora — soak untouched (2183523517).
 Hot-reloads. Stage C (rivers proposed from the erosion flow map)
 queued.
 
+**Map pipeline stage C — rivers from the erosion flow (2026-07-05).**
+The bake's droplets already found the drainage; `bake_terrain` now
+returns `{height, flow}` (flow = droplet passage per cell), and
+`tests/propose_rivers.gd` traces the major channels down the carved
+valleys to the sea (headwaters first, tributaries merge) into river
+records (`data/water/rivers/gen_*.json`, gitignored cache). They carve
++ render like any river but are **no_sim** (Hydrology skips them via
+`Terrain.sim_rivers()` — its domain is the home watershed until
+per-region watersheds land, and registering them would move the soak
+on a presentation knob). Verified soak 2183523517, parity holds. The
+map draws all rivers. Re-run with a different FLOW_PCTILE for more/
+fewer. **The paint→bake→world pipeline is complete**: elevation guide
++ biome map in → eroded terrain + biomes + drainage out.
+
 ## Placeholder ledger (each has a named replacement path)
 
 Biped fox player (hers, replaced the star hound as the player body

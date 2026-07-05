@@ -205,6 +205,25 @@ All decided 2026-07-01 (first design day) unless noted.*
   Rides on: waypoint graph (SIM_ROADMAP P2), NPC stocks (long memory,
   built), rumors (built), Hydrology (built). Outranks further ecology
   rungs in build order.
+- **The toolkit is a product: we are building our own Creation Kit**
+  *(2026-07-04)*. Bethesda's worlds are big because their *tool* made
+  content cheap — the Creation Kit IS the studio. For a two-person
+  team the lesson is existential: every hour of authoring flows
+  through our tools, so tool quality multiplies everything (the map
+  will be rebuilt from scratch at 12km scale — the current valley is
+  a test fixture; only the systems and the toolkit carry forward).
+  Standing pieces already live: god mode (fly/sculpt/place/inspect),
+  place mode → cell records, hot-reload of paintings, the sim
+  inspector, "hydrology proposes / the author disposes." Committed
+  direction: the module layer (placed records grouped into reusable
+  socketed prefabs), region-tile painting (F3, with the underworld
+  `layer` in the schema), and eventually in-world co-authoring (the
+  shared-valley question). Toolkit work is never yak-shaving; it is
+  the force multiplier and gets triaged as first-class product work.
+  Corollary — **systems get names**: a system worth building is worth
+  a name that carries its idea (the sim contract, the budget law, the
+  two-layer illusion already work this way). Dev-facing names don't
+  gate on the axioms; christen freely, rename at the kitchen table.
 - **The clock stays pure 1:1 — morning exists only in the morning**
   *(2026-07-04, Nicco, settling the planning session's open question)*.
   No compression, no player-directed time travel. If you want to see

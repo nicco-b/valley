@@ -37,6 +37,7 @@ var _lock := Mutex.new()
 var _probe_accum := 0.0
 var _probe_pending := false
 var _probe_out := Vector4.ZERO
+var _probe_pos := Vector2(1e9, 1e9)
 
 
 func _ready() -> void:
@@ -70,15 +71,20 @@ func _process(delta: float) -> void:
 		var player := get_tree().get_first_node_in_group("player")
 		if player:
 			var p: Vector3 = player.global_position
-			var uv := (Vector2(p.x, p.z) - Hydrology.center) \
+			_probe_pos = Vector2(p.x, p.z)
+			var uv := (_probe_pos - Hydrology.center) \
 				/ Hydrology.domain + Vector2(0.5, 0.5)
 			_gpu.dispatch_probe(uv)
 			_probe_pending = true
 
 
-## Field water depth under a point (m). Zero when the field is off.
-func depth_at(_pos: Vector3) -> float:
-	return _probe_out.x if enabled else 0.0
+## Field water depth under a point (m). The probe tracks the PLAYER;
+## a query far from the probed point answers 0 rather than lying with
+## someone else's depth (the trap the first NPC caller would hit).
+func depth_at(pos: Vector3) -> float:
+	if not enabled or Vector2(pos.x, pos.z).distance_to(_probe_pos) > 4.0:
+		return 0.0
+	return _probe_out.x
 
 
 ## The current pushing a body at this point, m/s in the XZ plane.
@@ -95,7 +101,8 @@ func current_at(pos: Vector3) -> Vector2:
 	for r in Terrain.rivers:
 		var q := Terrain._river_probe(r, pos.x, pos.z)
 		if q.x < q.y:  # inside the ribbon
-			return Vector2(r.flow) * (CURRENT_MAX * Hydrology.flow_norm(r.id))
+			return Terrain.river_tangent(r, pos.x, pos.z) \
+				* (CURRENT_MAX * Hydrology.flow_norm(r.id))
 	return Vector2.ZERO
 
 

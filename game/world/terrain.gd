@@ -112,6 +112,28 @@ func _river_probe(r: Dictionary, x: float, z: float) -> Vector3:
 	return best
 
 
+## Downstream tangent of the nearest segment at (x,z) — bank-aware
+## current direction on curved rivers (the whole-river flow vector
+## shoves swimmers into the bank at bends). Cold path: full segment
+## scan is fine; the allocation-free hot probe stays untouched.
+func river_tangent(r: Dictionary, x: float, z: float) -> Vector2:
+	var p := Vector2(x, z)
+	var seg_a: PackedVector2Array = r.seg_a
+	var seg_ab: PackedVector2Array = r.seg_ab
+	var seg_tan: PackedVector2Array = r.seg_tan
+	var best_d := 1e12
+	var best := Vector2(r.flow)
+	for i in seg_a.size():
+		var rel := p - seg_a[i]
+		var ab := seg_ab[i]
+		var t := clampf(rel.dot(ab) / maxf(ab.length_squared(), 1e-4), 0.0, 1.0)
+		var d := rel.distance_to(ab * t)
+		if d < best_d:
+			best_d = d
+			best = seg_tan[i]
+	return best
+
+
 ## Dictionary view of _river_probe for cold callers (Climate moisture,
 ## Hydrology routing): {d, half, surface}.
 func river_query(r: Dictionary, x: float, z: float) -> Dictionary:
@@ -305,6 +327,11 @@ func _index_river(r: Dictionary) -> void:
 		seg_a.append(pa)
 		seg_ab.append(ab)
 		seg_inv_l2.append(1.0 / maxf(ab.length_squared(), 1e-4))
+	var seg_tan := PackedVector2Array()
+	for i in seg_ab.size():
+		var ab: Vector2 = seg_ab[i]
+		seg_tan.append(ab.normalized() if ab.length() > 1e-4 else Vector2.RIGHT)
+	r.seg_tan = seg_tan
 	r.seg_a = seg_a
 	r.seg_ab = seg_ab
 	r.seg_inv_l2 = seg_inv_l2

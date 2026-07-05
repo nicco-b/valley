@@ -88,6 +88,10 @@ func _process(delta: float) -> void:
 		var rain := Weather.state == "storm"
 		disturb(_anchor + off, 0.35 if rain else 1.6,
 			(0.012 if rain else 0.004) * (0.5 + _rng.randf()))
+		if not rain:
+			# Chop streaks along the wind: each seed gets a downwind twin.
+			disturb(_anchor + off + Vector2(Weather.wind_dir) * 1.4, 1.6,
+				0.003 * (0.5 + _rng.randf()))
 
 	_gpu.tick(_ops, _op_count)
 	_op_count = 0

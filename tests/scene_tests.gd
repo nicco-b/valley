@@ -365,6 +365,56 @@ func _test_flora() -> void:
 	FloraLife._hourly(0)
 	_check(WorldState.has_flag("valley.bloom"), "soaked + thriving flora -> bloom flag")
 	_check(not WorldState.has_flag("valley.parched"), "recovery clears parched")
+	# v2 — species records: loaded, validated, art slots fall back to grow.
+	_check(FloraLife.species.size() >= 6, "species records loaded")
+	var tuft: Dictionary = {}
+	for def: Dictionary in FloraLife.species:
+		if str(def.id) == "bloom_tuft":
+			tuft = def
+	_check(not tuft.is_empty(), "bloom_tuft record exists")
+	_check(FloraLife.stage_art(tuft, "bloom") == FloraLife.stage_art(tuft, "grow"),
+		"missing stage art falls back to grow (same placeholder slots)")
+	_check(str(tuft.get("yields", "")) == "dried_bloom", "bloom_tuft yields dried_bloom")
+	# Lifecycle stages are a pure function of season + vitality.
+	_check(FloraLife.stage_for("spring", 0.9) == "bloom", "lush spring blooms")
+	_check(FloraLife.stage_for("spring", 0.4) == "sprout", "lean spring sprouts")
+	_check(FloraLife.stage_for("autumn", 0.7) == "seed", "autumn seeds")
+	_check(FloraLife.stage_for("summer", 0.2) == "dry", "parched flora reads dry")
+	# Species composition: biome weights + the moisture gate.
+	_check(FloraLife.species_weight(tuft, "oasis_green", 0.8) > 0.0,
+		"tufts grow in the oasis")
+	_check(FloraLife.species_weight(tuft, "bare_peak", 0.8) == 0.0,
+		"no tufts on bare peaks")
+	_check(FloraLife.species_weight(tuft, "oasis_green", 0.8)
+			> FloraLife.species_weight(tuft, "oasis_green", 0.0),
+		"drought gates the thirsty species down")
+	# Spatial vitality is stateless: wet banks read greener than dry flats.
+	Climate.wetness = 0.0
+	FloraLife.vitality = 0.5
+	_check(FloraLife.vitality_at(70.0, -310.0) > FloraLife.vitality_at(0.0, -150.0),
+		"pond banks stay greener through a dry spell")
+	# Honest harvest: gathering wounds the cell, hours heal it, and a
+	# healed cell is forgotten (the save only remembers open wounds).
+	var cell := Vector2i(0, -3)  # floor((70,-310)/128)
+	FloraLife.harvest_at(70.0, -310.0)
+	_check(FloraLife.depletion(cell) > 0.0, "gathering wounds the cell")
+	_check(not (WorldState.get_value("flora.cells", {}) as Dictionary).is_empty(),
+		"wound mirrored to WorldState")
+	var before: float = FloraLife.depletion(cell)
+	FloraLife._regrow()
+	var after: float = FloraLife.depletion(cell)
+	_check(after < before and after > 0.0, "an hour regrows a little, not all")
+	for i in 400:
+		FloraLife._regrow()
+	_check(FloraLife.depletion(cell) == 0.0, "the wound heals in time")
+	_check((WorldState.get_value("flora.cells", {}) as Dictionary).is_empty(),
+		"healed cells are forgotten — save stays lean")
+	# Depletion survives a save/load (load_state re-reads the mirror).
+	FloraLife.harvest_at(-500.0, 900.0)
+	FloraLife.load_state()
+	_check(FloraLife.depletion(Vector2i(-4, 7)) > 0.0, "depletion survives load_state")
+	for i in 400:
+		FloraLife._regrow()
 	FloraLife.vitality = was_v
 	Climate.wetness = was_wet
 	WorldState.set_value("valley.bloom", false)

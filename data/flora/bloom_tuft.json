@@ -1,0 +1,15 @@
+{
+	"_comment": "The forageable: `yields` names an item record; gather spots deplete the cell's flora state and regrow honestly (no cell-reset respawns).",
+	"id": "bloom_tuft",
+	"name": "Bloom Tuft",
+	"height": 0.5,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/placeholder_tuft_1.svg"
+	},
+	"biomes": {"oasis_green": 0.5, "wetland": 0.5, "scrub": 0.45, "strand": 0.2, "dune_desert": 0.12, "volcanic_rock": 0.05},
+	"weight_default": 0.45,
+	"moisture_need": 0.1,
+	"yields": "dried_bloom"
+}

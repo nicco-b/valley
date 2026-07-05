@@ -1,0 +1,14 @@
+{
+	"id": "high_palm",
+	"name": "High Palm",
+	"height": 4.6,
+	"cover": false,
+	"collider": true,
+	"trunk_radius": 0.5,
+	"art": {
+		"grow": "res://assets/paintings/silly_tree_3.png"
+	},
+	"biomes": {"oasis_green": 0.2, "strand": 0.3, "scrub": 0.08},
+	"weight_default": 0.2,
+	"moisture_need": 0.3
+}

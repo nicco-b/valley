@@ -64,6 +64,11 @@ func _invariants(npcs: Node, wildlife: Node) -> void:
 		_check(is_finite(s) and s >= 0.0, "river %s storage finite and non-negative" % id)
 	_check(absf(Weather.wind_dir.length() - 1.0) < 0.01, "wind_dir stays unit")
 	_check(FloraLife.vitality >= 0.05 and FloraLife.vitality <= 1.0, "vitality in rails")
+	var gathered: Dictionary = WorldState.get_value("flora.cells", {})
+	for k: String in gathered:
+		var taken := float(gathered[k])
+		_check(is_finite(taken) and taken > 0.0 and taken <= 1.0,
+			"flora cell %s wound in (0,1]" % k)
 	for npc in npcs.get_children():
 		for need in npc.needs:
 			var v: float = npc.needs[need]
@@ -96,6 +101,7 @@ func _fingerprint(npcs: Node, wildlife: Node) -> int:
 		"%.4f" % Climate.snow,
 		"%.3f,%.3f" % [Weather.wind_dir.x, Weather.wind_dir.y],
 		"%.4f" % FloraLife.vitality,
+		FloraLife.depletion_digest(),
 		str(Hydrology.lake_level),
 		str(Hydrology.river_storage),
 		GameClock.day,

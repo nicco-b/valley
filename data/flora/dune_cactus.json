@@ -1,0 +1,14 @@
+{
+	"_comment": "First biome-authored species: absent from the home valley (weight_default 0), so deserts finally scatter something of their own. Placeholder SVG -> her painted cactus, same slot.",
+	"id": "dune_cactus",
+	"name": "Dune Cactus",
+	"height": 1.2,
+	"cover": false,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/placeholder_cactus.svg"
+	},
+	"biomes": {"dune_desert": 0.5, "scrub": 0.12, "volcanic_rock": 0.06},
+	"weight_default": 0.0,
+	"moisture_need": 0.0
+}

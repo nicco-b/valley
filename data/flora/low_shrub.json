@@ -1,0 +1,13 @@
+{
+	"id": "low_shrub",
+	"name": "Low Shrub",
+	"height": 1.8,
+	"cover": false,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/silly_tree_2.png"
+	},
+	"biomes": {"oasis_green": 0.45, "scrub": 0.5, "wetland": 0.4, "strand": 0.15, "dune_desert": 0.08},
+	"weight_default": 0.5,
+	"moisture_need": 0.15
+}

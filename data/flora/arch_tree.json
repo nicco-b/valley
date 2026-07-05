@@ -1,0 +1,15 @@
+{
+	"_comment": "Flora species record (the Elements). `art` maps lifecycle stage -> billboard texture; missing stages fall back to `grow` (labeled placeholder — her painted stage variants drop into these same slots). `biomes` maps biome id -> scatter weight (composition within a cell; data/world/biomes.json `flora` stays the master density). `weight_default` is used where no biome map answers. `moisture_need`: weight fades to zero as local ground moisture falls this far below the need.",
+	"id": "arch_tree",
+	"name": "Arch Tree",
+	"height": 3.5,
+	"cover": false,
+	"collider": true,
+	"trunk_radius": 0.35,
+	"art": {
+		"grow": "res://assets/paintings/silly_tree.png"
+	},
+	"biomes": {"oasis_green": 0.35, "wetland": 0.3, "scrub": 0.15},
+	"weight_default": 0.3,
+	"moisture_need": 0.25
+}

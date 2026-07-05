@@ -382,7 +382,25 @@ picker).
    emergent snowline from the lapse rate, meltwater soaks the ground) ·
    ✅ wind direction (wanders hourly, swings in storms; sand ripples and
    dust follow it) · ✅ herd cohesion (roam draws around the group's
-   drifting centroid) · ⏳ per-cell flora + species records next;
+   drifting centroid) · ✅ per-cell flora + species records (2026-07-05,
+   the Elements: `data/flora/*.json` — a new plant is one JSON file
+   carrying per-stage art slots [all placeholder paths today, her stage
+   paintings drop into the same slots], biome composition weights, a
+   moisture need, and optional forage `yields`; scatter and ground
+   cover are now species-driven — biome picks WHO grows, dune cells
+   finally scatter the cactus, stage art chosen at cell build from
+   season + vitality; `FloraLife.vitality_at(x,z)` is STATELESS spatial
+   vitality — global vitality shifted by local Climate, so pond banks
+   stay green through a drought and density breathes with the land, no
+   per-cell tick, no save growth; HONEST HARVEST: ForageSpot gather
+   spots [E — Gather, feeds the Foraging skill, first source: bloom
+   tufts → dried blooms] wound a SPARSE per-cell depletion state on
+   the sim contract [hour_tick regrow scaled by local vitality,
+   WorldState `flora.cells`, catch-up, load_state] — cells thin while
+   wounded, heal over ~2 days, and healed cells are FORGOTTEN so the
+   save only remembers open wounds — no cell-reset respawns, ever;
+   soak fingerprint moved once [4124434361, the depletion digest
+   joining it], bit-stable) ·
    population dynamics gated on the life-timescale axiom.
 
 1. **Asset track (humans)** — see ASSETS_NEEDED.md. Top: her ground-cover

@@ -182,6 +182,29 @@ starving behind cell builds on the shared pool). Open feel questions:
 fog vs landmark (calm fog eats 91% contrast at 3km), causeway vs boat
 traversal, coast silhouette still square-ish.
 
+**OPEN BLOCKER — descent crash (2026-07-04 night).** Falling/moving
+fast (~25m/s+) into unstreamed terrain SIGSEGVs on a WorkerThread
+(EXC_BAD_ACCESS near-null; sometimes SIGABRT). Deterministic repro:
+`tests/fall_probe.tscn` (headless, ~40s; env knobs FALL_KEEP strips
+the scene, FALL_NO_PHYSICS disables the player). **Pre-existing, not
+archipelago content**: the same probe crashes commit 1eea47e, and a
+matching crash report exists from 01:16 the same day. Ruled OUT by
+bisection (each tested with the repro): navmesh baking, trimesh shape
+creation, cell unload/queue_free, the far-terrain dedicated thread,
+region/guard/sea terrain code, in-flight build caps, serializing all
+worker height() sampling behind a mutex, player physics, call-stack
+tracking setting. Standalone hammers (pool-only, main+pool, mesh
+builds — `tests/thread_crash_probe.gd`) do NOT reproduce; it needs
+the real streamer + autoload composition. The long-filed "Bad address
+index" threaded-sampler script errors accompany it but serializing
+sampling doesn't stop the crash, so they may be a co-symptom, not the
+cause. Candidate real fixes, in order: (1) **GDExtension port of the
+bulk height samplers** (already the named hot-loop candidate — moves
+all worker-thread work out of the GDScript VM), (2) try a newer Godot
+4.7.x patch when available, (3) upstream bug report with fall_probe.
+Meanwhile: descend big landforms at walking pace, or give streaming a
+head start; the valley itself has never triggered it in normal play.
+
 ## Placeholder ledger (each has a named replacement path)
 
 Biped fox player (hers, replaced the star hound as the player body

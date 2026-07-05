@@ -92,25 +92,39 @@ func _exit_tree() -> void:
 func _thread_build(anchor: Vector2) -> void:
 	var step := SIZE / (RES - 1)
 	var origin := anchor - Vector2.ONE * SIZE * 0.5
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.set_smooth_group(0)
-	for iz in RES:
-		for ix in RES:
-			var wx := origin.x + ix * step
-			var wz := origin.y + iz * step
-			st.add_vertex(Vector3(wx, Terrain.height(wx, wz) - SINK, wz))
-	for iz in RES - 1:
-		for ix in RES - 1:
-			var i := iz * RES + ix
-			st.add_index(i)
-			st.add_index(i + 1)
-			st.add_index(i + RES)
-			st.add_index(i + 1)
-			st.add_index(i + RES + 1)
-			st.add_index(i + RES)
-	st.generate_normals()
-	var mesh := st.commit()
+	var mesh: ArrayMesh
+	if Terrain.kernel:
+		# Native path: no GDScript sampling on this thread (see
+		# Terrain.kernel — the descent-crash fix).
+		var built: Dictionary = Terrain.kernel.build_far(
+			origin.x, origin.y, SIZE, RES, SINK)
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = built.vertices
+		arrays[Mesh.ARRAY_NORMAL] = built.normals
+		arrays[Mesh.ARRAY_INDEX] = built.indices
+		mesh = ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	else:
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		st.set_smooth_group(0)
+		for iz in RES:
+			for ix in RES:
+				var wx := origin.x + ix * step
+				var wz := origin.y + iz * step
+				st.add_vertex(Vector3(wx, Terrain.height(wx, wz) - SINK, wz))
+		for iz in RES - 1:
+			for ix in RES - 1:
+				var i := iz * RES + ix
+				st.add_index(i)
+				st.add_index(i + 1)
+				st.add_index(i + RES)
+				st.add_index(i + 1)
+				st.add_index(i + RES + 1)
+				st.add_index(i + RES)
+		st.generate_normals()
+		mesh = st.commit()
 	_built_mutex.lock()
 	_built.append(mesh)
 	_built_mutex.unlock()

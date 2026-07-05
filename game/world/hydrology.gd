@@ -225,13 +225,11 @@ func _build_catchments() -> void:
 	var t0 := Time.get_ticks_msec()
 	var n := GRID_N
 	var half := domain * 0.5
-	var heights := PackedFloat32Array()
-	heights.resize(n * n)
-	for iz in n:
-		for ix in n:
-			heights[iz * n + ix] = Terrain.height(
-				center.x - half + ix * grid_m,
-				center.y - half + iz * grid_m)
+	# Bulk sampling through the native kernel when present (worker
+	# thread; see Terrain.kernel). Same sample points as the loop this
+	# replaces — the soak fingerprint hangs off these heights.
+	var heights := Terrain.height_block(
+		center.x - half, center.y - half, grid_m, n, n)
 	var basins: Array[String] = []
 	for w in Terrain.water_bodies:
 		basins.append(w.id)

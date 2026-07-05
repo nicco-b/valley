@@ -46,6 +46,10 @@ func _process(_delta: float) -> void:
 		var latest: Array = done[done.size() - 1]
 		_anchor = latest[0]
 		_mi.mesh = latest[1]
+		# Kernel-built meshes are corner-origin (build_cell layout);
+		# GDScript-built ones are centered. Same world placement.
+		_mi.position = Vector3(-SIZE * 0.5, 0.0, -SIZE * 0.5) if latest[2] \
+			else Vector3.ZERO
 		global_position = Vector3(_anchor.x, 0.0, _anchor.y)
 		# The hole in the terrain follows the ground that fills it.
 		RenderingServer.global_shader_parameter_set("patch_center", _anchor)
@@ -53,6 +57,24 @@ func _process(_delta: float) -> void:
 
 ## True local terrain at footprint resolution, built off-thread.
 func _thread_build(anchor: Vector2) -> void:
+	if Terrain.kernel:
+		# Native path: no GDScript sampling on this thread (see
+		# Terrain.kernel — this exact loop was the descent crash's
+		# final abort site, sand_patch re-anchoring while falling).
+		var built: Dictionary = Terrain.kernel.build_cell(
+			anchor.x - SIZE * 0.5, anchor.y - SIZE * 0.5, SIZE, RES, false)
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = built.vertices
+		arrays[Mesh.ARRAY_NORMAL] = built.normals
+		arrays[Mesh.ARRAY_TEX_UV] = built.uvs
+		arrays[Mesh.ARRAY_INDEX] = built.indices
+		var kmesh := ArrayMesh.new()
+		kmesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		_built_mutex.lock()
+		_built.append([anchor, kmesh, true])
+		_built_mutex.unlock()
+		return
 	var step := SIZE / (RES - 1)
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -75,5 +97,5 @@ func _thread_build(anchor: Vector2) -> void:
 	st.generate_normals()
 	var mesh := st.commit()
 	_built_mutex.lock()
-	_built.append([anchor, mesh])
+	_built.append([anchor, mesh, false])
 	_built_mutex.unlock()

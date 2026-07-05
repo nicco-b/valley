@@ -90,6 +90,15 @@ var river_levels := PackedFloat32Array()
 var sea_level := -1e12
 const SEABED := -35.0
 
+# The native kernel (native/, GDExtension): a bit-exact C++ port of
+# height()/water_surface_base() plus block/mesh builders. Worker-thread
+# builders MUST go through it when present — concurrent GDScript on
+# pool threads corrupts the VM (the descent crash; STATUS "OPEN
+# BLOCKER"). macOS-only library, loaded at runtime so other platforms
+# fall back to the GDScript paths silently. Null when unavailable.
+const KERNEL_EXT := "res://native/bin/valleykernel.gdext"
+var kernel: RefCounted = null
+
 
 ## Live water surface height at a point (authored + hydrology level), or
 ## -INF when there's no water there. Physics, moisture, and rendering read
@@ -252,6 +261,84 @@ func _ready() -> void:
 		_edits.convert(Image.FORMAT_RF)
 	else:
 		_edits = Image.create(EDIT_SIZE, EDIT_SIZE, false, Image.FORMAT_RF)
+	_init_kernel()
+
+
+# Load and configure the native kernel (no-op off macOS or without the
+# built library — every caller has a GDScript fallback). The kernel
+# holds REFERENCES to the same noise objects and edit Image, so god-mode
+# sculpting is seen live; all other data is copied once and immutable.
+func _init_kernel() -> void:
+	# class_exists, not can_instantiate: the latter ERRORS on unknown
+	# classes, which fails the smoke test's clean-output gate.
+	if not ClassDB.class_exists("TerrainKernel"):
+		if OS.get_name() != "macOS" or not FileAccess.file_exists(KERNEL_EXT):
+			return
+		var status := GDExtensionManager.load_extension(KERNEL_EXT)
+		if status != GDExtensionManager.LOAD_STATUS_OK \
+				or not ClassDB.class_exists("TerrainKernel"):
+			push_warning("[terrain] native kernel failed to load (%d); GDScript fallback" % status)
+			return
+	kernel = ClassDB.instantiate("TerrainKernel")
+	var flat := PackedFloat64Array()
+	for f in FLATTENS:
+		flat.append(f[0])
+		flat.append(f[1])
+		flat.append(f[2])
+		flat.append(f[3])
+	kernel.set_base(_hills, _dunes, _ranges, _island, _edits,
+		float(EDIT_SIZE), EDIT_M_PER_PX, flat,
+		PackedVector2Array(VALLEY_PATH),
+		VALLEY_INNER, VALLEY_OUTER, WALL_HEIGHT)
+	kernel.set_home(_home_rect.position, _home_rect.end,
+		HOME_GUARD_IN, HOME_GUARD_OUT, sea_level, SEABED)
+	var lc := PackedVector2Array()
+	# Float64: lake records are read as doubles in GDScript; a float32
+	# hop here moved the pond by 5e-8 m and broke bit-parity.
+	var lr := PackedFloat64Array()
+	var ls := PackedFloat64Array()
+	var lbr := PackedFloat64Array()
+	var lbd := PackedFloat64Array()
+	for w in water_bodies:
+		lc.append(w.center)
+		lr.append(w.radius)
+		ls.append(w.surface)
+		lbr.append(w.basin_radius)
+		lbd.append(w.basin_depth)
+	kernel.set_lakes(lc, lr, ls, lbr, lbd)
+	for r in rivers:
+		kernel.add_river({"seg_a": r.seg_a, "seg_ab": r.seg_ab,
+			"seg_inv_l2": r.seg_inv_l2, "seg_half": r.seg_half,
+			"seg_surf": r.seg_surf, "bbox": r.bbox, "grid": r.grid,
+			"grid_w": r.grid_w, "depth": r.depth, "feather": r.feather})
+	kernel.set_regions(_reg_kind, _reg_bbox, _reg_center, _reg_radius,
+		_reg_reach, _reg_inner, _reg_height, _reg_tiers, _reg_nodes)
+	print("[terrain] native kernel live: worker sampling runs in C++")
+
+
+## Bulk height samples, row-major nz rows of nx — THE call worker-thread
+## builders must use (never per-sample GDScript height() off-main).
+func height_block(ox: float, oz: float, step: float, nx: int, nz: int) -> PackedFloat32Array:
+	if kernel:
+		return kernel.height_block(ox, oz, step, nx, nz)
+	var out := PackedFloat32Array()
+	out.resize(nx * nz)
+	for iz in nz:
+		for ix in nx:
+			out[iz * nx + ix] = height(ox + ix * step, oz + iz * step)
+	return out
+
+
+## Bulk authored water surfaces (or -1e12 where dry), same layout.
+func water_base_block(ox: float, oz: float, step: float, nx: int, nz: int) -> PackedFloat32Array:
+	if kernel:
+		return kernel.water_base_block(ox, oz, step, nx, nz)
+	var out := PackedFloat32Array()
+	out.resize(nx * nz)
+	for iz in nz:
+		for ix in nx:
+			out[iz * nx + ix] = water_surface_base(ox + ix * step, oz + iz * step)
+	return out
 
 
 ## 0.0 anywhere in/near the home watershed rect, ramping to 1.0 over

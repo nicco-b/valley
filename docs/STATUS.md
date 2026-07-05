@@ -182,7 +182,38 @@ starving behind cell builds on the shared pool). Open feel questions:
 fog vs landmark (calm fog eats 91% contrast at 3km), causeway vs boat
 traversal, coast silhouette still square-ish.
 
-**OPEN BLOCKER — descent crash (2026-07-04 night).** Falling/moving
+**RESOLVED (2026-07-05) — the descent crash: fixed by the native
+terrain kernel.** The GDExtension port (below) removed all GDScript
+from worker threads; `tests/fall_probe.tscn` went from 5/5 crashes to
+5/5 clean with ZERO "Bad address index" errors — the long-filed
+threaded-sampler script errors were the same disease and died with
+it. The final abort site (once everything else was native, the crash
+handler could finally print it) was sand_patch's re-anchor build; the
+underlying engine bug (GDScript VM corruption under concurrent
+worker-thread execution) remains worth an upstream report, but the
+game no longer exercises it.
+
+**The native kernel (native/, the Loom, 2026-07-05):** TerrainKernel,
+a GDExtension port of `height()` / `water_surface_base()` + block and
+whole-mesh builders (`build_cell`, `build_far`) — cell meshes, far
+LOD, sand patch/base, water-field base, and the hydrology grid all
+sample in C++ now; GDScript keeps the single-sample main-thread API
+and is the fallback where the library isn't built. macOS-only .dylib
+loaded at runtime by Terrain._ready via a custom-suffix
+`native/bin/valleykernel.gdext` (deliberately not `.gdextension`, so
+Linux CI never sees it and falls back clean). Rebuild: clone
+godot-cpp into native/, dump the engine API (commands in
+native/CMakeLists.txt header), `cmake -B native/build -S native &&
+cmake --build native/build -j`. Determinism contract:
+bit-parity with the engine's own GDScript math is impossible (the
+official binary's fma codegen), so the kernel is bit-stable with
+ITSELF, every worker consumer reads the kernel, divergence vs
+GDScript is gated <1e-4m by `tests/kernel_parity.gd`, and the soak
+fingerprint changed ONCE at adoption (still bit-identical across
+runs). If the double-precision engine build ever lands, recompile
+with `precision=double` (CLAUDE.md GDExtension policy).
+
+**Superseded — descent crash (2026-07-04 night; kept for the record).** Falling/moving
 fast (~25m/s+) into unstreamed terrain SIGSEGVs on a WorkerThread
 (EXC_BAD_ACCESS near-null; sometimes SIGABRT). Deterministic repro:
 `tests/fall_probe.tscn` (headless, ~40s; env knobs FALL_KEEP strips

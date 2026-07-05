@@ -107,19 +107,19 @@ func current_at(pos: Vector3) -> Vector2:
 
 
 func _bake_base() -> void:
-	var heights := PackedFloat32Array()
-	heights.resize(WaterGpu.GRID * WaterGpu.GRID)
-	var sinks := PackedFloat32Array()
-	sinks.resize(WaterGpu.GRID * WaterGpu.GRID)
-	var step := Hydrology.domain / WaterGpu.GRID
+	var g := WaterGpu.GRID
+	var step := Hydrology.domain / g
 	var origin := Hydrology.center - Vector2.ONE * (Hydrology.domain * 0.5)
-	for iz in WaterGpu.GRID:
-		var wz := origin.y + (iz + 0.5) * step
-		for ix in WaterGpu.GRID:
-			var wx := origin.x + (ix + 0.5) * step
-			var i := iz * WaterGpu.GRID + ix
-			heights[i] = Terrain.height(wx, wz)
-			sinks[i] = 1.0 if Terrain.water_surface_base(wx, wz) > -1e6 else 0.0
+	# Bulk sampling through the native kernel when present — no
+	# per-sample GDScript on this worker (see Terrain.kernel).
+	var heights := Terrain.height_block(
+		origin.x + 0.5 * step, origin.y + 0.5 * step, step, g, g)
+	var bases := Terrain.water_base_block(
+		origin.x + 0.5 * step, origin.y + 0.5 * step, step, g, g)
+	var sinks := PackedFloat32Array()
+	sinks.resize(g * g)
+	for i in g * g:
+		sinks[i] = 1.0 if bases[i] > -1e6 else 0.0
 	_lock.lock()
 	_base_heights = heights
 	_base_sinks = sinks

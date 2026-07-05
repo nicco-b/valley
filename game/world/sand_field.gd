@@ -273,14 +273,12 @@ func _start_base_bake() -> void:
 	var region := _region()
 	_base_task = WorkerThreadPool.add_task(func() -> void:
 		var g := SandGpu.BASE_GRID
-		var heights := PackedFloat32Array()
-		heights.resize(g * g)
 		var step := region / g
-		for y in g:
-			for x in g:
-				heights[y * g + x] = Terrain.height(
-					anchor.x + (x + 0.5) * step - region * 0.5,
-					anchor.y + (y + 0.5) * step - region * 0.5)
+		# Bulk sampling through the native kernel when present — no
+		# per-sample GDScript on this worker (see Terrain.kernel).
+		var heights := Terrain.height_block(
+			anchor.x + 0.5 * step - region * 0.5,
+			anchor.y + 0.5 * step - region * 0.5, step, g, g)
 		_lock.lock()
 		_base_result = heights
 		_base_ready = true
@@ -395,11 +393,13 @@ static func relax(delta_field: PackedFloat32Array, base: PackedFloat32Array,
 
 
 func _rebake_base(base: PackedFloat32Array, anchor: Vector2) -> void:
-	for y in GRID:
-		for x in GRID:
-			base[y * GRID + x] = Terrain.height(
-				anchor.x + (x + 0.5) * CELL - REGION * 0.5,
-				anchor.y + (y + 0.5) * CELL - REGION * 0.5)
+	# Runs on the CPU-reference sim thread: bulk sampling through the
+	# native kernel when present (see Terrain.kernel).
+	var block := Terrain.height_block(
+		anchor.x + 0.5 * CELL - REGION * 0.5,
+		anchor.y + 0.5 * CELL - REGION * 0.5, CELL, GRID, GRID)
+	for i in GRID * GRID:
+		base[i] = block[i]
 
 
 func _shift_window(delta_field: PackedFloat32Array,

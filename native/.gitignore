@@ -1,0 +1,4 @@
+# Regenerable: clone + dump + build (see CMakeLists.txt header).
+godot-cpp/
+api/
+build/

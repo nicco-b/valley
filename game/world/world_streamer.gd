@@ -230,33 +230,54 @@ func _build_terrain_mesh(c: Vector2i, with_nav := true, with_shape := true,
 	)
 	var step := CELL_SIZE / (res - 1)
 	var pts := PackedVector3Array()
-	pts.resize(res * res)
 	var wet := PackedByteArray()
-	wet.resize(res * res)
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	st.set_material(_ground_material)
-	st.set_smooth_group(0)
-	for iz in res:
-		for ix in res:
-			var wx := origin.x + ix * step
-			var wz := origin.z + iz * step
-			var y := Terrain.height(wx, wz)
-			var i := iz * res + ix
-			pts[i] = Vector3(ix * step, y, iz * step)
-			if with_nav:
-				wet[i] = 1 if y < Terrain.water_surface_base(wx, wz) - 0.05 else 0
-			st.set_uv(Vector2(wx, wz) * 0.05)
-			st.add_vertex(pts[i])
-	for iz in res - 1:
-		for ix in res - 1:
-			var i := iz * res + ix
-			st.add_index(i)
-			st.add_index(i + 1)
-			st.add_index(i + res)
-			st.add_index(i + 1)
-			st.add_index(i + res + 1)
-			st.add_index(i + res)
+	var mesh: ArrayMesh
+	if Terrain.kernel:
+		# Native path: the whole vertex/normal/index build runs in C++ —
+		# worker threads execute (almost) no GDScript (the descent-crash
+		# fix; see Terrain.kernel).
+		var built: Dictionary = Terrain.kernel.build_cell(
+			origin.x, origin.z, CELL_SIZE, res, with_nav)
+		pts = built.vertices
+		wet = built.wet
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = built.vertices
+		arrays[Mesh.ARRAY_NORMAL] = built.normals
+		arrays[Mesh.ARRAY_TEX_UV] = built.uvs
+		arrays[Mesh.ARRAY_INDEX] = built.indices
+		mesh = ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		mesh.surface_set_material(0, _ground_material)
+	else:
+		pts.resize(res * res)
+		wet.resize(res * res)
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		st.set_material(_ground_material)
+		st.set_smooth_group(0)
+		for iz in res:
+			for ix in res:
+				var wx := origin.x + ix * step
+				var wz := origin.z + iz * step
+				var y := Terrain.height(wx, wz)
+				var i := iz * res + ix
+				pts[i] = Vector3(ix * step, y, iz * step)
+				if with_nav:
+					wet[i] = 1 if y < Terrain.water_surface_base(wx, wz) - 0.05 else 0
+				st.set_uv(Vector2(wx, wz) * 0.05)
+				st.add_vertex(pts[i])
+		for iz in res - 1:
+			for ix in res - 1:
+				var i := iz * res + ix
+				st.add_index(i)
+				st.add_index(i + 1)
+				st.add_index(i + res)
+				st.add_index(i + 1)
+				st.add_index(i + res + 1)
+				st.add_index(i + res)
+		st.generate_normals()
+		mesh = st.commit()
 	var faces := PackedVector3Array()
 	if with_nav:
 		var stride := maxi(1, (res - 1) / (TERRAIN_RES - 1))
@@ -275,8 +296,6 @@ func _build_terrain_mesh(c: Vector2i, with_nav := true, with_shape := true,
 					faces.append(pts[b])
 					faces.append(pts[e])
 					faces.append(pts[d])
-	st.generate_normals()
-	var mesh := st.commit()
 	var navmesh: NavigationMesh = Nav.bake_navmesh(faces) if with_nav else null
 	var shape: Shape3D = mesh.create_trimesh_shape() if with_shape else null
 	return [mesh, shape, navmesh]

@@ -429,6 +429,36 @@ func _test_climate_v2() -> void:
 	_check(absf(Climate.temperature(Climate.REFERENCE.x, Climate.REFERENCE.y)
 			- Climate.base_temperature()) < 1.0,
 		"the valley thermometer still reads the valley")
+	# Phase 3 — humidity. Same point, same wind: only the pinned factor
+	# moves, so these hold on any map.
+	_check(Climate._humidity_for(0.0, -150.0, 0.5, 10.0)
+			> Climate._humidity_for(0.0, -150.0, 0.5, 700.0),
+		"the air thins dry with altitude")
+	_check(Climate._humidity_for(0.0, -150.0, 0.9, 10.0)
+			> Climate._humidity_for(0.0, -150.0, 0.1, 10.0),
+		"wet ground humidifies the air above it")
+	Weather.force_kind("calm")
+	var hum_calm: float = Climate.humidity(Climate.REFERENCE.x, Climate.REFERENCE.y)
+	Weather.force_kind("storm")
+	_check(Climate.humidity(Climate.REFERENCE.x, Climate.REFERENCE.y) > hum_calm + 0.1,
+		"a wet front saturates the air")
+	Weather.force_kind("calm")
+	# Dew at dawn: humid, still, pre-dawn air WETS the ground instead of
+	# drying it. Wind set so the upwind probes reach the east sea.
+	var was_angle2: float = Weather._wind_angle
+	var was_hours: float = GameClock.hours
+	Weather.wind_dir = Vector2(-1.0, 0.0)
+	Weather._wind_angle = Weather.wind_dir.angle()
+	var span2: Vector2 = GameClock.daylight_span()
+	GameClock.hours = fposmod(span2.x - 1.0, 24.0)  # ~solar 5: the dew window
+	Climate.wetness = 0.75
+	Climate._hourly(0)
+	_check(Climate.wetness > 0.76,
+		"pre-dawn saturated air dews the ground (%.3f)" % Climate.wetness)
+	GameClock.hours = was_hours
+	Weather._wind_angle = was_angle2
+	Weather.wind_dir = Vector2.from_angle(was_angle2)
+	Climate.wetness = keep_wet
 	_check(absf(Weather.wind_dir.length() - 1.0) < 0.001,
 		"wind direction stays a unit vector as it wanders")
 

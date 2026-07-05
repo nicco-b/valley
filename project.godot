@@ -115,6 +115,10 @@ trace_size={
 "type": "float",
 "value": 80.0
 }
+air_humidity={
+"type": "float",
+"value": 0.3
+}
 ground_wetness={
 "type": "float",
 "value": 0.25

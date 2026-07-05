@@ -107,7 +107,10 @@ func fog_amount() -> float:
 	if fog_override >= 0.0:
 		return clampf(fog_override, 0.0, 1.0)
 	var fx := _focus_xz()
-	var dew := clampf(Climate.wetness_at(fx.x, fx.y) * 1.35
+	# Fog is the AIR's business now: humidity (sea breath + wet ground +
+	# saturated fronts, thin aloft) condenses where it's cold and still —
+	# so the coast fogs harder than the interior and summits float clear.
+	var dew := clampf(Climate.humidity(fx.x, fx.y) * 1.35
 		- maxf(Climate.temperature(Climate.REFERENCE.x, Climate.REFERENCE.y), 0.0) * 0.05
 		- wind * 0.9, 0.0, 1.0)
 	var gate := 1.0 - smoothstep(1.5, 5.0, absf(GameClock.solar_hours() - 5.5))

@@ -102,6 +102,10 @@ func _process(delta: float) -> void:
 	RenderingServer.global_shader_parameter_set("ground_wetness", _shader_wetness)
 	RenderingServer.global_shader_parameter_set("snow_cover", _shader_snow)
 	RenderingServer.global_shader_parameter_set("snow_line", snow_line())
+	# The air over the focus: humid nights wash the stars out, dry cold
+	# ones sharpen them (the sky shader reads this).
+	RenderingServer.global_shader_parameter_set("air_humidity",
+			humidity(fx.x, fx.y))
 
 
 func _focus_xz() -> Vector2:
@@ -185,6 +189,53 @@ func _swing(x: float, z: float) -> float:
 	return lerpf(1.0, MARITIME_SWING, sea)
 
 
+# Humidity (Climate v2 phase 3, 2026-07-05): AIR moisture, distinct
+# from ground wetness — STATELESS (sim-contract type (a)): derived at
+# query time from open water upwind (the sea breath rides the live
+# wind), the ground wetness under the air column (recent rain
+# humidifies), a wet front overhead (raining air is saturated air),
+# all thinning with altitude. Nothing saved, nothing to catch up.
+# Consumers: fog's dew term, the dew-at-dawn wetting pulse below,
+# star extinction (air_humidity global — the clearest sky of the year
+# is a cold dry winter night), food spoilage later.
+const HUM_BASE := 0.2
+const HUM_WATER := 0.5  # full when every upwind probe sits on open water
+const HUM_GROUND := 0.35  # soaked ground humidifies the air above it
+const HUM_WET_FRONT := 0.25  # raining air is saturated air
+const HUM_PROBES := [600.0, 1400.0, 2600.0, 4200.0]  # upwind water probes (m)
+const ALT_DRY_LO := 150.0  # the air starts thinning dry above this
+const ALT_DRY_HI := 800.0
+const ALT_DRY_FLOOR := 0.45  # humidity multiplier on the peaks
+const DEW_RATE := 0.03  # pre-dawn saturated-air wetting per hour
+const DEW_HUMIDITY := 0.65  # air at least this humid dews
+const DEW_WIND := 0.35  # and near-still
+const DEW_FROM := 3.0  # solar hours of the dew window
+const DEW_TO := 7.0
+
+
+## Air humidity at a position, 0..1.
+func humidity(x: float, z: float) -> float:
+	return _humidity_for(x, z, wetness_at(x, z),
+			maxf(Terrain.height(x, z), 0.0))
+
+
+## The humidity model with ground wetness and altitude supplied (the
+## hourly field loop feeds cached values; tests pin single factors).
+func _humidity_for(x: float, z: float, ground: float, h: float) -> float:
+	var water := 0.0
+	var wd: Vector2 = Weather.wind_dir
+	for dist: float in HUM_PROBES:
+		var px := x - wd.x * dist
+		var pz := z - wd.y * dist
+		if Terrain.height(px, pz) < Terrain.sea_level \
+				or Terrain.water_surface_base(px, pz) > -1e11:
+			water += 1.0 / HUM_PROBES.size()
+	var wet_front := HUM_WET_FRONT if Weather.state_at(x, z) in Weather.WET_KINDS else 0.0
+	var alt := lerpf(1.0, ALT_DRY_FLOOR, smoothstep(ALT_DRY_LO, ALT_DRY_HI, h))
+	return clampf((HUM_BASE + HUM_WATER * water + HUM_GROUND * ground
+			+ wet_front) * alt, 0.0, 1.0)
+
+
 func _ensure_cell_cache() -> void:
 	if _cell_swing.size() == GRID_N * GRID_N:
 		return
@@ -257,9 +308,10 @@ func summary() -> String:
 	for i in GRID_N * GRID_N:
 		lo = minf(lo, wet_grid[i])
 		hi = maxf(hi, wet_grid[i])
-	return "wetness(valley)=%.2f field=[%.2f..%.2f] snow=%.2f snowline=%.0fm  t(valley)=%.1f  moisture(pond)=%.2f" % [
+	return "wetness(valley)=%.2f field=[%.2f..%.2f] snow=%.2f snowline=%.0fm  t(valley)=%.1f  hum(valley)=%.2f  moisture(pond)=%.2f" % [
 		wetness, lo, hi, snow, snow_line(),
 		temperature(REFERENCE.x, REFERENCE.y),
+		humidity(REFERENCE.x, REFERENCE.y),
 		moisture(REFERENCE.x, REFERENCE.y)]
 
 
@@ -282,6 +334,7 @@ func _hourly(_h: int) -> void:
 	var diurnal := _diurnal()
 	var chill := 3.0 * Weather.storminess
 	var solar: float = GameClock.solar_hours()
+	var dew_window := solar >= DEW_FROM and solar <= DEW_TO
 	for i in GRID_N * GRID_N:
 		var cx := GRID_ORIGIN + (float(i % GRID_N) + 0.5) * GRID_CELL
 		var cz := GRID_ORIGIN + (float(i / GRID_N) + 0.5) * GRID_CELL
@@ -289,6 +342,12 @@ func _hourly(_h: int) -> void:
 		var w := wet_grid[i]
 		if local_rain > 0.05:
 			w = minf(w + RAIN_RATE * local_rain, 1.0)
+		elif dew_window and Weather.property_at(cx, cz, "wind") <= DEW_WIND \
+				and _humidity_for(cx, cz, w, _cell_h[i]) >= DEW_HUMIDITY:
+			# Dew at dawn: saturated still air neither dries the ground
+			# nor leaves it alone — a thin film condenses, darkening the
+			# pre-dawn ground; the morning sun dries it back off.
+			w = minf(w + DEW_RATE, 1.0)
 		else:
 			var t := seasonal + diurnal * _cell_swing[i] - chill \
 					- LAPSE * _cell_h[i] + aspect_term(_cell_grad[i], solar)

@@ -330,9 +330,26 @@ once (1333567381), bit-stable. Fun fact the soak taught: in summer
 the maritime damping doesn't change 30-day drying at all — the
 swing is symmetric and drying is linear in temperature, so warmer
 nights buy back exactly what milder afternoons lose; the asymmetry
-arrives with winter's freezing clamp. Still open in Climate v2:
-humidity as its own field, soil from the erosion bake, biome-from-
-climate (SIM_ROADMAP).
+arrives with winter's freezing clamp. **Phase 3 (same day):
+humidity.** AIR moisture, distinct from ground wetness, STATELESS
+(type (a) — nothing saved, nothing to catch up):
+`Climate.humidity(x,z)` = base + open water upwind (four probes ride
+the LIVE wind — the sea breath) + ground wetness under the column +
+a wet front overhead (raining air is saturated air), thinning with
+altitude to 0.45× on the peaks. Three consumers wired same-commit:
+fog's dew term now condenses from humidity (coasts fog harder than
+the interior, summits float clear — sea fog for free);
+**dew at dawn** (IDEAS ★): in the pre-dawn window, still saturated
+air skips drying and lays a 0.03 film on the wetness field — the
+ground darkens before sunrise and dries off by mid-morning; and
+**star extinction** (`air_humidity` global, sky shader): humid
+nights wash the stars, so the clearest sky of the year is a cold
+dry winter night — the field recordist's almanac before the
+mechanic exists. Fingerprint UNCHANGED (1333567381) and that is
+honest: dew is a dawn film that burns off within two hours, so the
+9am end-state never sees it (the scene test proves it fires).
+Still open in Climate v2: soil from the erosion bake,
+biome-from-climate (SIM_ROADMAP).
 
 **The map pipeline, stage A (2026-07-05, the Toolkit): paint →
 bake → world.** `data/world/elevation_guide.exr` (1024px, 16m/px,

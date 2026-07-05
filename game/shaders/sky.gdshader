@@ -11,6 +11,7 @@ uniform float sun_size = 0.04;
 uniform float night = 0.0;
 uniform float moon_light = 0.5; // illuminated fraction; full moon washes stars
 global uniform float lightning_flash; // Atmosphere pulses this 0..1
+global uniform float air_humidity; // Climate: humid air dims the stars
 
 void sky() {
 	float t = clamp(EYEDIR.y, 0.0, 1.0);
@@ -32,9 +33,12 @@ void sky() {
 		float h = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
 		vec2 off = vec2(fract(h * 17.0), fract(h * 91.0)) - 0.5;
 		float star = step(0.82, h) * smoothstep(0.09, 0.0, length(f - off * 0.8));
+		// Extinction: the moon washes stars out, and so does humid air —
+		// the clearest sky of the year is a cold dry winter night.
 		col += vec3(1.0, 0.96, 0.9) * star * night * (0.35 + 0.65 * fract(h * 7.0))
 				* smoothstep(0.02, 0.25, EYEDIR.y)
-				* (1.0 - 0.55 * moon_light);
+				* (1.0 - 0.55 * moon_light)
+				* (1.0 - 0.45 * clamp(air_humidity, 0.0, 1.0));
 	}
 
 	// Lightning: the whole sky blinks toward white-violet for a beat.

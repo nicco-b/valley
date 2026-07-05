@@ -20,7 +20,11 @@ const EDIT_REBUILD_DELAY := 1.2  # settle time after the last brush stroke
 
 var _anchor := Vector2.INF
 var _mesh_instance: MeshInstance3D
-var _task := -1
+# Dedicated thread, NOT WorkerThreadPool: a recenter into fresh terrain
+# queues ~100 cell builds + navmesh bakes on the shared pool, and the
+# horizon rebuild would sit behind all of them — a stale far mesh for
+# minutes exactly when the player is covering new ground.
+var _thread: Thread
 var _built_mutex := Mutex.new()
 var _built: Array = []  # meshes finished by the worker
 var _edit_pending := false
@@ -59,21 +63,28 @@ func _process(delta: float) -> void:
 	var recenter := _anchor == Vector2.INF \
 			or focus.distance_to(_anchor) > RECENTER_DISTANCE
 	var edits_settled := _edit_pending and _edit_cooldown <= 0.0
-	if _task == -1 and (recenter or edits_settled):
+	if _thread == null and (recenter or edits_settled):
 		if recenter:
 			_anchor = focus.snappedf(256.0)
 		_edit_pending = false
-		_task = WorkerThreadPool.add_task(_thread_build.bind(_anchor))
+		_thread = Thread.new()
+		_thread.start(_thread_build.bind(_anchor))
 
 	_built_mutex.lock()
 	var done := _built.duplicate()
 	_built.clear()
 	_built_mutex.unlock()
 	if not done.is_empty():
-		if _task != -1:
-			WorkerThreadPool.wait_for_task_completion(_task)
-			_task = -1
+		if _thread != null:
+			_thread.wait_to_finish()
+			_thread = null
 		_mesh_instance.mesh = done[done.size() - 1]
+
+
+func _exit_tree() -> void:
+	if _thread != null:
+		_thread.wait_to_finish()
+		_thread = null
 
 
 ## Heavy sampling (RES^2 height reads), safe on a worker: only reads

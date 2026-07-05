@@ -1,0 +1,13 @@
+{
+	"id": "stairstep_ridge",
+	"layer": "surface",
+	"kind": "ridge",
+	"nodes": [
+		{"x": -2800, "z": -700},
+		{"x": -3400, "z": -1800},
+		{"x": -3900, "z": -2900}
+	],
+	"inner": 130,
+	"feather": 420,
+	"height": 190
+}

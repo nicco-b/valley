@@ -1,0 +1,10 @@
+{
+	"id": "terrace_hill",
+	"layer": "surface",
+	"kind": "mesa",
+	"center": {"x": -2600, "z": 1700},
+	"radius": 420,
+	"feather": 260,
+	"height": 150,
+	"tiers": 7
+}

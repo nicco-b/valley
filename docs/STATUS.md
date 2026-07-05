@@ -155,6 +155,26 @@ because git-lfs isn't installed here yet; install on both machines, then
 commit the attributes and (optionally, history rewrite — coordinate!)
 `git lfs migrate`.
 
+**Archipelago feel-prototype (2026-07-04, the Loom)** — the decided
+~12km world shape as a disposable draft to fly and walk: authored
+island landforms as **region records** (`data/regions/*.json` — mesa/
+ridge/dome shapes plus a "barren" mask that quiets the procedural
+ranges so islands read against emptiness; every record carries the
+`layer` field the F3 schema will need, "surface" for now). Terrain
+sums them only OUTSIDE the home watershed rect (guard ramps in over
+150–550m past the rect from the watershed record), so the valley, its
+hydrology, and the soak fingerprint are bit-untouched (verified: same
+fingerprint before/after). Seven landforms: the metropolis mesa (320m,
+5 tiers — the landmark, clears the rim's near horizon by ~3°), two
+gate domes, the stairstep ridge, the terraced hill, the east crest, a
+south backstop. NOT the final map — calibration for scale/silhouette/
+verticality before region tiles (F3). Toolkit hooks:
+`Terrain.regions_summary()`; `tests/region_map.gd` (headless hillshade
+overview + landmark-law check, no window); `tests/region_probe.tscn`
+(in-engine screenshots — runs under Movie Maker mode, minimized;
+NOTE: the far-terrain recenter starvation it caught is fixed —
+far_terrain now builds on its own thread, not the worker pool).
+
 ## Placeholder ledger (each has a named replacement path)
 
 Biped fox player (hers, replaced the star hound as the player body

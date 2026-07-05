@@ -713,7 +713,7 @@ Dictionary TerrainKernel::build_far(double ox, double oz, double size,
 // ============================================================
 #include <random>
 
-PackedFloat32Array TerrainKernel::bake_terrain(
+Dictionary TerrainKernel::bake_terrain(
 		const PackedFloat32Array &p_guide, int p_guide_res,
 		double p_world_size, int p_out_res, int p_seed,
 		const Dictionary &p_params) const {
@@ -722,6 +722,12 @@ PackedFloat32Array TerrainKernel::bake_terrain(
 	PackedFloat32Array out;
 	out.resize(N * N);
 	float *H = out.ptrw();
+	PackedFloat32Array flow;
+	flow.resize(N * N);
+	float *F = flow.ptrw();
+	for (int i = 0; i < N * N; i++) {
+		F[i] = 0.0f;
+	}
 	const float *guide = p_guide.ptr();
 
 	// --- 1. Bilinear upsample of the painted guide -------------------
@@ -825,6 +831,9 @@ PackedFloat32Array TerrainKernel::bake_terrain(
 			if (nx < 1 || nz < 1 || nx >= N - 2 || nz >= N - 2) break;
 			double h_new = h_at(nx, nz);
 			double dh = h_new - h_old;
+			// Flow accumulation: a droplet passing through this cell is
+			// one unit of drainage (weighted by remaining water).
+			F[(int)pz * N + (int)px] += (float)water;
 			// stop eroding underwater: droplets die at the sea
 			if (h_old < sea) break;
 			double cap = MAX(-dh, 0.01) * speed * water * capacity_k;
@@ -856,5 +865,8 @@ PackedFloat32Array TerrainKernel::bake_terrain(
 			if (water < 0.05) break;
 		}
 	}
-	return out;
+	Dictionary result;
+	result["height"] = out;
+	result["flow"] = flow;
+	return result;
 }

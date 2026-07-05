@@ -156,7 +156,11 @@ public:
 	// engine: coherent drainage, alluvial fans, sediment). Seeded,
 	// deterministic. Returns the eroded heightfield (out_res^2,
 	// meters); params tune droplet count/strength/talus.
-	PackedFloat32Array bake_terrain(const PackedFloat32Array &p_guide,
+	// Returns {"height": PackedFloat32Array(out^2, meters),
+	//          "flow":   PackedFloat32Array(out^2, droplet passage)}.
+	// The flow map is the drainage network the erosion carved — Stage C
+	// traces rivers from it.
+	Dictionary bake_terrain(const PackedFloat32Array &p_guide,
 			int p_guide_res, double p_world_size, int p_out_res,
 			int p_seed, const Dictionary &p_params) const;
 };

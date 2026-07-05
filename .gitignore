@@ -12,3 +12,4 @@
 # tests/bake_world.gd (the guide in data/world/ is the source of truth).
 data/terrain/tiles/baked_*.exr
 data/regions/baked_*.json
+data/water/rivers/gen_*.json

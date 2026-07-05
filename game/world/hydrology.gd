@@ -67,7 +67,7 @@ var _last_snow := 0.0
 func _ready() -> void:
 	add_to_group("world_state_reader")  # SaveGame re-calls load_state post-restore
 	_load_watershed()
-	for r in Terrain.rivers:
+	for r in Terrain.sim_rivers():
 		river_storage[r.id] = SPRING_M3H / RIVER_K  # boot at baseflow equilibrium
 	for w in Terrain.water_bodies:
 		lake_level[w.id] = 0.0
@@ -145,7 +145,7 @@ func flow_norm(river_id: String) -> float:
 ## Toolkit: every basin, right now.
 func summary() -> String:
 	var lines := PackedStringArray()
-	for r in Terrain.rivers:
+	for r in Terrain.sim_rivers():
 		lines.append("%s: %.0f m3/h (norm %.2f, level %+.2fm)" % [
 			r.id, discharge(r.id), flow_norm(r.id), Terrain.river_levels[r.idx]])
 	for w in Terrain.water_bodies:
@@ -165,7 +165,7 @@ func _hourly(_h: int) -> void:
 	var t := Climate.temperature(center.x, center.y)
 
 	# Rivers: catchment runoff + springs in, reservoir recession out.
-	for r in Terrain.rivers:
+	for r in Terrain.sim_rivers():
 		var id: String = r.id
 		var area: float = catchment_area.get(id, 0.0)
 		var spring := SPRING_M3H * lerpf(0.3, 1.3, Climate.wetness)
@@ -186,7 +186,7 @@ func _hourly(_h: int) -> void:
 		var id: String = w.id
 		var lake_area := PI * float(w.radius) * float(w.radius)
 		var inflow := 0.0
-		for r in Terrain.rivers:
+		for r in Terrain.sim_rivers():
 			if _river_feeds_lake(r, w):
 				inflow += discharge(r.id)
 		inflow += catchment_area.get(id, 0.0) * (rain * runoff + melt_m)
@@ -217,7 +217,7 @@ func _river_feeds_lake(r: Dictionary, w: Dictionary) -> bool:
 
 
 func _push_levels() -> void:
-	for r in Terrain.rivers:
+	for r in Terrain.sim_rivers():
 		Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
 				RIVER_LEVEL_MAX, flow_norm(r.id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
 	for w in Terrain.water_bodies:
@@ -245,7 +245,7 @@ func _build_catchments() -> void:
 	var basins: Array[String] = []
 	for w in Terrain.water_bodies:
 		basins.append(w.id)
-	for r in Terrain.rivers:
+	for r in Terrain.sim_rivers():
 		basins.append(r.id)
 	# Which water body sits under each cell (-1 for dry ground), once.
 	var wb := PackedInt32Array()
@@ -410,7 +410,7 @@ func _basin_at(i: int, n: int, half: float) -> int:
 		if Vector2(x - c.x, z - c.y).length() < float(w.radius):
 			return b
 		b += 1
-	for r in Terrain.rivers:
+	for r in Terrain.sim_rivers():
 		var q := Terrain.river_query(r, x, z)
 		if q.d < q.half:
 			return b

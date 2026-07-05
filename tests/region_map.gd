@@ -47,7 +47,7 @@ func _init() -> void:
 			var c := Color(0.25 + 0.6 * shade, 0.2 + 0.5 * shade,
 				0.15 + 0.4 * shade).lerp(Color(1.0, 0.95, 0.85), tint * 0.5)
 			if t.water_surface_base(x, z) > h:
-				c = Color(0.3, 0.5, 0.7)
+				c = Color(0.2, 0.4, 0.62)  # rivers + lakes + sea
 			img.set_pixel(px, py, c)
 	img.save_png("/tmp/region_map.png")
 	print("MAP WRITTEN /tmp/region_map.png")

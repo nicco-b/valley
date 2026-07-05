@@ -245,6 +245,16 @@ func _river_probe(r: Dictionary, x: float, z: float) -> Vector3:
 	return best
 
 
+## Rivers Hydrology should simulate (excludes generated/no_sim rivers,
+## which are presentation-only until per-region watersheds exist).
+func sim_rivers() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	for r in rivers:
+		if not r.get("no_sim", false):
+			out.append(r)
+	return out
+
+
 ## Downstream tangent of the nearest segment at (x,z) — bank-aware
 ## current direction on curved rivers (the whole-river flow vector
 ## shoves swimmers into the bank at bends). Cold path: full segment
@@ -616,6 +626,11 @@ func _load_rivers() -> void:
 			"feather": float(rec.get("feather", 4.0)),
 			"flow": flow,
 			"nodes": nodes,
+			# Generated rivers (proposed from the erosion flow map) carve
+			# and render but are NOT sim-routed — Hydrology's domain is
+			# the home watershed until per-region instances exist, and
+			# registering them would perturb the soak fingerprint.
+			"no_sim": bool(rec.get("no_sim", false)),
 		}
 		_index_river(river)
 		rivers.append(river)

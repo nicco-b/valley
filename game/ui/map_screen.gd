@@ -188,6 +188,17 @@ func _draw_markers() -> void:
 			_label_for(String(t.id)), Color(0.30, 0.34, 0.5))
 	for m in MARKS:
 		_draw_place(font, m[1], m[0], Color(0.55, 0.16, 0.30))
+	# Rivers (authored + proposed) as blue polylines along their nodes.
+	for r in Terrain.rivers:
+		var nodes: Array = r.nodes
+		var prev := Vector2.INF
+		for n in nodes:
+			var wp: Vector2 = n.pos
+			var p := _cam.unproject_position(
+				Vector3(wp.x, Terrain.height(wp.x, wp.y) + 1.0, wp.y))
+			if prev != Vector2.INF:
+				_markers.draw_line(prev, p, Color(0.30, 0.48, 0.62, 0.9), 1.5)
+			prev = p
 	for npc in get_tree().get_nodes_in_group("npc"):
 		var p := _cam.unproject_position(npc.global_position + Vector3.UP * 2.0)
 		_markers.draw_circle(p, 5.0, Color(0.13, 0.35, 0.37))

@@ -29,9 +29,10 @@ func _init() -> void:
 	for i in guide.size():
 		guide[i] = gmin + pow(clampf(guide[i], 0.0, 1.0), inv_gamma) * gspan
 	var t0 := Time.get_ticks_msec()
-	var baked: PackedFloat32Array = t.kernel.bake_terrain(
+	var result: Dictionary = t.kernel.bake_terrain(
 		guide, img.get_width(), float(meta.world_size),
 		int(meta.out_res), int(meta.seed), meta.params)
+	var baked: PackedFloat32Array = result.height
 	print("bake: %d ms (%d droplets on %d^2)" % [Time.get_ticks_msec() - t0,
 		int(meta.params.droplets), int(meta.out_res)])
 	var res := int(meta.out_res)

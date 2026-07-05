@@ -26,7 +26,7 @@ func _process(_d: float) -> void:
 	elif _t == 90:
 		GameClock.hours = 14.0
 		GameClock.time_scale = 0.0
-		Weather.state = "calm"
+		Weather.force_kind("calm")
 		PauseMenu.toggle()
 	elif _t == 110:
 		get_viewport().get_texture().get_image().save_png("/tmp/ui_pause.png")

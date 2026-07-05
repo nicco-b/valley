@@ -34,7 +34,7 @@ func _process(_d: float) -> void:
 		return
 	if _t == 10:
 		GameClock.time_scale = 0.0
-		Weather.state = "storm"  # rain feeds the water field too
+		Weather.force_kind("storm")  # rain feeds the water field too
 		var keep := OS.get_environment("FALL_KEEP")
 		if keep != "":
 			_strip(keep.split(","))

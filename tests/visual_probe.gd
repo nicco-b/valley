@@ -30,7 +30,7 @@ func _run() -> void:
 	# the human actually tests on. Stamp a short line and look at it.
 	GameClock.hours = 15.0
 	GameClock.time_scale = 0.0
-	Weather.state = "calm"
+	Weather.force_kind("calm")
 	Weather.wind = 0.1
 	for i in 30:
 		await get_tree().process_frame
@@ -52,7 +52,7 @@ func _run() -> void:
 	player.global_position = Vector3(30.0, Terrain.height(30.0, -80.0) + 1.0, -80.0)
 	GameClock.hours = 15.0
 	GameClock.time_scale = 0.0  # hold the light still
-	Weather.state = "calm"
+	Weather.force_kind("calm")
 	Weather.wind = 0.1
 	Climate.wetness = 0.0
 	# Give the streamer time to build the dense ring around the new spot.
@@ -124,7 +124,7 @@ func _run() -> void:
 	_shot("playcam")
 	var span := GameClock.daylight_span()
 	GameClock.hours = span.x + 2.5  # soft mid-morning sun
-	Weather.state = "windy"
+	Weather.force_kind("windy")
 	Weather.wind = 0.55  # haze, and the wind that erases
 	for i in 20:
 		await get_tree().process_frame
@@ -133,7 +133,7 @@ func _run() -> void:
 	# NPC traffic) on WET ground — must read as a smooth trodden groove,
 	# never a chain of dark craters.
 	GameClock.hours = 15.0
-	Weather.state = "calm"
+	Weather.force_kind("calm")
 	Weather.wind = 0.1
 	Climate.wetness = 0.7
 	# Both wet-ground cases: a fresh walked stride (the reported bug) and

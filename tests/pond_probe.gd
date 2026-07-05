@@ -19,7 +19,7 @@ func _process(_d: float) -> void:
 	if _t == 20:
 		GameClock.hours = 14.0
 		GameClock.time_scale = 0.0
-		Weather.state = "calm"
+		Weather.force_kind("calm")
 		var pl := get_tree().get_first_node_in_group("player")
 		if pl: pl.global_position = Vector3(70, 3, -280)
 	if _t == 100:

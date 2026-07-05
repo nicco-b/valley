@@ -58,7 +58,7 @@ func _process(_d: float) -> void:
 	if _t == 20:
 		GameClock.hours = 14.0
 		GameClock.time_scale = 0.0
-		Weather.state = "calm"
+		Weather.force_kind("calm")
 		print(Terrain.regions_summary())
 		if OS.get_environment("FOG") != "":
 			# Fog framing: force a thick dew morning instead.

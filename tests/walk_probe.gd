@@ -22,7 +22,7 @@ func _process(_d: float) -> void:
 		if _player == null:
 			return
 		GameClock.time_scale = 0.0
-		Weather.state = "calm"
+		Weather.force_kind("calm")
 		_last_us = Time.get_ticks_usec()
 		return
 	var now := Time.get_ticks_usec()

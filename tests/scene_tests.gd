@@ -184,7 +184,7 @@ func _test_hydrology() -> void:
 	# One tick builds the catchments from real flow routing.
 	var was_state: String = Weather.state
 	var was_wet: float = Climate.wetness
-	Weather.state = "calm"
+	Weather.force_kind("calm")
 	Climate.wetness = 0.5
 	# The domain comes from the watershed record, not code (the map is
 	# replaceable; the system isn't).
@@ -199,7 +199,7 @@ func _test_hydrology() -> void:
 		"the brook's mouth feeds the pond")
 	# Storm hours must raise the brook; calm hours must recede it.
 	var calm_q: float = Hydrology.discharge("brook")
-	Weather.state = "storm"
+	Weather.force_kind("storm")
 	Climate.wetness = 0.8
 	for i in 6:
 		Hydrology._hourly(0)
@@ -208,7 +208,7 @@ func _test_hydrology() -> void:
 		"storm hours swell the brook (%.0f -> %.0f m3/h)" % [calm_q, storm_q])
 	var flood_level: float = Terrain.river_levels[0]
 	_check(flood_level > Hydrology.RIVER_LEVEL_MIN, "flood raises the river surface")
-	Weather.state = "calm"
+	Weather.force_kind("calm")
 	Climate.wetness = 0.1
 	for i in 48:
 		Hydrology._hourly(0)
@@ -240,7 +240,7 @@ func _test_hydrology() -> void:
 		"load_state resumes _last_snow from saved snow (no dropped meltwater)")
 	WorldState.set_value("climate.snow", saved_snow)
 	Hydrology._last_snow = Climate.snow
-	Weather.state = was_state
+	Weather.force_kind(was_state)
 	Climate.wetness = was_wet
 
 
@@ -314,11 +314,11 @@ func _test_climate() -> void:
 	_check(predawn < afternoon, "pre-dawn is colder than mid-afternoon")
 	var was_state: String = Weather.state
 	var was_wet: float = Climate.wetness
-	Weather.state = "storm"
+	Weather.force_kind("storm")
 	Climate.wetness = 0.2
 	Climate._hourly(0)
 	_check(Climate.wetness > 0.2, "storm hours soak the ground")
-	Weather.state = "calm"
+	Weather.force_kind("calm")
 	var wet: float = Climate.wetness
 	Climate._hourly(0)
 	_check(Climate.wetness < wet, "calm hours dry the ground")
@@ -332,14 +332,14 @@ func _test_climate() -> void:
 	_check(Climate.snow_line_for(-3.0) < 0.0,
 		"a freezing floor drops the snowline below the valley")
 	var was_snow: float = Climate.snow
-	Weather.state = "calm"
+	Weather.force_kind("calm")
 	Climate.snow = 0.5
 	Climate.wetness = 0.1
 	Climate._hourly(0)
 	_check(Climate.snow < 0.5, "warm calm hours melt the snow")
 	_check(Climate.wetness > 0.0, "meltwater soaks the ground")
 	Climate.snow = was_snow
-	Weather.state = was_state
+	Weather.force_kind(was_state)
 	Climate.wetness = was_wet
 	Weather._transition(0)
 	_check(absf(Weather.wind_dir.length() - 1.0) < 0.001,

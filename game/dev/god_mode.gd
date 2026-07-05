@@ -57,6 +57,37 @@ func move_to(xz: Vector2) -> void:
 			Terrain.height(xz.x, xz.y) + 80.0, xz.y)
 
 
+## The world panel's first block: every per-position number the sim
+## knows about the ground under the camera — the substrate, readable
+## where you actually stand instead of at the valley thermometer.
+func _here_summary() -> String:
+	var p := _cam.global_position if _cam \
+			else Vector3(Climate.REFERENCE.x, 0.0, Climate.REFERENCE.y)
+	var h: float = Terrain.height(p.x, p.z)
+	var biome := "-"
+	var bi: int = Terrain.biome_at(p.x, p.z)
+	if bi >= 0 and bi < Terrain.biomes.size():
+		biome = str(Terrain.biomes[bi].id)
+	var cell := Vector2i(floori(p.x / FloraLife.CELL_SIZE),
+			floori(p.z / FloraLife.CELL_SIZE))
+	var vit: float = FloraLife.vitality_at(p.x, p.z)
+	var snow_gap: float = Climate.snow_line() - h
+	var lines := PackedStringArray()
+	lines.append("(%.0f, %.0f)  h=%.0fm  biome=%s  cell %d,%d" % [
+		p.x, p.z, h, biome, cell.x, cell.y])
+	lines.append("t=%.1f  hum=%.2f  wet=%.2f  moist=%.2f  rain=%.2f" % [
+		Climate.temperature(p.x, p.z), Climate.humidity(p.x, p.z),
+		Climate.wetness_at(p.x, p.z), Climate.moisture(p.x, p.z),
+		Weather.rain_at(p.x, p.z)])
+	lines.append("swing=%.2f  aspect=%+.1f  vit=%.2f stage=%s  gathered=%.2f  snowline %s" % [
+		Climate._swing(p.x, p.z),
+		Climate.aspect_term(Climate._gradient_z(p.x, p.z), GameClock.solar_hours()),
+		vit, FloraLife.stage_for(GameClock.season, vit),
+		FloraLife.depletion(cell),
+		("%.0fm overhead" % snow_gap) if snow_gap > 0.0 else "BELOW YOU"])
+	return "\n         ".join(lines)
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("god_mode") and OS.is_debug_build():
 		_exit() if active else _enter()
@@ -150,6 +181,7 @@ func _process(delta: float) -> void:
 		if _panel_accum >= 0.5:
 			_panel_accum = 0.0
 			_world_panel.text = "\n".join([
+				"HERE     " + _here_summary(),
 				"AIR      " + Weather.summary(),
 				"CLIMATE  " + Climate.summary(),
 				"WATER    " + Hydrology.summary().replace("\n", "\n         "),

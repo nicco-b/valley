@@ -459,6 +459,14 @@ func _test_climate_v2() -> void:
 	Weather._wind_angle = was_angle2
 	Weather.wind_dir = Vector2.from_angle(was_angle2)
 	Climate.wetness = keep_wet
+	# The Toolkit sees all of it: the world panel's HERE block composes
+	# every per-position query without a camera (falls back to the
+	# valley), and the substrate summaries carry the new numbers.
+	var here: String = GodMode._here_summary()
+	for token in ["hum=", "wet=", "swing=", "aspect=", "stage=", "biome=", "snowline"]:
+		_check(here.contains(token), "world panel HERE block carries " + token)
+	_check(Climate.summary().contains("hum("), "Climate summary carries humidity")
+	_check(Weather.summary().contains("oro="), "Weather summary carries the oro factor")
 	_check(absf(Weather.wind_dir.length() - 1.0) < 0.001,
 		"wind direction stays a unit vector as it wanders")
 

@@ -26,6 +26,7 @@ and [FOUNDATIONS.md](FOUNDATIONS.md) (build plan).*
 | J | journal (quests + skills) | | RMB on NPC | sim inspector |
 | M | map (pan/zoom, gestures) | | 1–9 | pick kit object (place) |
 | | | | N | toggle navmesh overlay |
+| | | | O | world panel (every system + HERE: t/humidity/wetness/vitality under the camera) |
 | F / R | deploy / recall fireflies | | LMB | place object |
 | Esc | pause (or close map/talk) | | Z | undo last placement |
 | **T** | *debug:* → next sunrise/noon/sunset/midnight | | F5 | save terrain edits |

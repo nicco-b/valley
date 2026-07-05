@@ -104,6 +104,13 @@ func moisture(x: float, z: float) -> float:
 	return clampf(maxf(wetness, 0.85 * near), 0.0, 1.0)
 
 
+## Toolkit: the substrate, one line.
+func summary() -> String:
+	return "wetness=%.2f snow=%.2f snowline=%.0fm  t(valley)=%.1f  moisture(pond)=%.2f" % [
+		wetness, snow, snow_line(),
+		temperature(REFERENCE.x, REFERENCE.y),
+		moisture(REFERENCE.x, REFERENCE.y)]
+
 func _hourly(_h: int) -> void:
 	var t := temperature(REFERENCE.x, REFERENCE.y)
 	# Continuous rain over the VALLEY (phase C): drizzle wets slowly, a

@@ -142,6 +142,16 @@ func flow_norm(river_id: String) -> float:
 	return q / (q + Q_REF)
 
 
+## Toolkit: every basin, right now.
+func summary() -> String:
+	var lines := PackedStringArray()
+	for r in Terrain.rivers:
+		lines.append("%s: %.0f m3/h (norm %.2f, level %+.2fm)" % [
+			r.id, discharge(r.id), flow_norm(r.id), Terrain.river_levels[r.idx]])
+	for w in Terrain.water_bodies:
+		lines.append("%s: level %+.2fm" % [w.id, float(lake_level.get(w.id, 0.0))])
+	return "\n".join(lines)
+
 func _hourly(_h: int) -> void:
 	_ensure_catchments()
 	# Continuous rain over the watershed (phase C): drizzle feeds the

@@ -1007,6 +1007,43 @@ func apply_brush(center: Vector3, radius: float, amount: float) -> void:
 	edited.emit(Rect2(center.x - radius, center.z - radius, radius * 2.0, radius * 2.0))
 
 
+## Flatten brush: pull the ground toward `target` height inside the
+## disc (Toolkit sculpt, Ctrl+LMB). Same cadence rules as apply_brush.
+func flatten_brush(center: Vector3, radius: float, target: float, strength: float) -> void:
+	var half := EDIT_SIZE * EDIT_M_PER_PX * 0.5
+	var r_px := int(ceil(radius / EDIT_M_PER_PX))
+	var cx := int((center.x + half) / EDIT_M_PER_PX)
+	var cz := int((center.z + half) / EDIT_M_PER_PX)
+	var r2 := radius * radius
+	var inv_r := 1.0 / radius
+	for pz in range(maxi(cz - r_px, 0), mini(cz + r_px + 1, EDIT_SIZE)):
+		var wz := pz * EDIT_M_PER_PX - half
+		for px in range(maxi(cx - r_px, 0), mini(cx + r_px + 1, EDIT_SIZE)):
+			var wx := px * EDIT_M_PER_PX - half
+			var d2 := (wx - center.x) * (wx - center.x) + (wz - center.z) * (wz - center.z)
+			if d2 >= r2:
+				continue
+			var falloff := smoothstep(1.0, 0.0, sqrt(d2) * inv_r)
+			var cur := height(wx, wz)
+			var e := _edits.get_pixel(px, pz).r
+			_edits.set_pixel(px, pz, Color(e + (target - cur) * falloff * strength, 0, 0))
+	edited.emit(Rect2(center.x - radius, center.z - radius, radius * 2.0, radius * 2.0))
+
+
+## Toolkit sculpt undo support: one-deep snapshot of the edit layer.
+func snapshot_edits() -> Image:
+	return _edits.duplicate()
+
+
+func restore_edits(snap: Image) -> void:
+	if snap == null:
+		return
+	_edits = snap
+	if kernel:
+		_init_kernel()  # fresh kernel sees the restored layer
+	edited.emit(Rect2(-EDIT_SIZE, -EDIT_SIZE, EDIT_SIZE * 2.0, EDIT_SIZE * 2.0))
+
+
 func save_edits() -> void:
 	var dir := ProjectSettings.globalize_path("res://data/terrain")
 	DirAccess.make_dir_recursive_absolute(dir)

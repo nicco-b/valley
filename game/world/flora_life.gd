@@ -56,6 +56,12 @@ static func target_for(season: String, moist: float, temp: float) -> float:
 	return clampf(base + water + heat + cold, 0.05, 1.0)
 
 
+## Toolkit: the green line.
+func summary() -> String:
+	return "vitality=%.2f%s%s" % [vitality,
+		"  BLOOM" if WorldState.has_flag("valley.bloom") else "",
+		"  PARCHED" if WorldState.has_flag("valley.parched") else ""]
+
 func _hourly(_h: int) -> void:
 	var moist := Climate.moisture(REFERENCE.x, REFERENCE.y)
 	var temp := Climate.temperature(REFERENCE.x, REFERENCE.y)

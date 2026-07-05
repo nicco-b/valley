@@ -36,6 +36,12 @@ static func bake_navmesh(faces: PackedVector3Array) -> NavigationMesh:
 	return navmesh
 
 
+## Toolkit: the walkable world.
+func summary() -> String:
+	return "navmesh cells=%d  road waypoints=%d" % [
+		_regions.size(), WaypointGraph.points.size()]
+
+
 func add_cell(c: Vector2i, navmesh: NavigationMesh, origin: Vector3) -> void:
 	remove_cell(c)
 	var region := NavigationServer3D.region_create()

@@ -75,6 +75,11 @@ func wear_only(world_xz: Vector2) -> void:
 const STAMP_SPACING := 0.4
 const STAMP_FRESH_SECONDS := 20.0
 
+## Toolkit: the wear layer.
+func summary() -> String:
+	return "stamps(fresh)=%d  worn cells=%d  anchor=(%.0f, %.0f)" % [
+		_stamps.size(), _wear.size(), _anchor.x, _anchor.y]
+
 func stamp(world_xz: Vector2, strength := 1.0, radius := 2) -> void:
 	for s in _stamps:
 		if _clock - s[1] < STAMP_FRESH_SECONDS \

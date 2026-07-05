@@ -106,6 +106,13 @@ func current_at(pos: Vector3) -> Vector2:
 	return Vector2.ZERO
 
 
+## Toolkit: the dynamics field.
+func summary() -> String:
+	if not enabled:
+		return "off (headless/no RenderingDevice)"
+	return "live 1024^2 over %.0fm  probe depth=%.3fm at (%.0f, %.0f)" % [
+		Hydrology.domain, _probe_out.x, _probe_pos.x, _probe_pos.y]
+
 func _bake_base() -> void:
 	var g := WaterGpu.GRID
 	var step := Hydrology.domain / g

@@ -273,6 +273,12 @@ func _process(delta: float) -> void:
 
 ## Base terrain heights for the GPU window, baked off-thread on re-anchor.
 ## Relaxation pauses (flow 0) until the fresh base lands.
+## Toolkit: the granular window.
+func summary() -> String:
+	return "%s  anchor=(%.0f, %.0f)  ops_pending=%d%s" % [
+		"GPU 1024^2" if _gpu_mode else "CPU 256^2", _anchor.x, _anchor.y,
+		_op_count, "  (base baking)" if _base_pending else ""]
+
 func _start_base_bake() -> void:
 	_base_pending = true
 	var anchor := _anchor

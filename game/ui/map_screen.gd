@@ -35,7 +35,7 @@ func _ready() -> void:
 	_markers.draw.connect(_draw_markers)
 	add_child(_markers)
 	_hint = Label.new()
-	_hint.text = "drag / WASD pan  ·  wheel zoom  ·  M close"
+	_hint.text = "drag / WASD pan  ·  wheel zoom  ·  M close  ·  god: RMB teleport"
 	# Full-rect + bottom alignment (point anchors land off-screen — CLAUDE.md).
 	_hint.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -69,6 +69,17 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not active:
 		return
 	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_RIGHT and _from_god:
+			# Right-click: drop the fly cam there (the 38km2 commute fix).
+			var org := _cam.project_ray_origin(event.position)
+			var dir := _cam.project_ray_normal(event.position)
+			if absf(dir.y) > 0.001:
+				var t := -org.y / dir.y
+				var hit := org + dir * t
+				GodMode.move_to(Vector2(hit.x, hit.z))
+				_focus = Vector3(hit.x, 0.0, hit.z)
+				HUD.notify("god cam moved")
+			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_ortho = clampf(_ortho * 0.85, ZOOM_MIN, ZOOM_MAX)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:

@@ -26,6 +26,12 @@ var _brush_accum := 0.0
 var _speed_mult := 1.0
 var _tool := Tool.SCULPT
 var _kit_index := 0
+var _world_panel: Label
+var _panel_accum := 0.0
+var _sculpt_undo: Image = null
+var _flatten_target := 0.0
+var _flattening := false
+var _stroke_live := false
 
 
 func has_camera() -> bool:
@@ -44,6 +50,13 @@ func resume_camera() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+## Drop the fly camera above a world XZ (map right-click teleport).
+func move_to(xz: Vector2) -> void:
+	if _cam:
+		_cam.global_position = Vector3(xz.x,
+			Terrain.height(xz.x, xz.y) + 80.0, xz.y)
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("god_mode") and OS.is_debug_build():
 		_exit() if active else _enter()
@@ -59,13 +72,22 @@ func _unhandled_input(event: InputEvent) -> void:
 		_tool = Tool.PLACE if _tool == Tool.SCULPT else Tool.SCULPT
 		_update_hud()
 	elif event.is_action_pressed("god_undo"):
-		var hit := _ray_to_ground()
-		if hit != Vector3.INF:
-			CellRecords.remove_last(CellRecords.cell_of(hit))
+		if _tool == Tool.SCULPT:
+			# One-deep sculpt undo: revert to the pre-stroke snapshot.
+			Terrain.restore_edits(_sculpt_undo)
+			_sculpt_undo = null
+		else:
+			var hit := _ray_to_ground()
+			if hit != Vector3.INF:
+				CellRecords.remove_last(CellRecords.cell_of(hit))
 	elif event.is_action_pressed("brush_bigger"):
 		_brush_radius = minf(_brush_radius * 1.3, 64.0)
 	elif event.is_action_pressed("brush_smaller"):
 		_brush_radius = maxf(_brush_radius / 1.3, 3.0)
+	elif event is InputEventKey and event.pressed and not event.echo \
+			and event.physical_keycode == KEY_O:
+		# The world panel: every system's Toolkit summary, live.
+		_world_panel.visible = not _world_panel.visible
 	elif event is InputEventKey and event.pressed and not event.echo \
 			and event.physical_keycode == KEY_N:
 		# Navmesh overlay: see what the world thinks is walkable.
@@ -123,6 +145,23 @@ func _process(delta: float) -> void:
 	elif _inspector.visible:
 		_inspector.visible = false
 
+	if _world_panel.visible:
+		_panel_accum += delta
+		if _panel_accum >= 0.5:
+			_panel_accum = 0.0
+			_world_panel.text = "\n".join([
+				"AIR      " + Weather.summary(),
+				"CLIMATE  " + Climate.summary(),
+				"WATER    " + Hydrology.summary().replace("\n", "\n         "),
+				"FIELD    " + WaterField.summary(),
+				"FLORA    " + FloraLife.summary(),
+				"SAND     " + SandField.summary(),
+				"WEAR     " + InteractionField.summary(),
+				"WAYS     " + Nav.summary(),
+				"CARAVANS " + Caravans.summary().replace("\n", "\n         "),
+				"LAND     " + Terrain.regions_summary().split("\n")[0],
+			])
+
 	# Brush cursor: ray from screen center to terrain.
 	var hit := _ray_to_ground()
 	_cursor.visible = hit != Vector3.INF
@@ -132,6 +171,12 @@ func _process(delta: float) -> void:
 		_cursor.scale = Vector3(r, 1.0, r)
 		if _tool == Tool.SCULPT and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
 				and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			if not _stroke_live:
+				# Stroke begins: snapshot for Z-undo.
+				_stroke_live = true
+				_sculpt_undo = Terrain.snapshot_edits()
+				_flattening = Input.is_key_pressed(KEY_CTRL)
+				_flatten_target = hit.y  # flatten to first-touched height
 			# Fixed brush cadence, dt-scaled strength: the pixel loop is
 			# GDScript — at frame rate it ate the frame rate. Same sculpt
 			# speed, a fraction of the applications.
@@ -139,9 +184,15 @@ func _process(delta: float) -> void:
 			if _brush_accum >= BRUSH_INTERVAL:
 				var amount := BRUSH_RATE * _brush_accum
 				_brush_accum = 0.0
-				if Input.is_action_pressed("sprint"):
-					amount = -amount
-				Terrain.apply_brush(hit, _brush_radius, amount)
+				if _flattening:
+					Terrain.flatten_brush(hit, _brush_radius,
+						_flatten_target, minf(amount * 0.25, 1.0))
+				elif Input.is_action_pressed("sprint"):
+					Terrain.apply_brush(hit, _brush_radius, -amount)
+				else:
+					Terrain.apply_brush(hit, _brush_radius, amount)
+		elif not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			_stroke_live = false  # stroke ended; snapshot stays for Z
 
 
 func _ray_to_ground() -> Vector3:
@@ -233,13 +284,23 @@ func _build_nodes() -> void:
 	_inspector.add_theme_constant_override("shadow_offset_y", 1)
 	_hud.add_child(_inspector)
 
+	# The world panel (O): every system's summary, the sim cockpit.
+	_world_panel = Label.new()
+	_world_panel.visible = false
+	_world_panel.position = Vector2(12, 96)
+	_world_panel.add_theme_font_size_override("font_size", 13)
+	_world_panel.add_theme_color_override("font_color", Color(0.85, 0.95, 1.0))
+	_world_panel.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
+	_world_panel.add_theme_constant_override("shadow_offset_y", 1)
+	_hud.add_child(_world_panel)
+
 	add_child(_hud)
 	_hud.visible = false
 
 
 func _update_hud() -> void:
 	if _tool == Tool.SCULPT:
-		_hud_label.text = "GOD·SCULPT   F1 exit+teleport | LMB raise · Shift+LMB carve | [ ] brush | Tab place mode | E/Q fly | F5 save"
+		_hud_label.text = "GOD·SCULPT   F1 exit | LMB raise · Shift carve · Ctrl flatten | Z undo stroke | [ ] brush | Tab place | O world panel | M map | F5 save"
 	else:
 		var names: Array[String] = []
 		for i in Kit.ENTRIES.size():

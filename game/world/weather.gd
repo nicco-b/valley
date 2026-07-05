@@ -106,7 +106,8 @@ var _wind_angle := atan2(0.35, 1.0)
 func fog_amount() -> float:
 	if fog_override >= 0.0:
 		return clampf(fog_override, 0.0, 1.0)
-	var dew := clampf(Climate.wetness * 1.35
+	var fx := _focus_xz()
+	var dew := clampf(Climate.wetness_at(fx.x, fx.y) * 1.35
 		- maxf(Climate.temperature(Climate.REFERENCE.x, Climate.REFERENCE.y), 0.0) * 0.05
 		- wind * 0.9, 0.0, 1.0)
 	var gate := 1.0 - smoothstep(1.5, 5.0, absf(GameClock.solar_hours() - 5.5))
@@ -116,8 +117,11 @@ func fog_amount() -> float:
 ## Toolkit: the air at the focus, then every front on the map.
 func summary() -> String:
 	var lines := PackedStringArray()
-	lines.append("%s  wind=%.2f rain=%.2f cloud=%.2f dust=%.2f menace=%.2f fog=%.2f dir=(%.2f, %.2f)%s" % [
+	var fx := _focus_xz()
+	var lw := _local(fx.x, fx.y)
+	lines.append("%s  wind=%.2f rain=%.2f cloud=%.2f dust=%.2f menace=%.2f fog=%.2f oro=x%.2f dir=(%.2f, %.2f)%s" % [
 		state, wind, rain, cloud, dust, storminess, fog_amount(),
+		_orographic(fx.x, fx.y, float(lw.dx), float(lw.dz)),
 		wind_dir.x, wind_dir.y,
 		"" if fog_override < 0.0 else " (FOG OVERRIDE)"])
 	for f in fronts:
@@ -158,15 +162,18 @@ func load_state() -> void:
 
 
 ## Local weather band at a point: {kind, lead 0..1 (leading-edge
-## softness — 1 deep inside the band)}. Youngest front wins.
+## softness — 1 deep inside the band), dx/dz (the band's travel
+## direction — the orographic term needs to know which way the wet air
+## came from)}. Youngest front wins.
 func _local(x: float, z: float) -> Dictionary:
 	for i in range(fronts.size() - 1, -1, -1):
 		var f: Dictionary = fronts[i]
 		var s: float = x * f.dx + z * f.dz
 		if s <= f.edge and s > f.edge - f.width:
 			return {"kind": f.kind,
-				"lead": clampf((f.edge - s) / LEAD_SOFT, 0.0, 1.0)}
-	return {"kind": "calm", "lead": 1.0}
+				"lead": clampf((f.edge - s) / LEAD_SOFT, 0.0, 1.0),
+				"dx": float(f.dx), "dz": float(f.dz)}
+	return {"kind": "calm", "lead": 1.0, "dx": wind_dir.x, "dz": wind_dir.y}
 
 
 ## Weather kind over a world position — spatial consumers (Climate at
@@ -180,15 +187,33 @@ func state_at(x: float, z: float) -> String:
 ## menace].
 func property_at(x: float, z: float, prop: String) -> float:
 	var lw := _local(x, z)
-	return _biome_scale(x, z, prop, float(KINDS[lw.kind][prop]) * lw.lead)
+	return _biome_scale(x, z, prop, float(KINDS[lw.kind][prop]) * lw.lead,
+			float(lw.dx), float(lw.dz))
+
+
+# Rain shadow (Climate v2, 2026-07-05): where the wet air CAME FROM
+# matters. Probes march upwind along the front's travel direction —
+# a barrier that tops this point by ORO_CLEAR starts stealing its
+# rain, and a deep wall (the Range at 950m) takes ORO_SHADOW of it.
+# Ground that RISES just downwind is the windward slope of the next
+# barrier: the air is being forced up right here, so it rains harder.
+# One mountain interrupting one wind = a dozen climates.
+const ORO_UP := [400.0, 800.0, 1300.0, 1900.0, 2600.0]  # upwind barrier probes (m)
+const ORO_DOWN := [450.0, 950.0]  # downwind rise probes (m)
+const ORO_CLEAR := 60.0  # a barrier must top us by this before it shades
+const ORO_DEEP := 260.0  # excess barrier height for a full-depth shadow
+const ORO_SHADOW := 0.82  # fraction of rain a deep lee loses
+const ORO_LIFT := 0.5  # windward-slope bonus at full rise
 
 
 ## Terrain shapes the weather (the biome response): high ground wrings
-## rain out of passing fronts (orographic lift — the mesa drinks what
-## the barren never sees) and runs windier; the open sea feeds rain and
-## kills dust; low dry ground starves rain and breeds it. Deterministic
-## (pure terrain reads), so the hourly sims fingerprint cleanly.
-func _biome_scale(x: float, z: float, prop: String, v: float) -> float:
+## rain out of passing fronts, the lee of a big barrier goes DRY (rain
+## shadow — the orographic term reads the front's travel direction),
+## and ridge-tops run windier; the open sea feeds rain and kills dust;
+## low dry ground starves rain and breeds it. Deterministic (pure
+## terrain reads), so the hourly sims fingerprint cleanly.
+func _biome_scale(x: float, z: float, prop: String, v: float,
+		dx := 0.0, dz := 0.0) -> float:
 	if v <= 0.0:
 		return v
 	var h: float = Terrain.height(x, z)
@@ -197,6 +222,8 @@ func _biome_scale(x: float, z: float, prop: String, v: float) -> float:
 			v *= 0.85 + 0.7 * smoothstep(50.0, 220.0, h)
 			if h < Terrain.sea_level + 0.5:
 				v *= 1.15  # open water feeds the band
+			if dx != 0.0 or dz != 0.0:
+				v *= _orographic(x, z, dx, dz)
 		"dust":
 			if h < Terrain.sea_level + 1.0:
 				return 0.0  # no sand to lift off open water
@@ -204,6 +231,21 @@ func _biome_scale(x: float, z: float, prop: String, v: float) -> float:
 		"wind":
 			v *= 1.0 + 0.3 * smoothstep(60.0, 220.0, h)  # ridge-tops run windier
 	return v
+
+
+## The rain-shadow factor at a point for wet air traveling along
+## (dx,dz): <1 in the lee of a barrier, >1 on a windward slope.
+func _orographic(x: float, z: float, dx: float, dz: float) -> float:
+	var here: float = maxf(Terrain.height(x, z), 0.0)
+	var barrier := 0.0
+	for d: float in ORO_UP:
+		barrier = maxf(barrier, Terrain.height(x - dx * d, z - dz * d))
+	var shadow := 1.0 - ORO_SHADOW * smoothstep(
+			ORO_CLEAR, ORO_CLEAR + ORO_DEEP, barrier - here)
+	var rise := 0.0
+	for d: float in ORO_DOWN:
+		rise = maxf(rise, Terrain.height(x + dx * d, z + dz * d) - here)
+	return shadow * (1.0 + ORO_LIFT * smoothstep(40.0, 220.0, rise))
 
 
 ## Storm/menace intensity over a world position (the old meaning).

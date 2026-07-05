@@ -13,6 +13,7 @@ func _ready() -> void:
 	_test_clock()
 	_test_seasons()
 	_test_climate()
+	_test_climate_v2()
 	_test_water()
 	_test_hydrology()
 	_test_water_field()
@@ -342,6 +343,60 @@ func _test_climate() -> void:
 	Weather.force_kind(was_state)
 	Climate.wetness = was_wet
 	Weather._transition(0)
+
+
+## Climate v2 phase 1: the rain shadow and the wetness field.
+func _test_climate_v2() -> void:
+	# Wet air crossing the Range (950m ridge SW of the valley) must
+	# leave its lee dry. Guard first: the wall has to actually stand
+	# there (painted bake and procedural records both raise it, but a
+	# repainted world may not — then this test steps aside).
+	var wall := Vector2(-2700.0, -3200.0)  # a Range node
+	var along := Vector2(0.93, 0.36)  # the ridge's own direction
+	var d := Vector2(along.y, -along.x)  # travel dir, square across it
+	var barrier := 0.0
+	for t in range(-600, 601, 200):
+		barrier = maxf(barrier,
+			Terrain.height(wall.x + along.x * t, wall.y + along.y * t))
+	if barrier < 250.0:
+		print("  (skip rain shadow: no tall range at the probe point)")
+	else:
+		var was_angle: float = Weather._wind_angle
+		var was_wet: float = Climate.wetness
+		var was_snow: float = Climate.snow
+		Weather._wind_angle = d.angle()
+		Weather.wind_dir = d
+		Weather.force_kind("storm")
+		var wind_pt := wall - d * 2600.0
+		var lee_pt := wall + d * 1600.0
+		var rain_wind: float = Weather.rain_at(wind_pt.x, wind_pt.y)
+		var rain_lee: float = Weather.rain_at(lee_pt.x, lee_pt.y)
+		_check(rain_wind > rain_lee * 1.5,
+			"rain shadow: windward %.2f vs lee %.2f" % [rain_wind, rain_lee])
+		# The wetness field diverges under that sky: the windward cell
+		# soaks fast while the lee cell only creeps (a long enough storm
+		# would eventually soak both — the shadow buys TIME, not immunity).
+		Climate.wetness = 0.3
+		for i in 5:
+			Climate._hourly(0)
+		_check(Climate.wetness_at(wind_pt.x, wind_pt.y)
+				> Climate.wetness_at(lee_pt.x, lee_pt.y) + 0.1,
+			"wetness field: windward soaks, the lee lags")
+		Climate.wetness = was_wet
+		Climate.snow = was_snow
+		Weather._wind_angle = was_angle
+		Weather.wind_dir = Vector2.from_angle(was_angle)
+		Weather.force_kind("calm")
+	# Legacy migration: a save with only the scalar floods the field.
+	var keep_wet: float = Climate.wetness
+	WorldState.set_value("climate.wet_grid", null)
+	WorldState.set_value("climate.wetness", 0.42)
+	Climate.load_state()
+	_check(absf(Climate.wetness - 0.42) < 0.001,
+		"legacy scalar migrates into the field")
+	_check(absf(Climate.wetness_at(-6000.0, 6000.0) - 0.42) < 0.001,
+		"migration floods every cell")
+	Climate.wetness = keep_wet
 	_check(absf(Weather.wind_dir.length() - 1.0) < 0.001,
 		"wind direction stays a unit vector as it wanders")
 

@@ -54,6 +54,9 @@ func _check(condition: bool, name: String) -> void:
 func _invariants(npcs: Node, wildlife: Node) -> void:
 	_check(GameClock.day == DAYS, "clock advanced exactly %d days" % DAYS)
 	_check(Climate.wetness >= 0.0 and Climate.wetness <= 1.0, "wetness in [0,1]")
+	for i in Climate.wet_grid.size():
+		var w: float = Climate.wet_grid[i]
+		_check(is_finite(w) and w >= 0.0 and w <= 1.0, "wet_grid[%d] in [0,1]" % i)
 	_check(Climate.snow >= 0.0 and Climate.snow <= 1.0, "snow in [0,1]")
 	for id in Hydrology.lake_level:
 		var lv: float = Hydrology.lake_level[id]
@@ -92,12 +95,20 @@ func _invariants(npcs: Node, wildlife: Node) -> void:
 		"save under budget (%d / %d bytes)" % [size, SNAPSHOT_BUDGET])
 
 
+func _grid_digest(grid: PackedFloat32Array) -> String:
+	var parts := PackedStringArray()
+	for i in grid.size():
+		parts.append("%.3f" % grid[i])
+	return ",".join(parts)
+
+
 ## Stable digest of everything the sim decided — only deterministic keys
 ## (no wall-clock-derived values like moon phase or daylight span).
 func _fingerprint(npcs: Node, wildlife: Node) -> int:
 	var parts: Array = [
 		Weather.state,
 		"%.4f" % Climate.wetness,
+		_grid_digest(Climate.wet_grid),
 		"%.4f" % Climate.snow,
 		"%.3f,%.3f" % [Weather.wind_dir.x, Weather.wind_dir.y],
 		"%.4f" % FloraLife.vitality,

@@ -85,7 +85,9 @@ climate conversation; concretizes "regionalize the fields" now that
 the world is an archipelago with traveling fronts and a volcano).**
 Hawaii's fact: one mountain interrupting one prevailing wind makes a
 dozen climates. Four rules buy it:
-- **Rain shadow (orographic lift):** fronts (Weather phase B/C)
+- **Rain shadow (orographic lift)** — *SHIPPED 2026-07-05 (phase 1,
+  with the first field: wetness regionalized to an 8×8 grid so the
+  shadow reaches ground moisture and flora; see STATUS).* Fronts
   already travel along a wind heading; when a front's path crests
   high terrain it drops extra rain windward and arrives dry leeward.
   Windward flanks run lush, leeward runs dry — *derived, not

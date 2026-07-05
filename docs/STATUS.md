@@ -291,7 +291,29 @@ storm has a body); double-pulse LIGHTNING near heavy rain
 (presentation-only randomness; thunder audio = placeholder for his
 recordings). Soak moved once (3180831281), bit-stable. Kitchen-table
 items: volumetric-fog gouache look; rain-curtain texture is a painted
-slot.
+slot. **Climate v2 phase 1 (2026-07-05): the rain shadow and the
+wetness field.** Where the wet air CAME FROM matters now: the rain
+term probes terrain upwind along each front's own travel direction —
+a barrier that tops a point starts stealing its rain (deep lee of the
+950m Range: ~18% of base), ground rising just downwind reads as the
+windward slope and rains harder (orographic lift with a direction,
+not just altitude). And Climate's one global wetness became a FIELD:
+an 8×8 grid of 2048m cells over the world frame, each cell wetting
+under the rain actually falling on IT and drying by its own
+temperature — so the lee of the Range dries into desert while the
+windward flank stays lush, and `FloraLife.vitality_at` /
+`moisture(x,z)` inherit the split for free (windward green, leeward
+straw — the Hawaii fact, derived). `Climate.wetness` is now a
+property: read = the home-valley cell (Hydrology runoff, fog, the
+soak line keep their meaning), assign = flood-fill (the old global
+semantic — every test and dev knob works unchanged); old saves
+migrate by flooding the field with their scalar. Fog dew now reads
+wetness at the focus. Sim contract intact (hour_tick, catch-up,
+`climate.wet_grid` mirror, no randomness); soak moved once
+(1071113081, the grid digest + shadowed valley rain), bit-stable,
+30 days ~1s. Still open in Climate v2: humidity as its own field,
+maritime/aspect temperature, soil from the erosion bake, biome-from-
+climate (SIM_ROADMAP).
 
 **The map pipeline, stage A (2026-07-05, the Toolkit): paint →
 bake → world.** `data/world/elevation_guide.exr` (1024px, 16m/px,

@@ -93,7 +93,11 @@ decision). Tag new scripts' ## doc comments with their system name.
   `##` doc comments on every script explaining its role in the system.
 - Every placeholder is labeled placeholder with its replacement path.
 - Simulation code must ship with observability (the god-mode inspector
-  pattern) — see FOUNDATIONS F1.5 rules.
+  pattern) — see FOUNDATIONS F1.5 rules. **Toolkit control (2026-07-04):**
+  every new system ships a Toolkit hook — at minimum a summary()/
+  sim_debug() the inspector can print, plus override knobs where the
+  system has any (the Toolkit is a product; systems it can't see or
+  steer are debt).
 - **GDExtension policy (2026-07-04):** GDScript until profiled, then
   port the hot inner loop behind the same interface. Known hot-loop-
   shaped candidates: `Terrain.height()` bulk samplers, hydrology

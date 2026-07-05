@@ -23,6 +23,7 @@ func _ready() -> void:
 	_test_long_memory()
 	_test_nav()
 	_test_roads()
+	_test_caravans()
 	_test_sand_sim()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
@@ -539,6 +540,20 @@ func _test_roads() -> void:
 	# follow the road, not one blind line.
 	var p := Nav.path(Vector3(0, 0, 0), Vector3(120, 0, -620))
 	_check(p.size() > 4, "far Nav.path rides the road graph (%d pts)" % p.size())
+
+
+func _test_caravans() -> void:
+	_check(Caravans.routes.size() >= 1, "caravan records load")
+	var r: Dictionary = Caravans.routes[0]
+	var at_dawn := Caravans.locate(r, 6.5)
+	_check(String(at_dawn.place) == "spawn_camp", "before depart: at the camp")
+	var walking := Caravans.locate(r, 7.05)
+	_check(bool(walking.en_route), "after depart: on the road")
+	var mid: Vector2 = walking.pos
+	_check(mid.distance_to(Vector2(8, 10)) > 50.0, "actually made distance")
+	var arrived := Caravans.locate(r, 9.0)
+	_check(String(arrived.place) == "shrine", "long after depart: arrived")
+	_check(Caravans.summary().length() > 10, "Toolkit summary answers")
 
 
 func _test_sand_sim() -> void:

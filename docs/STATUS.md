@@ -236,6 +236,21 @@ all worker-thread work out of the GDScript VM), (2) try a newer Godot
 Meanwhile: descend big landforms at walking pace, or give streaming a
 head start; the valley itself has never triggered it in normal play.
 
+**The air, phase A (2026-07-05, the Elements)** — dew fog as a
+stateless function of the sim: `Weather.fog_amount()` condenses from
+Climate's real wetness/temperature on calm nights, peaks pre-sunrise,
+burns off with the real sun (fog SEASONS fall out for free; storms
+carry their own murk). Presentation: thin distance haze (landmark law
+survives fog weather) + HEIGHT fog that floods sea/strand/valley
+floor while mesa tops float clear + a wind-drifted FogVolume noise
+bank you wade through (pools BELOW you on a summit). Toolkit:
+`Weather.summary()`, `fog_override` knob; probe `FOG=1
+REGION_SHOT=rim|summit`. Phase B (weather fronts arriving from
+windward across the sea, per-region weather) and C (rain curtains,
+lightning) are designed and queued — B touches the sim contract/soak.
+Kitchen-table item: keeping volumetric fog gouache (posterized banks)
+is a look decision for her.
+
 ## Placeholder ledger (each has a named replacement path)
 
 Biped fox player (hers, replaced the star hound as the player body

@@ -66,28 +66,24 @@ func _material(flow: Vector2) -> ShaderMaterial:
 	return mat
 
 
-# A vertex-dense disc: a DISC_STEP grid clamped to the circle rim, cells
-# kept when any corner falls inside. Local coordinates; the node carries
-# the world position (the shader reads world via MODEL_MATRIX).
+# A vertex-dense disc: every corner of a DISC_STEP grid (clamped to the
+# rim), triangulated wherever a cell touches the circle. Plain loops —
+# no lambda captures (a captured int counter froze and degenerated every
+# triangle to vertex 0: mesh present, nothing drawn. The invisible-pond
+# bug of 2026-07-04.)
 func _disc(radius: float) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var n := int(ceil(radius * 2.0 / DISC_STEP)) + 1
-	var verts := {}
-	var idx := 0
-	var index_of := func(ix: int, iz: int) -> int:
-		var key := ix * 10000 + iz
-		if not verts.has(key):
+	var n := int(ceil(radius * 2.0 / DISC_STEP)) + 2
+	for iz in n:
+		for ix in n:
 			var p := Vector2(ix * DISC_STEP - radius, iz * DISC_STEP - radius)
 			if p.length() > radius:
 				p = p.normalized() * radius
 			st.set_normal(Vector3.UP)
 			st.add_vertex(Vector3(p.x, 0.0, p.y))
-			verts[key] = idx
-			idx += 1
-		return verts[key]
-	for iz in n:
-		for ix in n:
+	for iz in n - 1:
+		for ix in n - 1:
 			var inside := 0
 			for c in [[ix, iz], [ix + 1, iz], [ix, iz + 1], [ix + 1, iz + 1]]:
 				var p := Vector2(c[0] * DISC_STEP - radius, c[1] * DISC_STEP - radius)
@@ -95,16 +91,13 @@ func _disc(radius: float) -> ArrayMesh:
 					inside += 1
 			if inside == 0:
 				continue
-			var a: int = index_of.call(ix, iz)
-			var b: int = index_of.call(ix + 1, iz)
-			var c2: int = index_of.call(ix, iz + 1)
-			var d: int = index_of.call(ix + 1, iz + 1)
+			var a := iz * n + ix
 			st.add_index(a)
-			st.add_index(b)
-			st.add_index(c2)
-			st.add_index(b)
-			st.add_index(d)
-			st.add_index(c2)
+			st.add_index(a + 1)
+			st.add_index(a + n)
+			st.add_index(a + 1)
+			st.add_index(a + n + 1)
+			st.add_index(a + n)
 	return st.commit()
 
 

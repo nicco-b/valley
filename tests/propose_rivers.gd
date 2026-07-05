@@ -22,6 +22,8 @@ const MAX_RIVERS := 10
 const CLAIM_R := 5  # cells (~160m): gullies this close to a river coalesce
 const MIN_CELLS := 20  # drop channels shorter than ~640m
 const NODE_SPACING := 45.0  # meters between record nodes (dense = grounded)
+const NODE_SPACING_STEEP := 16.0  # on steep runs — the carve interpolates
+	# node surfaces linearly, so cascades need nodes at step scale
 const SURFACE_DIP := 0.2  # waterline sits this far below the baked ground
 
 
@@ -146,7 +148,7 @@ func _init() -> void:
 			pts.append(origin + Vector2((pi % WORK) + 0.5,
 				(pi / WORK) + 0.5) * cell_m)
 		pts = _chaikin(_chaikin(_chaikin(pts)))
-		pts = _resample(pts, NODE_SPACING)
+		pts = _resample(pts, H, res, origin, world_size)
 		if pts.size() < 3:
 			continue
 		var nodes: Array = []
@@ -189,8 +191,12 @@ func _chaikin(pts: Array) -> Array:
 	return out
 
 
-# Uniform arc-length resample at `spacing` meters (endpoints kept).
-func _resample(pts: Array, spacing: float) -> Array:
+# Arc-length resample, adaptive: NODE_SPACING on gentle ground tightening
+# to NODE_SPACING_STEEP where the baked terrain drops hard (endpoints
+# kept). The carve lerps surfaces between nodes, so node density must
+# match the terrain's step scale or cascades bridge their steps.
+func _resample(pts: Array, H: PackedFloat32Array, res: int,
+		origin: Vector2, world_size: float) -> Array:
 	var out: Array = [pts[0]]
 	var carry := 0.0
 	for i in pts.size() - 1:
@@ -199,11 +205,19 @@ func _resample(pts: Array, spacing: float) -> Array:
 		var seg := ab.length()
 		if seg < 1e-4:
 			continue
-		var s := spacing - carry
-		while s < seg:
-			out.append(a + ab * (s / seg))
+		var dirn := ab / seg
+		var s := -carry
+		while true:
+			var p := a + ab * (clampf(s, 0.0, seg) / seg)
+			var grade := absf(_bilinear(H, res, origin, world_size, p + dirn * 8.0)
+				- _bilinear(H, res, origin, world_size, p - dirn * 8.0)) / 16.0
+			var spacing := lerpf(NODE_SPACING, NODE_SPACING_STEEP,
+				smoothstep(0.08, 0.45, grade))
 			s += spacing
-		carry = seg - (s - spacing)
+			if s >= seg:
+				carry = seg - (s - spacing)
+				break
+			out.append(a + ab * (s / seg))
 	out.append(pts[pts.size() - 1])
 	return out
 

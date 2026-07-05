@@ -414,7 +414,18 @@ so ribbons lie in the carved channels. Verified visually by the new
 `tests/river_probe.tscn` (RIVER_SHOT=close|flank|wide, Movie Maker +
 minimized, region_probe's recipe); soak 4124434361 bit-stable
 (unchanged — the current fingerprint since the flora-depletion entry;
-gen rivers stay no_sim).
+gen rivers stay no_sim). **The drape (same day, "it's not actually
+flowing over the terrain"):** river ribbons no longer trust the
+node-lerped surface — every 1.8m cross-section takes min(record
+waterline, carved centerline ground + depth), then a backward
+max-scan from the mouth (monotone downstream; dips become flat pools
+behind their lips, never bridges). Row-to-row grade goes into
+COLOR.r; the water shader's new `rapids_boost` (rivers only) foams
+the steep runs — cascades read as falls. The tracer resamples
+adaptively (45m gentle → 16m steep) so the CARVE follows the step
+scale too. Presentation-only: Terrain/kernel untouched, soak
+unchanged. Real live flow out there (per-region WaterField windows)
+stays future work.
 
 ## Placeholder ledger (each has a named replacement path)
 

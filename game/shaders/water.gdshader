@@ -10,6 +10,11 @@ render_mode cull_disabled;
 uniform vec3 color_a : source_color = vec3(0.93, 0.55, 0.60); // deep tint
 uniform vec3 color_b : source_color = vec3(0.99, 0.76, 0.77); // shallow tint
 uniform vec2 flow = vec2(0.0);
+// Rapids: river ribbons write their local grade into COLOR.r (the
+// drape's row-to-row drop) — steep runs foam like falls. Off (0.0) for
+// lakes/sea, whose meshes carry no vertex color (default white would
+// foam everything).
+uniform float rapids_boost = 0.0;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 global uniform sampler2D wave_map; // tier-2.5 height field, meters
@@ -21,6 +26,7 @@ global uniform float trace_size;
 
 varying vec3 wpos;
 varying float wave_h;
+varying float rapids_v;
 
 // Window-edge fade so the wave field's border never shows on the mesh.
 float wave_fade(vec2 uv) {
@@ -29,6 +35,7 @@ float wave_fade(vec2 uv) {
 }
 
 void vertex() {
+	rapids_v = COLOR.r;
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	vec2 wuv = (wpos.xz - wave_center) / wave_size + 0.5;
 	wave_h = 0.0;
@@ -99,6 +106,7 @@ void fragment() {
 	foam += smoothstep(0.035, 0.09, wave_h + length(wgrad) * 0.05) * 0.6;
 	foam += smoothstep(0.8, 1.6, length(flow)) * (0.5 + 0.5 * sin(fp.x * 3.1 + fp.y * 1.7)) * 0.35;
 	foam += t * 0.5;
+	foam += rapids_v * rapids_boost * (0.55 + 0.35 * sin(fp.x * 2.3 + fp.y * 2.9));
 	foam = floor(clamp(foam, 0.0, 1.0) * 3.0) / 3.0;  // stepped: gouache, not mist
 	col = mix(col, color_b * 1.12 + vec3(0.04), foam * 0.85);
 

@@ -57,7 +57,8 @@ func _ready() -> void:
 		var mi := MeshInstance3D.new()
 		mi.name = String(r.id)
 		var mat := _material(r.flow * _flow_speed(r.id))
-		mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx])
+		mat.set_shader_parameter("rapids_boost", 1.0)
+		mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx], float(r.depth))
 		mi.mesh.surface_set_material(0, mat)
 		mi.extra_cull_margin = 2.0
 		add_child(mi)
@@ -108,7 +109,7 @@ func _on_levels_changed() -> void:
 	for r in Terrain.rivers:
 		var mi: MeshInstance3D = _river_meshes.get(r.id)
 		if mi:
-			mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx])
+			mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx], float(r.depth))
 			mi.mesh.surface_set_material(0, _river_mats[r.id])
 			_river_mats[r.id].set_shader_parameter("flow",
 					Vector2(r.flow) * _flow_speed(r.id))
@@ -164,7 +165,16 @@ func _disc(radius: float, step: float = DISC_STEP) -> ArrayMesh:
 # A dense ribbon: the spline resampled every RIBBON_STEP meters with
 # RIBBON_ACROSS verts per cross-section. World-space (seam-free with the
 # pond under the shared world-reading shader).
-func _ribbon(nodes: Array, level: float) -> ArrayMesh:
+# The DRAPE (2026-07-05): record nodes carry one surface each and the
+# terrain undulates between them, so a node-lerped surface either floats
+# over dips or bridges spurs. Instead every row takes
+# min(node-lerped surface, carved centerline ground + depth) — identical
+# to the record waterline on normal spans (the carve puts the bed
+# exactly depth below it), but following the terrain down through dips —
+# then a backward max-scan from the mouth makes the surface monotone
+# downstream, pooling flat behind lips instead of running uphill.
+# Steep row-to-row drops are written into COLOR.r → shader rapids foam.
+func _ribbon(nodes: Array, level: float, depth: float) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	# Resample the polyline.
@@ -189,14 +199,31 @@ func _ribbon(nodes: Array, level: float) -> ArrayMesh:
 	var prev: Dictionary = nodes[nodes.size() - 2]
 	rows.append([last.pos, float(last.half), float(last.surface),
 		(Vector2(last.pos) - Vector2(prev.pos)).normalized()])
+	# Drape, then pool: the max-scan can only raise a row toward the
+	# record waterlines upstream of it, so the surface stays inside the
+	# carved channel everywhere (record surfaces are monotone downstream).
+	var surf := PackedFloat32Array(); surf.resize(rows.size())
+	for i in rows.size():
+		var p: Vector2 = rows[i][0]
+		surf[i] = minf(rows[i][2], Terrain.height(p.x, p.y) + depth)
+	for i in range(rows.size() - 2, -1, -1):
+		surf[i] = maxf(surf[i], surf[i + 1])
+	# Rapids strength from the local grade (COLOR.r → shader foam).
+	var rapids := PackedFloat32Array(); rapids.resize(rows.size())
+	for i in rows.size():
+		var j := mini(i + 1, rows.size() - 1)
+		var drop := surf[i] - surf[j] if j > i else 0.0
+		rapids[i] = smoothstep(0.06, 0.30, drop / RIBBON_STEP)
 	# Emit rows of verts, stitch quads.
-	for row in rows:
+	for i in rows.size():
+		var row: Array = rows[i]
 		var perp: Vector2 = Vector2(-row[3].y, row[3].x)
+		st.set_color(Color(rapids[i], 0.0, 0.0))
 		for k in RIBBON_ACROSS:
 			var u := (float(k) / (RIBBON_ACROSS - 1)) * 2.0 - 1.0
 			var p: Vector2 = row[0] + perp * (u * row[1])
 			st.set_normal(Vector3.UP)
-			st.add_vertex(Vector3(p.x, row[2] + level, p.y))
+			st.add_vertex(Vector3(p.x, surf[i] + level, p.y))
 	for i in rows.size() - 1:
 		for k in RIBBON_ACROSS - 1:
 			var a := i * RIBBON_ACROSS + k

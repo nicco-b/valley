@@ -67,6 +67,15 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	# In map view the terrain's elevation palette IS the water (teal
+	# seabed) — hide the pink surface meshes so it reads consistently
+	# at every zoom (the near sea disc doesn't reach the region rim).
+	if MapScreen.active:
+		if visible:
+			hide()
+		return
+	if not visible:
+		show()
 	if _sea_near == null:
 		return
 	var focus := Vector2.ZERO

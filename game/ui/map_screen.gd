@@ -108,7 +108,7 @@ func _open() -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	if player == null:
 		return  # not in the world (title screen)
-	_from_god = GodMode.active
+	_from_god = GodMode.active and GodMode.has_camera()
 	# Center on whatever the map is opened over — the fly cam in god
 	# mode, the player otherwise.
 	var here: Vector3 = GodMode.cam_position() if _from_god else player.global_position

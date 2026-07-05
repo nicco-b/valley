@@ -28,6 +28,10 @@ var _tool := Tool.SCULPT
 var _kit_index := 0
 
 
+func has_camera() -> bool:
+	return _cam != null
+
+
 func cam_position() -> Vector3:
 	return _cam.global_position
 

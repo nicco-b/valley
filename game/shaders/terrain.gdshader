@@ -20,6 +20,8 @@ global uniform sampler2D deform_map; // SandField: 4.7cm/px pressure field
 global uniform vec2 deform_center; // where the deform window is anchored
 global uniform float deform_size;
 global uniform vec2 patch_center; // where the dense patch covers the hole
+global uniform float sea_level; // LIVE sea surface (tide included)
+global uniform vec4 home_rect; // home island rect (xy=min, zw=max)
 uniform bool far_lod = false; // far terrain yields to the real cells
 uniform bool sand_patch = false; // the dense patch replacing ground underfoot
 const float PATCH_HOLE = 9.8; // terrain discards inside; patch owns it
@@ -169,6 +171,15 @@ void fragment() {
 	// faint sheen while it dries out.
 	col *= 1.0 - ground_wetness * (0.08 + 0.12 * sandiness);
 
+	// The tide line: ground within ~2m over the LIVE sea reads as wet
+	// strand — darker, slightly cool, a sheen. Gated outside the home
+	// island (same rect guard as Terrain.home_guard) so low valley
+	// floor never reads as beach.
+	vec2 g_d = max(max(home_rect.xy - wpos.xz, wpos.xz - home_rect.zw), vec2(0.0));
+	float strand = (1.0 - smoothstep(sea_level + 0.35, sea_level + 2.1, wpos.y))
+			* smoothstep(150.0, 550.0, length(g_d));
+	col = mix(col, col * vec3(0.66, 0.66, 0.70), strand * 0.85);
+
 	// Snow: whitens above the freezing altitude (the lapse rate draws the
 	// snowline), settling on flats more than faces.
 	float snowiness = snow_cover
@@ -178,5 +189,6 @@ void fragment() {
 
 	ALBEDO = col;
 	ROUGHNESS = mix(mix(1.0, 0.25, glint), 0.55, ground_wetness * sandiness * 0.6);
+	ROUGHNESS = mix(ROUGHNESS, 0.4, strand * 0.7); // wet strand sheen
 	SPECULAR = mix(0.08, 0.6, glint);
 }

@@ -83,6 +83,12 @@ func _process(_delta: float) -> void:
 	var snapped_focus := focus.snappedf(SEA_NEAR_STEP * 2.0)
 	_sea_near.position.x = snapped_focus.x
 	_sea_near.position.z = snapped_focus.y
+	# The tide: both sheets ride the live surface, and the strand
+	# shader's dark band follows it via the sea_level global.
+	var live: float = Terrain.sea_surface()
+	_sea_near.position.y = live
+	_sea_far.position.y = live - 0.15
+	RenderingServer.global_shader_parameter_set("sea_level", live)
 
 
 func _on_levels_changed() -> void:

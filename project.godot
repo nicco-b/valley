@@ -67,6 +67,14 @@ wind_strength={
 "type": "float",
 "value": 0.12
 }
+sea_level={
+"type": "float",
+"value": -1000000.0
+}
+home_rect={
+"type": "vec4",
+"value": Vector4(-959, -1309, 1089, 739)
+}
 trace_map={
 "type": "sampler2D",
 "value": ""

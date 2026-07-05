@@ -90,6 +90,23 @@ var river_levels := PackedFloat32Array()
 var sea_level := -1e12
 const SEABED := -35.0
 
+# The tide: a stateless function of the clock (sim-contract type (a),
+# like the sun and moon) — semidiurnal lunar period, so high water
+# returns ~50 minutes later each real day. Live consumers (swimming,
+# the sea meshes, the strand shader) read sea_surface(); deterministic
+# cell generation keeps the static sea_level through
+# water_surface_base(), the same authored-base-vs-live-level split
+# lakes use.
+const TIDE_AMP := 0.45
+const TIDE_PERIOD_H := 12.42
+
+
+## Live sea surface height (authored level + tide), or -1e12 if no sea.
+func sea_surface() -> float:
+	if sea_level < -1e11:
+		return -1e12
+	return sea_level + TIDE_AMP * sin(TAU * GameClock.hours / TIDE_PERIOD_H)
+
 # The native kernel (native/, GDExtension): a bit-exact C++ port of
 # height()/water_surface_base() plus block/mesh builders. Worker-thread
 # builders MUST go through it when present — concurrent GDScript on
@@ -113,7 +130,7 @@ func water_surface(x: float, z: float) -> float:
 		if q.x < q.y:
 			return q.z + river_levels[r.idx]
 	if sea_level > -1e11 and home_guard(x, z) > 0.0:
-		return sea_level
+		return sea_surface()
 	return -1e12
 
 
@@ -242,6 +259,11 @@ func _ready() -> void:
 		var c: Dictionary = ws["center"]
 		var s := float(ws["size"])
 		_home_rect = Rect2(float(c["x"]) - s * 0.5, float(c["z"]) - s * 0.5, s, s)
+	# The strand shader gates itself outside the home island with the
+	# same rect the guard uses.
+	RenderingServer.global_shader_parameter_set("home_rect", Vector4(
+		_home_rect.position.x, _home_rect.position.y,
+		_home_rect.end.x, _home_rect.end.y))
 	_island.seed = 91
 	_island.frequency = 0.0015
 	_island.fractal_octaves = 2

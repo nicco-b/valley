@@ -401,12 +401,25 @@ func _physics_process(delta: float) -> void:
 		SandField.crater(Vector2(global_position.x, global_position.z),
 			clampf(0.28 + _fall_speed * 0.028, 0.3, 0.95),
 			clampf(0.018 + _fall_speed * 0.0042, 0.03, 0.11))
+		if _fall_speed > 6.0:
+			# Hard landings also mark the PERSISTENT wear layer — the
+			# sand crater slumps away in minutes, but a favorite
+			# jump-down spot slowly becomes a worn hollow (the
+			# desire-path idea, vertically).
+			InteractionField.stamp(
+				Vector2(global_position.x, global_position.z),
+				clampf(_fall_speed * 0.09, 0.5, 1.0), 3)
 	_was_airborne = not is_on_floor()
 	_scuff.emitting = is_on_floor() and not swimming \
 			and (_sliding or Input.is_action_pressed("sprint")) \
 			and Vector2(velocity.x, velocity.z).length() > 4.0
 	if _scuff.emitting:
 		_scuff.global_position = global_position + Vector3(0, 0.08, 0)
+		# Sliding throws a real spray: plume scales with carve speed
+		# instead of the sprint scuff's fixed wisp.
+		_scuff.amount_ratio = clampf(
+			Vector2(velocity.x, velocity.z).length() / 10.0, 0.5, 1.0) \
+			if _sliding else 0.5
 
 	if is_on_floor() or swimming:
 		_step_accum += Vector2(velocity.x, velocity.z).length() * delta

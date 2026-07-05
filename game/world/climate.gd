@@ -94,6 +94,13 @@ func moisture(x: float, z: float) -> float:
 	for river in Terrain.rivers:
 		var q := Terrain.river_query(river, x, z)
 		near = maxf(near, 1.0 - smoothstep(q.half, q.half + 12.0, q.d))
+	# The sea damps its shores by ELEVATION: anywhere outside the home
+	# island within ~2.5m of sea level reads as wet strand (beaches,
+	# causeway edges) — the tide line without a tide (yet).
+	if Terrain.sea_level > -1e11 and Terrain.home_guard(x, z) > 0.0:
+		var h: float = Terrain.height(x, z)
+		near = maxf(near, 1.0 - smoothstep(
+			Terrain.sea_level + 0.6, Terrain.sea_level + 2.5, h))
 	return clampf(maxf(wetness, 0.85 * near), 0.0, 1.0)
 
 

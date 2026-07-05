@@ -35,6 +35,7 @@ var _sliding := false
 var _sand_puff: GPUParticles3D
 var _scuff: GPUParticles3D
 var _was_airborne := false
+var _fall_speed := 0.0  # |velocity.y| while airborne; floor zeroes velocity
 var _steps: AudioStreamPlayer
 # Skill xp accumulators, flushed to WorldState every few seconds.
 var _xp_walk := 0.0
@@ -369,6 +370,8 @@ func _physics_process(delta: float) -> void:
 				velocity.z = flat_v.y
 
 	_update_underwater_fx()
+	if not is_on_floor():
+		_fall_speed = absf(velocity.y)  # captured pre-landing: the floor zeroes it
 	move_and_slide()
 
 	# The granular sim: moving feet shovel sand along the velocity;
@@ -388,12 +391,16 @@ func _physics_process(delta: float) -> void:
 			1.4, clampf(0.02 + absf(velocity.y) * 0.012, 0.02, 0.09))
 		_was_airborne = false
 
-	# Kicked sand: a landing thumps a burst and blasts a real crater.
-	if is_on_floor() and _was_airborne and not swimming:
+	# Kicked sand: a landing thumps a burst and blasts a real crater,
+	# scaled by fall speed like the water splash — a hop dents the
+	# ground, a drop off a mesa terrace blasts a real bowl.
+	if is_on_floor() and _was_airborne and not swimming and _fall_speed > 2.5:
 		_sand_puff.global_position = global_position + Vector3(0, 0.06, 0)
 		_sand_puff.amount_ratio = 1.0
 		_sand_puff.restart()
-		SandField.crater(Vector2(global_position.x, global_position.z), 0.45, 0.045)
+		SandField.crater(Vector2(global_position.x, global_position.z),
+			clampf(0.28 + _fall_speed * 0.028, 0.3, 0.95),
+			clampf(0.018 + _fall_speed * 0.0042, 0.03, 0.11))
 	_was_airborne = not is_on_floor()
 	_scuff.emitting = is_on_floor() and not swimming \
 			and (_sliding or Input.is_action_pressed("sprint")) \

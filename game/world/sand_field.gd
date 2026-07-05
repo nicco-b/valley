@@ -242,7 +242,11 @@ func _process(delta: float) -> void:
 
 	if _gpu_mode:
 		_drain_base_bake()
-		var repose := (REPOSE_DRY + REPOSE_WET_BONUS * Climate.wetness) * _cell_m()
+		# Local dampness, not just the global: Climate.moisture floors
+		# near open water and on sea strands, so beach sand stands
+		# steeper and holds prints (wet-sand feel at the new coasts).
+		var wet := maxf(Climate.wetness, Climate.moisture(_anchor.x, _anchor.y))
+		var repose := (REPOSE_DRY + REPOSE_WET_BONUS * wet) * _cell_m()
 		var flow := 0.0 if _base_pending else FLOW
 		# Per-second erosion, applied per frame: calm keeps prints ~2min,
 		# a storm scrubs them in ~20s (the CPU path decays only active
@@ -252,7 +256,9 @@ func _process(delta: float) -> void:
 		_op_count = 0
 		return
 
-	_post({"op": "env", "wet": Climate.wetness, "wind": Weather.wind})
+	_post({"op": "env",
+		"wet": maxf(Climate.wetness, Climate.moisture(_anchor.x, _anchor.y)),
+		"wind": Weather.wind})
 	_snap_accum += delta
 	if _snap_accum >= SNAPSHOT_INTERVAL and _snap_ready:
 		_snap_accum = 0.0

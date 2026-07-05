@@ -234,7 +234,9 @@ func force_kind(kind: String) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	# Debug: Y cycles a forced full-cover front calm -> windy -> storm.
 	if event.is_action_pressed("debug_weather"):
-		var next: String = {"calm": "windy", "windy": "storm", "storm": "calm"}[state]
+		# Cycle through ALL kinds in a fixed order.
+		var order := ["calm", "overcast", "drizzle", "windy", "gale", "squall", "storm"]
+		var next: String = order[(order.find(state) + 1) % order.size()]
 		force_kind(next)
 		HUD.notify("weather: " + next + " (forced front)")
 

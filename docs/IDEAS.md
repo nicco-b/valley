@@ -299,6 +299,41 @@ treatment:*
   a drought year sounds quiet before it looks dry; foam appears where
   the velocity field is turbulent, not where an artist painted it.
 
+## The underworld (2026-07-04 — the "huge cave, not Skyrim corridors" conversation)
+
+- ★★ **Layered heightfields, not voxels, not interiors:** the vast
+  cavern with high ceilings and its own micro-biome is heightfield-
+  SHAPED — a floor function plus a lid function (Elden Ring's
+  Siofra/Nokron are exactly this: a landscape with a ceiling). So the
+  underworld is a second terrain LAYER: its own floor/ceiling
+  heightfields, edit layer (the sculpt brush already sculpts caverns),
+  water records, flora records, navmesh, streamed cells — the entire
+  built sim stack reused one level down. Voxel/SDF terrain is
+  rejected: it invalidates every system keyed on height(x,z)
+  (hydrology routing, sand base, navmesh, scatter, map, determinism)
+  to buy arbitrary overhangs nobody asked for. Kit carries the
+  verticality down there too — stalactites, columns, cave mouths: the
+  cliff-kit lesson upside down. Ceiling constrained ≤ surface − 
+  thickness so it can never poke out of a hill.
+  **Implement WITH the F3 region-tile work** — bake `layer` into the
+  region record schema from day one (the cheap-now-painful-later
+  shape), not before.
+- **The micro-biome is a per-layer Climate:** constant temperature (no
+  sun, no lapse), moisture from the aquifer. Tier-1 Hydrology's lake
+  seepage/outflow term currently vanishes into nothing — route it DOWN:
+  underworld lakes are fed by the surface's real seepage, and cave-drip
+  weather is surface wetness read with a days-long lag (a spring storm
+  becomes cavern rain a week later). The glow-reserved lighting law
+  stops constraining and becomes the ecosystem down there; darkness +
+  fog replace far-terrain and sky — the cheapest vista in the game.
+- **Entrances are authored set pieces** (cave mouths in cliff kit,
+  sinkholes in the barren, a ravine that becomes a throat), both layers
+  streamed briefly around the mouth. Sinkholes scattered in the barren
+  make the desert worth crossing without spending an oasis — the void
+  becomes the roof of content. Underground area is free density: it
+  spends no surface kilometers, so ~10–12km of interesting surface can
+  sit inside a larger barren and still play "bigger" than 25km flat.
+
 ## Later / bigger
 
 - **Seasonal drift:** not four hard seasons — slow bloom-cycles and light

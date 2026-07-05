@@ -39,8 +39,29 @@ var _home_rect := Rect2(-959, -1309, 2048, 2048)  # fallback; loaded in _ready
 
 # Loaded region records, normalized. Read-only after _ready — worker
 # threads sample height() concurrently (same rule as water_bodies).
+# `regions`/`_barrens` keep the readable dicts for the Toolkit; the
+# packed mirrors below are what the hot path reads — height() runs in
+# every bulk sampler (sand patch re-anchor is 103k samples), so the
+# per-sample loop must be packed reads + scalar math, no Dictionary
+# access, no String match (the river-carve lesson, 2026-07-04).
 var regions: Array[Dictionary] = []
 var _barrens: Array[Dictionary] = []
+
+const REG_MESA := 0
+const REG_DOME := 1
+const REG_RIDGE := 2
+var _reg_kind := PackedInt32Array()
+var _reg_bbox := PackedFloat32Array()  # x0,z0,x1,z1 per region (reach-grown)
+var _reg_center := PackedVector2Array()
+var _reg_radius := PackedFloat32Array()
+var _reg_reach := PackedFloat32Array()
+var _reg_inner := PackedFloat32Array()
+var _reg_height := PackedFloat32Array()
+var _reg_tiers := PackedFloat32Array()
+var _reg_nodes: Array = []  # PackedVector2Array per region (ridges)
+var _bar_center := PackedVector2Array()
+var _bar_radius := PackedFloat32Array()
+var _bar_feather := PackedFloat32Array()
 
 # Loaded lake records, normalized: {id, idx, center: Vector2, radius,
 # surface, basin_radius, basin_depth}. Strictly read-only after _ready —
@@ -202,8 +223,8 @@ func _ready() -> void:
 		var s := float(ws["size"])
 		_home_rect = Rect2(float(c["x"]) - s * 0.5, float(c["z"]) - s * 0.5, s, s)
 	_island.seed = 91
-	_island.frequency = 0.004
-	_island.fractal_octaves = 3
+	_island.frequency = 0.0015
+	_island.fractal_octaves = 2
 	_hills.seed = 7
 	_hills.frequency = 0.0025
 	_hills.fractal_octaves = 4
@@ -454,8 +475,30 @@ func _load_regions() -> void:
 			reg.nodes = pts
 		if kind == "barren":
 			_barrens.append(reg)
-		else:
-			regions.append(reg)
+			_bar_center.append(reg.center)
+			_bar_radius.append(reg.radius)
+			_bar_feather.append(reg.feather)
+			continue
+		regions.append(reg)
+		var is_ridge := kind == "ridge"
+		var reach: float = (reg.inner if is_ridge else reg.radius) + reg.feather
+		_reg_kind.append(REG_RIDGE if is_ridge
+			else (REG_MESA if kind == "mesa" and reg.tiers > 1 else REG_DOME))
+		_reg_center.append(reg.center)
+		_reg_radius.append(reg.radius)
+		_reg_reach.append(reach)
+		_reg_inner.append(reg.inner)
+		_reg_height.append(reg.height)
+		_reg_tiers.append(float(reg.tiers))
+		_reg_nodes.append(reg.nodes)
+		var bbox := Rect2(reg.center, Vector2.ZERO)
+		for n: Vector2 in reg.nodes:
+			bbox = bbox.expand(n)
+		bbox = bbox.grow(reach)
+		_reg_bbox.append(bbox.position.x)
+		_reg_bbox.append(bbox.position.y)
+		_reg_bbox.append(bbox.end.x)
+		_reg_bbox.append(bbox.end.y)
 
 
 ## 0..1: how strongly the procedural ranges are suppressed here (union
@@ -463,47 +506,54 @@ func _load_regions() -> void:
 func _barren_mask(x: float, z: float) -> float:
 	var m := 0.0
 	var p := Vector2(x, z)
-	for b in _barrens:
-		var d := p.distance_to(b.center)
-		m = maxf(m, 1.0 - smoothstep(b.radius, b.radius + b.feather, d))
+	for i in _bar_center.size():
+		var d := p.distance_to(_bar_center[i])
+		m = maxf(m, 1.0 - smoothstep(_bar_radius[i], _bar_radius[i] + _bar_feather[i], d))
 	return m
 
 
 ## Summed authored island height at (x,z). Hot path (every bulk height
-## sampler): cheap radial reject per region before any shape math.
+## sampler): packed reads only; bbox reject before any shape math; the
+## detail-noise sample is shared and taken at most once per call.
 func _region_height(x: float, z: float) -> float:
 	var p := Vector2(x, z)
 	var total := 0.0
-	for r in regions:
-		match r.kind:
-			"mesa", "dome":
-				var reach: float = r.radius + r.feather
-				var d := p.distance_to(r.center)
-				if d >= reach:
-					continue
-				# 1 on the plateau/summit, feathered to 0 at the skirt edge.
-				var env := 1.0 - smoothstep(r.radius * 0.35, reach, d)
-				if r.kind == "mesa" and r.tiers > 1:
-					# Quantize the flank into visible terraces — the
-					# tiered hill-city read — keeping a slope component
-					# so tiers stay climbable (and sand-slideable).
-					var stepped := floorf(env * r.tiers) / float(r.tiers)
-					env = lerpf(env, stepped, 0.85)
-				var detail := _island.get_noise_2d(x, z) * 0.12 * env
-				total += r.height * (env + detail)
-			"ridge":
-				var nodes: PackedVector2Array = r.nodes
-				var d := 1e12
-				for i in nodes.size() - 1:
-					d = minf(d, _segment_distance(p, nodes[i], nodes[i + 1]))
-				var reach: float = r.inner + r.feather
-				if d >= reach:
-					continue
-				var env := 1.0 - smoothstep(r.inner, reach, d)
-				# Ridged profile: sharp crest, long walkable shoulders.
-				env = env * env * (3.0 - 2.0 * env)
-				var detail := absf(_island.get_noise_2d(x, z)) * 0.25 * env
-				total += r.height * (env + detail)
+	var detail := 1e12  # sentinel: noise not yet sampled
+	for i in _reg_kind.size():
+		var b := i * 4
+		if x < _reg_bbox[b] or z < _reg_bbox[b + 1] \
+				or x >= _reg_bbox[b + 2] or z >= _reg_bbox[b + 3]:
+			continue
+		var kind := _reg_kind[i]
+		var env: float
+		if kind == REG_RIDGE:
+			var nodes: PackedVector2Array = _reg_nodes[i]
+			var d := 1e12
+			for s in nodes.size() - 1:
+				d = minf(d, _segment_distance(p, nodes[s], nodes[s + 1]))
+			if d >= _reg_reach[i]:
+				continue
+			env = 1.0 - smoothstep(_reg_inner[i], _reg_reach[i], d)
+			# Ridged profile: sharp crest, long walkable shoulders.
+			env = env * env * (3.0 - 2.0 * env)
+		else:
+			var d := p.distance_to(_reg_center[i])
+			if d >= _reg_reach[i]:
+				continue
+			# 1 on the plateau/summit, feathered to 0 at the skirt edge.
+			env = 1.0 - smoothstep(_reg_radius[i] * 0.35, _reg_reach[i], d)
+			if kind == REG_MESA:
+				# Terraces with rounded risers: flat treads (the city
+				# districts) joined by climbable ramps — smoothstepped
+				# so no cliff face goes vertical (feel note 2026-07-04:
+				# hard-quantized tiers read as bad, too-vertical walls).
+				var t := env * _reg_tiers[i]
+				var stepped := (floorf(t) + smoothstep(0.15, 0.85, t - floorf(t))) \
+					/ _reg_tiers[i]
+				env = lerpf(env, stepped, 0.7)
+		if detail == 1e12:
+			detail = _island.get_noise_2d(x, z)
+		total += _reg_height[i] * (env + detail * 0.06 * env)
 	return total
 
 

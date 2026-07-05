@@ -4,7 +4,7 @@
 	"kind": "mesa",
 	"center": {"x": 1400, "z": -3600},
 	"radius": 650,
-	"feather": 380,
+	"feather": 600,
 	"height": 320,
 	"tiers": 5
 }

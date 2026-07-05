@@ -127,7 +127,13 @@ glb export. Two creatures built: the biped fox (**now the player body**,
 from her painting) and the star hound (fully animated, currently unplaced).
 NPCs (Wanderer, Keeper) still ride the CC0 robot placeholder.
 
-**Shell/tools** — title screen, pause/settings, autosave (**hardened
+**Shell/tools** — title screen, pause/settings (**UI pass 2026-07-04:**
+`canvas_items` stretch so text/DPI scale with any window; one shared
+`UITheme` (game/ui/ui_theme.gd) — gouache paper/ink/water-pink palette,
+painterly StyleBoxFlat panels/buttons/sliders as labeled placeholders for
+her painted 9-slices, fat pink focus rings; title/pause/journal wear it;
+menus gamepad-navigable — focus grabbed on open, D-pad walks, Start/Esc
+via ui_cancel; verified by tests/ui_probe.gd screenshots), autosave (**hardened
 2026-07-04:** atomic write via tmp+rename, rotating `.bak1`/`.bak2`
 refreshed ≤ every 10 min, load falls back live → bak1 → bak2 with a
 warning — a torn save costs minutes, never the world); god mode (F1:

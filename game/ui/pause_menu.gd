@@ -1,13 +1,12 @@
 extends CanvasLayer
-## Pause menu (autoload). Esc pauses the world (tree pause); panel offers
-## resume, settings, save & quit. Esc in the map closes the map; god mode
-## keeps its own Esc behavior.
-
-const INK := Color(0.30, 0.17, 0.16)
-const CREAM := Color(0.96, 0.93, 0.865)
+## The Campfire (shell UI): pause menu (autoload). Esc/Start pauses the
+## world (tree pause); panel offers resume, settings, save & quit. Esc in
+## the map closes the map; god mode keeps its own Esc behavior. Wears
+## UITheme; Resume grabs focus on open so the gamepad can walk the menu.
 
 var paused := false
 
+var _root: Control
 var _volume: HSlider
 var _sensitivity: HSlider
 var _fullscreen: CheckButton
@@ -48,35 +47,32 @@ func toggle() -> void:
 
 
 func _build_ui() -> void:
+	_root = Control.new()
+	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	UITheme.apply(_root)
+	add_child(_root)
+
 	var dim := ColorRect.new()
-	dim.color = Color(0.08, 0.06, 0.08, 0.72)
+	dim.color = UITheme.DUSK_DIM
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(dim)
+	_root.add_child(dim)
 
 	var center := CenterContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
+	_root.add_child(center)
 
 	var panel := PanelContainer.new()
-	var style := StyleBoxFlat.new()
-	style.bg_color = CREAM
-	style.border_color = Color(0.45, 0.32, 0.24)
-	style.set_border_width_all(3)
-	style.set_corner_radius_all(6)
-	style.set_content_margin_all(26)
-	panel.add_theme_stylebox_override("panel", style)
 	center.add_child(panel)
 
 	var vbox := VBoxContainer.new()
-	vbox.custom_minimum_size = Vector2(340, 0)
+	vbox.custom_minimum_size = Vector2(360, 0)
 	vbox.add_theme_constant_override("separation", 12)
 	panel.add_child(vbox)
 
 	var title := Label.new()
 	title.text = "Valley"
+	title.theme_type_variation = "TitleLabel"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.add_theme_font_size_override("font_size", 24)
-	title.add_theme_color_override("font_color", INK)
 	vbox.add_child(title)
 
 	_resume = _button("Resume", toggle)
@@ -98,7 +94,6 @@ func _build_ui() -> void:
 	_fullscreen = CheckButton.new()
 	_fullscreen.text = "Fullscreen"
 	_fullscreen.button_pressed = Settings.fullscreen
-	_fullscreen.add_theme_color_override("font_color", INK)
 	_fullscreen.toggled.connect(func(on: bool) -> void:
 		Settings.fullscreen = on
 		Settings.apply()
@@ -120,8 +115,7 @@ func _button(text: String, action: Callable) -> Button:
 func _label(text: String) -> Label:
 	var l := Label.new()
 	l.text = text
-	l.add_theme_font_size_override("font_size", 13)
-	l.add_theme_color_override("font_color", INK)
+	l.theme_type_variation = "SubtleLabel"
 	return l
 
 

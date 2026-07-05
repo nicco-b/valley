@@ -27,8 +27,13 @@ func _ready() -> void:
 	add_child(_markers)
 	_hint = Label.new()
 	_hint.text = "drag / WASD pan  ·  wheel zoom  ·  M close"
-	_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_hint.position.y -= 34.0
+	# Full-rect + bottom alignment (point anchors land off-screen — CLAUDE.md).
+	_hint.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	_hint.offset_bottom = -24.0
+	_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hint.add_theme_font_size_override("font_size", 15)
 	_hint.add_theme_color_override("font_color", Color(1, 0.95, 0.9))
 	_hint.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
 	_hint.add_theme_constant_override("shadow_offset_y", 1)

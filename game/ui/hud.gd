@@ -4,10 +4,11 @@ extends CanvasLayer
 ## - say(speaker, text): spoken/examined line, fades after a few seconds
 ## - notify(text): small transient notice, top center
 
-const CREAM := Color(1.0, 0.96, 0.9)
-const TEAL := Color(0.62, 0.82, 0.8)
-const SHADOW := Color(0, 0, 0, 0.7)
+const CREAM := UITheme.CREAM
+const TEAL := UITheme.TEAL
+const SHADOW := UITheme.SHADOW
 
+var _root: Control
 var _prompt: Label
 var _speaker: Label
 var _line: Label
@@ -19,12 +20,17 @@ var _notify_token := 0
 
 func _ready() -> void:
 	layer = 5
+	_root = Control.new()
+	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	UITheme.apply(_root)
+	add_child(_root)
 	# Full-rect labels + text alignment: layout that cannot land off-screen.
-	_prompt = _make_label(15, CREAM, VERTICAL_ALIGNMENT_BOTTOM, -70.0)
-	_speaker = _make_label(14, TEAL, VERTICAL_ALIGNMENT_BOTTOM, -170.0)
-	_line = _make_label(17, CREAM, VERTICAL_ALIGNMENT_BOTTOM, -140.0)
-	_notice = _make_label(13, CREAM, VERTICAL_ALIGNMENT_TOP, 14.0)
-	_satchel = _make_label(15, CREAM, VERTICAL_ALIGNMENT_TOP, 48.0)
+	_prompt = _make_label(17, CREAM, VERTICAL_ALIGNMENT_BOTTOM, -70.0)
+	_speaker = _make_label(16, TEAL, VERTICAL_ALIGNMENT_BOTTOM, -170.0)
+	_line = _make_label(19, CREAM, VERTICAL_ALIGNMENT_BOTTOM, -140.0)
+	_notice = _make_label(15, CREAM, VERTICAL_ALIGNMENT_TOP, 14.0)
+	_satchel = _make_label(16, CREAM, VERTICAL_ALIGNMENT_TOP, 48.0)
 	WorldState.changed.connect(_on_state_changed)
 
 
@@ -94,5 +100,5 @@ func _make_label(size: int, color: Color, valign: int, edge_offset: float) -> La
 	label.add_theme_color_override("font_color", color)
 	label.add_theme_color_override("font_shadow_color", SHADOW)
 	label.add_theme_constant_override("shadow_offset_y", 1)
-	add_child(label)
+	_root.add_child(label)
 	return label

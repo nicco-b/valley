@@ -7,7 +7,7 @@ extends RefCounted
 ## the argument about which one is wrong.
 
 const K := 0.18  # must match WaveGpu.K
-const DAMP := 0.985  # must match WaveGpu.DAMP
+const DAMP := 0.975  # must match WaveGpu.DAMP
 
 
 ## One damped Verlet wave step on an n×n field (zero-gradient borders).
@@ -23,7 +23,7 @@ static func step(prev: PackedFloat32Array, curr: PackedFloat32Array,
 				+ (curr[i - 1] if x > 0 else c) \
 				+ (curr[i + n] if z < n - 1 else c) \
 				+ (curr[i - n] if z > 0 else c) - 4.0 * c
-			next[i] = (2.0 * c - prev[i] + K * lap) * DAMP
+			next[i] = clampf((2.0 * c - prev[i] + K * lap) * DAMP, -0.2, 0.2)
 	return next
 
 

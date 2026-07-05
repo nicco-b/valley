@@ -12,7 +12,7 @@ const WADE_INTERVAL := 0.12
 const WADE_RADIUS := 0.9
 const WADE_STRENGTH := 0.035  # meters of dent per stride
 const RAIN_PER_SEC := 26.0  # drop splats/sec across the window in a storm
-const CHOP_PER_SEC := 7.0  # wind ripple seeds/sec at full wind
+const CHOP_PER_SEC := 2.5  # wind ripple seeds/sec at full wind
 
 var enabled := false
 var _gpu: WaveGpu
@@ -87,11 +87,11 @@ func _process(delta: float) -> void:
 		var off := Vector2(_rng.randf() - 0.5, _rng.randf() - 0.5) * WaveGpu.REGION
 		var rain := Weather.state == "storm"
 		disturb(_anchor + off, 0.35 if rain else 1.6,
-			(0.012 if rain else 0.004) * (0.5 + _rng.randf()))
+			(0.008 if rain else 0.002) * (0.5 + _rng.randf()))
 		if not rain:
 			# Chop streaks along the wind: each seed gets a downwind twin.
 			disturb(_anchor + off + Vector2(Weather.wind_dir) * 1.4, 1.6,
-				0.003 * (0.5 + _rng.randf()))
+				0.0015 * (0.5 + _rng.randf()))
 
 	_gpu.tick(_ops, _op_count)
 	_op_count = 0

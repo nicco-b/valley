@@ -10,7 +10,7 @@ const GRID := 512
 const REGION := 64.0  # meters — 12.5cm texels, ripple-scale
 const MAX_OPS := 32
 const K := 0.18  # c²dt²/dx², stable < 0.5
-const DAMP := 0.985
+const DAMP := 0.975  # settles faster: calm is what makes reactions legible
 
 var display_texture: Texture2DRD
 

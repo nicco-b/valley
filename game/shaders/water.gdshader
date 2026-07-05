@@ -74,7 +74,7 @@ void fragment() {
 		wgrad = vec2(
 			texture(wave_map, wuv + vec2(px, 0.0)).r - texture(wave_map, wuv - vec2(px, 0.0)).r,
 			texture(wave_map, wuv + vec2(0.0, px)).r - texture(wave_map, wuv - vec2(0.0, px)).r
-		) * f * 14.0;
+		) * f * 7.0;
 	}
 	vec3 n_ws = normalize(vec3(-rx * (0.3 + t * 0.5) - wgrad.x, 1.0,
 			-rz * (0.3 + t * 0.5) - wgrad.y));

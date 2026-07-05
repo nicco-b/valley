@@ -19,5 +19,5 @@ void main() {
 			v += op.w * (0.5 + 0.5 * cos(d * 3.14159265));
 		}
 	}
-	imageStore(field, p, vec4(v));
+	imageStore(field, p, vec4(clamp(v, -0.2, 0.2)));
 }

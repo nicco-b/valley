@@ -23,5 +23,10 @@ void main() {
 	float lap = at(p + ivec2(1, 0), c) + at(p + ivec2(-1, 0), c)
 		+ at(p + ivec2(0, 1), c) + at(p + ivec2(0, -1), c) - 4.0 * c;
 	float n = (2.0 * c - imageLoad(prev, p).r + pc.k * lap) * pc.damp;
+	// Rails: a texel that overflows to Inf/NaN would spread through the
+	// Laplacian and kill the whole field silently (freak-out -> settle ->
+	// dead). Clamp hard and heal NaN to rest.
+	if (isnan(n) || isinf(n)) { n = 0.0; }
+	n = clamp(n, -0.2, 0.2);
 	imageStore(next, p, vec4(n));
 }

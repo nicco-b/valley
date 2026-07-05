@@ -380,6 +380,14 @@ func _physics_process(delta: float) -> void:
 				flow_v.normalized(),
 				0.0016 * flow_v.length() * (3.0 if _sliding else 1.0))
 
+	# Splashdown: landing in water rings it hard — entry displacement
+	# scales with fall speed (water review: submerged capsules inject
+	# proportional to speed).
+	if _was_airborne and not is_on_floor() and water_depth > 0.25:
+		WaterWaves.disturb(Vector2(global_position.x, global_position.z),
+			1.4, clampf(0.02 + absf(velocity.y) * 0.012, 0.02, 0.09))
+		_was_airborne = false
+
 	# Kicked sand: a landing thumps a burst and blasts a real crater.
 	if is_on_floor() and _was_airborne and not swimming:
 		_sand_puff.global_position = global_position + Vector3(0, 0.06, 0)

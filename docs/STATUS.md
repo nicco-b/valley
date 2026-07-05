@@ -426,6 +426,21 @@ adaptively (45m gentle → 16m steep) so the CARVE follows the step
 scale too. Presentation-only: Terrain/kernel untouched, soak
 unchanged. Real live flow out there (per-region WaterField windows)
 stays future work.
+**Live flow everywhere (2026-07-05, the Elements/Watershed): the
+tier-2 field is now a SCROLLING WINDOW.** The 1024² 2m-texel dynamics
+field no longer sits on the home watershed — it follows the focus
+(player or god cam) anywhere in the archipelago, the sand-field
+recipe: re-anchor past 384m drift, depth scrolled by texel offset
+(new water_copy kernel), terrain base rebaked off-thread through the
+native kernel; entering texels start dry and rain refills them. Storm
+runoff now streams down any island's real slopes, pools in its
+hollows, and drains into ALL water bodies (generated rivers and the
+sea were already in water_base_block's sink answer). Generated
+rivers' currents push at a fixed healthy-flow fraction (no Hydrology
+discharge to read — per-region routing is still the future item).
+Presentation-only: off headless, soak untouched. Verified live at the
+volcano: river_probe RIVER_WX=storm (+RIVER_WALK=1 exercises the
+mid-run re-anchor/scroll path).
 
 ## Placeholder ledger (each has a named replacement path)
 

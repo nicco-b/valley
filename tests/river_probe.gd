@@ -45,7 +45,9 @@ func _process(_d: float) -> void:
 	if _t == 20:
 		GameClock.hours = 14.0
 		GameClock.time_scale = 0.0
-		Weather.force_kind("calm")
+		# RIVER_WX=storm shows the live water field working the slope.
+		var wx := OS.get_environment("RIVER_WX")
+		Weather.force_kind(wx if wx != "" else "calm")
 		var we: WorldEnvironment = _w.find_children("*", "WorldEnvironment", true, false)[0]
 		we.environment.fog_enabled = false
 		var pl := get_tree().get_first_node_in_group("player")
@@ -64,6 +66,16 @@ func _process(_d: float) -> void:
 			c.y += Terrain.height(c.x, c.z)
 		cam.global_position = c
 		cam.look_at(s.aim)
+	if _t == 400 and OS.get_environment("RIVER_WALK") != "":
+		# Drag the focus far enough to force a field re-anchor: exercises
+		# the scroll kernel + base rebake mid-run.
+		var pl2 := get_tree().get_first_node_in_group("player")
+		if pl2:
+			pl2.global_position.x += 600.0
+			pl2.global_position.y = Terrain.height(
+				pl2.global_position.x, pl2.global_position.z) + 2.0
+	if _t == 790:
+		print("[river_probe] field: ", WaterField.summary())
 	if _t == 800:
 		var path := "/tmp/river_%s.png" % _shot
 		get_viewport().get_texture().get_image().save_png(path)

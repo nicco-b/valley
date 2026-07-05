@@ -34,7 +34,7 @@ func setup() -> bool:
 	rd = RenderingServer.get_rendering_device()
 	if rd == null:
 		return false
-	for shader_name in ["water_flux", "water_depth", "water_probe"]:
+	for shader_name in ["water_flux", "water_depth", "water_probe", "water_copy"]:
 		var src: RDShaderFile = load("res://game/shaders/compute/%s.glsl" % shader_name)
 		if src == null:
 			return false
@@ -84,6 +84,20 @@ func setup() -> bool:
 	base_texture.texture_rd_rid = _base
 	_ok = true
 	return true
+
+
+## Re-anchor: shift the depth field by a texel offset (the window moved
+## with the focus). Texels entering the window start dry; the caller
+## rebakes the base underneath.
+func scroll(off: Vector2i) -> void:
+	if not _ok:
+		return
+	var push := PackedInt32Array([GRID, off.x, off.y, 0]).to_byte_array()
+	_dispatch("water_copy", [
+		_image_uniform(_depth[_current], 0),
+		_image_uniform(_depth[1 - _current], 1),
+	], push, GRID)
+	_current = 1 - _current
 
 
 ## Terrain heights + authored-water sink mask, baked on a worker thread.

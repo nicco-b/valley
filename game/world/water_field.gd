@@ -1,15 +1,20 @@
 extends Node
 ## WaterField (autoload): tier 2 of the whole-watershed water canon
-## (DECISIONS 2026-07-04) — the live dynamics field. One GPU depth field
-## over the entire routed domain: storm rain lands everywhere, gathers
-## into rivulets down the real terrain, pools in hollows, and drains
-## into the ground (fast when parched — Climate reads back in) and into
-## the authored water bodies (this field's sinks; their levels are
-## Hydrology's job, tier 1). The water sheet renders the field near the
-## player; a one-thread probe feeds the current that pushes wading
-## bodies. Presentation only: never saved, never fingerprinted, and
-## headless (no RenderingDevice) it simply stays off — the canonical
-## water balance lives in Hydrology.
+## (DECISIONS 2026-07-04) — the live dynamics field. One GPU depth field,
+## and since 2026-07-05 a SCROLLING WINDOW (the sand-field recipe): the
+## same 1024² grid at 2m texels now follows the focus anywhere in the
+## archipelago instead of sitting on the home watershed. Storm rain
+## lands everywhere the window is, gathers into rivulets down the real
+## terrain, pools in hollows, and drains into the ground (fast when
+## parched — Climate reads back in) and into the water bodies — ALL of
+## them now, generated rivers and the sea included (water_base_block
+## already answers everywhere). On re-anchor the depth field scrolls by
+## the texel offset and the terrain base rebakes off-thread through the
+## native kernel; entering texels start dry and the next rain refills
+## them. The water sheet renders the field near the player; a one-thread
+## probe feeds the current that pushes wading bodies. Presentation only:
+## never saved, never fingerprinted, and headless (no RenderingDevice)
+## it simply stays off — the canonical water balance lives in Hydrology.
 ##
 ## Rain here is VISUAL rain (~100x physical rate): at true mm/h nothing
 ## would ever read on screen. Honesty lives in tier 1; this tier is the
@@ -25,12 +30,19 @@ const SEEP := 0.16  # per-second drain proportional to depth — bounds the film
 const PROBE_INTERVAL := 0.15
 const CURRENT_SCALE := 9.0  # net-flux -> m/s-ish push (mood physics)
 const CURRENT_MAX := 2.4
+const GEN_FLOW_NORM := 0.45  # no_sim rivers have no Hydrology discharge;
+	# their current pushes at this fixed fraction of CURRENT_MAX
+const WINDOW := 2048.0  # meters — the scrolling domain (2m texels)
+const RECENTER := 384.0  # re-anchor when the focus drifts this far
+const ANCHOR_SNAP := 16.0  # 8 texels — scroll offsets stay integral
 
 var enabled := false
+var _center := Vector2.INF  # window center; INF until the first anchor
 var _gpu: WaterGpu
 var _base_task := -1
 var _base_pending := false
 var _base_ready := false
+var _base_ready_once := false
 var _base_heights: PackedFloat32Array
 var _base_sinks: PackedFloat32Array
 var _lock := Mutex.new()
@@ -48,15 +60,42 @@ func _ready() -> void:
 		return
 	RenderingServer.global_shader_parameter_set("water_field_map", _gpu.display_texture)
 	RenderingServer.global_shader_parameter_set("water_base_map", _gpu.base_texture)
-	RenderingServer.global_shader_parameter_set("water_field_center", Hydrology.center)
-	RenderingServer.global_shader_parameter_set("water_field_size", Hydrology.domain)
-	# The base bake: 1M terrain samples + the sink mask, once, off-thread.
-	# The field sits still (no flow kernel needs it zeroed) until it lands.
-	_base_pending = true
-	_base_task = WorkerThreadPool.add_task(_bake_base)
+	RenderingServer.global_shader_parameter_set("water_field_size", WINDOW)
+	# The first anchor (and every base bake after a scroll) happens in
+	# _process once a focus exists.
+
+
+# The window follows whoever the world streams around (the water_bodies
+# focus rule): the god cam when flying, else the player.
+func _focus() -> Vector2:
+	if GodMode.active:
+		var p := GodMode.cam_position()
+		return Vector2(p.x, p.z)
+	var player := get_tree().get_first_node_in_group("player")
+	if player:
+		var p: Vector3 = player.global_position
+		return Vector2(p.x, p.z)
+	return _center if _center.is_finite() else Vector2.ZERO
 
 
 func _process(delta: float) -> void:
+	# Re-anchor when the focus drifts (never mid-bake: one base at a
+	# time, and a fast-traveling focus just re-anchors next frame).
+	if not _base_pending:
+		var focus := _focus()
+		if not _center.is_finite() or focus.distance_to(_center) > RECENTER:
+			var old := _center
+			_center = focus.snappedf(ANCHOR_SNAP)
+			if old.is_finite():
+				_gpu.scroll(Vector2i(
+					((_center - old) / (WINDOW / WaterGpu.GRID)).round()))
+			RenderingServer.global_shader_parameter_set(
+				"water_field_center", _center)
+			_lock.lock()
+			_base_ready = false
+			_lock.unlock()
+			_base_pending = true
+			_base_task = WorkerThreadPool.add_task(_bake_base)
 	if _base_pending:
 		_drain_base()
 		return
@@ -72,8 +111,7 @@ func _process(delta: float) -> void:
 		if player:
 			var p: Vector3 = player.global_position
 			_probe_pos = Vector2(p.x, p.z)
-			var uv := (_probe_pos - Hydrology.center) \
-				/ Hydrology.domain + Vector2(0.5, 0.5)
+			var uv := (_probe_pos - _center) / WINDOW + Vector2(0.5, 0.5)
 			_gpu.dispatch_probe(uv)
 			_probe_pending = true
 
@@ -101,8 +139,11 @@ func current_at(pos: Vector3) -> Vector2:
 	for r in Terrain.rivers:
 		var q := Terrain._river_probe(r, pos.x, pos.z)
 		if q.x < q.y:  # inside the ribbon
-			return Terrain.river_tangent(r, pos.x, pos.z) \
-				* (CURRENT_MAX * Hydrology.flow_norm(r.id))
+			# Generated rivers aren't Hydrology-routed (no discharge to
+			# read); they push at a fixed healthy-flow fraction.
+			var fn: float = GEN_FLOW_NORM if r.get("no_sim", false) \
+				else Hydrology.flow_norm(r.id)
+			return Terrain.river_tangent(r, pos.x, pos.z) * (CURRENT_MAX * fn)
 	return Vector2.ZERO
 
 
@@ -110,13 +151,14 @@ func current_at(pos: Vector3) -> Vector2:
 func summary() -> String:
 	if not enabled:
 		return "off (headless/no RenderingDevice)"
-	return "live 1024^2 over %.0fm  probe depth=%.3fm at (%.0f, %.0f)" % [
-		Hydrology.domain, _probe_out.x, _probe_pos.x, _probe_pos.y]
+	return "live 1024^2 window %.0fm at (%.0f, %.0f)%s  probe depth=%.3fm at (%.0f, %.0f)" % [
+		WINDOW, _center.x, _center.y, " (baking)" if _base_pending else "",
+		_probe_out.x, _probe_pos.x, _probe_pos.y]
 
 func _bake_base() -> void:
 	var g := WaterGpu.GRID
-	var step := Hydrology.domain / g
-	var origin := Hydrology.center - Vector2.ONE * (Hydrology.domain * 0.5)
+	var step := WINDOW / g
+	var origin := _center - Vector2.ONE * (WINDOW * 0.5)
 	# Bulk sampling through the native kernel when present — no
 	# per-sample GDScript on this worker (see Terrain.kernel).
 	var heights := Terrain.height_block(
@@ -142,5 +184,7 @@ func _drain_base() -> void:
 		WorkerThreadPool.wait_for_task_completion(_base_task)
 		_gpu.update_base(_base_heights, _base_sinks)
 		_base_pending = false
-		print("[water] tier-2 field live: %dx%d at %.1fm texels" % [
-			WaterGpu.GRID, WaterGpu.GRID, Hydrology.domain / WaterGpu.GRID])
+		if not _base_ready_once:
+			_base_ready_once = true
+			print("[water] tier-2 field live: %dx%d at %.1fm texels, window follows the focus" % [
+				WaterGpu.GRID, WaterGpu.GRID, WINDOW / WaterGpu.GRID])

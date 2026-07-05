@@ -129,10 +129,107 @@ All decided 2026-07-01 (first design day) unless noted.*
   bit-stable; a wave sim can't replay three closed weeks — the hourly
   tier can). "All out" means all-out simulation depth — conservation,
   routing, coupling, everywhere, always — not all-out texel count.
+- **Water's ceiling is the heightfield (2.5D), forever** *(2026-07-04)*.
+  Full volumetric fluid (FLIP / grid Navier-Stokes) is offline VFX: cost
+  scales with volume³, can't persist, can't catch up through
+  `advance_hours`, and no open world ships it. What makes water *read*
+  as water is surface displacement, not volume — so the missing piece is
+  **tier 2.5, the wave field**: a small (~512²) wave-equation grid
+  around the focus, disturbed by bodies, rain, wind, and tier-2 flow,
+  displacing the water meshes' vertices; Gerstner swell on large bodies;
+  buoyancy, wakes, splash particles. Presentation-only under the
+  existing contract (never saved, never fingerprinted, off headless).
+  The three authored/simulated tiers (hourly balance / watershed
+  dynamics / near window) stand unchanged beneath it. This closes the
+  "are we doing real fluid sim?" question: we already are, in the only
+  class of fluid sim a persistent world can honestly run.
+- **World scale: ~15–25km, density over size — a vertical archipelago**
+  *(2026-07-04; extends the quilt posture. An earlier 80–100km draft
+  from the same session is superseded — density won the argument)*.
+  The binding constraint is authoring hours, not coordinates or
+  compute; the shape that spends them correctly: **dense handcrafted
+  oases separated by deliberate emptiness, built VERTICALLY**.
+  SF-inspired steep terrain is the density mechanism — reveal-per-
+  minute via crests, stairs, and terraces rather than kilometers;
+  tiered hill cities whose districts are visible palette/kit terraces;
+  stairways and funicular/cable-lift as diegetic transit; fog as a
+  traveling front pouring over ridges (pairs with the glow-is-reserved
+  lighting law); ONE deliberate barren region carried by the ambient
+  sim (dunes, weather, wayfinding, sparse encounters — cheap per km²);
+  the existing sand-slide traversal makes steep slopes fun, not walls.
+  Corollaries now load-bearing, decide before growth: traversal speed
+  (mount / sand-sailing / caravan-riding as diegetic fast travel) and
+  the no-compass navigation system — at this scale wayfinding is a
+  core mechanic (real sun, stars, wind-oriented dunes, landmark
+  silhouettes; the systems already exist to support it). The far-
+  terrain quadtree over painted region heightmaps is the gating
+  engineering project before the world grows past the valley.
+- **Cities: hundreds of persistent individuals, tiered individuality**
+  *(2026-07-04)*. Skyrim's ~70-NPC ceiling was 2011 memory and draw
+  calls, not AI. Our AgentSim hourly tick makes thousands of simulated
+  agents nearly free; the true budgets are skinned rendering
+  (~100–150 embodied characters near the player in our flat-shaded
+  style; far crowd falls to MultiMesh imposters), animation variety,
+  and authoring. Target: **300–500 persistent named individuals per
+  major city** — every one with a home, job, schedule, and offscreen
+  continuity — structured as 10–15 *deep* NPCs per district (dialogue,
+  quests, opinions, hand-written) atop a population instantiated from
+  template records and hand-touched (sanctioned by the offline-
+  amplifier decision). Beats Skyrim on the axis staging can't reach:
+  everyone is somebody, all the time.
+- **The budget law: simulation is cheap, embodiment is the budget**
+  *(2026-07-04)*. On target hardware (M-series, unified memory) CPU
+  simulation depth and big GPU fields are the abundant resources;
+  skinned meshes, animation, and texel-dense rendering are the scarce
+  ones. So: spend sim depth freely, everywhere, always (it's also our
+  differentiator); spend embodiment only where the player is. Every
+  system inherits the water/sand shape — canonical coarse everywhere,
+  vivid near the focus. When triaging, a proposal that adds simulation
+  costs almost nothing and should be judged on player-perceivability
+  (F1.5); a proposal that adds embodied density is a real spend and
+  must name its budget.
+- **Next sim spine: the water economy + caravans** *(2026-07-04)*.
+  The physical world is simulated; the multiplier layer is *human*
+  dependence on it. Settlements exist at water (springs/wells/cisterns
+  fed by Hydrology's real balance — "why this spot" answered by the
+  sim); **caravans** are tier-3 data agents on the waypoint graph
+  physically carrying goods and rumors between settlements at walking
+  speed. Scarcity, prices, and news propagate through space; a drought
+  in one basin is felt two oases away before anyone arrives to say so.
+  Rides on: waypoint graph (SIM_ROADMAP P2), NPC stocks (long memory,
+  built), rumors (built), Hydrology (built). Outranks further ecology
+  rungs in build order.
+- **Gameplay loops: posture, not decision — decide after the caravan
+  and navigation layers exist** *(2026-07-04)*. The sim-first bet earns
+  deciding late. Candidates on the table, to be playtested against the
+  live world rather than argued in the abstract: **the connective-
+  tissue loop** (traveler/guide/courier between isolated places, in a
+  world where information is simulated and distance is respected — the
+  novel one; no big game has done it honestly because none simulates
+  information or respects distance), knowledge-as-progression
+  (wayfinding, star lore, water lore; the map you draw is the character
+  sheet), the field-recordist mechanic (IDEAS ★, still leaning yes),
+  stewardship (tending wells/shrines/plantings the sim persists), and
+  sparse guardian encounters as punctuation. Combat stays deliberate
+  and rare regardless. Checkpoint: when caravans walk and no-compass
+  navigation works, play for a week and let the loop that pulls win.
 
 ## Open (deliberately undecided)
 
 - World-axioms, the glow's name, the Wanderer's identity, journey premise
+- **Per-cell persistence schema** (2026-07-04 proposal on the table:
+  cells as sparse overlays — save only diffs from the authored+simulated
+  baseline, with sim-owned decay: footprints in hours, a felled tree in
+  seasons, a burned house repaired by an AgentSim job rather than
+  remembered forever. To settle: what does the world remember forever,
+  and who repairs the rest? Gates dense settlements; decide before the
+  village.)
+- **The 1:1 clock's consequence** (a 7–9pm player sees only 7–9pm
+  forever — most painted palettes go unseen. Options: pure 1:1;
+  anchored-but-compressed (game day ≈ 4 real hours); or 1:1 with
+  diegetic time travel — sleeping/Stillness choosing when to wake.
+  Third is the leaning favorite but changes `advance_hours` semantics
+  from "catch up" to "player-directed", so it's upstream of code.)
 - Field-recordist player character (signature-mechanic candidate — leaning yes)
 - No-compass/no-markers Morrowind navigation (decide before quest content)
 - Fast travel: diegetic-or-none (decide with world size)

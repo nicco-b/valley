@@ -9,6 +9,12 @@ extends Node
 
 const PATH := "user://save.json"
 const AUTOSAVE_SECONDS := 30.0
+# Keep two generations behind the live file, refreshed at most every
+# BACKUP_MINUTES so the 30s autosave can't churn both backups into
+# copies of the same bad minute.
+const BACKUP_MINUTES := 10.0
+
+var _last_backup_unix := 0.0
 
 var _accum := 0.0
 
@@ -44,17 +50,52 @@ func save_game() -> void:
 		"wear": InteractionField.wear_snapshot(),  # desire paths, world-anchored
 		"cells": {},  # future: per-cell world-state mutations
 	}
-	var file := FileAccess.open(PATH, FileAccess.WRITE)
+	# Atomic write: never truncate the only copy of months of world
+	# time. Write beside, fsync, then rename over — a crash mid-write
+	# leaves the previous save intact.
+	var tmp := PATH + ".tmp"
+	var file := FileAccess.open(tmp, FileAccess.WRITE)
+	if file == null:
+		push_warning("[save] cannot open %s for writing" % tmp)
+		return
 	file.store_string(JSON.stringify(data, "\t"))
+	file.flush()
+	file.close()
+	_rotate_backups()
+	var err := DirAccess.rename_absolute(tmp, PATH)
+	if err != OK:
+		push_warning("[save] atomic rename failed (%d)" % err)
+
+
+
+func _rotate_backups() -> void:
+	if not FileAccess.file_exists(PATH):
+		return
+	var now := Time.get_unix_time_from_system()
+	if now - _last_backup_unix < BACKUP_MINUTES * 60.0:
+		return
+	_last_backup_unix = now
+	if FileAccess.file_exists(PATH + ".bak1"):
+		DirAccess.copy_absolute(PATH + ".bak1", PATH + ".bak2")
+	DirAccess.copy_absolute(PATH, PATH + ".bak1")
 
 
 ## Called (deferred) by the player when the world scene starts.
 func load_into_world() -> void:
 	await get_tree().process_frame
-	if not FileAccess.file_exists(PATH):
-		return
-	var data = JSON.parse_string(FileAccess.get_file_as_string(PATH))
-	if data == null or data.get("version") != 1:
+	var data = null
+	# Live file first, then the rotated backups — a torn or corrupt
+	# save falls back to a slightly older world, never to nothing.
+	for candidate in [PATH, PATH + ".bak1", PATH + ".bak2"]:
+		if not FileAccess.file_exists(candidate):
+			continue
+		data = JSON.parse_string(FileAccess.get_file_as_string(candidate))
+		if data != null and data.get("version") == 1:
+			if candidate != PATH:
+				push_warning("[save] live save unreadable — restored %s" % candidate)
+			break
+		data = null
+	if data == null:
 		return
 	GameClock.hours = data.hours
 	GameClock.day = int(data.get("day", 0))

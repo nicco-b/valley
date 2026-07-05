@@ -80,6 +80,13 @@ Content is data: NPCs, items, placements in `data/` as JSON, loaded through
 - Every placeholder is labeled placeholder with its replacement path.
 - Simulation code must ship with observability (the god-mode inspector
   pattern) — see FOUNDATIONS F1.5 rules.
+- **GDExtension policy (2026-07-04):** GDScript until profiled, then
+  port the hot inner loop behind the same interface. Known hot-loop-
+  shaped candidates: `Terrain.height()` bulk samplers, hydrology
+  routing, CPU sand reference, agent catch-up replay at city scale.
+  Physics needs nothing (Jolt is already C++). If/when the double-
+  precision Godot build lands, every GDExtension must be compiled
+  `precision=double` to match or it will corrupt Variants silently.
 - **The sim contract (time is 1:1; DECISIONS 2026-07-02):** every
   simulation is either (a) a stateless function of real time (seasons,
   sun, moon) or (b) stateful and advanced by `hour_tick` /

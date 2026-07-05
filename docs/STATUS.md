@@ -117,11 +117,23 @@ glb export. Two creatures built: the biped fox (**now the player body**,
 from her painting) and the star hound (fully animated, currently unplaced).
 NPCs (Wanderer, Keeper) still ride the CC0 robot placeholder.
 
-**Shell/tools** — title screen, pause/settings, autosave; god mode (F1:
+**Shell/tools** — title screen, pause/settings, autosave (**hardened
+2026-07-04:** atomic write via tmp+rename, rotating `.bak1`/`.bak2`
+refreshed ≤ every 10 min, load falls back live → bak1 → bak2 with a
+warning — a torn save costs minutes, never the world); god mode (F1:
 fly/sculpt/place/inspect); live map (M, gestures); hot-reload of paintings;
-place mode writing cell records; gamepad support; CI on GitHub; test
+place mode writing cell records; gamepad support; physics interpolation
+on (Jolt ticks 60Hz, ProMotion displays 120 — no micro-judder); CI on
+GitHub (Linux + **macOS-14/Apple Silicon** — the shipping platform;
+note test.sh is headless, so Metal compute kernels still only run under
+a local windowed session); test
 harness (unit + scene + dual smoke). The home valley has hand-composed
 places (pond oasis + surrounds) authored via place mode — cells in data/cells/.
+**Pending, needs both machines:** Git LFS adoption — `.gitattributes`
+patterns are written (in the 2026-07-04 handoff patch) but NOT committed
+because git-lfs isn't installed here yet; install on both machines, then
+commit the attributes and (optionally, history rewrite — coordinate!)
+`git lfs migrate`.
 
 ## Placeholder ledger (each has a named replacement path)
 

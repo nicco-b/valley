@@ -326,6 +326,19 @@ treatment:*
   becomes cavern rain a week later). The glow-reserved lighting law
   stops constraining and becomes the ecosystem down there; darkness +
   fog replace far-terrain and sky — the cheapest vista in the game.
+- ★ **1:1 presents underground — skylights (Nicco, 2026-07-04):** the
+  underworld runs on the same clock as everywhere (there is only one
+  clock; that is the whole point) and the surface's hour REACHES DOWN
+  through authored apertures. Sun shafts at the real solar angle crawl
+  across cavern floors like cathedral clocks (solar_hours() already
+  knows the truth); a solstice chamber whose far wall lights up once a
+  real year, plannable like an eclipse — the 1:1 thesis at its most
+  extreme; moon pools that only fill with light on real full-moon
+  nights (sky.moon_phase is already real); storms fall in as columns
+  of rain through the roof, then days of drips (the seepage lag). In a
+  compass-less dark, a distant light shaft is both the time and the
+  way out — beams are the underworld's landmarks, and the glow-reserved
+  law is untouched: this isn't glow, it's the sun, visiting.
 - **Entrances are authored set pieces** (cave mouths in cliff kit,
   sinkholes in the barren, a ravine that becomes a throat), both layers
   streamed briefly around the mouth. Sinkholes scattered in the barren

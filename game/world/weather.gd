@@ -22,12 +22,39 @@ const SEASON_STORM_BIAS := {"winter": 1.6, "autumn": 1.25, "spring": 1.0, "summe
 var state := "calm"
 var wind: float = WIND_LEVELS.calm
 var storminess := 0.0
+# Fog (the Elements, 2026-07-05): a STATELESS function of the sim —
+# dew fog condenses on cold, wet, calm nights (Climate knows both),
+# peaks before sunrise, and the real sun burns it off through the
+# morning; storms carry their own murk. Sim-contract type (a):
+# nothing saved, nothing to catch up, deterministic.
+# Toolkit knob: fog_override >= 0 forces the amount (dev only).
+var fog_override := -1.0
 ## Where the wind blows FROM->TO on the xz plane. Wanders a little each
 ## hour, swings harder in storms; sand ripples, dust, and (later) seed
 ## drift and audio panning all read it.
 var wind_dir := Vector2(1.0, 0.35).normalized()
 
 var _wind_angle := atan2(0.35, 1.0)
+
+
+## Ground fog right now, 0..1. Dew term: wet air, cold morning, still
+## wind. Solar gate: builds after ~1am, peaks ~5:30, burned off by
+## ~10:30 — a February player gets fog seasons July never sees.
+func fog_amount() -> float:
+	if fog_override >= 0.0:
+		return clampf(fog_override, 0.0, 1.0)
+	var dew := clampf(Climate.wetness * 1.35
+		- maxf(Climate.temperature(Climate.REFERENCE.x, Climate.REFERENCE.y), 0.0) * 0.05
+		- wind * 0.9, 0.0, 1.0)
+	var gate := 1.0 - smoothstep(1.5, 5.0, absf(GameClock.solar_hours() - 5.5))
+	return maxf(dew * gate, storminess * 0.35)
+
+
+## Toolkit: the air, one line.
+func summary() -> String:
+	return "%s  wind=%.2f dir=(%.2f, %.2f)  storminess=%.2f  fog=%.2f%s" % [
+		state, wind, wind_dir.x, wind_dir.y, storminess, fog_amount(),
+		"" if fog_override < 0.0 else " (OVERRIDE)"]
 
 
 func _ready() -> void:

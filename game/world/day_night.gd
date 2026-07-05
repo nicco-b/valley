@@ -53,7 +53,29 @@ func _process(_delta: float) -> void:
 	mat.set_shader_parameter("sun_size", 0.035 + 0.05 * (1.0 - clampf(absf(elevation) * 3.0, 0.0, 1.0)))
 	mat.set_shader_parameter("night", clampf(-elevation * 4.0, 0.0, 1.0))
 	mat.set_shader_parameter("moon_light", GameClock.moon_light())
-	# Storms thicken the air and dust the horizon color.
+	# The air (the Elements, height-fog pass 2026-07-05). Three layers:
+	#  - clear-air distance haze: THIN, so landmarks read at 3km (the
+	#    landmark law); storms still shroud everything.
+	#  - height fog: the murk lives LOW — dew fog floods the sea, the
+	#    strand, and the valley floor, and the mesa tops float clear
+	#    above it (fog front + landmark law stop fighting).
+	#  - volumetric banks near the player (Atmosphere drifts one along
+	#    the wind) so morning fog is something you wade through, not a
+	#    uniform tint.
 	var env := world_environment.environment
-	env.fog_light_color = horizon.lerp(Color(0.8, 0.7, 0.58), Weather.storminess * 0.6)
-	env.fog_density = lerpf(0.0008, 0.0045, Weather.storminess)
+	var fog := Weather.fog_amount()
+	env.fog_light_color = horizon.lerp(Color(0.8, 0.7, 0.58), Weather.storminess * 0.6) \
+		.lerp(Color(0.92, 0.88, 0.86), fog * 0.5)
+	env.fog_density = lerpf(0.00022, 0.0045, Weather.storminess)
+	env.fog_sky_affect = 0.3 + 0.5 * Weather.storminess  # sky survives dew fog
+	env.fog_height = 8.0 + 18.0 * fog
+	# Per-meter extinction INSIDE the layer: ~100m visibility at full
+	# dew fog — wadeable murk, not a whiteout.
+	env.fog_height_density = 0.004 + 0.03 * fog + 0.012 * Weather.storminess
+	env.volumetric_fog_enabled = fog > 0.03
+	# Subtle: the height fog carries the distance; volumetric only
+	# textures the near murk (0.02+/m here whites out everything past
+	# its 320m window — the invisible-mesa bug of the first fog pass).
+	env.volumetric_fog_density = 0.001 + 0.006 * fog
+	env.volumetric_fog_albedo = env.fog_light_color
+	env.volumetric_fog_length = 320.0

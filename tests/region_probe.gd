@@ -20,6 +20,9 @@ const SHOTS := {
 	"mesa": {  # close portrait: does the tiered flank read?
 		"focus": Vector3(1150, 0, -2650),
 		"cam": Vector3(1150, 25.0, -2680), "aim": Vector3(1200, 120, -3000)},
+	"summit": {  # from the mesa top: above the dew fog, valley across the sea
+		"focus": Vector3(1200, 0, -3000),
+		"cam": Vector3(1200, 30.0, -2960), "aim": Vector3(300, 30, -600)},
 	"aerial": {  # overview of the island layout, high and steep
 		"focus": Vector3(400, 3000, -1500),
 		"cam": Vector3(400, 2800, -1500), "aim": Vector3(1200, 0, -3000),
@@ -57,11 +60,15 @@ func _process(_d: float) -> void:
 		GameClock.time_scale = 0.0
 		Weather.state = "calm"
 		print(Terrain.regions_summary())
-		# Clear air for silhouette calibration: even calm fog (0.0008)
-		# is ~91% extinction at 3km — a real landmark-law question, but
-		# these shots need to see the shapes.
-		var we: WorldEnvironment = _w.find_children("*", "WorldEnvironment", true, false)[0]
-		we.environment.fog_enabled = false
+		if OS.get_environment("FOG") != "":
+			# Fog framing: force a thick dew morning instead.
+			Weather.fog_override = 0.85
+		else:
+			# Clear air for silhouette calibration: even calm fog
+			# (0.0008) is ~91% extinction at 3km — a real landmark-law
+			# question, but these shots need to see the shapes.
+			var we: WorldEnvironment = _w.find_children("*", "WorldEnvironment", true, false)[0]
+			we.environment.fog_enabled = false
 		var pl := get_tree().get_first_node_in_group("player")
 		if pl:
 			var f: Vector3 = s.focus

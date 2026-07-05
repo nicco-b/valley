@@ -21,6 +21,13 @@ const SIT_EASE := 3.0
 const CURRENT_PUSH := 10.0
 
 var _sitting := false
+# Underwater swim state (2026-07-04 water review, step 1). PROVISIONAL
+# binding: dive = Ctrl / gamepad B (kitchen-table review pending). No
+# drowning by decision-in-waiting; the surfacing-instinct hook can bolt
+# onto _submerged later.
+var _submerged := false
+var _uw_rect: ColorRect
+var _uw_lowpass := -1
 var _target: Interactable = null
 var _step_accum := 0.0
 var _step_left := false
@@ -225,6 +232,41 @@ func _unhandled_input(event: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+## Underwater read: deep-pink veil + muffled world while the CAMERA is
+## under the live surface (placeholder for the real post shader + fog
+## swap — replacement path: WorldEnvironment underwater profile in
+## day_night.gd once its palette hooks exist).
+func _ensure_underwater_fx() -> void:
+	if _uw_rect != null:
+		return
+	var layer := CanvasLayer.new()
+	layer.layer = 50
+	_uw_rect = ColorRect.new()
+	_uw_rect.color = Color(0.82, 0.45, 0.52, 0.32)
+	_uw_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_uw_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_uw_rect.visible = false
+	layer.add_child(_uw_rect)
+	add_child(layer)
+	var lp := AudioEffectLowPassFilter.new()
+	lp.cutoff_hz = 900.0
+	_uw_lowpass = AudioServer.get_bus_effect_count(0)
+	AudioServer.add_bus_effect(0, lp)
+	AudioServer.set_bus_effect_enabled(0, _uw_lowpass, false)
+
+
+func _update_underwater_fx() -> void:
+	_ensure_underwater_fx()
+	var cam: Camera3D = get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var cp := cam.global_position
+	var under := cp.y < Terrain.water_surface(cp.x, cp.z)
+	if under != _uw_rect.visible:
+		_uw_rect.visible = under
+		AudioServer.set_bus_effect_enabled(0, _uw_lowpass, under)
+
+
 func _physics_process(delta: float) -> void:
 	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 
@@ -245,11 +287,29 @@ func _physics_process(delta: float) -> void:
 		water_depth = wsurf - Terrain.height(global_position.x, global_position.z)
 		swimming = water_depth > 1.1 and global_position.y < wsurf + 0.2
 
+	if not swimming:
+		_submerged = false
 	if swimming:
 		_sitting = false
-		# Hold the origin ~0.8 under the surface: chest-deep for the
-		# 1.5m biped fox, head and ears clear of the water.
-		velocity.y = (wsurf - 0.8 - global_position.y) * 3.0
+		if Input.is_action_pressed("dive") and water_depth > 1.6:
+			_submerged = true
+		if _submerged:
+			# Underwater: hold dive to sink, jump to rise, gentle buoyant
+			# drift otherwise; breach the surface band and you're back on top.
+			var vy := 0.35
+			if Input.is_action_pressed("dive"):
+				vy = -2.2
+			elif Input.is_action_pressed("jump"):
+				vy = 2.6
+			velocity.y = lerpf(velocity.y, vy, 1.0 - exp(-6.0 * delta))
+			if global_position.y > wsurf - 0.9 and not Input.is_action_pressed("dive"):
+				_submerged = false
+			if is_on_floor() and water_depth < 1.3:
+				_submerged = false
+		else:
+			# Surface: hold the origin ~0.8 under — chest-deep for the
+			# 1.5m biped fox, head and ears clear of the water.
+			velocity.y = (wsurf - 0.8 - global_position.y) * 3.0
 		if not WorldState.has_flag("player.swam"):
 			WorldState.set_flag("player.swam")
 	elif not is_on_floor():
@@ -308,6 +368,7 @@ func _physics_process(delta: float) -> void:
 				velocity.x = flat_v.x
 				velocity.z = flat_v.y
 
+	_update_underwater_fx()
 	move_and_slide()
 
 	# The granular sim: moving feet shovel sand along the velocity;

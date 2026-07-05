@@ -245,11 +245,21 @@ survives fog weather) + HEIGHT fog that floods sea/strand/valley
 floor while mesa tops float clear + a wind-drifted FogVolume noise
 bank you wade through (pools BELOW you on a summit). Toolkit:
 `Weather.summary()`, `fog_override` knob; probe `FOG=1
-REGION_SHOT=rim|summit`. Phase B (weather fronts arriving from
-windward across the sea, per-region weather) and C (rain curtains,
-lightning) are designed and queued — B touches the sim contract/soak.
-Kitchen-table item: keeping volumetric fog gouache (posterized banks)
-is a look decision for her.
+REGION_SHOT=rim|summit`. **Phase B (same day): weather as FRONTS** —
+systems are bands with positions spawning windward of the 13km world
+circle, traveling at 2.2–4m/s along the wind they were born with,
+expiring leeward; local weather = youngest band over the point (800m
+soft leading edge), calm between bands. `.state/.wind/.storminess`
+are now AT-THE-FOCUS values (all consumers unchanged); spatial sims
+read `state_at()`: Climate wets the valley and Hydrology rains into
+the watershed only when a band is over THEM. Sim contract type (b):
+hour_tick + "weather" Rng stream + `weather.fronts` in WorldState +
+catch-up; soak fingerprint moved once (3242764635), bit-stable.
+Toolkit: `force_kind()` (Y key + all probes/tests use it — writing
+`.state` no longer reaches spatial consumers), `summary()` lists all
+fronts. Phase C queued: rain curtains under distant storm bands,
+lightning over open water. Kitchen-table item: keeping volumetric fog
+gouache (posterized banks) is a look decision for her.
 
 ## Placeholder ledger (each has a named replacement path)
 

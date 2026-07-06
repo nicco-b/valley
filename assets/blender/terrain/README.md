@@ -51,6 +51,23 @@ time with step 1. Commit what the export writes: the guide EXR and
 - New kit ids: add the scene to `game/world/kit.gd` ENTRIES and a
   proxy shape to `KIT_PROXY` in `valley_terrain.py`.
 
+## Two session types
+
+- **Sculpt session** (default import): the terrain is the *guide* —
+  edit the landform, export writes the guide EXR + placements, then
+  rebake.
+- **Set-dress session** (`-- import --baked`): the terrain is the
+  TRUE in-game surface (the bake cache, post relief + erosion, 8 m/px)
+  so placements stand on exactly the ground they'll get. Export from
+  this scene writes **placements only** — the baked surface is output,
+  and writing it back as the guide would erode it twice. Don't sculpt
+  here; landform edits belong in a sculpt session. Needs the local
+  bake cache (run `tests/bake_world.gd` once if missing).
+
+Either way placements export with `snap: true`, so their height
+self-seats on the real terrain in-game — plan position and yaw are
+what you're authoring.
+
 ## "It looks low-res"
 
 It's showing you the **guide** — the 16 m/pixel landform layer. The

@@ -138,7 +138,8 @@ def _upsample_bilinear(a: "np.ndarray", out: int) -> "np.ndarray":
 	return cols.astype(np.float32)
 
 
-def import_world(save_blend: bool = True, res_override: int = 0) -> None:
+def import_world(save_blend: bool = True, res_override: int = 0,
+		source: str = "guide") -> None:
 	root = repo_root()
 	meta = load_meta(root)
 	gmin = float(meta.get("guide_min", -60.0))
@@ -148,13 +149,27 @@ def import_world(save_blend: bool = True, res_override: int = 0) -> None:
 	ox = float(meta["origin"]["x"])
 	oz = float(meta["origin"]["z"])
 
-	norm, res = read_exr_pixels(os.path.join(root, "data", "world", "elevation_guide.exr"))
-	meters = gmin + np.power(np.clip(norm, 0.0, 1.0), inv_gamma) * gspan
+	if source == "baked":
+		# Set-dressing mode: the TRUE in-game terrain (post relief +
+		# erosion, raw meters), so placements stand on the ground they
+		# will actually get. Local bake cache — run tests/bake_world.gd
+		# if it's missing. Export from this scene writes PLACEMENTS
+		# ONLY (writing eroded output back as the guide would erode it
+		# twice on the next bake).
+		baked_path = os.path.join(root, "data", "terrain", "tiles", "baked_world.exr")
+		if not os.path.exists(baked_path):
+			raise RuntimeError("no bake cache — run: godot --headless --path . "
+					"-s res://tests/bake_world.gd")
+		meters, res = read_exr_pixels(baked_path)
+	else:
+		norm, res = read_exr_pixels(os.path.join(root, "data", "world", "elevation_guide.exr"))
+		meters = gmin + np.power(np.clip(norm, 0.0, 1.0), inv_gamma) * gspan
 	# Optional denser sculpt grid (-- import --res 2048): bilinear
 	# upsample — no new information, but finer brush control; export
 	# writes the guide back at whatever res the mesh carries (the bake
-	# reads any width). Note the mesh shows the GUIDE: the game's
-	# fractal relief + erosion detail is baked on top after export.
+	# reads any width). Note the guide mesh shows the LANDFORM: the
+	# game's fractal relief + erosion detail is baked on top after
+	# export (use --baked to see it).
 	if res_override and res_override != res:
 		meters = _upsample_bilinear(meters, res_override)
 		res = res_override
@@ -221,7 +236,8 @@ def import_world(save_blend: bool = True, res_override: int = 0) -> None:
 	scene = bpy.context.scene
 	scene["valley_repo"] = root
 	scene["valley_meta"] = json.dumps(meta)
-	print("valley import: %d^2 terrain, %d placements" % (res, count))
+	scene["valley_source"] = source
+	print("valley import (%s): %d^2 terrain, %d placements" % (source, res, count))
 	if save_blend:
 		path = os.path.join(root, "assets", "blender", "terrain", "valley_map.blend")
 		bpy.ops.wm.save_as_mainfile(filepath=path)
@@ -243,32 +259,39 @@ def export_world(guide_out: str = "", cells_out: str = "") -> dict:
 		raise RuntimeError("no %s object in this scene" % TERRAIN_NAME)
 	res = int(round(math.sqrt(len(obj.data.vertices))))
 	step = world / res
+	from_baked = bpy.context.scene.get("valley_source", "guide") == "baked"
 
-	# Start from the vertices by index (exact where sculpting only moved
-	# heights), then overlay top-down ray samples at the guide grid —
-	# those win wherever they connect, making the export robust to
-	# grab/relax strokes that slide vertices sideways and flattening
-	# accidental overhangs (the heightfield law, applied here). Rays
-	# that graze the mesh boundary miss by epsilon; the index heights
-	# already cover them.
-	co = np.empty(res * res * 3, dtype=np.float32)
-	obj.data.vertices.foreach_get("co", co)
-	meters = (co.reshape(res, res, 3)[:, :, 2] / SCALE).astype(np.float32)
-	depsgraph = bpy.context.evaluated_depsgraph_get()
-	bvh = BVHTree.FromObject(obj, depsgraph)
-	for pz in range(res):
-		y = -(oz + pz * step) * SCALE
-		row = meters[pz]
-		for px_i in range(res):
-			x = (ox + px_i * step) * SCALE
-			hit = bvh.ray_cast((x, y, 1e5), (0, 0, -1))
-			if hit[0] is not None:
-				row[px_i] = hit[0].z / SCALE
-	norm = np.power(np.clip((meters - gmin) / gspan, 0.0, 1.0), gamma)
+	if from_baked:
+		# Set-dressing scene: the terrain is the bake's OUTPUT — never
+		# write it back as the guide (it would erode twice). Placements
+		# only; sculpt sessions use the guide import.
+		print("valley export: baked-terrain scene — placements only, guide untouched")
+	else:
+		# Start from the vertices by index (exact where sculpting only
+		# moved heights), then overlay top-down ray samples at the guide
+		# grid — those win wherever they connect, making the export
+		# robust to grab/relax strokes that slide vertices sideways and
+		# flattening accidental overhangs (the heightfield law, applied
+		# here). Rays that graze the mesh boundary miss by epsilon; the
+		# index heights already cover them.
+		co = np.empty(res * res * 3, dtype=np.float32)
+		obj.data.vertices.foreach_get("co", co)
+		meters = (co.reshape(res, res, 3)[:, :, 2] / SCALE).astype(np.float32)
+		depsgraph = bpy.context.evaluated_depsgraph_get()
+		bvh = BVHTree.FromObject(obj, depsgraph)
+		for pz in range(res):
+			y = -(oz + pz * step) * SCALE
+			row = meters[pz]
+			for px_i in range(res):
+				x = (ox + px_i * step) * SCALE
+				hit = bvh.ray_cast((x, y, 1e5), (0, 0, -1))
+				if hit[0] is not None:
+					row[px_i] = hit[0].z / SCALE
+		norm = np.power(np.clip((meters - gmin) / gspan, 0.0, 1.0), gamma)
 
-	guide_path = guide_out or os.path.join(root, "data", "world", "elevation_guide.exr")
-	write_exr(guide_path, norm.astype(np.float32))
-	print("valley export: guide ->", guide_path)
+		guide_path = guide_out or os.path.join(root, "data", "world", "elevation_guide.exr")
+		write_exr(guide_path, norm.astype(np.float32))
+		print("valley export: guide ->", guide_path)
 
 	# Placements: everything in the Placements collection, grouped into
 	# the game's cell files. Cells emptied in Blender are NOT deleted on
@@ -351,7 +374,8 @@ def _main() -> None:
 	mode = argv[0] if argv else ("export" if bpy.data.objects.get(TERRAIN_NAME) else "import")
 	res_override = int(argv[argv.index("--res") + 1]) if "--res" in argv else 0
 	if mode == "import":
-		import_world(res_override=res_override)
+		import_world(res_override=res_override,
+				source="baked" if "--baked" in argv else "guide")
 	elif mode == "export":
 		export_world()
 	elif mode == "test":

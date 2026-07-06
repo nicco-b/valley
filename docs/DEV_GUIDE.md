@@ -28,7 +28,7 @@ and [FOUNDATIONS.md](FOUNDATIONS.md) (build plan).*
 | | | | N | toggle navmesh overlay |
 | | | | O | world panel (every system + HERE: t/humidity/wetness/vitality under the camera) |
 | F / R | deploy / recall fireflies | | LMB | place object |
-| Esc | pause (or close map/talk) | | Z | undo last placement |
+| Esc | menu — world keeps running (or close map/talk) | | Z | undo last placement |
 | **T** | *debug:* → next sunrise/noon/sunset/midnight | | F5 | save terrain edits |
 | **Ctrl+T / Ctrl+Shift+T** | *debug:* +1 hour / +15 min | | | |
 | **Shift+T / Alt+T** | *debug:* +1 day / +1 week | | | |

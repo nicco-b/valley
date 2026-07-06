@@ -1,8 +1,10 @@
 extends CanvasLayer
-## The Campfire (shell UI): pause menu (autoload). Esc/Start pauses the
-## world (tree pause); panel offers resume, settings, save & quit. Esc in
-## the map closes the map; god mode keeps its own Esc behavior. Wears
-## UITheme; Resume grabs focus on open so the gamepad can walk the menu.
+## The Campfire (shell UI): the menu (autoload). Esc/Start opens it; the
+## WORLD KEEPS RUNNING underneath (no tree pause — a 1:1 world doesn't
+## stop for a menu; only the player's body freezes, like the map). Panel
+## offers resume, settings, save & quit. Esc in the map closes the map;
+## god mode keeps its own Esc behavior. Wears UITheme; Resume grabs
+## focus on open so the gamepad can walk the menu.
 
 var paused := false
 
@@ -39,9 +41,14 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func toggle() -> void:
 	paused = not paused
-	get_tree().paused = paused
 	visible = paused
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if paused else Input.MOUSE_MODE_CAPTURED
+	# The world lives on; only the player's body holds still under the
+	# menu (same treatment the map gives it).
+	var player := get_tree().get_first_node_in_group("player")
+	if player:
+		player.set_physics_process(not paused)
+		player.set_process_unhandled_input(not paused)
 	if paused:
 		_resume.grab_focus.call_deferred()
 

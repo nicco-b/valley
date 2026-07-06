@@ -94,6 +94,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if not active:
 		return
+	# The open map owns the mouse (RMB teleport, drag pan): without this
+	# guard the recapture branch below eats the first click and pins the
+	# cursor, killing the map's right-click teleport.
+	if MapScreen.active:
+		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_yaw -= event.relative.x * MOUSE_SENSITIVITY
 		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, -1.55, 1.55)

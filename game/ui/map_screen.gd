@@ -79,6 +79,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				GodMode.move_to(Vector2(hit.x, hit.z))
 				_focus = Vector3(hit.x, 0.0, hit.z)
 				HUD.notify("god cam moved")
+			get_viewport().set_input_as_handled()
 			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			_ortho = clampf(_ortho * 0.85, ZOOM_MIN, ZOOM_MAX)

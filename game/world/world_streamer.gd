@@ -306,6 +306,16 @@ func _res_for(c: Vector2i, center: Vector2i) -> int:
 	return NEAR_RES if _chebyshev(c - center) <= NEAR_RING else TERRAIN_RES
 
 
+# Finishing a cell on the main thread costs real milliseconds (scatter
+# nodes, cover MultiMesh upload, the physics body entering the space —
+# Jolt builds its BVH there, not when the Shape3D was made — and the
+# nav region add). A fast god-cam flight completes cells in BURSTS, and
+# finishing a burst in one frame was the flight stutter (2026-07-05).
+# So: drain into a queue, spend at most FINISH_BUDGET_MS per frame.
+const FINISH_BUDGET_MS := 4.0
+var _finish_queue: Array = []
+
+
 func _drain_terrain_results() -> void:
 	_results_mutex.lock()
 	var results := _terrain_results.duplicate()
@@ -316,6 +326,11 @@ func _drain_terrain_results() -> void:
 		if _terrain_pending.has(c):
 			WorkerThreadPool.wait_for_task_completion(_terrain_pending[c])
 			_terrain_pending.erase(c)
+		_finish_queue.append(r)
+	var t0 := Time.get_ticks_usec()
+	while not _finish_queue.is_empty():
+		var r: Array = _finish_queue.pop_front()
+		var c: Vector2i = r[0]
 		if _terrain.has(c):
 			if not _stale.has(c):
 				continue  # raced a normal load; the live cell wins
@@ -327,6 +342,9 @@ func _drain_terrain_results() -> void:
 		if _chebyshev(c - _player_cell()) > load_radius + 1:
 			continue  # streamed past it while building; let it lapse
 		_finish_terrain(c, r[1], r[2], r[3], r[4])
+		# Always land at least one; stop when the frame's budget is spent.
+		if (Time.get_ticks_usec() - t0) / 1000.0 > FINISH_BUDGET_MS:
+			break
 
 
 func _add_terrain_sync(c: Vector2i) -> void:

@@ -639,14 +639,14 @@ func _test_long_memory() -> void:
 	var npc_script := load("res://game/npc/npc.gd")
 	var n: CharacterBody3D = npc_script.new()
 	n.npc_id = "test_worker"
-	n.needs = {"purpose": 50.0}
-	n.current = {"id": "tend", "satisfies": "purpose", "rate": 8.0,
+	n.sim.needs = {"purpose": 50.0}
+	n.sim.current = {"id": "tend", "satisfies": "purpose", "rate": 8.0,
 		"produces": {"offerings": 0.25}}
-	n._satisfy(2.0)  # two hours at the shrine
+	n.sim.satisfy(2.0)  # two hours at the shrine
 	n._save_state()
 	var stock: float = float(WorldState.get_value("npc.test_worker.stock.offerings", 0.0))
 	_check(absf(stock - 0.5) < 0.01, "work accrues stock at the record's rate")
-	n._satisfy(1.0)
+	n.sim.satisfy(1.0)
 	n._save_state()
 	_check(float(WorldState.get_value("npc.test_worker.stock.offerings", 0.0)) > stock,
 		"stock accumulates across flushes")

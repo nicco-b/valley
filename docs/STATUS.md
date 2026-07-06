@@ -502,8 +502,16 @@ picker).
    graph derived — consecutive nodes edge, coincident nodes junction;
    A* route(); Nav.path()'s far tier now follows the road instead of
    one blind line; first authored road runs spawn → pond → shrine, a
-   disposable fixture for the 12km map) · ⏳ remaining: NPC AgentSim
-   port (with the village) — caravans unblocked next. **Phase B started:** ✅ snow (cover state +
+   disposable fixture for the 12km map) · ✅ NPC AgentSim port
+   (2026-07-05: the NPC mind — needs/utility/advance — moved into the
+   shared AgentSim core wildlife already runs; the node keeps physics,
+   animation, dialogue, rumors, and the pantry flush; `needs` is a
+   shared reference to sim.needs so the soak and inspector read
+   unchanged; AgentSim grew a per-agent drain_scale [NPCs 6.0,
+   wildlife 5.0]. Soak fingerprint BIT-IDENTICAL through the port —
+   1333567381 before and after, the A2 wildlife standard held).
+   **Phase A COMPLETE — caravan embodiment and the village unblocked.**
+   **Phase B started:** ✅ snow (cover state +
    emergent snowline from the lapse rate, meltwater soaks the ground) ·
    ✅ wind direction (wanders hourly, swings in storms; sand ripples and
    dust follow it) · ✅ herd cohesion (roam draws around the group's

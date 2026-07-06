@@ -1,17 +1,16 @@
 extends CharacterBody3D
-## A needs-driven inhabitant (utility AI). The record defines who they
-## are — needs with drain weights, and activities that satisfy them at
-## places — and behavior emerges: each need drains over game-time, each
-## activity scores by how badly its need wants satisfying (gated softly
-## by preferred hours), and the best activity wins with hysteresis so
-## they don't dither. Needs persist via WorldState.
+## A needs-driven inhabitant (the Understory). The record defines who
+## they are — needs with drain weights, and activities that satisfy them
+## at places. Since the AgentSim port (SIM_ROADMAP P1, 2026-07-05) the
+## MIND lives in the shared sim core — the same needs/utility/advance
+## logic wildlife runs — and this node is presentation + person: physics
+## and animation when embodied, dialogue, rumors, produced-goods stock.
+## Needs persist via WorldState (same keys as before the port).
 
 const SPEED := 3.0
 const ACCEL := 8.0
 const ARRIVE_DISTANCE := 3.0
 const DRAIN_SCALE := 6.0  # need points lost per game-hour at weight 1.0
-const SATISFY_SCALE := 10.0  # need points gained per game-hour at rate 1.0
-const OFF_HOURS_GATE := 0.15
 const KEEP_CURRENT_BIAS := 1.5
 const DECIDE_INTERVAL := 0.5  # real seconds between decisions
 # Two-tier simulation: beyond FAR_DISTANCE from the focus the body
@@ -31,16 +30,14 @@ var scarf_color := Color.TRANSPARENT
 const MAX_RUMORS := 12  # what one mind holds; the oldest falls out
 const STOCK_CAP := 10.0  # a pantry, not a warehouse
 
-var needs: Dictionary = {}  # need -> 0..100 (100 = content)
-var current: Dictionary = {}
-var last_utilities: Dictionary = {}
+## The mind (AgentSim): needs, utilities, current activity, coarse
+## position. `needs` is a shared reference to sim.needs — the soak
+## fingerprint and inspector read it exactly as before the port.
+var sim := AgentSim.new()
+var needs: Dictionary = {}  # alias of sim.needs (set in _ready)
 ## What this NPC knows, oldest first. Each fact mirrors to a WorldState
 ## flag npc.<id>.knows.<fact> so dialogue/quests condition on it.
 var rumors: Array = []
-## Goods produced while working (activities with "produces"), buffered
-## here and flushed to WorldState npc.<id>.stock.<item> hourly — the
-## stocks trading (G4) will read and prices will derive from.
-var _stock_accum: Dictionary = {}
 
 var far_mode := false
 var talking := false
@@ -85,13 +82,26 @@ func _ready() -> void:
 		scarf.position = Vector3(0, 0.78, 0)
 		_body.add_child(scarf)
 
-	for need in needs_def:
-		needs[need] = 70.0
+	# The mind boots here: same knobs the pre-port NPC had, so behavior
+	# (and the soak fingerprint) carries over move-for-move.
+	sim.setup(npc_id, home, activities, needs_def)
+	sim.drain_scale = DRAIN_SCALE
+	sim.speed = SPEED
+	sim.arrive = ARRIVE_DISTANCE
+	sim.keep_bias = KEEP_CURRENT_BIAS
+	sim.rng_stream = "npc"
+	needs = sim.needs  # shared dict: soak + inspector read through it
 	load_state()  # no-op on a fresh world; SaveGame calls it again post-restore
 	GameClock.hour_tick.connect(func(_h: int) -> void:
 		_observe_world()
 		_save_state())
-	_decide()
+	sim.decide()
+	_sync_target()
+
+
+## The node walks toward the mind's target (XZ; y is presentation).
+func _sync_target() -> void:
+	_target = Vector3(sim.target.x, global_position.y, sim.target.y)
 
 
 ## Hourly snapshot to WorldState: needs, position, current activity — so a
@@ -101,14 +111,15 @@ func _save_state() -> void:
 	WorldState.set_value("npc.%s.needs" % npc_id, needs.duplicate())
 	WorldState.set_value("npc.%s.pos" % npc_id,
 		{"x": global_position.x, "z": global_position.z})
-	WorldState.set_value("npc.%s.activity" % npc_id, current.get("id", ""))
+	WorldState.set_value("npc.%s.activity" % npc_id, sim.current.get("id", ""))
 	WorldState.set_value("npc.%s.rumors" % npc_id, rumors.duplicate())
-	for item in _stock_accum:
+	# Goods the mind produced while working, flushed to the pantry.
+	for item in sim.produced:
 		var key := "npc.%s.stock.%s" % [npc_id, item]
 		var stock: float = float(WorldState.get_value(key, 0.0))
 		WorldState.set_value(key,
-			snappedf(minf(stock + _stock_accum[item], STOCK_CAP), 0.01))
-	_stock_accum.clear()
+			snappedf(minf(stock + sim.produced[item], STOCK_CAP), 0.01))
+	sim.produced.clear()
 
 
 func knows(fact: String) -> bool:
@@ -155,11 +166,13 @@ func load_state() -> void:
 		var x: float = pos.x
 		var z: float = pos.z
 		global_position = Vector3(x, Terrain.height(x, z) + 0.5, z)
+	sim.pos = Vector2(global_position.x, global_position.z)
 	var act_id: String = str(WorldState.get_value("npc.%s.activity" % npc_id, ""))
 	for a in activities:
 		if a.id == act_id:
-			current = a
-			_target = _resolve_at(a)
+			sim.current = a
+			sim.target = sim.resolve_at(a)
+			_sync_target()
 			break
 	var saved_rumors: Array = WorldState.get_value("npc.%s.rumors" % npc_id, [])
 	rumors = saved_rumors.duplicate()
@@ -212,69 +225,53 @@ func _coarse_tick(dt_real: float) -> void:
 
 ## One coarse step, parameterized by game-hours — shared by the live far
 ## tier and time catch-up (GameClock.advance_hours "sim_advance" group).
-## During catch-up an hour chunk covers kilometers, so journeys complete
-## and activities cycle hour by hour while the player is away.
+## The MIND advances (drain, travel, satisfy, decide — AgentSim.advance);
+## the node re-seats on wherever the mind ended up.
 func sim_advance_hours(dt_hours: float) -> void:
-	_drain(dt_hours)
-	var dt_real := dt_hours * GameClock.day_length_minutes * 60.0 / 24.0
-	var to := Vector3(_target.x - global_position.x, 0.0, _target.z - global_position.z)
-	if to.length() < ARRIVE_DISTANCE:
-		_satisfy(dt_hours)
-	else:
-		global_position += to.normalized() * minf(SPEED * dt_real, to.length())
-	global_position.y = Terrain.height(global_position.x, global_position.z) + 0.5
-	_decide()
-
-
-func _drain(dt_hours: float) -> void:
-	for need in needs:
-		needs[need] = clampf(
-			needs[need] - needs_def[need] * DRAIN_SCALE * dt_hours, 0.0, 100.0
-		)
-
-
-func _satisfy(dt_hours: float) -> void:
-	if current.is_empty():
-		return
-	var need: String = current.satisfies
-	needs[need] = clampf(
-		needs[need] + float(current.get("rate", 6.0)) * SATISFY_SCALE * dt_hours,
-		0.0, 100.0
-	)
-	# Work makes goods: time spent at a producing activity accrues stock.
-	var produces: Dictionary = current.get("produces", {})
-	for item in produces:
-		_stock_accum[item] = float(_stock_accum.get(item, 0.0)) \
-				+ float(produces[item]) * dt_hours
+	sim.pos = Vector2(global_position.x, global_position.z)
+	sim.advance(dt_hours)
+	global_position = Vector3(sim.pos.x,
+		Terrain.height(sim.pos.x, sim.pos.y) + 0.5, sim.pos.y)
+	_sync_target()
 
 
 func _physics_process(delta: float) -> void:
 	if not is_on_floor():
 		velocity += get_gravity() * delta
 
+	# Embodied: the body owns position; the mind keeps drives + decisions
+	# (the wildlife pattern). Sync the mind's pos so its decisions and the
+	# saved state see where the body actually stands.
 	var dt_hours: float = GameClock.hours_delta(delta)
-	_drain(dt_hours)
+	sim.pos = Vector2(global_position.x, global_position.z)
+	sim.drain(dt_hours)
 
 	var to := Vector3(_target.x - global_position.x, 0.0, _target.z - global_position.z)
 	var arrived := to.length() < ARRIVE_DISTANCE
 
-	if arrived and not current.is_empty():
-		_satisfy(dt_hours)
-		# Foragers drift around their spot.
-		if current.has("wander"):
+	if arrived and not sim.current.is_empty():
+		sim.satisfy(dt_hours)
+		# Foragers drift around their spot (presentation wander: the
+		# node's walking target, never the mind's).
+		if sim.current.has("wander"):
 			_wander_accum += delta
 			if _wander_accum > 20.0:
 				_wander_accum = 0.0
 				var rng := Rng.stream("npc")
-				_target = _resolve_at(current) + Vector3(
-					rng.randf_range(-1.0, 1.0) * float(current.wander), 0.0,
-					rng.randf_range(-1.0, 1.0) * float(current.wander)
+				var base := sim.resolve_at(sim.current)
+				_target = Vector3(
+					base.x + rng.randf_range(-1.0, 1.0) * float(sim.current.wander),
+					global_position.y,
+					base.y + rng.randf_range(-1.0, 1.0) * float(sim.current.wander)
 				)
 
 	_decide_accum += delta
 	if _decide_accum >= DECIDE_INTERVAL:
 		_decide_accum = 0.0
-		_decide()
+		var before: Dictionary = sim.current
+		sim.decide()
+		if sim.current != before:
+			_sync_target()
 
 	var blend := 1.0 - exp(-ACCEL * delta)
 	var target_velocity := Vector3.ZERO
@@ -306,7 +303,7 @@ func _physics_process(delta: float) -> void:
 	if talking:
 		target_anim = "Idle"
 	elif arrived:
-		target_anim = "Sitting" if current.get("pose", "stand") == "sit" else "Idle"
+		target_anim = "Sitting" if sim.current.get("pose", "stand") == "sit" else "Idle"
 	if _anim.assigned_animation != target_anim:
 		_anim.play(target_anim, 0.3)
 
@@ -331,65 +328,13 @@ func _blocked(dir: Vector3) -> bool:
 	return not space.intersect_ray(params).is_empty()
 
 
-func _decide() -> void:
-	var best: Dictionary = {}
-	var best_u := -1.0
-	var current_u := 0.0
-	last_utilities = {}
-	for a in activities:
-		var u: float = (100.0 - needs.get(a.satisfies, 50.0)) * _hours_gate(a)
-		# Weather changes minds: storm_boost activities spike in bad weather.
-		u *= 1.0 + Weather.storminess * float(a.get("storm_boost", 0.0))
-		last_utilities[a.id] = u
-		if a == current:
-			current_u = u
-		if u > best_u:
-			best_u = u
-			best = a
-	# Hysteresis: stay with the current activity unless it's satisfied or
-	# clearly beaten.
-	if not current.is_empty() and needs.get(current.satisfies, 0.0) < 85.0 \
-			and current_u * KEEP_CURRENT_BIAS >= best_u:
-		return
-	if best != current:
-		current = best
-		_target = _resolve_at(current)
-
-
-func _hours_gate(a: Dictionary) -> float:
-	if not a.has("hours"):
-		return 1.0
-	var start: float = a.hours[0]
-	var end: float = a.hours[1]
-	var h: float = GameClock.hours
-	var inside := (h >= start and h < end) if start <= end \
-			else (h >= start or h < end)  # window wraps midnight
-	return 1.0 if inside else OFF_HOURS_GATE
-
-
-func _resolve_at(a: Dictionary) -> Vector3:
-	var xz := home
-	if a.get("at") is Dictionary:
-		xz = Vector2(a.at.x, a.at.z)
-	return Vector3(xz.x, global_position.y, xz.y)
-
-
-## One-line-per-fact debug dump for the god-mode sim inspector.
+## One-line-per-fact debug dump for the god-mode sim inspector: the
+## mind's own dump (activity/needs/utilities) plus the person around it.
 func sim_debug() -> String:
 	var lines: Array[String] = [display_name, ""]
 	lines.append("mode: %s" % ("coarse (far)" if far_mode else "embodied"))
-	lines.append("activity: %s%s" % [
-		current.get("id", "—"), " (%s)" % current.get("pose", "stand")
-	])
-	lines.append("")
-	for need in needs:
-		var v: float = needs[need]
-		var bar := "".rpad(int(v / 10.0), "█").rpad(10, "░")
-		lines.append("%-8s %s %3d" % [need, bar, int(v)])
-	lines.append("")
-	lines.append("utilities:")
-	for id in last_utilities:
-		lines.append("  %-10s %5.1f" % [id, last_utilities[id]])
+	lines.append("pose: %s" % sim.current.get("pose", "stand"))
+	lines.append(sim.debug_text())
 	lines.append("")
 	lines.append("knows:")
 	for fact in rumors:

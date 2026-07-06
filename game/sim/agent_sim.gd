@@ -24,6 +24,7 @@ var jitter := Vector2.ZERO  # personal offset so groups don't stack
 var speed := 2.2  # m/s
 var arrive := 4.0
 var keep_bias := 1.0  # >1.0 adds hysteresis: keep current unless clearly beaten
+var drain_scale := DRAIN_SCALE  # NPCs drain harder (6.0) than wildlife
 var solar_gate := false  # wildlife lives by the sun; people by the clock
 var roam_range := 150.0
 var rng_stream := "npc"
@@ -77,7 +78,7 @@ func arrived() -> bool:
 func drain(dt_hours: float) -> void:
 	for need in needs:
 		needs[need] = clampf(
-			needs[need] - needs_def.get(need, 1.0) * DRAIN_SCALE * dt_hours,
+			needs[need] - needs_def.get(need, 1.0) * drain_scale * dt_hours,
 			0.0, 100.0)
 
 

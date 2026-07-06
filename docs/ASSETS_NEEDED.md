@@ -54,10 +54,17 @@ every slot renders a labeled placeholder until filled.*
 
 ## Scale discipline (2026-07-05 — read before the biome build-out)
 
-The future asset load is a combinatorics problem, not a volume
-problem: 8 biomes × ~8 flora species × 4 lifecycle stages × seasonal
-states is 1,000+ paintings — no solo illustrator survives that.
-The mitigations, in force from now on:
+**Ambition update (same day, Nicco's call): the discipline rules are
+MULTIPLIERS, not caps.** The ledger below is the full-treatment
+target — Skyrim-adjacent art volume, no compromise on density — and
+the rules are what make that affordable for two people: paint a
+species once and the sim recolors it through four seasons; sculpt
+one rock and the placement rules scatter it believably across
+kilometers. Discipline buys ambition; it doesn't ration it.
+
+The raw combinatorics still need managing: 8 biomes × ~8 flora
+species × 4 lifecycle stages × seasonal states is 1,000+ paintings
+if every cell is hand-made. The mitigations, in force from now on:
 
 - **2–3 signature species per biome + one shared filler set.** A
   biome's identity is its signature silhouettes; filler repeats
@@ -82,112 +89,153 @@ species × stage × biome light, so a new painting is judged
 in-context in seconds); Blender export validation in test.sh
 (clip names, +Z facing, `-col` meshes — fail at import, not in-game).
 
-## The master ledger (2026-07-05 — the whole game, for batch planning)
+## The asset contract (2026-07-05 — rules & permissions; read first)
 
-*Everything the finished game wants from human hands, grouped by tool so
-work can be batched away from the engine. Horizons: **[now]** the slot
-exists and renders a placeholder today · **[village]** needed when M4
-lands · **[under]** the underworld layer · **[later]** gated on a
-decision or a distant milestone. Rough totals at the bottom — the point
-of the ledger is that the whole game is a finite, survivable list.*
+**The world generates itself from the assets' own rules.** Every
+scatterable asset is two things: the files (mesh / billboard /
+texture / clips) and a **record card** — a JSON sidecar carrying its
+placement rules and permissions. The engine's generator reads the
+cards and populates the world; nothing is hand-placed except
+landmarks and villages. The flora species records
+(`data/flora/*.json`) already prove the pattern (biome weights,
+moisture needs, stage art slots, forage yields); the same schema
+extends to every class. A card looks like:
 
-### Paintings — transparent PNG → `assets/paintings/`
+```json
+{
+	"id": "juniper_gnarled",
+	"class": "tree",
+	"trunk": "trees/juniper_gnarled.glb",
+	"foliage": "trees/juniper_cards.png",
+	"variants": 3,
+	"biomes": {"scrub": 0.4, "oasis_green": 0.15},
+	"permissions": {"slope_max": 28, "alt": [2, 260],
+		"moisture_min": 0.15, "water_dist_min": 2.0, "spacing": 4.0},
+	"cluster": {"radius": 16, "count": [3, 9]},
+	"collider": "trunk", "wind": 0.6, "yields": null
+}
+```
 
-**Flora, by biome** (the scale-discipline rules above: 2–3 signature
-species per biome + one shared filler set; paint the `grow` stage
-always, a `bloom` and `dry` variant for signatures only — sprout/seed
-come from scale + shader tint). Current placeholder biome names, rename
-at the kitchen table:
+**Why this matters for production: assets are engine-independent.**
+You produce the model/painting/clips and fill in the card; the engine
+inherits both whenever the corresponding slot-loader lands. Nothing
+you make waits on code, and nothing needs re-export when the engine
+grows. Engine work this implies (queued, the Loom/Elements — none of
+it blocks production): the species schema grows `permissions` +
+`cluster` + `variants`; a `mesh`/`trunk` slot beside the billboard
+slot (hybrid flora rendering: modeled trunk + camera-facing painted
+leaf cards near, auto-generated impostor billboard far — the engine
+renders impostors from the asset, no extra art); rock/prop scatter
+records on the same schema (`data/scatter/*.json`).
 
-| Biome | Signature species (paint) | Notes |
+**Production conventions (start today):** glTF → `assets/models/<class>/`,
+low-poly, flat palette colors or painted texture per ART_BIBLE, `-col`
+collision meshes, +Z facing, ×1 scale, clips named per the shared
+taxonomy below. Paintings/cards: transparent PNG → `assets/paintings/`.
+Textures: tiling PNG, power-of-two, → `assets/textures/`. One asset =
+one card, committed together.
+
+## The master ledger (2026-07-05, rev 2 — the full treatment)
+
+*Everything the finished game wants from human hands, at the no-
+compromise density target (rev 1's "minimum painterly world" was
+retired same-day on Nicco's call — "Skyrim surely has more than
+that", and it does: its believability is a library dozens deep per
+category, nested in scale from cliff to pebble). Grouped by tool so
+work batches away from the engine. Horizons: **[now]** the slot
+exists or the contract is defined today · **[village]** M4 ·
+**[under]** the underworld layer · **[later]** gated on a decision ·
+**[rolling]** grows with each species. Totals + honest pacing at the
+bottom.*
+
+### Flora — the full treatment (hybrid: modeled trunks + painted cards)
+
+*Trees stop being single billboards: each species is a low-poly
+trunk/branch mesh + painted leaf-card texture (near), an impostor
+(far, auto-generated). Billboards remain the right tool for the small
+stratum — grass, flowers, ground succulents.*
+
+| Class | Count target | Per-asset pieces |
 |---|---|---|
-| oasis_green [now] | arch tree ✅(hers) · high palm ✅(hers) · bloom tuft | The home valley — mostly done; bloom tuft is the forageable, worth a real painting early |
-| scrub [now] | low shrub ✅(hers) · a dry-grass clump · a thorny silhouette | The connective-tissue biome, most walked-through |
-| dune_desert [now] | dune cactus (SVG placeholder) · a ribbed succulent | First biome with zero real art — 2 paintings make it a place |
-| wetland [now] | reeds · a broad-leaf clump | Bay shores, river mouths |
-| strand [now] | beach grass · driftwood tuft | The coasts — huge shoreline mileage per painting |
-| volcanic_rock [now] | a lichen pad · one hardy pioneer plant | Sparse by design |
-| bare_peak [now] | (none — stone + snow) | Free |
-| deep_sea [now] | (none) | Free |
-| shared filler [now] | 3–4 generic tufts/pebbles (replaces the placeholder SVGs, same slots) | Appears everywhere, carries the density |
-| underworld [under] | 2–3 glow-adjacent species | Gated on the glow's fiction (axioms) |
+| Tree species [now] | 10–14 species × 2–3 growth/age variants ≈ **30–40 tree assets** | trunk mesh · leaf-card sheet · bare/dead variant · card |
+| Shrubs & bushes [now] | **12–16** | small mesh or billboard (judgment call per species) · card |
+| Ground-cover billboards [now] | **25–35** — grasses ×8–10, flowers ×6–8, ferns, succulents, reeds, kelp, driftwood tufts | painted PNG · card |
+| Underworld flora [under] | **6–10** glow-adjacent species | gated on the glow's fiction |
 
-**Everything else painted:**
+Per-biome signature allocation (2–3 signatures each + shared filler)
+still governs *which* species: oasis (arch tree ✅ · high palm ✅ ·
+bloom tuft), scrub (low shrub ✅ · dry-grass · thorny), dune_desert
+(cactus · ribbed succulent — still the zero-real-art biome), wetland
+(reeds · broad-leaf), strand (beach grass · driftwood), volcanic
+(lichen · pioneer), peaks/sea free.
 
-| Asset | Spec | Horizon |
+### Rock & stone — the library (Skyrim's real lesson: nested scale)
+
+| Class | Count target | Notes |
 |---|---|---|
-| Ground-cover kit (top table) | 4–6 elements | now ★★★ |
-| Rock family billboards (top table) | 3–4 | now ★★★ |
-| Sky gradient strips dawn/day/dusk/night | ~256×1024 each | now ★★ |
-| Seasonal sky variants (winter light differs) | 4 more strips | later |
-| Distant mountain cutouts | 2–3, ~2000px | now ★ |
-| Rain-curtain texture (the posterized hanging rain reads as painted) | 1 tileable sheet | now ★ |
-| Cloud/fog wisps for the FogVolume + horizon | 2–3 soft sheets | later |
-| UI 9-slices: panel, button, slider, focus ring (UITheme placeholders wear these slots) | per ART_BIBLE palette | now ★★ |
-| Journal paper + map parchment background | 2 large sheets | now ★ |
-| Item icons | NONE — rendered from the Blender turntable rig, never painted | — |
-| Particle sprites: dust mote, rain streak, snowflake, seed fluff, splash puff (moth ✅ exists) | tiny, 64–128px | now, trivial |
-| Character turnarounds (design docs for his rigging): villagers ×4–6, caravan drivers | any size | village |
-| Creature concept paintings (each wildlife species starts as her painting — the fox and hound already did) | any | rolling |
+| Boulder library [now] | **15–20** across 4 biome families: valley granite, volcanic, coastal wave-worn, desert sandstone | the first 4–5 stay the first Blender batch (top table) — the library grows from it |
+| Cliff/plateau kit [now] | **20–30** slabs: rim, face, overhang, slide wall, talus, cave mouth | terrain, not decoration; breaks the heightfield ceiling |
+| Scree & pebble clusters [now] | **8–10** scatter clumps | the between-scale that sells the big pieces |
+| Landmark formations [now→later] | **8–12** heroes: arches, sea stacks, spires, hoodoos, the gate strait pillars | one per region identity |
+| Underworld stone [under] | **10–15**: stalactites, columns, crystal clusters, sinkhole rims | |
 
-### Blender models — glTF → `assets/models/` (F4 conventions: low-poly,
-flat palette, `-col` collision meshes, +Z facing, ×1 scale)
+### Textures & materials (new class — painted, tiling, engine-agnostic)
 
-| Asset | Spec | Horizon |
+| Set | Count target | Notes |
 |---|---|---|
-| **Rock family** (top table) | 4–5 boulders | now ★★★ |
-| **Cliff/plateau kit** — the rock family grown up: slab, rim, overhang, sheer face, slide wall | 5–8 pieces, ~1–2k tris each | now ★★ — this is terrain, not decoration (IDEAS); breaks the heightfield ceiling |
-| Mesa / large formations | ×1–2 | now ★★ |
-| Shrine rebuild (modular) | 4–6 pieces | now ★ |
-| **First character** from her turnaround | rigged; clips: Idle/Walk/Run/SitDown/SitIdle/StandUp + Talk gesture | now ★★ — retires the robot for BOTH current NPCs (reskin) |
-| Villager body variants | 4–6 reskins/proportion tweaks of the character rig | village |
-| Wildlife species (shared clip taxonomy: Idle/Walk/Run/Drink/Rest/Alert/Flee + 1 special) — grazer herd, predator, small skitterer, bird (or painted billboard flock), fish (simple), caravan beast | ~8–15 total over the project; star hound ✅ | rolling; predator when wildlife rung 4, caravan beast when caravans embody |
-| Village architecture kit — wall, roof, door, window, awning, market stall, well, fence, lantern post | 10–15 pieces | village ★★★ (the kit IS the village) |
-| Bridge + ford stones | 3–4 pieces | now ★ (rivers partition the world already) |
-| Props: campfire, cookpot, baskets, crates, bedroll, tools | ~10 small pieces | village |
-| Food/forage items (each auto-renders its satchel icon) | ~8–12 tiny models | rolling, starts with dried bloom |
-| The recorder (player's field-recording device) | 1 hero prop | later — gated on the field-recordist decision |
-| Boat / raft | 1 | later — gated on the traversal decision (causeway vs boat) |
-| Waterfall mesh pieces (stepped river drops) | 2–3 | later — rivers' open item |
-| Underworld kit: stalactite, column, cave mouth, sinkhole rim | 6+ pieces | under |
+| Ground tiles per biome [now] | **12–16**: sand, ripple sand, soil, grass mat, volcanic ash, scree, snow, mud, wet strand… | the terrain shader tints toward biome albedo today; painted tiles are its upgrade slot |
+| Material sheets [now] | **10–15**: bark ×3–4, rock faces ×3–4, thatch, plaster, timber, woven | feed trunks, kits, architecture |
+| Detail decals [later] | **8–12**: cracks, lichen, moss, tide stains | |
+| Leaf-card sheets | counted with trees | |
 
-### Audio — WAV → `assets/audio/` (seamless loops for beds, one-shots
-for events; `reimport.sh` swaps them live)
+### Characters, creatures & the animation library
 
-| Asset | Spec | Horizon |
+*The clip taxonomy is the multiplier: one humanoid rig's library
+retargets to every villager; one creature taxonomy drops every
+species into AgentSim with zero code.*
+
+| Class | Count target | Notes |
 |---|---|---|
-| **Wind bed** + storm wind layer (top table) | 60s+ loops | now ★★★ |
-| **Night bed** (top table) | 60s+ loop | now ★★★ |
-| Footsteps: sand / stone / water / plants ×4–6 each | one-shots | now ★★ |
-| Footsteps: mud, snow ×4 each | one-shots | later (both ground states exist) |
-| Pond lap / brook run / sea shore / bay lap | 30s+ loops, positional | now ★★ |
-| Rain: light (drizzle) + heavy (storm) beds | 60s loops | now ★★ (seven weather kinds ship on synth) |
-| Thunder set ×4–6 (near cracks + distant rolls — the lightning system schedules them by distance) | one-shots | now ★★ (placeholder noted in STATUS) |
-| Dawn chorus | 60s, crossfades in at real sunrise | now ★ |
-| Insect chorus loop (steppable rate — Dolbear's-law thermometer wants ~3 density variants) | loops | later ★ (an IDEAS signature) |
-| Waterfall loop (loudness will track real flow) | 60s | later, with waterfall meshes |
-| Sand: slide hiss, booming-dune drone | loop + drone | later (sim ships, sound is the missing half) |
-| Splashes: wade, dive, surface ×3–4 | one-shots | now ★ |
-| Gather/forage, satchel open, journal page, UI tick set | one-shots | now ★ |
-| Creature voices: hound calls ×3, grazer, bird calls ×4 | one-shots | rolling with each species |
-| Shrine wind-chimes | loop, positional | now ★ |
-| Village murmur bed + market clatter | loops | village |
-| Underworld: drip set, cavern room-tone, distant water | loops | under |
-| Reverb impulse responses (record real canyons/rooms — IDEAS) | IRs | later |
-| Humming/whistle lines for NPCs + ONE findable daily performance | musical, diegetic-only canon | later — post-axioms |
+| Player moveset [now] | **25–35 clips**: locomotion set, jump/land, swim/dive, sand-slide, sit set, gather, catch/deploy fireflies, wade, shiver/warm, recorder poses | the fox body ✅ |
+| Humanoid shared library [now→village] | **35–45 clips** on ONE rig: locomotion 6–8 · work loops 8–12 (sweep, dig, carry, cook, fish, tend, hammer) · social 6–8 (wave, talk gestures ×3, nod, point) · contextual idles 6–8 (shade eyes, hug-self cold, watch sky, stretch) · sit/sleep 5–6 | retires the robot; every villager reskins it |
+| Villager bodies [village] | **6–10** variants on the shared rig | |
+| Wildlife species [rolling] | **15–25** bodies (star hound ✅): grazer herd, predator, birds, fish, shore skitterers, caravan beast, underworld 3–5 | × 8–12 clips each on the shared taxonomy (Idle/Walk/Run/Drink/Eat/Rest/Sleep/Alert/Flee + specials) |
+| Insect/ambient swarms [now] | **5–8** billboard swarm sprites: moths ✅, fireflies ✅(code), butterflies, gnat columns, shore birds wheeling | billboard is the right treatment here |
+| **Animation total** | **≈300–420 clips** | the taxonomy makes it a library, not a per-character cost |
 
-### Rough totals (the whole game, at current design)
+### Props, clutter & architecture
 
-~55–70 paintings (≈25 flora + ~15 environment/sky/UI + ~15 concepts/
-misc) · ~60–80 models (≈30 kit pieces + ~15 creatures/characters +
-~25 props) · ~70–90 audio files (≈25 beds/loops + ~50 one-shot sets
-counted as files). **A finite list** — a painting every few days and
-a model every week lands the whole ledger within a year, and the
-priority tables mean the top 10% of it carries 80% of the look.
+| Class | Count target | Horizon |
+|---|---|---|
+| Village architecture kit | **20–30** pieces: walls, roofs, doors, windows, awnings, stalls, well, fences, lantern posts, docks | village ★★★ |
+| Shrine/ancient kit | **10–15** pieces + ruins set | now→later |
+| Bridges, fords, causeways trim | **8–10** | now |
+| Village life clutter | **40–60**: furniture, containers, market goods, tools, signage | village |
+| Camps & travel | **12–15**: campfire ✅(code), bedrolls, packs, caravan fittings | now→village |
+| Shoreline/nautical | **10–15**: boats/raft, nets, floats, dock clutter | later (traversal decision) |
+| Food & forage items | **20–30** tiny models (icons auto-render) | rolling |
+| Hero props | recorder, instruments, the glow's vessels | later (decisions) |
+| Underworld structures | **8–12** | under |
 
-*Maintenance: when the derived asset-manifest tool lands (scale
-discipline, above), the [now] rows of this ledger become a generated
-report and this section shrinks to the horizons and totals.*
+### Audio — the full map
+
+Everything in rev 1 stands (wind/night/rain beds, footsteps ×6
+surfaces, thunder set, positional water, creature voices, village
+murmur, underworld drips, IRs, diegetic music) **plus**: a distinct
+ambience bed per biome ×8, interior/cave room tones ×3–4, seasonal
+variants of the day bed ×4, weather transitions (petrichor beat, gust
+front), UI/satchel/journal foley set. **Target: 120–160 files.**
+
+### Totals & pacing (the honest math)
+
+**≈280–380 meshes · ≈90–130 paintings/billboards · ≈60–90 textures ·
+≈300–420 animation clips · ≈120–160 audio files.** At a sustainable
+3–5 finished assets a week between two people, the full ledger is a
+**2–3 year arc** — which is what a Skyrim-inspired density costs at
+kitchen-table scale, and the priority tables still front-load the
+10% that carries 80% of the look. The asset contract is what makes
+the arc parallel: production never waits on the engine, and every
+finished asset starts working the day its slot-loader lands.
 
 ## Already handled by code (no assets needed)
 

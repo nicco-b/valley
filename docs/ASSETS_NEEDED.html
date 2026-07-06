@@ -1,0 +1,3184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assets Needed — Valley</title>
+<style>
+/* PRESS v1 — engineering graphics for personal infrastructure
+   press.gldn.workers.dev/v1/press.css
+   See COMPONENT-CATALOG.md for the class vocabulary. */
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("https://press.gldn.workers.dev/v1/fonts/jetbrains-mono-regular.woff2") format("woff2");
+  font-weight: 400 700;   /* variable woff2; range covers regular + bold */
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ============================================================
+   TOKENS
+   ============================================================ */
+:root {
+  /* Type */
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --font-sans: InterVariable, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-base: 14px;
+  --line-base: 1.5;
+  --line-tight: 1.25;
+  --size-heading: 1rem;
+
+  /* Surfaces */
+  --bg: #fff;
+  --bg-soft: #fafafa;
+  --bg-muted: #f5f5f5;
+
+  /* Text */
+  --text: #000;
+  --text-2: #555;
+  --muted: #999;
+
+  /* Rules */
+  --rule: #c9c9c9;
+  --rule-soft: #dcdcdc;
+  --rule-faint: #e5e5e5;
+
+  /* Brand + link — Insignia Blue + NASA Meatball */
+  --accent: #003B5C;   /* Insignia Blue · FED 15044 */
+  --link:   #0B3D91;   /* NASA Meatball Blue */
+
+  /* Semantic — ANSI Z535 / aerospace conventions */
+  --positive: #00843D; /* Safety Green */
+  --negative: #C8102E; /* Safety Red */
+  --warn:     #E25600; /* Safety Orange */
+  --info:     #0B3D91; /* NASA Meatball Blue */
+
+  /* Spacing — 4px grid at 14px base */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-8: 3rem;
+
+  /* Border */
+  --border: 0.1rem;
+  --border-color: var(--text);
+  --border-soft: var(--rule);
+  --radius: 0;
+  --radius-pill: 9999px;
+
+  /* Shadow — 2×2 offset, no blur */
+  --shadow: 2px 2px var(--rule-soft);
+  --shadow-inset: inset 2px 2px var(--rule-soft);
+  --shadow-strong: 2px 2px var(--rule);
+
+  /* Layout */
+  --max-content: 60rem;
+  --max-wide: 80rem;
+  --max-prose: 36rem;
+
+  /* Transition */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 100ms;
+  --dur: 200ms;
+
+  /* Z */
+  --z-base: 0;
+  --z-raised: 10;
+  --z-overlay: 100;
+  --z-dialog: 1000;
+  --z-toast: 10000;
+
+  /* ----------------------------------------------------------
+     PIGMENT CATALOG — two parallel 16-hue sets.
+     --earth-* : historical / muted earth pigments.
+     --cad-*   : modern / saturated cadmium-era pigments.
+     Same hue positions in each set so projects can swap between
+     them by changing the prefix.
+     ---------------------------------------------------------- */
+
+  /* Earth (muted) */
+  --earth-vermilion:    #a8443a;
+  --earth-venetian:     #9c4030;
+  --earth-burnt-sienna: #8b4f2e;
+  --earth-raw-sienna:   #b87a3d;
+  --earth-ochre:        #c89a3a;
+  --earth-naples:       #d6bd7a;
+  --earth-olive:        #7a7c3e;
+  --earth-sap:          #5a7440;
+  --earth-terre-verte:  #6b8266;
+  --earth-viridian:     #3d6b5a;
+  --earth-prussian:     #1f3a52;
+  --earth-slate:        #5a6470;
+  --earth-payne:        #3d4a55;
+  --earth-mauve:        #8a6878;
+  --earth-umber:        #6e4a2d;
+  --earth-ivory-black:  #262220;
+
+  /* Cadmium (bright) */
+  --cad-vermilion:  #e34a2c;
+  --cad-red:        #d72027;
+  --cad-orange:     #e76f00;
+  --cad-yellow:     #f5b800;
+  --cad-lemon:      #f0d61f;
+  --cad-sap:        #6aa324;
+  --cad-emerald:    #16b56b;
+  --cad-viridian:   #0ba17a;
+  --cad-turquoise:  #0eb5a8;
+  --cad-cerulean:   #0083c4;
+  --cad-cobalt:     #1d5fcc;
+  --cad-ultramarine:#2a3aa6;
+  --cad-violet:     #5e2c91;
+  --cad-magenta:    #c0257d;
+  --cad-rose:       #e3447b;
+  --cad-coral:      #ee6655;
+
+  /* ----------------------------------------------------------
+     AEROSPACE PIGMENTS — named, absolute, never re-themed.
+     Drawn from FED-STD-595, NASA brand, ANSI Z535, ARINC 661.
+     Use for accents, callouts, brand-anchoring moments.
+     ---------------------------------------------------------- */
+  --international-orange: #FF4F00;
+  --aviation-orange:      #C0362C;  /* FED 12197 */
+  --nasa-worm:            #FC3D21;
+  --nasa-meatball:        #0B3D91;
+  --insignia-blue:        #003B5C;  /* FED 15044 */
+  --insignia-red:         #B71D1C;  /* FED 11136 */
+  --caution-amber:        #FFB000;
+  --nvg-green:            #00C84B;
+  --cockpit-black:        #0F0F0F;
+  --safety-yellow:        #FFD800;
+  --safety-blue:          #0033A0;  /* ANSI Z535 */
+  --safety-green:         #00843D;
+}
+
+/* ============================================================
+   COCKPIT DARK MODE — ARINC 661-flavored.
+   Applied by system preference (prefers-color-scheme: dark) or
+   explicit opt-in via :root[data-theme="dark"]. Force light
+   with :root[data-theme="light"] to override the system.
+   ============================================================ */
+
+:root[data-theme="dark"],
+:root[data-theme="cockpit"] {
+  --bg:         #0F0F0F;
+  --bg-soft:    #1A1A1A;
+  --bg-muted:   #222222;
+  --text:       #D8D8D8;
+  --text-2:     #9A9A9A;
+  --muted:      #6A6A6A;
+  --rule:       #2A2A2A;
+  --rule-soft:  #1F1F1F;
+  --rule-faint: #181818;
+  --shadow:        2px 2px #1F1F1F;
+  --shadow-inset:  inset 2px 2px #1F1F1F;
+  --shadow-strong: 2px 2px #2A2A2A;
+  --accent:   #7CB7FF;   /* aviation sky blue — info / links */
+  --link:     #7CB7FF;
+  --positive: #00C84B;   /* aviation green — NVG-compatible */
+  --negative: #FF2820;   /* warning red */
+  --warn:     #FFB000;   /* caution amber */
+  --info:     #7CB7FF;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:         #0F0F0F;
+    --bg-soft:    #1A1A1A;
+    --bg-muted:   #222222;
+    --text:       #D8D8D8;
+    --text-2:     #9A9A9A;
+    --muted:      #6A6A6A;
+    --rule:       #2A2A2A;
+    --rule-soft:  #1F1F1F;
+    --rule-faint: #181818;
+    --shadow:        2px 2px #1F1F1F;
+    --shadow-inset:  inset 2px 2px #1F1F1F;
+    --shadow-strong: 2px 2px #2A2A2A;
+    --accent:   #7CB7FF;
+    --link:     #7CB7FF;
+    --positive: #00C84B;
+    --negative: #FF2820;
+    --warn:     #FFB000;
+    --info:     #7CB7FF;
+  }
+}
+
+/* Dark mode: tone down the offset shadow on light-surface components */
+:root[data-theme="dark"] .ledger,
+:root[data-theme="dark"] .product-edit,
+:root[data-theme="dark"] .panel,
+:root[data-theme="dark"] .readout,
+:root[data-theme="dark"] .dispatch,
+:root[data-theme="dark"] .action-card,
+:root[data-theme="dark"] .frame { background: var(--bg-soft); }
+
+/* ============================================================
+   BASE
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  font-size: var(--font-base);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  color: var(--text);
+  background: var(--bg);
+  font-feature-settings: "tnum", "zero", "ss01";
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: 0;
+  font-size: var(--size-heading);
+  font-weight: 700;
+  line-height: var(--line-tight);
+}
+h3 { text-decoration: underline; text-decoration-thickness: var(--border); text-underline-offset: 0.25em; }
+
+p { margin: 0 0 var(--space-3); }
+p:last-child { margin-bottom: 0; }
+
+a {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+a:hover { text-decoration-thickness: 2px; }
+
+hr {
+  border: 0;
+  border-top: var(--border) solid var(--rule);
+  margin: var(--space-5) 0;
+}
+
+code, kbd, samp { font-family: var(--font-mono); }
+
+img, svg, video { max-width: 100%; height: auto; display: block; }
+
+::selection { background: var(--text); color: var(--bg); }
+
+@view-transition { navigation: auto; }
+
+/* ============================================================
+   PAGE STRUCTURE
+   ============================================================ */
+
+/* .bridge — page header. Items flow left-aligned by default (logo, nav).
+   Mark the first right-aligned element with .bridge-end; margin-left: auto
+   pushes it and any following siblings to the right (account, theme, etc.). */
+.bridge {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border) solid var(--text);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.bridge > * { margin: 0; }
+.bridge > .bridge-end { margin-left: auto; }
+
+/* .deck — main content container */
+.deck {
+  max-width: var(--max-content);
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4);
+}
+.deck.wide { max-width: var(--max-wide); }
+.deck.prose { max-width: var(--max-prose); font-family: var(--font-sans); }
+
+/* .colophon — page footer */
+.colophon {
+  border-top: var(--border) solid var(--rule);
+  padding: var(--space-3) var(--space-4);
+  margin-top: var(--space-6);
+  font-size: 0.85rem;
+  color: var(--text-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  justify-content: space-between;
+}
+
+/* .heading — section heading */
+.heading {
+  font-size: var(--size-heading);
+  font-weight: 700;
+  margin: 0 0 var(--space-3);
+  line-height: var(--line-tight);
+}
+.heading.underlined { text-decoration: underline; text-decoration-thickness: var(--border); text-underline-offset: 0.25em; }
+
+/* .section / <section> — vertical section rhythm. The bare <section> element
+   carries it too, so semantic sections space themselves without the class. */
+section, .section { margin: 0 0 var(--space-6); }
+section:last-child, .section:last-child { margin-bottom: 0; }
+
+/* .icon — stroke icon on a 24-unit grid. Sizes to 1em (matches text), inherits
+   color via currentColor. Use <svg class="icon">…</svg> directly, or the
+   declarative <i data-icon="name"></i> which press.js hydrates. */
+.icon {
+  width: 1em; height: 1em;
+  display: inline-block; vertical-align: -0.14em;
+  flex: none;
+  fill: none; stroke: currentColor;
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+.icon.sm { width: 0.85em; height: 0.85em; }
+.icon.lg { width: 1.5em;  height: 1.5em; }
+.icon.xl { width: 2em;    height: 2em; }
+.icon.fill { fill: currentColor; stroke: none; }
+[data-icon]:empty { display: inline-block; width: 1em; height: 1em; } /* reserve space pre-hydration */
+
+/* .callsign — page/document identifier */
+.callsign {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* .eyebrow — small uppercase context line above titles.
+   <span class="eyebrow">store.tinycrate.net · live</span><h1>Orders</h1> */
+.eyebrow, .page-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+  margin-bottom: var(--space-1);
+  display: block;
+}
+
+/* .nav / .nav-list — top navigation bar */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-soft);
+  border-bottom: var(--border) solid var(--rule);
+  font-size: 0.9rem;
+}
+.nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+}
+.nav-list a { color: var(--text); text-decoration: none; }
+.nav-list a:hover { text-decoration: underline; }
+.nav-list a[aria-current="page"] { font-weight: 700; text-decoration: underline; }
+.nav-logo { display: inline-block; max-height: 30px; width: auto; vertical-align: middle; }
+
+/* .crumbs — breadcrumbs */
+.crumbs {
+  font-size: 0.85rem;
+  color: var(--text-2);
+  margin: 0 0 var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.crumbs > * + *::before {
+  content: "/";
+  color: var(--muted);
+  margin-right: var(--space-2);
+}
+.crumbs a { color: var(--text-2); }
+.crumbs > [aria-current] { color: var(--text); font-weight: 700; }
+
+/* .pager — previous/next navigation OR numbered pagination */
+.pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: var(--space-5) 0;
+  padding-top: var(--space-3);
+  border-top: var(--border) solid var(--rule);
+  font-size: 0.9rem;
+}
+.pager > * { flex: 0 1 auto; }
+.pager .prev::before { content: "← "; color: var(--muted); }
+.pager .next::after  { content: " →"; color: var(--muted); }
+
+/* Numbered variant: .pager.numbered with .page items */
+.pager.numbered {
+  justify-content: center;
+  gap: var(--space-1);
+  padding-top: var(--space-3);
+}
+.pager.numbered .page {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  border: var(--border) solid var(--rule);
+  background: var(--bg);
+  color: var(--text-2);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+  min-width: 2rem;
+  text-align: center;
+}
+.pager.numbered .page:hover { background: var(--bg-soft); color: var(--text); border-color: var(--text); }
+.pager.numbered .page.active,
+.pager.numbered .page[aria-current="page"] {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+  font-weight: 700;
+}
+.pager.numbered .ellipsis { padding: 0 var(--space-1); color: var(--muted); }
+
+/* ============================================================
+   RECORDS
+   ============================================================ */
+
+/* .ledger — instrument-panel table.
+   Single shape, two uses:
+     (a) Data table  — <thead><tr><th>col</th>…  +  <tbody><tr><td>cell</td>…
+     (b) Key/value   — <tbody><tr><th>label</th><td>value</td></tr>…
+   Signature: 4px gray left-bar on tbody label cells, dashed-then-solid row rules,
+   tight 3×6 padding, 2×2 shadow, top-aligned, tabular numerics. */
+.ledger {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  font-variant-numeric: tabular-nums;
+}
+.ledger .ledger { box-shadow: none; }                  /* nestable */
+
+.ledger caption {
+  text-align: left;
+  font-weight: 600;
+  font-size: 1rem;
+  padding: var(--space-2) var(--space-1) var(--space-1);
+}
+
+/* All cells: tight padding, top-aligned, sentence case */
+.ledger th, .ledger td {
+  padding: 3px 6px;
+  text-align: left;
+  vertical-align: top;
+  color: var(--text);
+  /* Long unbroken strings (URLs, IDs, CNAME targets, handles) wrap instead of
+     forcing the auto-layout table — and the page — wider than the viewport.
+     Cells that opt into white-space:nowrap keep their intent. */
+  overflow-wrap: break-word;
+}
+
+/* Header row */
+.ledger thead th {
+  font-weight: 500;
+  background: var(--bg);
+}
+.ledger thead th:first-child {
+  padding-left: 6px;
+  border-left: 4px solid var(--rule);
+}
+
+/* Label column (tbody th) — the signature 4px accent bar + 1px right rule */
+.ledger tbody th {
+  font-weight: 600;
+  background: var(--bg);
+  border-left: 4px solid var(--rule);
+  border-right: var(--border) solid var(--rule);
+}
+
+/* Numerics: right-align by default in column position past the first, or via .numeric */
+.ledger thead th + th,
+.ledger tbody td + td { text-align: right; }
+.ledger .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.ledger .left    { text-align: left; }
+
+/* Row separators: dashed below header / before first body row, solid between body rows, solid bottom */
+.ledger thead tr th             { border-top: var(--border) dashed var(--rule-soft); }
+.ledger tbody tr:first-child th,
+.ledger tbody tr:first-child td { border-top: var(--border) dashed var(--rule-soft); }
+.ledger tbody tr + tr th,
+.ledger tbody tr + tr td        { border-top: var(--border) solid var(--rule-soft); }
+.ledger tbody tr:last-child th,
+.ledger tbody tr:last-child td  { border-bottom: var(--border) solid var(--rule-soft); }
+
+/* Cell modifiers */
+.ledger td.positive, .ledger td.pos { color: var(--positive); }
+.ledger td.negative, .ledger td.neg { color: var(--negative); }
+.ledger td.bold,     .ledger td.b   { font-weight: 600; }
+
+/* .action — a row whose cell holds the table's own buttons (add / save / load
+   more) so they live inside the ledger frame instead of floating beside it.
+   The cell spans all columns; contents align right by default (override with
+   .left). Use on a tbody <tr>: <tr class="action"><td colspan="N">…</td></tr> */
+.ledger tbody tr.action td, .ledger tbody tr.action th {
+  text-align: right;
+  font-weight: inherit;
+  padding: var(--space-2) var(--space-2);
+  background: var(--bg-soft);
+}
+.ledger tbody tr.action td.left, .ledger tbody tr.action th.left { text-align: left; }
+.ledger tbody tr.action .cluster { justify-content: flex-end; gap: var(--space-2); }
+
+/* .clickable — a row that navigates on click (pairs with JS or data-row-link).
+   Hover tint + pointer; keeps keyboard focus legible. */
+.ledger tbody tr.clickable { cursor: pointer; }
+.ledger tbody tr.clickable:hover td, .ledger tbody tr.clickable:hover th {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Row modifiers — subtle tint marks status across the whole row.
+   Status wins over .striped (set on both td and th to override per-cell stripe bg). */
+.ledger tbody tr.active   td, .ledger tbody tr.active   th { background: color-mix(in srgb, var(--accent)   8%, transparent); }
+.ledger tbody tr.positive td, .ledger tbody tr.positive th { background: color-mix(in srgb, var(--positive) 8%, transparent); }
+.ledger tbody tr.negative td, .ledger tbody tr.negative th { background: color-mix(in srgb, var(--negative) 8%, transparent); }
+
+/* .dotted — row disambiguation via a fine dotted stipple. A quieter, neutral
+   alternative to the solid .positive/.active tone fills: it sets one row apart —
+   a totals or summary line — so the eye lands on it without a colored wash that
+   would imply status. On a ledger row it stipples the cells; it also works as a
+   standalone fill on any block. Tune the dot colour with --dot. */
+.dotted,
+.ledger tbody tr.dotted {
+  background-image: radial-gradient(var(--dot, color-mix(in srgb, var(--text) 32%, transparent)) 0.5px, transparent 0.6px);
+  background-size: 4px 4px;
+}
+
+/* Dirty-state accent — yellow bar when the enclosing form is dirty */
+form[data-dirty="true"] .ledger tbody th,
+form[data-dirty="true"] .ledger thead th:first-child {
+  border-left-color: var(--warn);
+}
+
+/* .entry — explicit row class */
+.entry { border-bottom: var(--border) solid var(--rule-faint); }
+
+/* .ledger.sticky — header pins to top during scroll. Wrap in a scrolling container. */
+.ledger.sticky thead th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-raised);
+  background: var(--bg);
+}
+
+/* .ledger.striped — alternating row background for very long readouts. */
+.ledger.striped tbody tr:nth-child(even) td,
+.ledger.striped tbody tr:nth-child(even) th { background: var(--bg-soft); }
+
+/* .table-scroll — wrapper for genuinely-wide data tables (many columns) so they
+   scroll horizontally *inside their own box* instead of forcing the whole page
+   wider than the viewport. The table sizes to its content (max-content) so
+   columns aren't squished/clipped, but min-width:100% keeps it filling the
+   frame on wide viewports where no scroll is needed. overscroll-behavior keeps
+   a touch swipe from chaining to the page (no accidental back-navigation). */
+.table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.table-scroll > table { width: max-content; min-width: 100%; }
+
+/* .ledger.cols — pin the label column to a fixed width so separate stacked
+   ledgers align their value columns flush; labels wider than the column
+   truncate with an ellipsis. Override --label-w per page. */
+.ledger.cols { table-layout: fixed; }
+.ledger.cols th:first-child,
+.ledger.cols td:first-child {
+  width: var(--label-w, 6rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* .balance — totals row */
+.balance td, .balance th {
+  border-top: var(--border) solid var(--text);
+  font-weight: 700;
+  background: var(--bg-soft);
+}
+
+/* .manifest — list of items */
+.manifest {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: var(--border) solid var(--text);
+  border-bottom: var(--border) solid var(--text);
+}
+.manifest > li {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border) solid var(--rule-faint);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.manifest > li:last-child { border-bottom: 0; }
+
+/* .docket — schedule list */
+.docket {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.docket > li {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) 1fr;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: var(--border) dotted var(--rule);
+}
+.docket > li:last-child { border-bottom: 0; }
+.docket time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+/* ============================================================
+   STATUS AND ALERTS
+   ============================================================ */
+
+/* .signal — inline alert with left-border severity */
+.signal {
+  padding: var(--space-2) var(--space-3);
+  border-left: 4px solid var(--rule);
+  background: var(--bg-soft);
+  font-size: 0.9rem;
+}
+.signal.urgent   { border-left-color: var(--negative); background: color-mix(in srgb, var(--negative) 6%, var(--bg)); }
+.signal.priority { border-left-color: var(--warn);     background: color-mix(in srgb, var(--warn) 6%, var(--bg)); }
+.signal.routine  { border-left-color: var(--rule);     color: var(--text-2); }
+.signal.info     { border-left-color: var(--info);     background: color-mix(in srgb, var(--info) 6%, var(--bg)); }
+.signal.positive { border-left-color: var(--positive); background: color-mix(in srgb, var(--positive) 6%, var(--bg)); }
+/* Severity aliases — legacy high/medium/low vocabulary. DEPRECATED in v1, removed in v2.
+   Prefer .urgent / .priority / .routine (see COMPONENT-CATALOG.md "Class naming rules"). */
+.signal.high   { border-left-color: var(--negative); background: color-mix(in srgb, var(--negative) 6%, var(--bg)); }
+.signal.medium { border-left-color: var(--warn);     background: color-mix(in srgb, var(--warn) 6%, var(--bg)); }
+.signal.low    { border-left-color: var(--rule);     color: var(--text-2); }
+
+/* .dispatch — banner notice with right-border stripe */
+.dispatch {
+  padding: var(--space-3) var(--space-4);
+  border: var(--border) solid var(--text);
+  border-right-width: 6px;
+  border-right-color: var(--accent);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+}
+.dispatch.urgent   { border-right-color: var(--negative); }
+.dispatch.priority { border-right-color: var(--warn); }
+.dispatch.positive { border-right-color: var(--positive); }
+
+/* .status — single-line state */
+.status {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+.status::before {
+  content: "";
+  width: 0.5em;
+  height: 0.5em;
+  background: var(--muted);
+  display: inline-block;
+}
+.status.positive::before { background: var(--positive); }
+.status.negative::before { background: var(--negative); }
+.status.priority::before { background: var(--warn); }
+
+/* .condition — operational state badge. Shares vertical metrics with .button
+   (font-size 0.8rem, line-height 1.4, 0.2rem vertical padding) so badges and
+   buttons sitting in the same row line up at the same height. */
+.condition {
+  display: inline-block;
+  padding: 0.2rem var(--space-2);
+  border: var(--border) solid var(--text);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.condition.nominal  { background: color-mix(in srgb, var(--positive) 12%, var(--bg)); }
+.condition.degraded { background: color-mix(in srgb, var(--warn) 12%, var(--bg)); }
+.condition.offline  { background: color-mix(in srgb, var(--negative) 12%, var(--bg)); color: var(--negative); }
+
+/* ============================================================
+   FORMS
+   ============================================================ */
+
+/* .form */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* .field — label + input + help/error */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.field > label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+.field > .help { font-size: 0.85rem; color: var(--text-2); }
+
+/* .input */
+.input,
+input[type="text"].input, input[type="email"].input, input[type="password"].input,
+input[type="number"].input, input[type="search"].input, input[type="url"].input,
+input[type="tel"].input, input[type="date"].input, input[type="time"].input,
+textarea.input, select.input {
+  font: inherit;
+  font-family: var(--font-mono);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border) solid var(--text);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow-inset);
+  width: 100%;
+}
+.input:focus, .input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.input[aria-invalid="true"] {
+  border-color: var(--negative);
+  background: color-mix(in srgb, var(--negative) 4%, var(--bg));
+}
+.input:disabled { background: var(--bg-muted); color: var(--text-2); cursor: not-allowed; }
+textarea.input { min-height: 6em; resize: vertical; }
+
+/* .search — input with leading magnifier + trailing clear button.
+   <div class="search"><input class="input" type="search" placeholder="Search…"><button class="search-clear" type="button" aria-label="clear">×</button></div> */
+.search {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  width: 100%;
+}
+.search > .input {
+  padding-left: calc(var(--space-3) + 1rem);
+  padding-right: calc(var(--space-3) + 1rem);
+}
+.search::before {
+  content: "";
+  position: absolute;
+  left: var(--space-3);
+  top: 50%;
+  width: 12px; height: 12px;
+  transform: translateY(-50%);
+  background: var(--text-2);
+  -webkit-mask: radial-gradient(circle 4px at 4px 4px, transparent 95%, #000 96%) no-repeat, linear-gradient(45deg, transparent 60%, #000 60%, #000 75%, transparent 75%) no-repeat;
+  -webkit-mask-position: 0 0, 6px 6px;
+  mask: radial-gradient(circle 4px at 4px 4px, transparent 95%, #000 96%) no-repeat, linear-gradient(45deg, transparent 60%, #000 60%, #000 75%, transparent 75%) no-repeat;
+  mask-position: 0 0, 6px 6px;
+  pointer-events: none;
+}
+.search-clear {
+  position: absolute;
+  right: var(--space-2);
+  top: 50%;
+  transform: translateY(-50%);
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font-size: 1rem;
+  cursor: pointer;
+  color: var(--muted);
+  display: none;
+  padding: 0 var(--space-1);
+}
+.search-clear:hover { color: var(--text); }
+.search[data-has-value="true"] .search-clear { display: block; }
+
+/* .switch — checkbox styled as a toggle switch.
+   <label class="switch"><input type="checkbox" name="active"><span>Active</span></label> */
+.switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.switch > input[type="checkbox"] {
+  appearance: none;
+  width: 2.2rem;
+  height: 1.1rem;
+  background: var(--bg-muted);
+  border: var(--border) solid var(--text);
+  position: relative;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--dur-fast) var(--ease);
+}
+.switch > input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 1px; left: 1px;
+  width: calc(1.1rem - 4px);
+  height: calc(1.1rem - 4px);
+  background: var(--text);
+  transition: transform var(--dur) var(--ease);
+}
+.switch > input[type="checkbox"]:checked { background: var(--positive); }
+.switch > input[type="checkbox"]:checked::after { transform: translateX(1.1rem); background: var(--bg); }
+.switch > input[type="checkbox"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* .segmented — compact mutually-exclusive selector (radio-backed, no JS). A
+   lighter fit than a <select> for 2–4 options; the checked segment fills accent.
+   <div class="segmented">
+     <label><input type="radio" name="view" value="day" checked><span>Day</span></label>
+     <label><input type="radio" name="view" value="week"><span>Week</span></label>
+   </div> */
+.segmented {
+  display: inline-flex;
+  border: var(--border) solid var(--text);
+  border-radius: var(--radius);
+  overflow: hidden;
+  vertical-align: middle;
+}
+.segmented > label { display: inline-flex; margin: 0; }
+.segmented > label > input {
+  position: absolute; width: 1px; height: 1px;
+  opacity: 0; pointer-events: none;
+}
+.segmented > label > span {
+  display: block;
+  padding: 0.2rem var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 0.8rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.4;
+  color: var(--text-2); background: var(--bg);
+  cursor: pointer; white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.segmented > label + label > span { border-left: var(--border) solid var(--text); }
+.segmented > label > span:hover { background: var(--bg-soft); color: var(--text); }
+.segmented > label > input:checked + span { background: var(--accent); color: var(--bg); }
+.segmented > label > input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* .slider — styled range input. Sharp square thumb on a bordered track; the
+   filled portion uses --fill (default accent). press.js keeps --val (0–100) in
+   sync with the value so WebKit shows the fill (Firefox uses ::-moz-range-progress). */
+.slider {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 1.1rem; background: transparent; cursor: pointer;
+}
+.slider:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.slider::-webkit-slider-runnable-track {
+  height: 0.5rem;
+  border: var(--border) solid var(--text);
+  background: linear-gradient(to right, var(--fill, var(--accent)) calc(var(--val, 50) * 1%), var(--bg-muted) 0);
+}
+.slider::-moz-range-track {
+  height: 0.5rem; border: var(--border) solid var(--text); background: var(--bg-muted);
+}
+.slider::-moz-range-progress { height: 0.5rem; background: var(--fill, var(--accent)); }
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 1.05rem; height: 1.05rem; margin-top: calc((0.5rem - 1.05rem) / 2);
+  background: var(--bg); border: var(--border) solid var(--text); border-radius: 0; cursor: grab;
+}
+.slider::-moz-range-thumb {
+  width: 1.05rem; height: 1.05rem;
+  background: var(--bg); border: var(--border) solid var(--text); border-radius: 0; cursor: grab;
+}
+.slider:active::-webkit-slider-thumb { cursor: grabbing; }
+.slider:active::-moz-range-thumb { cursor: grabbing; }
+.slider:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* .fieldset — grouped form controls */
+.fieldset {
+  border: var(--border) solid var(--rule);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  margin: 0;
+}
+.fieldset > legend {
+  padding: 0 var(--space-2);
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* .input.currency — money input. Strip spinner, right-align, tabular nums.
+   Pair with data-cents (press.js) for cents-as-source-of-truth tracking. */
+.input.currency {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.input.currency::-webkit-outer-spin-button,
+.input.currency::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* .input-group — input with leading/trailing addon (currency, suffix, etc.) */
+.input-group {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+}
+.input-group > .input { border-radius: 0; flex: 1 1 auto; min-width: 0; }
+.input-group > .input-addon {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--space-3);
+  background: var(--bg-muted);
+  border: var(--border) solid var(--text);
+  color: var(--text-2);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+.input-group > .input-addon + .input { border-left: 0; }
+.input-group > .input + .input-addon { border-left: 0; }
+
+/* .button — canonical action button.
+   Aliases: .primary → .button.commit, .btn-small/.md-btn → .button.sm,
+   bare <button class="secondary"> → .button.secondary. Every variant shares
+   the same font-size, line-height and vertical padding, so any single-line
+   button in a tier renders at the exact same height — no min-height/flex
+   needed. inline-block (not flex) so inline whitespace around child <span>s
+   is preserved (e.g. "WITH <span>1</span> ITEM"). */
+.button, .primary, .btn-small, .md-btn, button.secondary {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  padding: 0.2rem var(--space-3);
+  border: var(--border) solid var(--text);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease);
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.button:hover, .primary:hover, .btn-small:hover, .md-btn:hover, button.secondary:hover {
+  background: var(--text);
+  color: var(--bg);
+}
+.button:active, .primary:active {
+  transform: translateY(1px);
+}
+.button:focus-visible, .primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.button:disabled, .button[aria-disabled="true"],
+.primary:disabled, .primary[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.button[aria-busy="true"], .primary[aria-busy="true"] { opacity: 0.6; cursor: progress; }
+
+/* Commit — accent fill. .primary is its alias. */
+.button.commit, .primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.button.commit:hover, .primary:hover { border-color: var(--text); }
+/* Commit is accent-colored; the default accent focus ring would vanish.
+   Use a contrasting inner ring instead. */
+.button.commit:focus-visible, .primary:focus-visible { outline-color: var(--bg); outline-offset: -4px; }
+
+/* Revoke — negative outline → fill on hover */
+.button.revoke { color: var(--negative); border-color: var(--negative); }
+.button.revoke:hover { background: var(--negative); color: var(--bg); }
+
+/* Secondary — muted neutral. Bare <button class="secondary"> aliases it. */
+.button.secondary, button.secondary { background: var(--bg-soft); color: var(--text-2); border-color: var(--rule); box-shadow: none; }
+.button.secondary:hover, button.secondary:hover { background: var(--bg-muted); color: var(--text); border-color: var(--text); }
+
+/* Success morph — flash ✓ green after a committed action. press.js adds .is-done
+   to a [data-done] button after a successful htmx request; or toggle it yourself.
+   Placed after the variants so it overrides .commit / .primary / .secondary fills. */
+.button.is-done, .primary.is-done,
+.button.is-done:hover, .primary.is-done:hover {
+  background: var(--positive); border-color: var(--positive); color: var(--bg);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.button.is-done::before, .primary.is-done::before { content: "✓ "; }
+
+/* Size variants. .btn-small/.md-btn alias .sm. Colors carry through. */
+.button.sm, .btn-small, .md-btn {
+  padding: 2px var(--space-2);
+  font-size: 0.75rem;
+  box-shadow: none;
+}
+.button.lg {
+  padding: var(--space-3) var(--space-5);
+  font-size: 1rem;
+}
+
+/* Buttons inside .ledger / .product-edit cells auto-tighten — slim, flat, no
+   shadow — so action cells don't break the row rhythm. Matches .sm geometry. */
+.ledger .button, .ledger .primary,
+.product-edit .button, .product-edit .primary {
+  padding: 2px var(--space-2);
+  font-size: 0.75rem;
+  box-shadow: none;
+}
+
+/* ============================================================
+   LAYOUT PRIMITIVES
+   ============================================================ */
+
+/* .stack */
+.stack { display: flex; flex-direction: column; gap: var(--space-3); }
+.stack.tight { gap: var(--space-2); }
+.stack.loose { gap: var(--space-5); }
+
+/* .cluster */
+.cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* .grid */
+.grid {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+}
+
+/* .frame */
+.frame {
+  padding: var(--space-4);
+  border: var(--border) solid var(--text);
+  background: var(--bg);
+}
+
+/* .sidebar */
+.sidebar {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: minmax(12rem, 16rem) 1fr;
+}
+@media (max-width: 48rem) {
+  .sidebar { grid-template-columns: 1fr; }
+  /* Tighter page gutter on narrow viewports so content tables/forms get the
+     full width instead of being squeezed by the desktop margin. */
+  .deck { padding-left: var(--space-3); padding-right: var(--space-3); }
+}
+
+/* ============================================================
+   VALUES AND EMPHASIS
+   ============================================================ */
+
+.credit   { color: var(--positive); font-variant-numeric: tabular-nums; }
+.debit    { color: var(--negative); font-variant-numeric: tabular-nums; }
+.positive { color: var(--positive); }
+.negative { color: var(--negative); }
+.numeric  { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.muted    { color: var(--muted); }
+.data     {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.85rem;
+  color: var(--text-2);
+}
+.code {
+  font-family: var(--font-mono);
+  background: var(--bg-muted);
+  padding: 0 0.3em;
+  border: var(--border) solid var(--rule-faint);
+}
+
+/* ============================================================
+   COMPONENTS
+   ============================================================ */
+
+/* .panel */
+.panel {
+  border: var(--border) solid var(--text);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  padding: var(--space-4);
+}
+.panel > .heading:first-child {
+  margin: calc(var(--space-4) * -1) calc(var(--space-4) * -1) var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--border) solid var(--text);
+  background: var(--bg-soft);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* .tag — static label */
+.tag {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border: var(--border) solid var(--rule);
+  border-radius: var(--radius-pill);
+  font-size: 0.8rem;
+  background: var(--bg-soft);
+  color: var(--text-2);
+  line-height: 1.6;
+}
+.tag.numeric { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.tag.dark { background: var(--text); color: var(--bg); border-color: var(--text); }
+.tag.positive { color: var(--positive); border-color: var(--positive); }
+.tag.negative { color: var(--negative); border-color: var(--negative); }
+.tag.priority { color: var(--warn);     border-color: var(--warn); }
+.tag.info     { color: var(--info);     border-color: var(--info); }
+
+/* .chip — interactive label (removable, form-friendly).
+   Differs from .tag by being clickable, having a remove affordance,
+   and living inside .chip-list groups. */
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: var(--border) solid var(--text);
+  background: var(--bg);
+  font-size: 0.85rem;
+  line-height: 1.3;
+  cursor: default;
+}
+.chip > button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 0 0 var(--space-1);
+  color: var(--text-2);
+  line-height: 1;
+}
+.chip > button:hover { color: var(--negative); }
+.chip.active { background: var(--text); color: var(--bg); }
+@keyframes chip-in { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.chip.is-in { animation: chip-in 0.16s var(--ease); }
+
+/* .tags — token / multi-value input. A field-styled .chip-list with a bare
+   input; press.js turns type+Enter (or comma) into a .chip and Backspace on an
+   empty input removes the last. Set data-name to submit a comma-joined value.
+   <div class="tags" data-name="sizes"><span class="chip">S<button type="button">×</button></span><input class="tags-input" placeholder="Add size…"></div> */
+.tags {
+  display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center;
+  font-family: var(--font-mono);
+  padding: calc(var(--space-2) - 0.1rem) var(--space-3);
+  border: var(--border) solid var(--text);
+  border-radius: var(--radius);
+  background: var(--bg); color: var(--text);
+  box-shadow: var(--shadow-inset);
+  width: 100%; cursor: text;
+}
+.tags:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tags > .tags-input {
+  flex: 1 1 8ch; min-width: 8ch;
+  border: 0; background: transparent; color: inherit;
+  font: inherit; font-family: var(--font-mono);
+  padding: var(--space-1) 0; outline: none;
+}
+.tags > .tags-input::placeholder { color: var(--muted); }
+
+/* .handle — grip affordance for sortable rows / items.
+   Combine with [data-sortable] [data-handle=".handle"] on the list. */
+.handle {
+  cursor: grab;
+  user-select: none;
+  color: var(--muted);
+  padding: 0 var(--space-2);
+  font-family: var(--font-mono);
+  line-height: 1;
+}
+.handle::before { content: "\2807"; }   /* ⠇ braille handle glyph */
+.handle:active { cursor: grabbing; }
+.handle:hover { color: var(--text-2); }
+
+/* .action-card — clickable nav tile (dashboard quick-action grid).
+   <a href="…" class="action-card"><strong>New post</strong><span>Write content</span></a> */
+.action-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: var(--border) solid var(--text);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  color: var(--text);
+  text-decoration: none;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.action-card:hover { background: var(--bg-soft); transform: translate(-1px, -1px); box-shadow: 3px 3px var(--rule); }
+.action-card:active { transform: translate(2px, 2px); box-shadow: none; }
+.action-card strong { font-weight: 700; font-size: 1rem; }
+.action-card span   { font-size: 0.85rem; color: var(--text-2); }
+
+/* .readout — KPI tile. Big value, small label above.
+   <div class="readout"><span class="readout-label">today</span><span class="readout-value">12.3 kWh</span></div> */
+.readout {
+  border: var(--border) solid var(--text);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.readout-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+  font-weight: 600;
+}
+.readout-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.readout-unit { font-size: 0.85rem; color: var(--text-2); margin-left: var(--space-1); }
+.readout.positive .readout-value { color: var(--positive); }
+.readout.negative .readout-value { color: var(--negative); }
+.readout.tight .readout-value { font-size: 1.45rem; line-height: 1; }
+.readout.tight .readout-label { font-size: 0.7rem; }
+
+/* .toast */
+#toasts {
+  position: fixed;
+  bottom: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  z-index: var(--z-toast);
+  pointer-events: none;
+}
+.toast {
+  position: relative;
+  overflow: hidden;
+  background: var(--text);
+  color: var(--bg);
+  padding: var(--space-2) var(--space-4);
+  border: var(--border) solid var(--text);
+  box-shadow: var(--shadow-strong);
+  pointer-events: auto;
+  font-size: 0.9rem;
+  min-width: 12rem;
+}
+/* Auto-dismiss countdown bar — press.js sets --toast-dur from data-duration. */
+.toast::after {
+  content: "";
+  position: absolute;
+  left: 0; bottom: 0;
+  height: 2px; width: 100%;
+  background: var(--bg); opacity: 0.45;
+  transform-origin: left;
+  animation: toast-bar var(--toast-dur, 4000ms) linear forwards;
+}
+@keyframes toast-bar { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+/* .gauge — progress / fill bar
+   Fill color is overridable inline: <div class="gauge" style="--fill: #0063e5">
+   Track color is overridable too: --track. */
+.gauge {
+  --fill: var(--text-2);
+  --track: var(--bg-muted);
+  height: 0.5rem;
+  border: var(--border) solid var(--text);
+  background: var(--track);
+  position: relative;
+  overflow: hidden;
+}
+.gauge > .fill {
+  height: 100%;
+  background: var(--fill);
+  transition: width var(--dur) var(--ease);
+}
+.gauge.positive { --fill: var(--positive); }
+.gauge.negative { --fill: var(--negative); }
+.gauge.complete { --fill: var(--positive); }
+.gauge.accent   { --fill: var(--accent); }
+.gauge.thin     { height: 6px; }
+
+/* .gauge.arc — semicircular arc gauge. Renders an inline SVG via press.js.
+   <div class="gauge arc" style="--value: 65; --fill: var(--cad-emerald)"></div>
+   --value: 0..100. --thickness: stroke width in viewBox units (default 10). */
+.gauge.arc, .gauge.dial {
+  --value: 0;
+  --track: var(--bg-muted);
+  --fill: var(--text-2);
+  display: inline-block;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+  height: auto;
+  vertical-align: middle;
+}
+.gauge.arc  { width: 7rem; aspect-ratio: 100 / 70; }
+.gauge.dial { width: 4rem;  aspect-ratio: 1 / 1; }
+.gauge.arc > svg, .gauge.dial > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+.gauge.arc .track, .gauge.dial .track {
+  fill: none;
+  stroke: var(--track);
+}
+.gauge.arc .fill, .gauge.dial .fill {
+  /* `.fill` here is an SVG element, not the bar's child div — scope wins via specificity. */
+  fill: none;
+  stroke: var(--fill);
+  stroke-linecap: butt;
+  transition: stroke-dasharray var(--dur) var(--ease);
+}
+.gauge.arc .tick, .gauge.dial .tick {
+  stroke: var(--text-2);
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.85;
+}
+.gauge.arc .tick.major, .gauge.dial .tick.major {
+  stroke: var(--text);
+  stroke-width: 2;
+  opacity: 1;
+}
+.gauge.arc .needle, .gauge.dial .needle {
+  stroke: var(--text);
+  stroke-width: 1.6;
+  vector-effect: non-scaling-stroke;
+  stroke-linecap: round;
+}
+.gauge.arc .pivot, .gauge.dial .pivot {
+  fill: var(--text);
+}
+.gauge.arc .label {
+  fill: var(--text);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 18px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+.gauge.dial .label {
+  fill: var(--text);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 22px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+.gauge.arc .label-unit, .gauge.dial .label-unit {
+  fill: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  text-anchor: middle;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.gauge.dial .label-unit { font-size: 9px; }
+
+/* .tally — labeled bar row. Three direct children:
+   <div class="tally">
+     <span class="tally-label">category</span>
+     <div class="gauge" style="--fill: var(--cad-cobalt)"><div class="fill" style="width: 60%"></div></div>
+     <span class="tally-amt">$1,234.56</span>
+   </div> */
+.tally {
+  display: grid;
+  grid-template-columns: minmax(6rem, 12rem) 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: var(--border) solid var(--rule-faint);
+}
+.tally:last-child { border-bottom: 0; }
+.tally-label {
+  font-weight: 600;
+  line-height: var(--line-tight);
+}
+.tally-amt {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  font-size: 0.9rem;
+  text-align: right;
+  white-space: nowrap;
+}
+/* Legacy: .tally-value wrapping gauge + amt (kept for backwards-compat). */
+.tally > .tally-value {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  grid-column: span 2;
+}
+
+/* .empty */
+.empty {
+  padding: var(--space-6);
+  text-align: center;
+  color: var(--text-2);
+  border: var(--border) dashed var(--rule);
+}
+
+/* .skeleton */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-muted) 0%, var(--rule-faint) 50%, var(--bg-muted) 100%);
+  background-size: 200% 100%;
+  animation: skeleton 1.2s linear infinite;
+  color: transparent;
+  border-radius: 0;
+}
+@keyframes skeleton { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* .dot — small status indicator. Standalone primitive (used inline, in lists, in nav).
+   <span class="dot positive"></span> nominal */
+.dot {
+  display: inline-block;
+  width: 0.5em;
+  height: 0.5em;
+  background: var(--muted);
+  vertical-align: 0.05em;
+  margin-right: var(--space-1);
+  flex-shrink: 0;
+}
+.dot.positive { background: var(--positive); }
+.dot.negative { background: var(--negative); }
+.dot.priority { background: var(--warn); }
+.dot.info     { background: var(--info); }
+.dot.pulse {
+  position: relative;
+}
+.dot.pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: inherit;
+  opacity: 0.6;
+  animation: dot-pulse 1.5s ease-out infinite;
+}
+@keyframes dot-pulse { to { transform: scale(2.2); opacity: 0; } }
+
+/* .avatar — initials circle (or image). Default 32px, .sm (20px), .lg (48px). */
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  background: var(--bg-muted);
+  color: var(--text-2);
+  border: var(--border) solid var(--rule);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.avatar.sm { width: 20px; height: 20px; font-size: 0.65rem; }
+.avatar.lg { width: 48px; height: 48px; font-size: 1rem; }
+
+/* .kbd — explicit keycap rendering (also auto-applied to <kbd> tag) */
+kbd, .kbd {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  padding: 0 var(--space-1);
+  background: var(--bg);
+  border: var(--border) solid var(--rule);
+  border-bottom-width: 2px;
+  color: var(--text);
+  line-height: 1.4;
+  vertical-align: 0.05em;
+}
+
+/* .diff — before/after change display.
+   <div class="diff">
+     <div class="diff-before">old value</div>
+     <div class="diff-after">new value</div>
+   </div>
+   or inline: <span class="diff-removed">old</span><span class="diff-added">new</span> */
+.diff {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-1);
+  border: var(--border) solid var(--rule);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+}
+.diff-before, .diff-after {
+  padding: var(--space-2) var(--space-3);
+}
+.diff-before { background: color-mix(in srgb, var(--negative) 6%, var(--bg)); color: var(--negative); }
+.diff-after  { background: color-mix(in srgb, var(--positive) 6%, var(--bg)); color: var(--positive); }
+.diff-before::before { content: "− "; color: var(--negative); font-weight: 700; }
+.diff-after::before  { content: "+ "; color: var(--positive); font-weight: 700; }
+
+.diff-removed { background: color-mix(in srgb, var(--negative) 12%, var(--bg)); color: var(--negative); text-decoration: line-through; padding: 0 var(--space-1); }
+.diff-added   { background: color-mix(in srgb, var(--positive) 12%, var(--bg)); color: var(--positive); padding: 0 var(--space-1); }
+
+/* .spark — tiny inline SVG sparkline container */
+.spark {
+  display: inline-block;
+  width: 6rem;
+  height: 1.2rem;
+  vertical-align: middle;
+}
+.spark svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.spark path, .spark polyline { fill: none; stroke: var(--text); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+.spark.positive path, .spark.positive polyline { stroke: var(--positive); }
+.spark.negative path, .spark.negative polyline { stroke: var(--negative); }
+
+/* .plot — XY scatter / zone chart. Bring the SVG geometry (positions, paths);
+   PRESS styles the parts. Same "bring your own SVG" model as .spark.
+   Element classes inside the svg:
+     .area    plot-area fill — anchors the field so it doesn't read as blank
+     .grid    gridlines                 .axis   x/y baselines
+     .zone    filled target region      .region outlined emphasis region
+     .guide   dashed droplines to a datum
+     .marker  reference crosshair (stroke only, no fill)
+     .point   plotted datum — set the fill via .accent/.positive/.warn/.negative or inline fill=…
+     .label   tick numbers              .title  axis titles
+     .value   datum readout label
+   <div class="plot"><svg viewBox="0 0 340 230"> … </svg></div> */
+.plot { display: block; width: 100%; }
+.plot svg { display: block; width: 100%; height: auto; overflow: visible; font-family: var(--font-mono); }
+.plot .area   { fill: var(--bg-soft); }
+.plot .grid   { stroke: var(--rule-faint); stroke-width: 1; }
+.plot .axis   { stroke: var(--text); stroke-width: 1; }
+.plot .zone   { fill: color-mix(in srgb, var(--positive) 12%, transparent); stroke: var(--positive); stroke-dasharray: 4 3; }
+.plot .region { fill: none; stroke: var(--accent); stroke-width: 1; stroke-dasharray: 2 2; opacity: 0.8; }
+.plot .guide  { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.6; }
+.plot .marker { fill: none; stroke: var(--positive); stroke-width: 1; }
+.plot .point  { stroke: var(--bg); stroke-width: 1.5; }
+.plot .point.accent   { fill: var(--accent); }
+.plot .point.positive { fill: var(--positive); }
+.plot .point.warn     { fill: var(--warn); }
+.plot .point.negative { fill: var(--negative); }
+/* Connected line + soft area fill for line/area charts (bring your own SVG
+   path geometry; PRESS colours it via tokens so it adapts to dark mode). */
+.plot .line   { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.plot .line.positive { stroke: var(--positive); }
+.plot .line.negative { stroke: var(--negative); }
+.plot .line.warn     { stroke: var(--warn); }
+.plot .fill          { fill: color-mix(in srgb, var(--accent) 11%, transparent); stroke: none; }
+.plot .fill.positive { fill: color-mix(in srgb, var(--positive) 11%, transparent); }
+.plot .fill.negative { fill: color-mix(in srgb, var(--negative) 11%, transparent); }
+.plot .fill.warn     { fill: color-mix(in srgb, var(--warn) 11%, transparent); }
+.plot .label  { fill: var(--text-2); font-size: 8px; }
+.plot .title  { fill: var(--text-2); font-size: 8px; }
+.plot .value  { fill: var(--text); font-size: 8px; font-weight: 600; }
+
+/* Global progress bar — top-of-page indicator during HTMX requests */
+.progress-bar {
+  position: fixed;
+  top: 0; left: 0;
+  height: 2px;
+  background: var(--accent);
+  width: 0;
+  z-index: var(--z-toast);
+  transition: width 200ms var(--ease), opacity 200ms var(--ease);
+  pointer-events: none;
+}
+.progress-bar.active { opacity: 1; }
+.progress-bar.done   { opacity: 0; }
+
+/* .dirty-banner — fixed "unsaved changes" notice.
+   Shown only when an ancestor form has data-dirty="true" (handled by press.js).
+   Pinned to the very top of the viewport, OVER the page header (.bridge), so the
+   save action is always visible and reachable the moment a form goes dirty —
+   regardless of where the banner sits in the form's markup (top or bottom) or
+   how far the user has scrolled. (Was position:sticky, which left it below the
+   header at scroll-top and buried at the bottom of long forms.)
+   <form data-guard data-dirty="false">
+     <div class="dirty-banner">Unsaved changes</div>
+     …
+   </form> */
+.dirty-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: var(--z-overlay);
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: var(--warn);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: var(--border) solid var(--text);
+}
+[data-dirty="true"] .dirty-banner,
+[data-dirty="true"] > .dirty-banner { display: flex; }
+
+/* .tabs / .tab / .tab-panel — tabbed view (paired with data-tab behavior) */
+.tabs {
+  display: flex;
+  border-bottom: var(--border) solid var(--rule);
+  margin-bottom: var(--space-4);
+  gap: var(--space-1);
+}
+.tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.tab:hover { color: var(--text); background: var(--bg-soft); }
+.tab.active, .tab[aria-selected="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.tab-panel { display: none; }
+.tab-panel.active, .tab-panel[aria-hidden="false"] { display: block; }
+
+/* .help-text / .help — small caption text under fields or near controls */
+.help-text, .help {
+  font-size: 0.85rem;
+  color: var(--text-2);
+  margin-top: var(--space-1);
+  display: block;
+}
+
+/* .notice — inline message near a form/control. Borderless, just colored text.
+   Variants: .positive, .negative, .priority. Use .signal for boxed alerts. */
+.notice {
+  font-size: 0.9rem;
+  color: var(--text-2);
+  display: block;
+}
+.notice.positive { color: var(--positive); font-weight: 500; }
+.notice.negative { color: var(--negative); font-weight: 500; }
+.notice.priority { color: var(--warn);     font-weight: 500; }
+
+/* .alert — alias of .signal (tinycrate legacy). Same shape, different name. */
+.alert { padding: var(--space-2) var(--space-3); border-left: 4px solid var(--rule); background: var(--bg-soft); font-size: 0.9rem; }
+.alert.urgent   { border-left-color: var(--negative); background: color-mix(in srgb, var(--negative) 6%, var(--bg)); }
+.alert.priority { border-left-color: var(--warn);     background: color-mix(in srgb, var(--warn) 6%, var(--bg)); }
+.alert.routine  { border-left-color: var(--rule);     color: var(--text-2); }
+
+/* .steps / .step — wizard/stepper. <ol class="steps"><li class="step"><span class="step-number">1</span>Customer</li>…</ol> */
+.steps {
+  list-style: none;
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.9rem;
+  color: var(--text-2);
+}
+.step + .step::before {
+  content: "→";
+  color: var(--muted);
+  margin-right: var(--space-2);
+}
+.step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem; height: 1.4rem;
+  border: var(--border) solid var(--rule);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.step.active { color: var(--text); font-weight: 600; }
+.step.active .step-number { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.step.done   { color: var(--text-2); }
+.step.done .step-number { background: var(--positive); color: var(--bg); border-color: var(--positive); }
+
+/* .menu — popover menu (paired with data-menu behavior).
+   <button data-menu="my-menu" class="button">⋯</button>
+   <div class="menu" id="my-menu"><a href="…">Edit</a><a href="…">Delete</a></div> */
+.menu {
+  display: none;
+  position: absolute;
+  z-index: var(--z-overlay);
+  background: var(--bg);
+  border: var(--border) solid var(--text);
+  box-shadow: var(--shadow-strong);
+  min-width: 10rem;
+  padding: var(--space-1) 0;
+  font-size: 0.9rem;
+}
+.menu.open { display: block; }
+.menu a, .menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-1) var(--space-3);
+  color: var(--text);
+  text-decoration: none;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.menu a:hover, .menu button:hover { background: var(--bg-soft); }
+.menu hr { margin: var(--space-1) 0; border: 0; border-top: var(--border) solid var(--rule-faint); }
+.menu .revoke { color: var(--negative); }
+
+/* .thumb — constrained image with border. Composes for product/variant/media.
+   Sizes: default 80px, .sm (40px), .lg (160px). Modifier: .empty (placeholder). */
+.thumb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border: var(--border) solid var(--rule);
+  background: var(--bg-soft);
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb.sm { width: 40px; height: 40px; }
+.thumb.lg { width: 160px; height: 160px; }
+.thumb.empty {
+  background-image: linear-gradient(45deg, var(--bg-muted) 25%, transparent 25%, transparent 75%, var(--bg-muted) 75%),
+                    linear-gradient(45deg, var(--bg-muted) 25%, transparent 25%, transparent 75%, var(--bg-muted) 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 6px 6px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.thumb-grid {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+}
+
+/* .qty — quantity stepper. <div class="qty"><button class="qty-dec">−</button><input class="qty-value" value="1"><button class="qty-inc">+</button></div> */
+.qty {
+  display: inline-flex;
+  align-items: stretch;
+  border: var(--border) solid var(--text);
+  background: var(--bg);
+  height: 2rem;
+}
+.qty-dec, .qty-inc {
+  appearance: none;
+  background: var(--bg-soft);
+  border: 0;
+  width: 2rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text);
+}
+.qty-dec:hover, .qty-inc:hover { background: var(--text); color: var(--bg); }
+.qty-value {
+  width: 3rem;
+  text-align: center;
+  border: 0;
+  border-left: var(--border) solid var(--rule);
+  border-right: var(--border) solid var(--rule);
+  background: var(--bg);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.qty-value::-webkit-outer-spin-button,
+.qty-value::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.qty-value:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* .upload — file upload preview tile (paired with data-upload behavior).
+   <label class="upload" data-upload="/upload-url" data-name="image">
+     <input type="file" hidden>
+     <span class="upload-preview"><img src="…"></span>  OR  <span class="upload-empty">Add image</span>
+     <button type="button" class="upload-remove" aria-label="remove">×</button>
+   </label> */
+.upload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  border: var(--border) solid var(--rule);
+  background: var(--bg-soft);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.upload:hover { border-color: var(--text); }
+.upload.lg { width: 160px; height: 80px; }
+.upload-preview, .upload-empty {
+  width: 100%; height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.upload-preview img { width: 100%; height: 100%; object-fit: cover; }
+.upload-empty {
+  color: var(--text-2);
+  font-size: 0.8rem;
+  flex-direction: column;
+  gap: var(--space-1);
+  text-align: center;
+  padding: var(--space-2);
+}
+.upload-empty::before { content: "+"; font-size: 1.4rem; font-weight: 600; color: var(--muted); }
+.upload-remove {
+  position: absolute;
+  top: 2px; right: 2px;
+  width: 18px; height: 18px;
+  padding: 0;
+  border: 0;
+  background: rgba(0,0,0,0.55);
+  color: #fff;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.upload:hover .upload-remove { opacity: 1; }
+
+/* .drawer — non-modal side panel (paired with data-drawer behavior).
+   <button data-drawer="settings">Open</button>
+   <aside id="settings" class="drawer right">…</aside>
+   Variants: .right (default), .left, .bottom. */
+.drawer {
+  position: fixed;
+  background: var(--bg);
+  color: var(--text);
+  border: var(--border) solid var(--text);
+  box-shadow: var(--shadow-strong);
+  padding: var(--space-4);
+  z-index: var(--z-overlay);
+  visibility: hidden;
+  overflow: auto;
+  transition: transform var(--dur) var(--ease), visibility 0s linear var(--dur);
+}
+.drawer.right  { top: 0; right: 0; bottom: 0; width: min(24rem, 90vw); transform: translateX(100%); }
+.drawer.left   { top: 0; left: 0;  bottom: 0; width: min(24rem, 90vw); transform: translateX(-100%); }
+.drawer.bottom { left: 0; right: 0; bottom: 0; height: min(20rem, 80vh); transform: translateY(100%); }
+.drawer.open {
+  visibility: visible;
+  transform: none;
+  transition: transform var(--dur) var(--ease);
+}
+
+/* .terminal / .console — preformatted CRT-style scrollback.
+   <pre class="terminal">…</pre> or <div class="console">…</div>
+   Inline level spans: .log-info, .log-warn, .log-error, .log-ok, .prompt. */
+.terminal, .console {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.45;
+  background: var(--cockpit-black);
+  color: #c8c8c8;
+  padding: var(--space-3) var(--space-4);
+  border: var(--border) solid var(--text);
+  box-shadow: var(--shadow);
+  overflow: auto;
+  max-height: 24rem;
+  white-space: pre;
+  tab-size: 2;
+  margin: 0;
+}
+.terminal .log-info,  .console .log-info  { color: #7CB7FF; }
+.terminal .log-warn,  .console .log-warn  { color: var(--caution-amber); }
+.terminal .log-error, .console .log-error { color: #FF6B5C; }
+.terminal .log-ok,    .console .log-ok    { color: var(--nvg-green); }
+.terminal .log-muted, .console .log-muted { color: #6A6A6A; }
+.terminal .prompt::before, .console .prompt::before { content: "$ "; color: var(--nvg-green); }
+
+/* .fold — clip long content with show-more toggle (paired with data-press init).
+   <div class="fold">…long content…</div>
+   Press injects a .fold-toggle button after the element when content overflows. */
+.fold {
+  max-height: 8em;
+  overflow: hidden;
+  position: relative;
+  transition: max-height var(--dur) var(--ease);
+}
+.fold:not(.open)::after {
+  content: "";
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2.5em;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+}
+.fold.open { max-height: 80vh; overflow: auto; }
+.fold-toggle {
+  display: inline-block;
+  margin-top: var(--space-2);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--link);
+  text-decoration: underline;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.fold-toggle:hover { color: var(--text); }
+
+/* .tree — file-tree / nested collapse using native <details>.
+   <ul class="tree">
+     <li><details open><summary>config/</summary>
+       <ul><li>app.toml</li></ul>
+     </details></li>
+   </ul> */
+.tree, .tree ul {
+  list-style: none;
+  margin: 0;
+  padding-left: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+.tree { padding-left: 0; }
+.tree li { position: relative; }
+.tree details > summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  user-select: none;
+}
+.tree details > summary::-webkit-details-marker { display: none; }
+.tree details > summary::marker { content: ""; }
+.tree details > summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 1ch;
+  color: var(--muted);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.tree details[open] > summary::before { content: "▾"; }
+.tree details > summary:hover { color: var(--link); }
+.tree li.active { color: var(--accent); font-weight: 600; }
+
+/* Sortable visual states (paired with SortableJS via press.js) */
+.sortable-ghost { opacity: 0; }
+.sortable-ghost td, .sortable-ghost th {
+  background: var(--bg-soft) !important;
+  background-image: radial-gradient(circle, var(--rule) 0.5px, transparent 0.5px) !important;
+  background-size: 3px 3px !important;
+  color: transparent !important;
+}
+.sortable-ghost td > *, .sortable-ghost th > * { visibility: hidden; }
+.sortable-drag {
+  background: var(--bg);
+  box-shadow: var(--shadow-strong);
+}
+
+/* .divider */
+.divider {
+  border: 0;
+  border-top: var(--border) solid var(--rule);
+  margin: var(--space-4) 0;
+}
+.divider.dashed { border-top-style: dashed; }
+.divider.dotted { border-top-style: dotted; }
+
+/* ============================================================
+   MICRO-UI — teeny loaders, tips, and feedback.
+   Instrument-grade motion only: square corners, hairline borders,
+   no blur. Every animated piece is turned off in the reduced-motion
+   block below. Colors come from variables, so dark mode retints free.
+   ============================================================ */
+
+/* .spinner — 6×6 grid of tiny dots with a diagonal shimmer sweeping across.
+   <span class="spinner"></span>  ·  .sm / .lg size variants. The dots are a
+   tiled radial-gradient; a moving mask band dims the dots outside it, so the
+   highlight scans the grid. Recolor with --fill (defaults to accent). */
+.spinner {
+  display: inline-block;
+  width: 0.9em; height: 0.9em;
+  vertical-align: -0.1em;
+  flex-shrink: 0;
+  background-image: radial-gradient(circle, var(--fill, var(--accent)) 0 24%, transparent 30%);
+  background-size: 16.667% 16.667%;
+  -webkit-mask-image: linear-gradient(115deg, rgba(0,0,0,0.4) 30%, #000 50%, rgba(0,0,0,0.4) 70%);
+          mask-image: linear-gradient(115deg, rgba(0,0,0,0.4) 30%, #000 50%, rgba(0,0,0,0.4) 70%);
+  -webkit-mask-size: 280% 280%;
+          mask-size: 280% 280%;
+  animation: shimmer-grid 1.3s ease-in-out infinite;
+}
+.spinner.sm { width: 0.7em; height: 0.7em; }
+.spinner.lg { width: 1.4em; height: 1.4em; }
+@keyframes shimmer-grid {
+  0%, 100% { -webkit-mask-position: 100% 100%; mask-position: 100% 100%; }
+  50%      { -webkit-mask-position: 0% 0%;     mask-position: 0% 0%; }
+}
+
+/* .spinner.braille — inline braille spinner for text-adjacent "Saving…" copy.
+   Pure CSS: a ::before cycles braille frames. Rides currentColor (or --fill),
+   so it sits next to a label rather than reading as a block like .spinner. */
+.spinner.braille {
+  width: auto; height: auto;
+  background: none;
+  -webkit-mask: none; mask: none;
+  vertical-align: baseline;
+  color: var(--fill, currentColor);
+  animation: none;
+}
+.spinner.braille::before {
+  content: "⠋";
+  animation: braille-spin 1s steps(1) infinite;
+}
+@keyframes braille-spin {
+  0%{content:"⠋"} 10%{content:"⠙"} 20%{content:"⠹"} 30%{content:"⠸"} 40%{content:"⠼"}
+  50%{content:"⠴"} 60%{content:"⠦"} 70%{content:"⠧"} 80%{content:"⠇"} 90%{content:"⠏"}
+}
+
+/* Auto-spinner inside busy buttons — same shimmer grid, riding currentColor
+   so it reads on filled buttons. HTMX sets [aria-busy] during a request. */
+.button[aria-busy="true"]::before, .primary[aria-busy="true"]::before {
+  content: "";
+  display: inline-block;
+  width: 0.8em; height: 0.8em;
+  margin-right: 0.4em;
+  vertical-align: -0.05em;
+  background-image: radial-gradient(circle, currentColor 0 24%, transparent 30%);
+  background-size: 16.667% 16.667%;
+  -webkit-mask-image: linear-gradient(115deg, rgba(0,0,0,0.4) 30%, #000 50%, rgba(0,0,0,0.4) 70%);
+          mask-image: linear-gradient(115deg, rgba(0,0,0,0.4) 30%, #000 50%, rgba(0,0,0,0.4) 70%);
+  -webkit-mask-size: 280% 280%;
+          mask-size: 280% 280%;
+  animation: shimmer-grid 1.3s ease-in-out infinite;
+}
+
+/* .dots — sequential ellipsis for "processing…" in terminal/log copy.
+   <span>Working<span class="dots"></span></span> */
+.dots::after {
+  content: "";
+  animation: dots 1.2s steps(1) infinite;
+}
+@keyframes dots {
+  0%   { content: ""; }
+  25%  { content: "."; }
+  50%  { content: ".."; }
+  75%  { content: "..."; }
+}
+
+/* .bar — inline progress track. Determinate: nest a .fill with a width.
+   <div class="bar"><span class="fill" style="width:60%"></span></div>
+   Indeterminate: add .indeterminate (a segment sweeps the track). */
+.bar {
+  display: block;
+  width: 100%;
+  height: 0.4rem;
+  background: var(--bg-muted);
+  border: var(--border) solid var(--rule);
+  overflow: hidden;
+  position: relative;
+}
+.bar > .fill {
+  display: block;
+  height: 100%;
+  background: var(--fill, var(--accent));
+  transition: width var(--dur) var(--ease);
+}
+.bar.indeterminate > .fill { display: none; }
+.bar.indeterminate::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; height: 100%; width: 33%;
+  background: var(--fill, var(--accent));
+  animation: bar-slide 1.1s var(--ease) infinite;
+}
+@keyframes bar-slide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(400%); }
+}
+
+/* .shadebar — progress drawn as monospace shade glyphs (░▒▓█) over a faint
+   block. press.js writes the glyph row: determinate fills solid (█) up to
+   --val% over a ░ track; indeterminate sends a bright ▒▓█ comet scanning
+   across the track (rewritten each frame). Recolour with --fill (defaults to
+   accent); set data-glyph for a different track glyph, data-tail to lengthen
+   the comet, or write your own glyph row for a static bar. The faint block
+   sits underneath the glyphs, so the brighter shade chars read as scanning
+   over it.
+     <span class="shadebar indeterminate"></span>                loading scan
+     <span class="shadebar determinate" style="--val:60"></span>  progress */
+.shadebar {
+  display: block;
+  width: 100%;
+  height: 1.5em;               /* bar height — scale with font-size */
+  overflow: hidden;
+  white-space: nowrap;
+  line-height: 1.5;
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  color: var(--fill, var(--accent));
+  background: color-mix(in srgb, var(--fill, var(--accent)) 15%, transparent);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* .tip — floating popover for hover/focus tips (data-tip) and clickable
+   helpers (.hint). press.js creates/positions a single shared element;
+   this only styles it. Square, hairline, hard shadow — same as .menu. */
+.tip {
+  position: absolute;
+  z-index: var(--z-overlay);
+  max-width: 18rem;
+  background: var(--bg);
+  border: var(--border) solid var(--text);
+  box-shadow: var(--shadow-strong);
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text);
+  pointer-events: none;          /* hover tips never steal the pointer */
+}
+.tip.persist { pointer-events: auto; }   /* .hint popovers are interactive */
+
+/* .hint — clickable "?" marker that opens a .tip popover with longer help.
+   <button class="hint" data-hint="Explanation…">?</button> */
+.hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15em; height: 1.15em;
+  padding: 0;
+  font: inherit;
+  font-size: 0.78em;
+  font-weight: 700;
+  line-height: 1;
+  background: var(--bg);
+  color: var(--text-2);
+  border: var(--border) solid var(--rule);
+  border-radius: var(--radius-pill);
+  cursor: help;
+  vertical-align: 0.1em;
+}
+.hint:hover, .hint[aria-expanded="true"] { border-color: var(--text); color: var(--text); }
+.hint:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* .check — drawn success tick. <span class="check"></span>. Used inline
+   for "saved"/"copied" micro-confirmation (lighter than a toast). */
+.check {
+  display: inline-block;
+  width: 0.42em; height: 0.78em;
+  border: solid var(--positive);
+  border-width: 0 0.16em 0.16em 0;
+  transform: rotate(45deg);
+  transform-origin: center;
+  animation: check-pop var(--dur) var(--ease);
+  vertical-align: 0.18em;
+  margin: 0 0.25em;
+}
+@keyframes check-pop {
+  0%   { transform: rotate(45deg) scale(0); opacity: 0; }
+  60%  { transform: rotate(45deg) scale(1.15); opacity: 1; }
+  100% { transform: rotate(45deg) scale(1); }
+}
+
+/* .beacon — one-shot attention flash for a freshly-changed cell (pair
+   with data-beacon to re-flash after each live-poll swap). */
+.beacon { animation: beacon 1.2s var(--ease); }
+@keyframes beacon {
+  from { background: color-mix(in srgb, var(--accent) 22%, var(--bg)); }
+  to   { background: transparent; }
+}
+
+/* ============================================================
+   DIALOG (CONVENTIONS — #dialog target)
+   ============================================================ */
+dialog#dialog {
+  border: var(--border) solid var(--text);
+  background: var(--bg);
+  color: var(--text);
+  padding: 0;
+  box-shadow: var(--shadow-strong);
+  max-width: min(40rem, 90vw);
+  width: 100%;
+}
+dialog#dialog::backdrop {
+  background: color-mix(in srgb, var(--text) 40%, transparent);
+}
+dialog#dialog > .panel { box-shadow: none; border: 0; }
+
+/* ============================================================
+   HTMX INDICATORS
+   ============================================================ */
+[aria-busy="true"] { cursor: progress; }
+.htmx-request.input, .htmx-request .input { opacity: 0.7; }
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator { display: inline; }
+
+/* .flash — one-shot row / value flash on insert (e.g. after an htmx swap puts a
+   changed number on the page). <td class="numeric flash up">…</td>  up=green · down=red */
+@keyframes flash-up   { from { background-color: color-mix(in srgb, var(--positive) 35%, transparent); } to { background-color: transparent; } }
+@keyframes flash-down { from { background-color: color-mix(in srgb, var(--negative) 35%, transparent); } to { background-color: transparent; } }
+.flash.up   { animation: flash-up   0.7s var(--ease); }
+.flash.down { animation: flash-down 0.7s var(--ease); }
+
+/* ============================================================
+   REDUCED MOTION
+   Engineering documents already minimize animation; honor the
+   user's preference and turn off the few remaining moves.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  @view-transition { navigation: none; }
+  .dot.pulse::after { animation: none; opacity: 0; }
+  .skeleton { background: var(--bg-muted); animation: none; }
+  /* Loaders stay legible but stop moving — show the full dot grid, no sweep. */
+  .spinner, .button[aria-busy="true"]::before, .primary[aria-busy="true"]::before {
+    animation: none;
+    -webkit-mask-image: none;
+            mask-image: none;
+  }
+  .dots::after { animation: none; content: "…"; }
+  .bar.indeterminate::after { animation: none; width: 100%; }
+  /* .shadebar — press.js skips the scan loop and paints a static ▒ dither. */
+  .spinner.braille::before { animation: none; }
+  .toast::after { animation: none; display: none; }
+  .flash.up, .flash.down { animation: none; }
+  .chip.is-in { animation: none; }
+  .check { animation: none; }
+  .beacon { animation: none; }
+}
+
+/* ============================================================
+   PRINT
+   ============================================================ */
+@media print {
+  body { background: #fff; color: #000; font-size: 10pt; }
+  .button, #toasts, dialog#dialog, .progress-bar, .pager, .tabs,
+  .menu, .more-actions-menu, .more-actions-dropdown, .nav,
+  .tenant-nav, .upload-remove, .tip, .spinner, .hint,
+  [data-print-hide] { display: none !important; }
+  .panel, .ledger, .product-edit, .dispatch, .readout, .action-card,
+  .panel, .stat-card, .frame, .chart, .chart-svg { box-shadow: none !important; border-color: #000; }
+  a { color: #000; text-decoration: underline; }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.85em; color: #444; }
+  .deck, .deck.wide { max-width: none; padding: 0; }
+  .section, .panel { page-break-inside: avoid; }
+  h1, h2, h3, .heading.underlined { page-break-after: avoid; }
+  tr, .tally, .manifest > li, .docket > li { page-break-inside: avoid; }
+  .gauge > .fill { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .colophon { border-top: 1px solid #000; }
+}
+
+/* ============================================================
+   LEGACY ALIASES (v1 only — sunset in v2)
+   See COMPONENT-CATALOG.md "Legacy aliases" table.
+   ============================================================ */
+/* .product-edit → .ledger — true alias, identical styling */
+.product-edit { width: 100%; border-collapse: collapse; background: var(--bg); box-shadow: var(--shadow); font-variant-numeric: tabular-nums; }
+.product-edit .product-edit { box-shadow: none; }
+.product-edit th, .product-edit td { padding: 3px 6px; text-align: left; vertical-align: top; color: var(--text); }
+.product-edit thead th { font-weight: 500; background: var(--bg); }
+.product-edit thead th:first-child { border-left: 4px solid var(--rule); }
+.product-edit tbody th { font-weight: 600; background: var(--bg); border-left: 4px solid var(--rule); border-right: var(--border) solid var(--rule); }
+.product-edit thead th + th, .product-edit tbody td + td { text-align: right; }
+.product-edit thead tr th,
+.product-edit tbody tr:first-child th,
+.product-edit tbody tr:first-child td { border-top: var(--border) dashed var(--rule-soft); }
+.product-edit tbody tr + tr th, .product-edit tbody tr + tr td { border-top: var(--border) solid var(--rule-soft); }
+.product-edit tbody tr:last-child th, .product-edit tbody tr:last-child td { border-bottom: var(--border) solid var(--rule-soft); }
+.product-edit tbody td.pos { color: var(--positive); }
+.product-edit tbody td.neg { color: var(--negative); }
+.product-edit tbody td.b   { font-weight: 600; }
+form .product-edit tbody th { font-family: var(--font-mono); font-weight: 500; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-2); }
+form[data-dirty="true"] .product-edit tbody th,
+form[data-dirty="true"] .product-edit thead th:first-child { border-left-color: var(--warn); }
+
+.hd { /* page header — closer to .bridge */
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border) solid var(--text);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ft { /* → .colophon */
+  border-top: var(--border) solid var(--rule);
+  padding: var(--space-3) var(--space-4);
+  margin-top: var(--space-6);
+  font-size: 0.85rem;
+  color: var(--text-2);
+}
+.ht { /* → .callsign */
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.hl { /* → .heading */
+  font-weight: 700;
+  margin: 0 0 var(--space-3);
+}
+.c { /* → .deck */
+  max-width: var(--max-content);
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4);
+}
+.sep { /* → .divider */
+  border: 0;
+  border-top: var(--border) solid var(--rule);
+  margin: var(--space-4) 0;
+}
+.nudge { /* → .signal */
+  padding: var(--space-2) var(--space-3);
+  border-left: 4px solid var(--rule);
+  background: var(--bg-soft);
+  font-size: 0.9rem;
+}
+.nudge.high   { border-left-color: var(--negative); background: color-mix(in srgb, var(--negative) 6%, var(--bg)); }
+.nudge.medium { border-left-color: var(--warn);     background: color-mix(in srgb, var(--warn) 6%, var(--bg)); }
+.nudge.low    { border-left-color: var(--rule);     color: var(--text-2); }
+.section-hdr { /* → .heading */
+  font-weight: 700;
+  margin: 0 0 var(--space-3);
+}
+.pos { color: var(--positive); }
+.neg { color: var(--negative); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.btn { /* → .button */
+  font: inherit;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: var(--space-2) var(--space-4);
+  border: var(--border) solid var(--text);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+.btn:hover { background: var(--text); color: var(--bg); }
+.tag.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   UTILITIES — pragmatic, abbreviated names accepted for these.
+   Use sparingly; prefer components and primitives first.
+   ============================================================ */
+
+/* Margins: mt-N (top), mb-N (bottom), m-N (all). N = 0..6 maps to --space-0..6 */
+.m-0  { margin: 0; }
+.m-1  { margin: var(--space-1); }
+.m-2  { margin: var(--space-2); }
+.m-3  { margin: var(--space-3); }
+.m-4  { margin: var(--space-4); }
+.m-5  { margin: var(--space-5); }
+.m-6  { margin: var(--space-6); }
+.mt-0 { margin-top: 0; } .mt-1 { margin-top: var(--space-1); } .mt-2 { margin-top: var(--space-2); }
+.mt-3 { margin-top: var(--space-3); } .mt-4 { margin-top: var(--space-4); }
+.mt-5 { margin-top: var(--space-5); } .mt-6 { margin-top: var(--space-6); }
+.mb-0 { margin-bottom: 0; } .mb-1 { margin-bottom: var(--space-1); } .mb-2 { margin-bottom: var(--space-2); }
+.mb-3 { margin-bottom: var(--space-3); } .mb-4 { margin-bottom: var(--space-4); }
+.mb-5 { margin-bottom: var(--space-5); } .mb-6 { margin-bottom: var(--space-6); }
+.mx-auto { margin-left: auto; margin-right: auto; }
+
+/* Padding */
+.p-0 { padding: 0; } .p-1 { padding: var(--space-1); } .p-2 { padding: var(--space-2); }
+.p-3 { padding: var(--space-3); } .p-4 { padding: var(--space-4); }
+.p-5 { padding: var(--space-5); } .p-6 { padding: var(--space-6); }
+
+/* Text alignment */
+.text-left   { text-align: left; }
+.text-center { text-align: center; }
+.text-right  { text-align: right; }
+
+/* Display */
+.hidden { display: none; }
+.block  { display: block; }
+.inline { display: inline; }
+.flex   { display: flex; }
+
+/* Flex helpers (covers tinycrate's row-between, col-dense, etc.) */
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); }
+.row-dense   { display: flex; gap: var(--space-2); align-items: center; }
+.col-dense   { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* Tinycrate legacy spacing aliases */
+.mb4 { margin-bottom: var(--space-4); }
+
+/* .hazard — industrial yellow/black diagonal stripe utility.
+   Use on its own as a divider, or combined with .dispatch / .signal
+   for high-severity callouts. */
+.hazard {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--safety-yellow) 0,
+    var(--safety-yellow) 10px,
+    #000 10px,
+    #000 20px
+  );
+  min-height: 12px;
+}
+.hazard-stripe {
+  border-image: repeating-linear-gradient(
+    45deg,
+    var(--safety-yellow) 0,
+    var(--safety-yellow) 6px,
+    #000 6px,
+    #000 12px
+  ) 6;
+}
+.dispatch.hazard { background-image: none; border-right: 8px solid; border-right-color: transparent; border-image: repeating-linear-gradient(45deg, var(--safety-yellow) 0, var(--safety-yellow) 6px, #000 6px, #000 12px) 8; }
+.signal.hazard   { border-left: 6px solid; border-left-color: transparent; border-image: repeating-linear-gradient(45deg, var(--safety-yellow) 0, var(--safety-yellow) 4px, #000 4px, #000 8px) 4; }
+
+/* ── tinycrate aliases ─────────────────────────────────────── */
+.dashboard-section { margin: 0 0 var(--space-6); }
+.tenant-nav { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-3) var(--space-4); background: var(--bg-soft); border-bottom: var(--border) solid var(--rule); font-size: 0.9rem; }
+.tenant-nav ul { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--space-4); align-items: center; }
+.navbar-logomark, .nav-logomark { display: inline-block; max-height: 30px; width: auto; vertical-align: middle; }
+
+/* .table / .table-silver → .ledger */
+.table, .table-silver { width: 100%; border-collapse: collapse; background: var(--bg); box-shadow: var(--shadow); font-variant-numeric: tabular-nums; }
+.table th, .table td, .table-silver th, .table-silver td { padding: 3px 6px; text-align: left; vertical-align: top; }
+.table thead th, .table-silver thead th { font-weight: 500; }
+.table tbody tr + tr td, .table-silver tbody tr + tr td { border-top: var(--border) solid var(--rule-soft); }
+
+/* bare <button class="secondary">, .btn-small, .md-btn are now folded into
+   the canonical .button block above so all variants share geometry. */
+.md-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* .drag-handle → .handle */
+.drag-handle { cursor: grab; user-select: none; color: var(--muted); padding: 0 var(--space-2); text-align: center; }
+.drag-handle:hover { color: var(--text-2); }
+.handle-column { width: 28px; text-align: center; color: var(--muted); }
+
+/* .stat-card → .readout */
+.stat-card { border: var(--border) solid var(--text); background: var(--bg); box-shadow: var(--shadow); padding: var(--space-3) var(--space-4); display: flex; flex-direction: column; gap: var(--space-1); }
+
+/* .currency-input → .input.currency */
+.currency-input { text-align: right; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+.currency-input::-webkit-outer-spin-button, .currency-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.currency-symbol { color: var(--text-2); padding: 0 var(--space-2); }
+
+/* .media-grid → .thumb-grid; .media-item → .thumb */
+.media-grid { display: grid; gap: var(--space-2); grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); }
+.media-item { display: inline-flex; align-items: center; justify-content: center; width: 80px; height: 80px; border: var(--border) solid var(--rule); background: var(--bg-soft); overflow: hidden; position: relative; }
+.media-item img { width: 100%; height: 100%; object-fit: cover; }
+
+/* .tag-chips / .collection-chips → .chip-list */
+.tag-chips, .collection-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.chip--add { border-style: dashed; color: var(--text-2); cursor: pointer; }
+.chip--form input { font: inherit; font-family: var(--font-mono); border: 0; background: transparent; outline: none; min-width: 4rem; }
+
+/* .badge → .tag (with status modifiers) */
+.badge { display: inline-block; padding: 0 var(--space-2); border: var(--border) solid var(--rule); border-radius: var(--radius-pill); font-size: 0.8rem; background: var(--bg-soft); color: var(--text-2); line-height: 1.6; }
+.badge.badge-dark, .badge-dark { background: var(--text); color: var(--bg); border-color: var(--text); }
+.badge.badge-blue, .badge-blue { color: var(--info); border-color: var(--info); }
+.badge.badge-gray, .badge-gray { color: var(--text-2); border-color: var(--rule); }
+.badge.badge-warning, .badge-warning { color: var(--warn); border-color: var(--warn); }
+.badge.badge-positive, .badge-positive { color: var(--positive); border-color: var(--positive); }
+.badge.badge-negative, .badge-negative { color: var(--negative); border-color: var(--negative); }
+
+/* .error / .success — bare form messages */
+.error { color: var(--negative); font-size: 0.9rem; }
+.success { color: var(--positive); font-size: 0.9rem; }
+.success-message { color: var(--positive); font-weight: 500; font-size: 0.9rem; }
+.domain-success { color: var(--positive); font-weight: 500; }
+.domain-error { color: var(--negative); font-weight: 500; }
+.domain-warning { color: var(--warn); font-weight: 500; }
+
+/* .container — generic content wrapper */
+.container { max-width: var(--max-content); margin: 0 auto; padding: var(--space-4); }
+
+/* Media-picker family → .upload primitive (kept as direct CSS for full compat) */
+.media-picker, .media-picker-preview, .media-picker-empty {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 80px; height: 80px;
+  border: var(--border) solid var(--rule); background: var(--bg-soft);
+  cursor: pointer; position: relative; overflow: hidden;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.media-picker:hover, .media-picker-preview:hover, .media-picker-empty:hover { border-color: var(--text); }
+.media-picker--logo, .media-picker-preview--logo, .media-picker-empty--logo { width: 160px; height: 48px; }
+.media-picker-preview img { width: 100%; height: 100%; object-fit: cover; }
+.media-picker-empty { color: var(--text-2); font-size: 0.8rem; flex-direction: column; text-align: center; padding: var(--space-2); }
+.media-picker-empty::before { content: "+"; font-size: 1.4rem; font-weight: 600; color: var(--muted); }
+.media-picker-icon { color: var(--muted); }
+.media-picker-label { font-size: 0.75rem; color: var(--text-2); font-weight: 500; }
+.media-picker-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.media-picker-remove {
+  position: absolute; top: 2px; right: 2px;
+  width: 18px; height: 18px; padding: 0; border: 0;
+  background: rgba(0,0,0,0.55); color: #fff;
+  font-size: 12px; line-height: 18px; text-align: center;
+  cursor: pointer; opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.media-picker:hover .media-picker-remove,
+.media-picker-preview:hover .media-picker-remove { opacity: 1; }
+
+/* .product-image / .variant-thumbnail / .no-image-* → .thumb variants */
+.product-image { display: inline-flex; align-items: center; justify-content: center; width: 80px; height: 80px; border: var(--border) solid var(--rule); background: var(--bg-soft); overflow: hidden; }
+.product-image img { width: 100%; height: 100%; object-fit: cover; }
+.variant-thumbnail { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border: var(--border) solid var(--rule); background: var(--bg-soft); overflow: hidden; }
+.variant-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+.no-image-placeholder, .no-image-small { display: inline-flex; align-items: center; justify-content: center; background-image: linear-gradient(45deg, var(--bg-muted) 25%, transparent 25%, transparent 75%, var(--bg-muted) 75%), linear-gradient(45deg, var(--bg-muted) 25%, transparent 25%, transparent 75%, var(--bg-muted) 75%); background-size: 12px 12px; background-position: 0 0, 6px 6px; color: var(--muted); font-size: 0.75rem; border: var(--border) solid var(--rule); }
+.no-image-placeholder { width: 80px; height: 80px; }
+.no-image-small { width: 40px; height: 40px; }
+
+/* .sortable / .sortable-item — no-op (data-sortable wires JS; CSS classes are markers) */
+.sortable { /* container marker */ }
+.sortable-item { /* item marker */ }
+
+/* .chart / .chart-svg / .chart-container — SVG chart wrapper */
+.chart, .chart-svg, .chart-container {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  border: var(--border) solid var(--rule-faint);
+  background: var(--bg);
+  padding: var(--space-2);
+}
+.chart-svg svg, .chart svg { display: block; width: 100%; height: auto; }
+
+/* .more-actions-menu, .more-actions-dropdown → .menu */
+.more-actions-menu, .more-actions-dropdown {
+  display: none; position: absolute; z-index: var(--z-overlay);
+  background: var(--bg); border: var(--border) solid var(--text);
+  box-shadow: var(--shadow-strong); min-width: 10rem;
+  padding: var(--space-1) 0; font-size: 0.9rem;
+}
+.more-actions-menu.open, .more-actions-dropdown.open { display: block; }
+
+/* .message → .notice (bare text feedback) */
+.message { font-size: 0.9rem; color: var(--text-2); }
+.message.error, .alert-danger { color: var(--negative); font-weight: 500; }
+.message.success { color: var(--positive); font-weight: 500; }
+
+/* ── ops-api aliases (in addition to ones above) ──────────── */
+.status-bar { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); padding: var(--space-2) var(--space-4); border-bottom: var(--border) solid var(--rule); font-size: 0.85rem; color: var(--text-2); }
+.loading { opacity: 0.6; pointer-events: none; cursor: progress; }
+.info { color: var(--info); }  /* legacy .info utility */
+.net { font-weight: 600; }     /* legacy net-total cell */
+.severity { font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.8rem; }
+.exclude-link { color: var(--text-2); text-decoration: line-through; }
+
+/* .bar-inline / .bar-fill → .gauge / .fill */
+.bar-inline {
+  display: block;
+  width: 100%;
+  height: 4px;
+  background: var(--bg-muted);
+  margin-bottom: 3px;
+  overflow: hidden;
+  border: var(--border) solid var(--rule);
+}
+.bar-fill { display: block; height: 100%; background: var(--text-2); }
+
+/* ── tinycrate aliases (batch 2 — from tenant.css retirement) ──────────
+   The 7 tinycrate-specific classes still in use when tenant.css was
+   removed. Everything else in tenant.css was already covered by the
+   aliases above, or was dead CSS. Sunset with the rest in v2. */
+
+/* .primary is now a pure alias of .button.commit — folded into the
+   canonical .button block above. The old custom geometry (6px 18px padding,
+   borderless, margin-top: 0.8rem) is gone so it lines up with siblings. */
+
+/* img.hero → storefront hero image */
+img.hero { width: 100%; height: auto; border-radius: var(--radius); }
+
+/* .accordion-expansion → expandable detail row inside a ledger/product-edit
+   table (admin sortable accordion). */
+.ledger tbody tr.accordion-expansion td,
+.ledger tbody tr.accordion-expansion th,
+.product-edit tbody tr.accordion-expansion td,
+.product-edit tbody tr.accordion-expansion th { border-top: var(--border) dashed var(--rule-soft); }
+
+/* .collection-posts-table → nested post table: no inner borders except
+   solid separators between rows. */
+.ledger .collection-posts-table tbody tr th,
+.ledger .collection-posts-table tbody tr td,
+.product-edit .collection-posts-table tbody tr th,
+.product-edit .collection-posts-table tbody tr td { border-top: none; border-bottom: none; }
+.ledger .collection-posts-table tbody tr + tr th,
+.ledger .collection-posts-table tbody tr + tr td,
+.product-edit .collection-posts-table tbody tr + tr th,
+.product-edit .collection-posts-table tbody tr + tr td { border-top: var(--border) solid var(--rule-soft); }
+
+/* .tab-content → simple show/hide tab panels (tinycrate's tab system) */
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* .code-block → fenced code / preformatted block */
+.code-block {
+  background-color: var(--bg-muted);
+  padding: var(--space-2);
+  border-radius: var(--radius);
+  margin: var(--space-2) 0;
+  font-family: var(--font-mono);
+}
+
+/* .smart-no-drop → drag overlay marking an illegal drop target
+   ("Action not allowed"). Created by tinycrate's admin sortable JS. */
+.smart-no-drop {
+  position: absolute;
+  inset: 0;
+  background-color: color-mix(in srgb, var(--negative) 8%, var(--bg));
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--negative) 30%, transparent) 0.5px, transparent 0.5px);
+  background-size: 3px 3px;
+  border: 2px dashed color-mix(in srgb, var(--negative) 40%, transparent);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--negative);
+  font-size: 0.8em;
+  font-weight: 700;
+  pointer-events: none;
+  z-index: var(--z-raised);
+}
+
+/* Form elements don't inherit font by default (UA styles). Make bare
+   <input>/<button>/<select>/<textarea> use the page font like .input/.button do. */
+input, button, select, textarea { font: inherit; }
+
+/* Bare form fields inside ledger/product-edit tables. tinycrate uses bare
+   <input>/<select>/<textarea> (no .input class) in its spreadsheet-style
+   product tables, so give them the press input look here. .qty-value is
+   excluded — the qty stepper sets its own narrow width. */
+.ledger input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not(.qty-value):not(.tags-input),
+.ledger select,
+.ledger textarea,
+.product-edit input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]):not(.qty-value):not(.tags-input),
+.product-edit select,
+.product-edit textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-family: var(--font-mono);
+  padding: var(--space-1) var(--space-2);
+  border: var(--border) solid var(--text);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: var(--shadow-inset);
+}
+.ledger input:not(.qty-value):not(.tags-input):focus, .ledger select:focus, .ledger textarea:focus,
+.product-edit input:not(.qty-value):not(.tags-input):focus, .product-edit select:focus, .product-edit textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Links inside those tables */
+.ledger a, .product-edit a { text-decoration: none; font-weight: 500; color: var(--link); }
+.ledger a:hover, .product-edit a:hover { text-decoration: underline; }
+
+/* Bare <input> inside an .input-group (tinycrate uses a bare input + addon,
+   not .input). Declared after the rule above so it wins for grouped inputs. */
+.input-group input:not([type="checkbox"]):not([type="radio"]) {
+  border-radius: var(--radius) 0 0 var(--radius);
+  border-right: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+</style>
+<style>
+/* page-local — ASSETS_NEEDED, in the press idiom */
+.deck > section { scroll-margin-top: var(--space-4); }
+.ledger.text td, .ledger.text th { text-align: left; }
+/* Overflow fix: fixed layout makes columns honor their set widths and
+   WRAP prose (auto layout let long cells push the table — and the page —
+   wider than the viewport in the paintings tables). */
+.ledger.text { table-layout: fixed; }
+.ledger caption { font-size: 0.85rem; color: var(--text-2); font-weight: 400; padding-left: 6px; }
+.ledger td strong { font-weight: 700; }
+.prio { font-variant-numeric: tabular-nums; letter-spacing: 0.14em; white-space: nowrap; font-weight: 700; }
+.prio-3 { color: var(--accent); }
+.prio-2 { color: var(--text-2); }
+.prio-1 { color: var(--muted); }
+.tag.h-now     { color: var(--info);     border-color: var(--info); }
+.tag.h-village { color: var(--warn);     border-color: var(--warn); }
+.tag.h-later   { color: var(--muted);    border-color: var(--rule); }
+.tag.h-rolling { color: var(--positive); border-color: var(--positive); }
+.cell-note { display: block; color: var(--text-2); font-size: 0.82rem; margin-top: 2px; }
+.free { color: var(--positive); font-weight: 700; }
+.sec-sub { color: var(--text-2); margin: 0 0 var(--space-3); }
+.lead { max-width: 40rem; }
+h1.title { font-size: 1.5rem; margin-bottom: var(--space-2); }
+h2.heading { font-size: 1.15rem; margin-top: var(--space-6); }
+h3.sub { font-size: 1rem; margin: var(--space-5) 0 var(--space-2); }
+.scale-list { margin: var(--space-3) 0; padding-left: var(--space-5); }
+.scale-list > li { margin-bottom: var(--space-2); }
+.bridge a { color: var(--text); text-decoration: none; }
+.bridge a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header class="bridge">
+  <span class="callsign">Valley</span>
+  <span class="data">Assets Needed</span>
+  <a href="#priority">Priority</a>
+  <a href="#scale">Scale</a>
+  <a href="#contract">Contract</a>
+  <a href="#ledger">Ledger</a>
+  <a href="#handled">Handled</a>
+  <span class="bridge-end data">docs/ASSETS_NEEDED.md</span>
+  <button class="button sm" id="theme" type="button" title="Toggle cockpit dark mode">◐ Theme</button>
+</header>
+
+<main class="deck wide">
+
+  <section>
+    <span class="eyebrow">the human list</span>
+    <h1 class="title callsign">Assets Needed</h1>
+    <p class="muted lead">Everything the game is waiting on from <strong>people</strong> rather than code, specified so it can be made without asking questions. Ordered by visual / experiential impact within each section. Specs referenced from <span class="code">ART_BIBLE.md</span>.</p>
+    <div class="signal info" style="max-width:46rem">
+      <strong>Two views.</strong> The <strong>priority tables</strong> (what to make next) and the <strong>master ledger</strong> at the bottom (everything the finished game wants — for planning batches of engine-independent work). Every entry lands by dropping a file into a named slot; nothing here blocks code, because every slot renders a labeled placeholder until filled.
+    </div>
+  </section>
+
+  <section id="priority">
+    <h2 class="heading underlined">Priority tables</h2>
+    <p class="data">Priority &nbsp;<span class="prio prio-3">★★★</span> do first &nbsp;·&nbsp; <span class="prio prio-2">★★</span> next &nbsp;·&nbsp; <span class="prio prio-1">★</span> later</p>
+  </section>
+
+  <section>
+    <h3 class="sub">Paintings <span class="muted" style="font-weight:400">— her</span></h3>
+    <p class="sec-sub data">export: transparent PNG → <span class="code">assets/paintings/</span></p>
+    <table class="ledger text">
+      <thead><tr><th style="width:4.5rem">Priority</th><th>Asset</th><th>Spec</th><th>What it fixes / unlocks</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="prio prio-3">★★★</span></td>
+          <td><strong>Ground cover kit</strong> — grass tufts, small stones, tiny succulents, 4–6 elements</td>
+          <td>~400–800px tall each, transparent PNG</td>
+          <td>The single biggest "looks bad" fix after rocks: the ground is currently empty between trees. Wired as high-density low-height scatter (thousands of instances, Elden&nbsp;Ring grass layer)</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-3">★★★</span></td>
+          <td><strong>Rock family</strong> — 3–4 painted rocks/boulders, varied silhouettes</td>
+          <td>~800–1500px</td>
+          <td>Retires the gray boxes <em>as billboards</em> until Blender versions exist; enters scatter&nbsp;+&nbsp;kit</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-2">★★</span></td>
+          <td><strong>Silly-tree variants</strong> — 2 more poses of the arch tree, 1–2 more shrub&nbsp;+&nbsp;palm variants</td>
+          <td>match existing (~1200×1500)</td>
+          <td>Kills repetition in the current scatter</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-2">★★</span></td>
+          <td><strong>Sky gradient strips</strong> — dawn / day / dusk / night, vertical gradients</td>
+          <td>~256×1024 PNG each</td>
+          <td>Replaces code-picked sky colors with painted skies (her skies, literally)</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-1">★</span></td>
+          <td><strong>Distant mountain cutouts</strong> — 2–3 striped mountain silhouettes</td>
+          <td>~2000px wide</td>
+          <td>The far-horizon layer beyond the valley rim</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-1">★</span></td>
+          <td>Biome #2 first elements — whatever the second land wants to be</td>
+          <td>any</td>
+          <td>Starts the palette-swap proof</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3 class="sub">Audio <span class="muted" style="font-weight:400">— you</span></h3>
+    <p class="sec-sub data">export: seamless-loop WAV → <span class="code">assets/audio/</span>, swap via <span class="code">reimport.sh</span></p>
+    <table class="ledger text">
+      <thead><tr><th style="width:4.5rem">Priority</th><th>Asset</th><th>Spec</th><th>Replaces</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="prio prio-3">★★★</span></td>
+          <td><strong>Real wind bed</strong></td>
+          <td>60s+ seamless stereo loop, low dynamic</td>
+          <td>The synthesized placeholder everyone hears constantly</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-3">★★★</span></td>
+          <td><strong>Night bed</strong></td>
+          <td>60s+ loop: real night air/insects</td>
+          <td>The fake synth crickets (currently the weakest thing in the game)</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-2">★★</span></td>
+          <td><strong>Footsteps: sand</strong> ×4–6 variants</td>
+          <td>short one-shots</td>
+          <td>Silence underfoot (needs a small footstep system — code is ready to add when sounds exist)</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-2">★★</span></td>
+          <td><strong>Water lap / pond ambience</strong></td>
+          <td>30s+ loop</td>
+          <td>Positional emitter at the pond</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-1">★</span></td>
+          <td>Storm wind layer</td>
+          <td>60s loop, aggressive</td>
+          <td>Weather crossfades it in at high wind</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-1">★</span></td>
+          <td>Footsteps: stone ×4</td>
+          <td>one-shots</td>
+          <td>Shrine platform, future ruins</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3 class="sub">Blender <span class="muted" style="font-weight:400">— you, the learning track</span></h3>
+    <p class="sec-sub data">export: glTF → <span class="code">assets/models/</span></p>
+    <table class="ledger text">
+      <thead><tr><th style="width:4.5rem">Priority</th><th>Asset</th><th>Spec <span class="muted">(FOUNDATIONS F4)</span></th><th>What it fixes</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="prio prio-3">★★★</span></td>
+          <td><strong>Rock family</strong> — 4–5 low-poly rocks/boulders</td>
+          <td>few hundred tris each, flat palette colors, <span class="code">-col</span> collision mesh</td>
+          <td><strong>The #1 visual offender.</strong> Boxes → sculptural silhouettes changes every screenshot. Ideal first Blender project: no rig, no UV precision, imperfection is on-style</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-2">★★</span></td>
+          <td><strong>Mesa / large formation</strong> ×1–2</td>
+          <td>~1–2k tris</td>
+          <td>The valley's landmarks stop being crates</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-2">★★</span></td>
+          <td><strong>First character</strong> (from her turnaround)</td>
+          <td>low-poly, rigged, clips: Idle/Walk/Run/SitDown/SitIdle/StandUp</td>
+          <td>Retires the robot; starts the whole character pipeline</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-1">★</span></td>
+          <td>Shrine rebuild</td>
+          <td>modular pieces</td>
+          <td>First architecture-kit exercise</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3 class="sub">Canon / writing <span class="muted" style="font-weight:400">— both, the kitchen-table track</span></h3>
+    <table class="ledger text">
+      <thead><tr><th style="width:4.5rem">Priority</th><th>Item</th><th>Unlocks</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="prio prio-3">★★★</span></td>
+          <td><strong>World-axioms</strong> (<span class="code">docs/lore/axioms.md</span> is waiting)</td>
+          <td>All writing: dialogue, item text, place names, the glow's rules</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-3">★★★</span></td>
+          <td><strong>The glow's name + fiction</strong></td>
+          <td>Shrine text, magic-language, VFX design intent</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-2">★★</span></td>
+          <td><strong>The Wanderer's identity</strong></td>
+          <td>First real dialogue when the system lands</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-2">★★</span></td>
+          <td>Decision: field-recordist player? <span class="muted">(IDEAS.md ★)</span></td>
+          <td>Shapes core verbs + what audio assets become gameplay</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-2">★★</span></td>
+          <td>Decision: no-compass Morrowind navigation?</td>
+          <td>Must precede quest/dialogue writing style</td>
+        </tr>
+        <tr>
+          <td><span class="prio prio-1">★</span></td>
+          <td>Naming language + first place names</td>
+          <td>The map's labels, the lore bible's spine</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="scale">
+    <h2 class="heading underlined">Scale discipline <span class="tag numeric">2026-07-05</span></h2>
+    <p class="sec-sub muted">read before the biome build-out</p>
+    <div class="panel">
+      <div class="dispatch priority" style="margin-bottom:var(--space-4)">
+        <strong>Ambition update (same day, Nicco's call): the discipline rules are MULTIPLIERS, not caps.</strong> The ledger below is the full-treatment target — Skyrim-adjacent art volume, no compromise on density — and the rules are what make that affordable for two people: paint a species once and the sim recolors it through four seasons; sculpt one rock and the placement rules scatter it believably across kilometers. Discipline buys ambition; it doesn't ration it.
+      </div>
+      <p>The raw combinatorics still need managing: 8 biomes × ~8 flora species × 4 lifecycle stages × seasonal states is <strong>1,000+ paintings</strong> if every cell is hand-made. The mitigations, in force from now on:</p>
+      <ul class="scale-list">
+        <li><strong>2–3 signature species per biome + one shared filler set.</strong> A biome's identity is its signature silhouettes; filler repeats everywhere and nobody notices.</li>
+        <li><strong>Stages and seasons via shader, not repaint.</strong> <span class="code">flora_vitality</span> straw-drying already proves it; the stage-B biome palette tint is the same lever. Paint a species once; the sim recolors it.</li>
+        <li><strong>Kits, not pieces</strong> (rocks/cliffs/architecture — already canon).</li>
+        <li><strong>One shared creature clip taxonomy</strong> (Idle/Walk/Run/Drink/Rest/Alert/Flee + one special per species) so every new species drops into AgentSim's activity→clip mapping with zero code. ~8–15 species is a full-feeling valley.</li>
+        <li><strong>Icons rendered from a Blender turntable rig</strong> — never paint an item twice.</li>
+      </ul>
+      <p>Code will meet the art halfway (Toolkit-shaped, build as needed): species records name their art slots (drop a file, never touch code — mostly true already); a derived <strong>asset manifest</strong> (walk the records, report filled vs. placeholder — this document's tables become a generated report); a hot-reloading <strong>lineup scene</strong> (every species × stage × biome light, so a new painting is judged in-context in seconds); Blender <strong>export validation</strong> in <span class="code">test.sh</span> (clip names, +Z facing, <span class="code">-col</span> meshes — fail at import, not in-game).</p>
+    </div>
+  </section>
+
+  <section id="contract">
+    <h2 class="heading underlined">The asset contract <span class="tag numeric">2026-07-05</span></h2>
+    <p class="sec-sub muted">rules &amp; permissions — read first</p>
+    <div class="panel">
+      <p><strong>The world generates itself from the assets' own rules.</strong> Every scatterable asset is two things: the files (mesh / billboard / texture / clips) and a <strong>record card</strong> — a JSON sidecar carrying its placement rules and permissions. The engine's generator reads the cards and populates the world; nothing is hand-placed except landmarks and villages. The flora species records (<span class="code">data/flora/*.json</span>) already prove the pattern (biome weights, moisture needs, stage art slots, forage yields); the same schema extends to every class. A card looks like:</p>
+<pre class="code-block">{
+  "id": "juniper_gnarled",
+  "class": "tree",
+  "trunk": "trees/juniper_gnarled.glb",
+  "foliage": "trees/juniper_cards.png",
+  "variants": 3,
+  "biomes": {"scrub": 0.4, "oasis_green": 0.15},
+  "permissions": {"slope_max": 28, "alt": [2, 260],
+    "moisture_min": 0.15, "water_dist_min": 2.0, "spacing": 4.0},
+  "cluster": {"radius": 16, "count": [3, 9]},
+  "collider": "trunk", "wind": 0.6, "yields": null
+}</pre>
+      <p><strong>Why this matters for production: assets are engine-independent.</strong> You produce the model/painting/clips and fill in the card; the engine inherits both whenever the corresponding slot-loader lands. Nothing you make waits on code, and nothing needs re-export when the engine grows. Engine work this implies (queued, the Loom/Elements — none of it blocks production): the species schema grows <span class="code">permissions</span> + <span class="code">cluster</span> + <span class="code">variants</span>; a <span class="code">trunk</span> slot beside the billboard slot (hybrid flora rendering: modeled trunk + camera-facing painted leaf cards near, auto-generated impostor billboard far — the engine renders impostors from the asset, no extra art); rock/prop scatter records on the same schema (<span class="code">data/scatter/*.json</span>).</p>
+      <p><strong>Production conventions (start today):</strong> glTF → <span class="code">assets/models/&lt;class&gt;/</span>, low-poly, flat palette colors or painted texture per ART_BIBLE, <span class="code">-col</span> collision meshes, +Z facing, ×1 scale, clips named per the shared taxonomy below. Paintings/cards: transparent PNG → <span class="code">assets/paintings/</span>. Textures: tiling PNG, power-of-two, → <span class="code">assets/textures/</span>. One asset = one card, committed together.</p>
+    </div>
+  </section>
+
+  <section id="ledger">
+    <h2 class="heading underlined">The master ledger <span class="tag numeric">rev 2 — the full treatment</span></h2>
+    <p class="sec-sub muted">the whole game, at the no-compromise density target</p>
+    <p class="lead" style="max-width:46rem">Rev 1's "minimum painterly world" was retired same-day on Nicco's call — <em>"Skyrim surely has more than that"</em>, and it does: its believability is a library dozens deep per category, nested in scale from cliff to pebble. Grouped by tool so work batches away from the engine.</p>
+    <div class="cluster" style="margin-bottom:var(--space-4)">
+      <span class="tag h-now">now</span> <span class="muted" style="font-size:.85rem">slot exists or contract defined today</span>
+      <span class="tag h-village">village</span> <span class="muted" style="font-size:.85rem">needed when M4 lands</span>
+      <span class="tag dark">under</span> <span class="muted" style="font-size:.85rem">the underworld layer</span>
+      <span class="tag h-later">later</span> <span class="muted" style="font-size:.85rem">gated on a decision or distant milestone</span>
+      <span class="tag h-rolling">rolling</span> <span class="muted" style="font-size:.85rem">grows with each species</span>
+    </div>
+  </section>
+
+  <section>
+    <h3 class="sub">Flora — the full treatment <span class="muted" style="font-weight:400">— hybrid: modeled trunks + painted cards</span></h3>
+    <p class="sec-sub muted">Trees stop being single billboards: each species is a low-poly trunk/branch mesh + painted leaf-card texture (near), an impostor (far, auto-generated by the engine). Billboards remain the right tool for the small stratum — grass, flowers, ground succulents.</p>
+    <table class="ledger text">
+      <thead><tr><th style="width:14rem">Class</th><th>Count target</th><th>Per-asset pieces</th></tr></thead>
+      <tbody>
+        <tr><td>Tree species <span class="tag h-now">now</span></td><td><strong>10–14 species × 2–3 growth/age variants ≈ 30–40 tree assets</strong></td><td>trunk mesh · leaf-card sheet · bare/dead variant · card</td></tr>
+        <tr><td>Shrubs &amp; bushes <span class="tag h-now">now</span></td><td><strong>12–16</strong></td><td>small mesh or billboard (judgment call per species) · card</td></tr>
+        <tr><td>Ground-cover billboards <span class="tag h-now">now</span></td><td><strong>25–35</strong> — grasses ×8–10, flowers ×6–8, ferns, succulents, reeds, kelp, driftwood tufts</td><td>painted PNG · card</td></tr>
+        <tr><td>Underworld flora <span class="tag dark">under</span></td><td><strong>6–10</strong> glow-adjacent species</td><td>gated on the glow's fiction</td></tr>
+      </tbody>
+    </table>
+    <p class="sec-sub muted" style="margin-top:var(--space-3)">Per-biome signature allocation (2–3 signatures each + shared filler) still governs <em>which</em> species: oasis (arch tree ✅ · high palm ✅ · bloom tuft) · scrub (low shrub ✅ · dry-grass · thorny) · dune_desert (cactus · ribbed succulent — still the zero-real-art biome) · wetland (reeds · broad-leaf) · strand (beach grass · driftwood) · volcanic (lichen · pioneer) · peaks/sea free.</p>
+  </section>
+
+  <section>
+    <h3 class="sub">Rock &amp; stone — the library <span class="muted" style="font-weight:400">— Skyrim's real lesson: nested scale</span></h3>
+    <table class="ledger text">
+      <thead><tr><th style="width:14rem">Class</th><th>Count target</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Boulder library <span class="tag h-now">now</span></td><td><strong>15–20</strong> across 4 biome families: valley granite, volcanic, coastal wave-worn, desert sandstone</td><td>the first 4–5 stay the first Blender batch (top table) — the library grows from it</td></tr>
+        <tr><td>Cliff/plateau kit <span class="tag h-now">now</span></td><td><strong>20–30</strong> slabs: rim, face, overhang, slide wall, talus, cave mouth</td><td>terrain, not decoration; breaks the heightfield ceiling</td></tr>
+        <tr><td>Scree &amp; pebble clusters <span class="tag h-now">now</span></td><td><strong>8–10</strong> scatter clumps</td><td>the between-scale that sells the big pieces</td></tr>
+        <tr><td>Landmark formations <span class="tag h-now">now</span>→<span class="tag h-later">later</span></td><td><strong>8–12</strong> heroes: arches, sea stacks, spires, hoodoos, the gate strait pillars</td><td>one per region identity</td></tr>
+        <tr><td>Underworld stone <span class="tag dark">under</span></td><td><strong>10–15</strong>: stalactites, columns, crystal clusters, sinkhole rims</td><td></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3 class="sub">Textures &amp; materials <span class="muted" style="font-weight:400">— new class: painted, tiling, engine-agnostic</span></h3>
+    <table class="ledger text">
+      <thead><tr><th style="width:14rem">Set</th><th>Count target</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Ground tiles per biome <span class="tag h-now">now</span></td><td><strong>12–16</strong>: sand, ripple sand, soil, grass mat, volcanic ash, scree, snow, mud, wet strand…</td><td>the terrain shader tints toward biome albedo today; painted tiles are its upgrade slot</td></tr>
+        <tr><td>Material sheets <span class="tag h-now">now</span></td><td><strong>10–15</strong>: bark ×3–4, rock faces ×3–4, thatch, plaster, timber, woven</td><td>feed trunks, kits, architecture</td></tr>
+        <tr><td>Detail decals <span class="tag h-later">later</span></td><td><strong>8–12</strong>: cracks, lichen, moss, tide stains</td><td></td></tr>
+        <tr><td>Leaf-card sheets</td><td>counted with trees</td><td></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3 class="sub">Characters, creatures &amp; the animation library</h3>
+    <p class="sec-sub muted">The clip taxonomy is the multiplier: one humanoid rig's library retargets to every villager; one creature taxonomy drops every species into AgentSim with zero code.</p>
+    <table class="ledger text">
+      <thead><tr><th style="width:14rem">Class</th><th>Count target</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Player moveset <span class="tag h-now">now</span></td><td><strong>25–35 clips</strong>: locomotion set, jump/land, swim/dive, sand-slide, sit set, gather, catch/deploy fireflies, wade, shiver/warm, recorder poses</td><td>the fox body ✅</td></tr>
+        <tr><td>Humanoid shared library <span class="tag h-now">now</span>→<span class="tag h-village">village</span></td><td><strong>35–45 clips</strong> on ONE rig: locomotion 6–8 · work loops 8–12 (sweep, dig, carry, cook, fish, tend, hammer) · social 6–8 (wave, talk gestures ×3, nod, point) · contextual idles 6–8 (shade eyes, hug-self cold, watch sky, stretch) · sit/sleep 5–6</td><td>retires the robot; every villager reskins it</td></tr>
+        <tr><td>Villager bodies <span class="tag h-village">village</span></td><td><strong>6–10</strong> variants on the shared rig</td><td></td></tr>
+        <tr><td>Wildlife species <span class="tag h-rolling">rolling</span></td><td><strong>15–25</strong> bodies (star hound ✅): grazer herd, predator, birds, fish, shore skitterers, caravan beast, underworld 3–5</td><td>× 8–12 clips each on the shared taxonomy (Idle/Walk/Run/Drink/Eat/Rest/Sleep/Alert/Flee + specials)</td></tr>
+        <tr><td>Insect/ambient swarms <span class="tag h-now">now</span></td><td><strong>5–8</strong> billboard swarm sprites: moths ✅, fireflies ✅(code), butterflies, gnat columns, shore birds wheeling</td><td>billboard is the right treatment here</td></tr>
+        <tr class="balance"><td>Animation total</td><td><strong>≈300–420 clips</strong></td><td>the taxonomy makes it a library, not a per-character cost</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3 class="sub">Props, clutter &amp; architecture</h3>
+    <table class="ledger text">
+      <thead><tr><th style="width:14rem">Class</th><th>Count target</th><th style="width:9rem">Horizon</th></tr></thead>
+      <tbody>
+        <tr><td>Village architecture kit</td><td><strong>20–30</strong> pieces: walls, roofs, doors, windows, awnings, stalls, well, fences, lantern posts, docks</td><td><span class="tag h-village">village</span> <span class="prio prio-3">★★★</span></td></tr>
+        <tr><td>Shrine/ancient kit + ruins set</td><td><strong>10–15</strong> pieces</td><td><span class="tag h-now">now</span>→<span class="tag h-later">later</span></td></tr>
+        <tr><td>Bridges, fords, causeway trim</td><td><strong>8–10</strong></td><td><span class="tag h-now">now</span></td></tr>
+        <tr><td>Village life clutter: furniture, containers, market goods, tools, signage</td><td><strong>40–60</strong></td><td><span class="tag h-village">village</span></td></tr>
+        <tr><td>Camps &amp; travel: bedrolls, packs, caravan fittings</td><td><strong>12–15</strong></td><td><span class="tag h-now">now</span>→<span class="tag h-village">village</span></td></tr>
+        <tr><td>Shoreline/nautical: boats/raft, nets, floats, dock clutter</td><td><strong>10–15</strong></td><td><span class="tag h-later">later</span><span class="cell-note">traversal decision</span></td></tr>
+        <tr><td>Food &amp; forage items <span class="muted">(icons auto-render)</span></td><td><strong>20–30</strong> tiny models</td><td><span class="tag h-rolling">rolling</span></td></tr>
+        <tr><td>Hero props: recorder, instruments, the glow's vessels</td><td>a handful</td><td><span class="tag h-later">later</span><span class="cell-note">decisions</span></td></tr>
+        <tr><td>Underworld structures</td><td><strong>8–12</strong></td><td><span class="tag dark">under</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h3 class="sub">Audio — the full map</h3>
+    <p class="sec-sub muted">Everything in rev 1 stands (wind/night/rain beds, footsteps ×6 surfaces, thunder set, positional water, creature voices, village murmur, underworld drips, IRs, diegetic music) <strong>plus</strong>: a distinct ambience bed per biome ×8, interior/cave room tones ×3–4, seasonal variants of the day bed ×4, weather transitions (petrichor beat, gust front), UI/satchel/journal foley set.</p>
+    <div class="signal info" style="max-width:36rem"><strong>Target: 120–160 files.</strong></div>
+  </section>
+
+  <section>
+    <h3 class="sub">Totals &amp; pacing <span class="muted" style="font-weight:400">— the honest math</span></h3>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
+      <div class="readout">
+        <span class="readout-label">Meshes</span>
+        <span class="readout-value">280–380</span>
+        <span class="muted" style="font-size:.78rem">flora · stone · kits · props · bodies</span>
+      </div>
+      <div class="readout">
+        <span class="readout-label">Paintings / billboards</span>
+        <span class="readout-value">90–130</span>
+        <span class="muted" style="font-size:.78rem">cover · cards · sky/UI · concepts</span>
+      </div>
+      <div class="readout">
+        <span class="readout-label">Textures</span>
+        <span class="readout-value">60–90</span>
+        <span class="muted" style="font-size:.78rem">ground tiles · materials · decals</span>
+      </div>
+      <div class="readout">
+        <span class="readout-label">Animation clips</span>
+        <span class="readout-value">300–420</span>
+        <span class="muted" style="font-size:.78rem">player · humanoid library · species</span>
+      </div>
+      <div class="readout">
+        <span class="readout-label">Audio files</span>
+        <span class="readout-value">120–160</span>
+        <span class="muted" style="font-size:.78rem">beds · one-shots · voices · IRs</span>
+      </div>
+    </div>
+    <div class="signal positive" style="margin-top:var(--space-4);max-width:48rem">
+      <strong>A 2–3 year arc, run in parallel.</strong> At a sustainable 3–5 finished assets a week between two people, the full ledger is what a Skyrim-inspired density costs at kitchen-table scale — and the priority tables still front-load the 10% that carries 80% of the look. The asset contract is what makes the arc parallel: production never waits on the engine, and every finished asset starts working the day its slot-loader lands.
+    </div>
+    <p class="muted" style="font-size:.85rem;margin-top:var(--space-3)"><em>Maintenance: when the derived asset-manifest tool lands (scale discipline, above), the <span class="tag h-now">now</span> rows of this ledger become a generated report and this section shrinks to the horizons and totals.</em></p>
+  </section>
+
+  <section id="handled">
+    <h2 class="heading underlined">Already handled by code <span class="muted" style="font-weight:400">— no assets needed</span></h2>
+    <div class="signal positive" style="max-width:48rem">
+      <p>Terrain color/variation, ambient occlusion, soft shadows, palette grading, day/night, fog, weather, water surface, sway — tuned in-engine. When the ground kit + rock meshes + real audio land, the remaining look-gap is <strong>content density, not technology</strong>.</p>
+      <p>Also never needed: item icons (Blender turntable renders them), star fields, water foam, snow cover, wetness darkening, biome ground tints — all shader work reading the sim.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="colophon">
+  <span>Generated from <span class="code">docs/ASSETS_NEEDED.md</span> · Valley</span>
+  <span class="data">press v1</span>
+</footer>
+
+<script>
+(function () {
+  var root = document.documentElement, key = 'press-theme';
+  var saved = localStorage.getItem(key);
+  if (saved) root.dataset.theme = saved;
+  var btn = document.getElementById('theme');
+  if (btn) btn.addEventListener('click', function () {
+    var dark = root.dataset.theme === 'dark'
+      || (!root.dataset.theme && matchMedia('(prefers-color-scheme: dark)').matches);
+    var next = dark ? 'light' : 'dark';
+    root.dataset.theme = next;
+    localStorage.setItem(key, next);
+  });
+})();
+</script>
+
+</body>
+</html>

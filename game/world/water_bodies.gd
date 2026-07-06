@@ -87,6 +87,13 @@ func _process(_delta: float) -> void:
 		return
 	if not visible:
 		show()
+	# Fill-channels experiment (debug K): the sim fills the carved beds,
+	# so hide the sculpted ribbons — the two shouldn't stack.
+	var hide_rivers: bool = WaterField.enabled and WaterField.fill_channels
+	for id in _river_meshes:
+		var mi: MeshInstance3D = _river_meshes[id]
+		if mi.visible == hide_rivers:
+			mi.visible = not hide_rivers
 	if _sea_near == null:
 		return
 	var focus := Vector2.ZERO

@@ -34,6 +34,19 @@ const WINDOW := 2048.0  # meters — the scrolling domain (2m texels)
 const RECENTER := 384.0  # re-anchor when the focus drifts this far
 const ANCHOR_SNAP := 16.0  # 8 texels — scroll offsets stay integral
 
+# FILL-CHANNELS EXPERIMENT (2026-07-05, debug key K): stop treating
+# river channels as sinks and instead SPRING them here at a
+# discharge-scaled rate, so the pipe model fills the carved beds with
+# real flowing water (shallow-fast on slopes, deep in pools, finds its
+# own path). Off by default — the sculpted ribbon is the shipping look;
+# this is the A/B. Sea + lakes stay sinks (their level is tier 1).
+const SOURCE_RATE := 0.05  # m/s spring per channel texel at full flow
+var fill_channels := false
+var _fill_on_baked := false  # what the current base was baked with
+var _fill_rate_by_idx: Dictionary = {}  # river idx -> m/s (main-thread snapshot)
+var _base_sources: PackedFloat32Array
+var _force_bake := false
+
 var enabled := false
 var _center := Vector2.INF  # window center; INF until the first anchor
 var _gpu: WaterGpu
@@ -63,6 +76,26 @@ func _ready() -> void:
 	# _process once a focus exists.
 
 
+## Toolkit (debug key K): A/B the fill-channels experiment. Forces a
+## rebake so the source field + sink mask rebuild for the new mode, and
+## the river ribbons hide while the sim fills the beds (water_bodies
+## reads fill_channels).
+func set_fill(on: bool) -> void:
+	if on == fill_channels:
+		return
+	fill_channels = on
+	_force_bake = true
+	HUD.notify("water: fill channels %s" % ("ON (sim rivers)" if on else "OFF (ribbons)"))
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not enabled or not OS.is_debug_build():
+		return
+	if event is InputEventKey and event.pressed and not event.echo \
+			and event.keycode == KEY_K:
+		set_fill(not fill_channels)
+
+
 # The window follows whoever the world streams around (the water_bodies
 # focus rule): the god cam when flying, else the player.
 func _focus() -> Vector2:
@@ -78,17 +111,29 @@ func _focus() -> Vector2:
 
 func _process(delta: float) -> void:
 	# Re-anchor when the focus drifts (never mid-bake: one base at a
-	# time, and a fast-traveling focus just re-anchors next frame).
+	# time, and a fast-traveling focus just re-anchors next frame). A
+	# fill-channels toggle forces a rebake in place (no scroll).
 	if not _base_pending:
 		var focus := _focus()
-		if not _center.is_finite() or focus.distance_to(_center) > RECENTER:
+		var drifted := not _center.is_finite() or focus.distance_to(_center) > RECENTER
+		if drifted or _force_bake:
 			var old := _center
-			_center = focus.snappedf(ANCHOR_SNAP)
-			if old.is_finite():
-				_gpu.scroll(Vector2i(
-					((_center - old) / (WINDOW / WaterGpu.GRID)).round()))
-			RenderingServer.global_shader_parameter_set(
-				"water_field_center", _center)
+			if drifted:
+				_center = focus.snappedf(ANCHOR_SNAP)
+				if old.is_finite():
+					_gpu.scroll(Vector2i(
+						((_center - old) / (WINDOW / WaterGpu.GRID)).round()))
+				RenderingServer.global_shader_parameter_set(
+					"water_field_center", _center)
+			_force_bake = false
+			# Snapshot per-river spring rates on the MAIN thread (the bake
+			# task must not read Hydrology concurrently).
+			_fill_on_baked = fill_channels
+			_fill_rate_by_idx.clear()
+			if fill_channels:
+				for r in Terrain.rivers:
+					_fill_rate_by_idx[r.idx] = SOURCE_RATE \
+						* maxf(Hydrology.flow_norm(r.id), 0.15)
 			_lock.lock()
 			_base_ready = false
 			_lock.unlock()
@@ -99,7 +144,7 @@ func _process(delta: float) -> void:
 		return
 	var rain := RAIN_VIS * Weather.rain * delta
 	var soak := (SOAK_BASE + SOAK_DRY_BONUS * (1.0 - Climate.wetness)) * delta
-	_gpu.tick(rain, soak, SEEP * delta)
+	_gpu.tick(rain, soak, SEEP * delta, delta)
 	_probe_accum += delta
 	if _probe_accum >= PROBE_INTERVAL:
 		_probe_accum = 0.0
@@ -147,8 +192,9 @@ func current_at(pos: Vector3) -> Vector2:
 func summary() -> String:
 	if not enabled:
 		return "off (headless/no RenderingDevice)"
-	return "live 1024^2 window %.0fm at (%.0f, %.0f)%s  probe depth=%.3fm at (%.0f, %.0f)" % [
+	return "live 1024^2 window %.0fm at (%.0f, %.0f)%s  fill=%s  probe depth=%.3fm at (%.0f, %.0f)" % [
 		WINDOW, _center.x, _center.y, " (baking)" if _base_pending else "",
+		"ON" if fill_channels else "off",
 		_probe_out.x, _probe_pos.x, _probe_pos.y]
 
 func _bake_base() -> void:
@@ -165,11 +211,61 @@ func _bake_base() -> void:
 	sinks.resize(g * g)
 	for i in g * g:
 		sinks[i] = 1.0 if bases[i] > -1e6 else 0.0
+	# Fill experiment: rasterize river channels — they become SOURCES
+	# (spring the carved bed full) and drop OUT of the sink mask, so the
+	# sea and lakes still drain but the rivers hold live water.
+	var sources := PackedFloat32Array()
+	sources.resize(g * g)
+	if _fill_on_baked:
+		var origin2 := _center - Vector2.ONE * (WINDOW * 0.5)
+		_rasterize_rivers(sources, sinks, origin2, step, g)
 	_lock.lock()
 	_base_heights = heights
 	_base_sinks = sinks
+	_base_sources = sources
 	_base_ready = true
 	_lock.unlock()
+
+
+# Stamp every river's channel into the source field (spring rate) and
+# clear it from the sink mask. Walks each segment at half-texel steps,
+# discing the local half-width — the same geometry the ribbon draws.
+func _rasterize_rivers(sources: PackedFloat32Array, sinks: PackedFloat32Array,
+		origin: Vector2, step: float, g: int) -> void:
+	for r in Terrain.rivers:
+		var rate: float = _fill_rate_by_idx.get(r.idx, 0.0)
+		if rate <= 0.0:
+			continue
+		var nodes: Array = r.nodes
+		for s in nodes.size() - 1:
+			var a: Vector2 = nodes[s].pos
+			var b: Vector2 = nodes[s + 1].pos
+			var ha: float = nodes[s].half
+			var hb: float = nodes[s + 1].half
+			var seg := a.distance_to(b)
+			var walk := 0.0
+			while walk <= seg:
+				var f := walk / maxf(seg, 0.01)
+				var p := a.lerp(b, f)
+				var half := lerpf(ha, hb, f)
+				var rad_t := int(ceil(half / step)) + 1
+				var cx := int((p.x - origin.x) / step)
+				var cz := int((p.y - origin.y) / step)
+				for oz in range(-rad_t, rad_t + 1):
+					for ox in range(-rad_t, rad_t + 1):
+						var gx := cx + ox
+						var gz := cz + oz
+						if gx < 0 or gz < 0 or gx >= g or gz >= g:
+							continue
+						# meters from the centerline (texel centers)
+						var wx := origin.x + (gx + 0.5) * step
+						var wz := origin.y + (gz + 0.5) * step
+						if Vector2(wx, wz).distance_to(p) > half:
+							continue
+						var i := gz * g + gx
+						sources[i] = maxf(sources[i], rate)
+						sinks[i] = 0.0
+				walk += step * 0.5
 
 
 func _drain_base() -> void:
@@ -178,7 +274,7 @@ func _drain_base() -> void:
 	_lock.unlock()
 	if ready:
 		WorkerThreadPool.wait_for_task_completion(_base_task)
-		_gpu.update_base(_base_heights, _base_sinks)
+		_gpu.update_base(_base_heights, _base_sinks, _base_sources)
 		_base_pending = false
 		if not _base_ready_once:
 			_base_ready_once = true

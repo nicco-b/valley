@@ -24,6 +24,7 @@ var _flux: RID
 var _display: RID
 var _base: RID
 var _sink: RID
+var _source: RID  # per-texel river spring rate, m/s (fill-channels experiment)
 var _sampler: RID
 var _probe_buffer: RID
 var _current := 0
@@ -55,6 +56,7 @@ func setup() -> bool:
 		rd.texture_create(r32, RDTextureView.new())]
 	_base = rd.texture_create(r32, RDTextureView.new())
 	_sink = rd.texture_create(r32, RDTextureView.new())
+	_source = rd.texture_create(r32, RDTextureView.new())
 	var rgba := RDTextureFormat.new()
 	rgba.width = GRID
 	rgba.height = GRID
@@ -76,7 +78,7 @@ func setup() -> bool:
 	_probe_buffer = rd.storage_buffer_create(four.size(), four)
 	var zero := PackedFloat32Array()
 	zero.resize(GRID * GRID)
-	for t in [_depth[0], _depth[1], _base, _sink]:
+	for t in [_depth[0], _depth[1], _base, _sink, _source]:
 		rd.texture_update(t, 0, zero.to_byte_array())
 	display_texture = Texture2DRD.new()
 	display_texture.texture_rd_rid = _display
@@ -101,20 +103,24 @@ func scroll(off: Vector2i) -> void:
 
 
 ## Terrain heights + authored-water sink mask, baked on a worker thread.
-func update_base(heights: PackedFloat32Array, sinks: PackedFloat32Array) -> void:
+func update_base(heights: PackedFloat32Array, sinks: PackedFloat32Array,
+		sources: PackedFloat32Array) -> void:
 	if _ok:
 		rd.texture_update(_base, 0, heights.to_byte_array())
 		rd.texture_update(_sink, 0, sinks.to_byte_array())
+		rd.texture_update(_source, 0, sources.to_byte_array())
 
 
 ## One frame of dynamics. rain/soak in meters per frame, seep per frame
-## as a fraction of depth (all already scaled by delta).
-func tick(rain: float, soak: float, seep: float) -> void:
+## as a fraction of depth (all already scaled by delta); source_dt is
+## real delta (the source texture holds the per-cell m/s rate).
+func tick(rain: float, soak: float, seep: float, source_dt: float) -> void:
 	if not _ok:
 		return
 	var rain_step := rain / SUBSTEPS
 	var soak_step := soak / SUBSTEPS
 	var seep_step := seep / SUBSTEPS
+	var source_step := source_dt / SUBSTEPS
 	for i in SUBSTEPS:
 		var push1 := PackedByteArray()
 		push1.append_array(PackedInt32Array([GRID]).to_byte_array())
@@ -127,13 +133,14 @@ func tick(rain: float, soak: float, seep: float) -> void:
 		var push2 := PackedByteArray()
 		push2.append_array(PackedInt32Array([GRID]).to_byte_array())
 		push2.append_array(PackedFloat32Array(
-			[rain_step, soak_step, 0.12, seep_step]).to_byte_array())
+			[rain_step, soak_step, 0.12, seep_step, source_step]).to_byte_array())
 		_dispatch("water_depth", [
 			_image_uniform(_depth[_current], 0),
 			_image_uniform(_flux, 1),
 			_image_uniform(_depth[1 - _current], 2),
 			_sampler_uniform(_sink, 3),
 			_image_uniform(_display, 4),
+			_image_uniform(_source, 5),
 		], push2, GRID)
 		_current = 1 - _current
 

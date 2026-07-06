@@ -62,7 +62,9 @@ func _process(_d: float) -> void:
 			if not s.get("absolute", false):
 				f.y = Terrain.height(f.x, f.z) + 2.0
 			pl.global_position = f
-	if _t == 780:
+		if OS.get_environment("WATER_FILL") != "":
+			WaterField.set_fill(true)
+	if _t == _cam_frame():
 		var cam := Camera3D.new()
 		add_child(cam)
 		cam.far = 12000.0
@@ -80,10 +82,20 @@ func _process(_d: float) -> void:
 			pl2.global_position.x += 600.0
 			pl2.global_position.y = Terrain.height(
 				pl2.global_position.x, pl2.global_position.z) + 2.0
-	if _t == 790:
+	if _t == _shot_frame() - 10:
 		print("[river_probe] field: ", WaterField.summary())
-	if _t == 800:
+	if _t == _shot_frame():
 		var path := "/tmp/river_%s.png" % _shot
 		get_viewport().get_texture().get_image().save_png(path)
 		print("SHOT WRITTEN " + path)
 		get_tree().quit()
+
+
+# The fill experiment needs the field to run before the shot; the
+# ribbon path shoots at the usual frame.
+func _shot_frame() -> int:
+	return 2400 if OS.get_environment("WATER_FILL") != "" else 800
+
+
+func _cam_frame() -> int:
+	return _shot_frame() - 20

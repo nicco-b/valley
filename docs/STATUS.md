@@ -452,8 +452,21 @@ LOW SUN'S GIFT: day_night publishes `water_gold`/`water_night` (bell
 around solar sunrise/sunset; night from sun elevation) and both water
 shaders blend teal day / slate night / the signature pink at golden
 hour — day water also absorbs harder so shallow runs still read as
-water. river_probe grows RIVER_HOUR=gold + a pond vantage. The
-field-fills-the-channels sim experiment remains the offered next step.
+water. river_probe grows RIVER_HOUR=gold + a pond vantage.
+**Fill-channels experiment (2026-07-05, debug key K, default OFF).**
+The tier-2 field can now SPRING the rivers instead of sinking them: a
+new source texture (water_depth.glsl binding 5) injects
+discharge-scaled water along each rasterized channel while those
+texels drop out of the sink mask (sea + lakes stay sinks), so the
+pipe model fills the carved beds with real flowing water. Toggle K
+rebakes the base + hides the ribbons for a clean A/B. FINDING: with
+fill ON the sim water lies in the bed NEARLY IDENTICAL to the draped
+ribbon — the drape already put the ribbon where the water pools — so
+it's not a visible win for CALM rivers and it adds 2m-texel edge
+blockiness; the payoff is dynamics (storm swelling, pools, rerouting)
+and it's confined to the 2048m window / 96m sheet near the focus.
+Kept as a toggle, ribbon ships. Presentation-only: off headless, soak
+untouched (1333567381).
 **Region hydrology (2026-07-05): the generated rivers BREATHE.**
 Hydrology grows a region tier: every no_sim river is a linear
 reservoir on the same hourly balance, rained on through

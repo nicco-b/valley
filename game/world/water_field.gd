@@ -45,6 +45,7 @@ var fill_channels := false
 var _fill_on_baked := false  # what the current base was baked with
 var _fill_rate_by_idx: Dictionary = {}  # river idx -> m/s (main-thread snapshot)
 var _base_sources: PackedFloat32Array
+var _base_prefill: PackedFloat32Array  # channel depth seed: rivers start FULL
 var _force_bake := false
 
 var enabled := false
@@ -216,38 +217,49 @@ func _bake_base() -> void:
 	# sea and lakes still drain but the rivers hold live water.
 	var sources := PackedFloat32Array()
 	sources.resize(g * g)
+	var prefill := PackedFloat32Array()
+	prefill.resize(g * g)
 	if _fill_on_baked:
 		var origin2 := _center - Vector2.ONE * (WINDOW * 0.5)
-		_rasterize_rivers(sources, sinks, origin2, step, g)
+		_rasterize_rivers(sources, sinks, prefill, heights, origin2, step, g)
 	_lock.lock()
 	_base_heights = heights
 	_base_sinks = sinks
 	_base_sources = sources
+	_base_prefill = prefill
 	_base_ready = true
 	_lock.unlock()
 
 
-# Stamp every river's channel into the source field (spring rate) and
-# clear it from the sink mask. Walks each segment at half-texel steps,
+# Stamp every river's channel into the source field (spring rate),
+# clear it from the sink mask, and PRE-FILL the bed: depth seeded to
+# the record waterline minus the baked ground, so rivers hold their
+# water from the first frame — the sim maintains a river, it doesn't
+# excavate one from dry. Walks each segment at half-texel steps,
 # discing the local half-width — the same geometry the ribbon draws.
 func _rasterize_rivers(sources: PackedFloat32Array, sinks: PackedFloat32Array,
+		prefill: PackedFloat32Array, heights: PackedFloat32Array,
 		origin: Vector2, step: float, g: int) -> void:
 	for r in Terrain.rivers:
 		var rate: float = _fill_rate_by_idx.get(r.idx, 0.0)
 		if rate <= 0.0:
 			continue
 		var nodes: Array = r.nodes
+		var max_fill: float = float(r.depth) + 0.4  # sanity cap per texel
 		for s in nodes.size() - 1:
 			var a: Vector2 = nodes[s].pos
 			var b: Vector2 = nodes[s + 1].pos
 			var ha: float = nodes[s].half
 			var hb: float = nodes[s + 1].half
+			var sa: float = nodes[s].surface
+			var sb: float = nodes[s + 1].surface
 			var seg := a.distance_to(b)
 			var walk := 0.0
 			while walk <= seg:
 				var f := walk / maxf(seg, 0.01)
 				var p := a.lerp(b, f)
 				var half := lerpf(ha, hb, f)
+				var surface := lerpf(sa, sb, f)
 				var rad_t := int(ceil(half / step)) + 1
 				var cx := int((p.x - origin.x) / step)
 				var cz := int((p.y - origin.y) / step)
@@ -265,6 +277,9 @@ func _rasterize_rivers(sources: PackedFloat32Array, sinks: PackedFloat32Array,
 						var i := gz * g + gx
 						sources[i] = maxf(sources[i], rate)
 						sinks[i] = 0.0
+						# Seed to the waterline over the carved bed.
+						prefill[i] = clampf(maxf(prefill[i],
+							surface - heights[i]), 0.0, max_fill)
 				walk += step * 0.5
 
 
@@ -275,6 +290,11 @@ func _drain_base() -> void:
 	if ready:
 		WorkerThreadPool.wait_for_task_completion(_base_task)
 		_gpu.update_base(_base_heights, _base_sinks, _base_sources)
+		if _fill_on_baked:
+			# Rivers start FULL: seed the depth field to the waterline.
+			# (Replaces the whole field, so open rain puddles reset on a
+			# fill-mode bake — an accepted experiment-mode artifact.)
+			_gpu.set_depth(_base_prefill)
 		_base_pending = false
 		if not _base_ready_once:
 			_base_ready_once = true

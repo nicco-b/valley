@@ -13,6 +13,8 @@ extends RefCounted
 const GRID := 1024  # texel size scales with the watershed record (domain/GRID)
 const SUBSTEPS := 2
 const FLOW := 0.22  # per-substep surface-diff transfer (stable < 0.25)
+const CHANNEL_FRICTION := 0.10  # bed roughness inside river channels
+	# (fill experiment): cascades hold water instead of shedding it
 
 var rd: RenderingDevice
 var display_texture: Texture2DRD
@@ -88,6 +90,13 @@ func setup() -> bool:
 	return true
 
 
+## Overwrite the live depth field (the fill experiment pre-seeds river
+## channels to their waterline so they never start dry).
+func set_depth(depths: PackedFloat32Array) -> void:
+	if _ok:
+		rd.texture_update(_depth[_current], 0, depths.to_byte_array())
+
+
 ## Re-anchor: shift the depth field by a texel offset (the window moved
 ## with the focus). Texels entering the window start dry; the caller
 ## rebakes the base underneath.
@@ -124,11 +133,13 @@ func tick(rain: float, soak: float, seep: float, source_dt: float) -> void:
 	for i in SUBSTEPS:
 		var push1 := PackedByteArray()
 		push1.append_array(PackedInt32Array([GRID]).to_byte_array())
-		push1.append_array(PackedFloat32Array([FLOW, 0.0, 0.0]).to_byte_array())
+		push1.append_array(PackedFloat32Array(
+			[FLOW, CHANNEL_FRICTION, 0.0]).to_byte_array())
 		_dispatch("water_flux", [
 			_image_uniform(_depth[_current], 0),
 			_sampler_uniform(_base, 1),
 			_image_uniform(_flux, 2),
+			_image_uniform(_source, 3),
 		], push1, GRID)
 		var push2 := PackedByteArray()
 		push2.append_array(PackedInt32Array([GRID]).to_byte_array())

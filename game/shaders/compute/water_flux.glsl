@@ -11,8 +11,9 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(r32f, set = 0, binding = 0) uniform restrict readonly image2D depth;
 layout(set = 0, binding = 1) uniform sampler2D base; // terrain heights, meters
 layout(rgba32f, set = 0, binding = 2) uniform restrict writeonly image2D flux;
+layout(r32f, set = 0, binding = 3) uniform restrict readonly image2D source_map; // >0 = river channel
 layout(push_constant) uniform Push {
-	int grid; float flow; float pad0; float pad1;
+	int grid; float flow; float channel_friction; float pad1;
 } pc;
 
 float surf(ivec2 p, float fallback) {
@@ -32,6 +33,12 @@ void main() {
 		max(h0 - surf(p + ivec2(-1, 0), edge), 0.0),
 		max(h0 - surf(p + ivec2(0, 1), edge), 0.0),
 		max(h0 - surf(p + ivec2(0, -1), edge), 0.0)) * pc.flow;
+	// Channel friction (fill experiment): riverbeds are rough — slow the
+	// outflow inside channels so cascades hold visible water instead of
+	// shedding it in one substep (Manning-ish, mood physics).
+	if (imageLoad(source_map, p).r > 0.0) {
+		outflow *= pc.channel_friction;
+	}
 	float total = outflow.x + outflow.y + outflow.z + outflow.w;
 	if (total > d0 * 0.8) {
 		outflow *= d0 * 0.8 / total;

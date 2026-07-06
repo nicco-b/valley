@@ -8,9 +8,12 @@ extends Node3D
 ## (headless / no RenderingDevice).
 
 const SIZE := 96.0
-const RES := 129  # 0.75m vertices — rivulet-scale, not footprint-scale
+const SIZE_FILL := 288.0  # fill experiment: reach over rivulet detail
+const RES := 129  # 0.75m vertices (fill: 2.25m ~ the field's own texels)
 
 var _mi: MeshInstance3D
+var _mat: ShaderMaterial
+var _built_size := 0.0
 
 
 func _ready() -> void:
@@ -18,33 +21,50 @@ func _ready() -> void:
 		set_process(false)
 		return
 	_mi = MeshInstance3D.new()
-	_mi.mesh = _grid_mesh()
-	var mat := ShaderMaterial.new()
-	mat.shader = preload("res://game/shaders/water_sheet.gdshader")
-	mat.set_shader_parameter("patch_size", SIZE)
-	_mi.material_override = mat
-	_mi.extra_cull_margin = 16.0  # vertices leave the flat AABB when wet
+	_mat = ShaderMaterial.new()
+	_mat.shader = preload("res://game/shaders/water_sheet.gdshader")
+	_mi.material_override = _mat
+	# The vertex shader lifts verts to ABSOLUTE terrain height, so the
+	# flat AABB must be seated at local ground level (below) and grown
+	# by the relief a patch can span — at y=0 with a 16m margin the
+	# whole sheet was frustum-culled anywhere above the home valley
+	# (the volcano flank jank).
+	_mi.extra_cull_margin = 260.0
+	_rebuild(SIZE)
 	add_child(_mi)
 
 
+func _rebuild(size: float) -> void:
+	_built_size = size
+	_mi.mesh = _grid_mesh(size)
+	_mat.set_shader_parameter("patch_size", size)
+
+
 func _process(_delta: float) -> void:
+	# The fill experiment trades vertex density for reach: swap patch
+	# size when the toggle flips (one rebuild, ~16k verts).
+	var want := SIZE_FILL if WaterField.fill_channels else SIZE
+	if want != _built_size:
+		_rebuild(want)
 	var player := get_tree().get_first_node_in_group("player")
 	if player == null:
 		return
 	var p: Vector3 = player.global_position
-	# Snap to the field's 2m texel grid so vertices sample stable texels.
-	global_position = Vector3(snappedf(p.x, 2.0), 0.0, snappedf(p.z, 2.0))
+	# Snap to the field's 2m texel grid so vertices sample stable texels;
+	# seat the node at ground level so the grown AABB brackets the water.
+	global_position = Vector3(snappedf(p.x, 2.0),
+		Terrain.height(p.x, p.z), snappedf(p.z, 2.0))
 
 
-func _grid_mesh() -> ArrayMesh:
+func _grid_mesh(size: float) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var step := SIZE / (RES - 1)
+	var step := size / (RES - 1)
 	for iz in RES:
 		for ix in RES:
 			st.set_normal(Vector3.UP)
 			st.add_vertex(Vector3(
-				ix * step - SIZE * 0.5, 0.0, iz * step - SIZE * 0.5))
+				ix * step - size * 0.5, 0.0, iz * step - size * 0.5))
 	for iz in RES - 1:
 		for ix in RES - 1:
 			var i := iz * RES + ix

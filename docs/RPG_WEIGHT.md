@@ -98,56 +98,51 @@ shared standing modifiers and **exclusive allegiance thresholds**
 notice). Design the village records with faction fields from day one —
 retrofitting exclusivity is brutal. *Blocked on axioms + village.*
 
-## The saving system — one world, one timeline
+## The saving system — worlds, forks, and the seal (v2)
 
-**The insight: the 1:1 clock already decided this.** A reload-to-undo
-model is incoherent in Valley — the world lives while the app is
-closed; restoring an old save would rewind wall-time and replay it
-differently, which the fiction (and the catch-up machinery) can't
-honestly mean. Valley is structurally an ironman game; the save system
-should embrace what the clock already made true. (Animal Crossing is
-the proof this combination reads as life, not punishment — famously,
-resetting was *scolded*.)
+*(v1 claimed reloading was "incoherent" with the 1:1 clock. Nicco
+called it, and he's right: the clock is time-of-day + elapsed-duration
+replay, and reloading an older save already works — catch-up replays
+the elapsed real time from that snapshot's wall timestamp, dial synced
+to local time. Better still, the Rng streams live in WorldState, so
+the replay is DETERMINISTIC: reloading Sunday's save on Wednesday
+gives the identical Wednesday every time. Ironman is a design CHOICE
+here, not an architectural fact — and that separation is good news:
+weight must come from the Consequence Contract, not save friction.
+BG3 is the proof: fully scummable, still the most reactive RPG in
+years, because consequences are interesting enough to keep.)*
 
-Proposed design:
-
-1. **Worlds, not slots.** `user://worlds/<world_id>/save.json` — the
-   title screen lists worlds (name, day count, last-seen). "New game"
-   creates a world; a world is a timeline; there is exactly one save
-   per world, always current. This *satisfies* the G1 "save slots"
-   leftover in the only form compatible with weight. Deleting a world
-   is the only undo, and it's total.
-2. **The choice seal.** R2's `seal_choice()` saves immediately on any
-   `choice.*` write (debounced a frame for multi-flag effects). Killing
-   the app cannot un-choose. Cost honesty: an accidental misclick would
-   seal too — so weighty dialogue choices get a *fiction-side* confirm
-   beat (a "…are you certain?" line, which is also good writing),
-   never an OS-style dialog.
-3. **Keep the robustness ladder** (already good): atomic tmp+rename,
-   rotating `.bak1/.bak2` — corruption falls back minutes, never
-   choices. The baks protect against *bugs*, not *regret*: restore only
-   ever offers the newest readable file, no picker.
-4. **Versioning + migration registry.** `version` already exists and
-   one ad-hoc migration shipped (`civil`). Formalize: a
-   `MIGRATIONS: {1: func, 2: func}` chain in save_manager so a
-   two-year-old world loads in the 1.0 game. A long-lived single
-   timeline makes migrations a core feature, not a chore.
-5. **Per-cell state** when the village lands (the `cells: {}` scaffold
-   + DESIGN's per-cell persistence law) so the save scales with the
-   world, not with time played.
-6. ★ DECIDE: **death/failure policy** (pre-M5): what does defeat mean
-   in a world that can't reload? Fail-forward candidates: wake at the
-   last camp with days LOST (the 1:1 clock makes lost time a real
-   price), goods scattered, a rumor of your fall circulating. Death as
-   deletion is off the table (too cruel for pillar 1's sit-and-soak
-   tone); death as mere teleport is too cheap. The answer is probably
-   the journey premise's job (Open Question in DESIGN.md).
+1. **Worlds.** `user://worlds/<world_id>/` — separate timelines, listed
+   on the title screen (name, day count, last-seen). Satisfies the G1
+   "save slots" leftover at the structural level.
+2. **Named manual saves within a world.** Reloading rewinds to that
+   fork and honestly re-lives to now via the existing catch-up. One
+   accepted wrinkle: shared-with-reality time replays (the storm from
+   actual-Tuesday happens again, identically) — the same strangeness
+   every save game has, just slightly more visible here.
+3. **The choice seal** (`WorldState.seal_choice`) — its real job was
+   never anti-reload: it writes the choice AND saves immediately, so a
+   crash or rage-quit mid-consequence cannot dodge a decision. Weighty
+   dialogue gets a fiction-side confirm beat ("…are you certain?"),
+   never an OS dialog.
+4. **Ironman as an opt-in world flag** ("one journal"): a single
+   rolling save, manual saves disabled — the Animal Crossing contract
+   for players who want it. Nearly free to offer; a good marketing
+   sentence for those who opt in, never imposed.
+5. **Keep the robustness ladder** (atomic tmp+rename, rotating baks —
+   bug armor, offered as newest-readable only).
+6. **Versioning + migration registry.** `MIGRATIONS: {1: func, ...}`
+   chain in save_manager so a two-year-old world loads in the 1.0
+   game. Long-lived timelines make migrations a core feature.
+7. ★ DECIDE: **death/failure policy** (pre-M5): fail-forward candidates
+   — wake at the last camp with real days lost, goods scattered, a
+   rumor of your fall circulating. Probably the journey premise's job.
 
 ## Kitchen-table decisions this plan needs (★)
 
 1. Adopt the Consequence Contract as canon (edit into DESIGN.md).
-2. One-world-one-timeline saves: bless or reject (it's a marketing
-   sentence AND a design law: "the valley doesn't do take-backs").
+2. Save policy: default = worlds + manual saves (Nicco's call,
+   2026-07-06); ironman "one journal" as opt-in world flag — bless.
 3. Progression opportunity-cost model (R3 options a/b/c).
 4. Death/failure fiction (with the journey premise).
 5. Factions & economy shape — already Open Questions in DESIGN.md;

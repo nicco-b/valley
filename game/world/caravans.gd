@@ -5,10 +5,18 @@ extends Node
 ## function of (day, hour) along the road graph, so catch-up is free by
 ## construction (sim contract, option a) and the soak can't drift. The
 ## Chronicle mirrors each caravan (caravan.<id>.place / .news_day) for
-## dialogue conditions; bodies embody with the village NPC port later.
+## dialogue conditions. EMBODIMENT (2026-07-05, post NPC AgentSim port):
+## near the focus a body walks the route — pure presentation seated on
+## locate()'s answer every frame (the sim never changes shape), wearing
+## the road in and greeting in passing; it dissolves out of sight.
 ## Toolkit hook: summary() answers where everyone is right now.
 
+const BODY_SCENE := preload("res://game/world/caravan_body.tscn")
+const EMBODY_DISTANCE := 140.0
+const DISSOLVE_DISTANCE := 170.0  # hysteresis, the NPC/wildlife borders
+
 var routes: Array[Dictionary] = []
+var _bodies: Dictionary = {}  # route id -> CaravanBody node
 
 
 func _ready() -> void:
@@ -49,6 +57,39 @@ func _ready() -> void:
 		routes.append({"id": rec.get("id", f.trim_suffix(".json")),
 			"speed": float(rec.get("speed_mps", 1.2)), "legs": legs})
 	GameClock.hour_tick.connect(_hourly)
+
+
+## Embodiment tier-switching: locate() is cheap enough to answer every
+## frame, so embodied caravans glide on fractional hours instead of
+## teleporting hourly.
+func _process(_delta: float) -> void:
+	var focus := _focus_xz()
+	for route in routes:
+		var at := locate(route, GameClock.hours)
+		var id: String = route.id
+		var body: Node3D = _bodies.get(id)
+		var d: float = focus.distance_to(at.pos) if focus.is_finite() else 1e12
+		if body == null and d < EMBODY_DISTANCE:
+			body = BODY_SCENE.instantiate()
+			body.route_id = id
+			add_child(body)
+			_bodies[id] = body
+		elif body != null and d > DISSOLVE_DISTANCE:
+			body.queue_free()
+			_bodies.erase(id)
+			continue
+		if body != null:
+			body.seat(at.pos, at.en_route)
+
+
+func _focus_xz() -> Vector2:
+	if GodMode.active:
+		var c := GodMode.cam_position()
+		return Vector2(c.x, c.z)
+	var player := get_tree().get_first_node_in_group("player")
+	if player:
+		return Vector2(player.global_position.x, player.global_position.z)
+	return Vector2.INF
 
 
 ## Where a caravan is at an hour-of-day: {place, pos, en_route}.

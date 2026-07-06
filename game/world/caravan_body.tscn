@@ -1,0 +1,24 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://game/world/caravan_body.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://assets/models/placeholder/robot.glb" id="2_robot"]
+[ext_resource type="Script" path="res://game/interact/interactable.gd" id="3_interact"]
+
+[sub_resource type="SphereShape3D" id="Sphere_interact"]
+radius = 1.6
+
+[node name="CaravanBody" type="Node3D"]
+script = ExtResource("1_script")
+
+[node name="Body" type="Node3D" parent="."]
+
+[node name="Model" parent="Body" instance=ExtResource("2_robot")]
+transform = Transform3D(0.65, 0, 0, 0, 0.65, 0, 0, 0, 0.65, 0, 0, 0)
+
+[node name="Interact" type="Area3D" parent="."]
+script = ExtResource("3_interact")
+prompt = "Greet"
+
+[node name="Shape" type="CollisionShape3D" parent="Interact"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("Sphere_interact")

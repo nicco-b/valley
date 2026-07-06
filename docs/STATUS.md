@@ -511,6 +511,13 @@ picker).
    wildlife 5.0]. Soak fingerprint BIT-IDENTICAL through the port —
    1333567381 before and after, the A2 wildlife standard held).
    **Phase A COMPLETE — caravan embodiment and the village unblocked.**
+   · ✅ caravan embodiment (same day: near the focus a body walks the
+   route — seated on stateless locate() every frame at fractional
+   hours so it GLIDES, faces its travel, wears the road in, stamps
+   sand prints, and nods in passing [E — Greet, `caravan.<id>.met`];
+   dissolves past 170m; the robot placeholder body, her caravan-walker
+   painting's slot; `tests/caravan_probe.tscn` frames it mid-leg;
+   soak untouched — presentation seated on a pure function).
    **Phase B started:** ✅ snow (cover state +
    emergent snowline from the lapse rate, meltwater soaks the ground) ·
    ✅ wind direction (wanders hourly, swings in storms; sand ripples and

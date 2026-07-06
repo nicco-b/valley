@@ -164,10 +164,12 @@ stratum — grass, flowers, ground succulents.*
 
 Per-biome signature allocation (2–3 signatures each + shared filler)
 still governs *which* species: oasis (arch tree ✅ · high palm ✅ ·
-bloom tuft), scrub (low shrub ✅ · dry-grass · thorny), dune_desert
+bloom tuft), scrub (low shrub ✅ · dry tuft ⚠SVG · thorny), dune_desert
 (cactus · ribbed succulent — still the zero-real-art biome), wetland
 (reeds · broad-leaf), strand (beach grass · driftwood), volcanic
-(lichen · pioneer), peaks/sea free.
+(lichen · pioneer), peaks/sea free. *(Code today: 7 species records
+wired — the above plus `pebbles`, which is the shared-filler slot,
+not a signature; audit 2026-07-06.)*
 
 ### Rock & stone — the library (Skyrim's real lesson: nested scale)
 
@@ -194,6 +196,15 @@ bloom tuft), scrub (low shrub ✅ · dry-grass · thorny), dune_desert
 retargets to every villager; one creature taxonomy drops every
 species into AgentSim with zero code.*
 
+**Clip-name contract (audit 2026-07-06 — export validation will
+enforce these exact strings):** code today plays `Idle`, `Walking`,
+`Running`, `Sitting`, `Jump` — new rigs use THESE names (not
+Walk/Run/Sit/SitDown); the creature taxonomy extends with `Drink`,
+`Eat`, `Rest`, `Sleep`, `Alert`, `Flee` + one special when the
+activity→clip mapping lands. (The robot's `WalkJump` is
+placeholder-only; the fox player has fallback chains but nothing
+else does.)
+
 | Class | Count target | Notes |
 |---|---|---|
 | Player moveset [now] | **25–35 clips**: locomotion set, jump/land, swim/dive, sand-slide, sit set, gather, catch/deploy fireflies, wade, shiver/warm, recorder poses | the fox body ✅ |
@@ -211,7 +222,7 @@ species into AgentSim with zero code.*
 | Shrine/ancient kit | **10–15** pieces + ruins set | now→later |
 | Bridges, fords, causeways trim | **8–10** | now |
 | Village life clutter | **40–60**: furniture, containers, market goods, tools, signage | village |
-| Camps & travel | **12–15**: campfire ✅(code), bedrolls, packs, caravan fittings | now→village |
+| Camps & travel | **12–15**: campfire ✅(code), bedrolls, packs, caravan fittings | now→village (the runner EMBODIED 2026-07-05 — fittings + beast have a live slot) |
 | Shoreline/nautical | **10–15**: boats/raft, nets, floats, dock clutter | later (traversal decision) |
 | Food & forage items | **20–30** tiny models (icons auto-render) | rolling |
 | Hero props | recorder, instruments, the glow's vessels | later (decisions) |

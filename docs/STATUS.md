@@ -441,6 +441,19 @@ discharge to read — per-region routing is still the future item).
 Presentation-only: off headless, soak untouched. Verified live at the
 volcano: river_probe RIVER_WX=storm (+RIVER_WALK=1 exercises the
 mid-run re-anchor/scroll path).
+**Flow maps + the water's hours (2026-07-05, Nicco's realism call +
+"pink only at golden hours").** Rivers carry a PER-VERTEX flow map
+(UV2 = downstream direction × local pace baked from the drape —
+rapids race, pools laze, bends curve) scaled by `flow_scale`, the
+live hourly discharge; the shader advects ripples/foam along it with
+two half-offset cross-faded phases (the flow-map trick — one shared
+clock would shear the pattern into streaks). And the pink is now the
+LOW SUN'S GIFT: day_night publishes `water_gold`/`water_night` (bell
+around solar sunrise/sunset; night from sun elevation) and both water
+shaders blend teal day / slate night / the signature pink at golden
+hour — day water also absorbs harder so shallow runs still read as
+water. river_probe grows RIVER_HOUR=gold + a pond vantage. The
+field-fills-the-channels sim experiment remains the offered next step.
 **Region hydrology (2026-07-05): the generated rivers BREATHE.**
 Hydrology grows a region tier: every no_sim river is a linear
 reservoir on the same hourly balance, rained on through

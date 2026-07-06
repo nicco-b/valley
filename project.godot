@@ -67,6 +67,14 @@ wind_strength={
 "type": "float",
 "value": 0.12
 }
+water_gold={
+"type": "float",
+"value": 0.0
+}
+water_night={
+"type": "float",
+"value": 0.0
+}
 sea_level={
 "type": "float",
 "value": -1000000.0

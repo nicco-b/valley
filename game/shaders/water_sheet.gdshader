@@ -6,8 +6,16 @@ render_mode cull_disabled;
 // passes. Same pink water language as the pond/river shader, shaded by
 // the field itself: depth tints deeper, fast runs brighten.
 
-uniform vec3 color_a : source_color = vec3(0.93, 0.55, 0.60); // deep tint
-uniform vec3 color_b : source_color = vec3(0.99, 0.76, 0.77); // shallow tint
+uniform vec3 color_a : source_color = vec3(0.93, 0.55, 0.60); // deep tint (golden hour)
+uniform vec3 color_b : source_color = vec3(0.99, 0.76, 0.77); // shallow tint (golden hour)
+// Same hour-palettes as water.gdshader: pink is the low sun's gift;
+// day runs teal, night slate (day_night.gd publishes the factors).
+const vec3 DAY_A = vec3(0.20, 0.38, 0.47);
+const vec3 DAY_B = vec3(0.42, 0.62, 0.66);
+const vec3 NIGHT_A = vec3(0.14, 0.18, 0.28);
+const vec3 NIGHT_B = vec3(0.28, 0.34, 0.46);
+global uniform float water_gold;
+global uniform float water_night;
 uniform float patch_size = 96.0;
 global uniform sampler2D water_field_map; // R depth m, G flow speed
 global uniform sampler2D water_base_map; // terrain heights, meters
@@ -51,12 +59,14 @@ void fragment() {
 	float rz = ripple(wpos.xz + vec2(0.0, e), TIME) - r0;
 	vec3 n_ws = normalize(vec3(-rx * 0.3, 1.0, -rz * 0.3));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_ws, 0.0)).xyz);
+	vec3 pal_a = mix(mix(DAY_A, NIGHT_A, water_night), color_a, water_gold);
+	vec3 pal_b = mix(mix(DAY_B, NIGHT_B, water_night), color_b, water_gold);
 	float deep = clamp(w_depth * 4.0, 0.0, 1.0);
-	vec3 col = mix(color_b, color_a, deep * 0.8);
+	vec3 col = mix(pal_b, pal_a, deep * 0.8);
 	// A fast run reads bright — the painted stand-in for white water.
-	col = mix(col, color_b * 1.08, clamp(w_speed * 2.5, 0.0, 0.55));
+	col = mix(col, pal_b * 1.08, clamp(w_speed * 2.5, 0.0, 0.55));
 	float fresnel = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
-	col = mix(col, color_b * 1.05, fresnel * 0.4);
+	col = mix(col, pal_b * 1.05, fresnel * 0.4);
 	ALBEDO = col;
 	ALPHA = clamp(w_depth * 14.0, 0.0, 0.85) * edge_fade;
 	ROUGHNESS = 0.14;

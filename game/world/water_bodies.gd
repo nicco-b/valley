@@ -62,8 +62,11 @@ func _ready() -> void:
 	for r in Terrain.rivers:
 		var mi := MeshInstance3D.new()
 		mi.name = String(r.id)
-		var mat := _material(r.flow * _flow_speed(r.id))
+		# Rivers flow by their per-vertex map (UV2), not the whole-mesh
+		# drift: direction lives in the mesh, speed in flow_scale.
+		var mat := _material(Vector2.ZERO)
 		mat.set_shader_parameter("rapids_boost", 1.0)
+		mat.set_shader_parameter("flow_scale", _flow_speed(r.id))
 		mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx], float(r.depth))
 		_river_built_level[r.id] = Terrain.river_levels[r.idx]
 		mi.mesh.surface_set_material(0, mat)
@@ -122,8 +125,8 @@ func _on_levels_changed() -> void:
 		if mi:
 			mi.position.y = Terrain.river_levels[r.idx] \
 				- float(_river_built_level[r.id])
-			_river_mats[r.id].set_shader_parameter("flow",
-					Vector2(r.flow) * _flow_speed(r.id))
+			_river_mats[r.id].set_shader_parameter("flow_scale",
+					_flow_speed(r.id))
 
 
 ## Stripe drift speed from real discharge: baseline ~1, floods ~2.
@@ -252,11 +255,15 @@ func _ribbon(nodes: Array, level: float, depth: float) -> ArrayMesh:
 		if i < final_rows.size() - 1:
 			drop = float(final_rows[i][2]) - float(final_rows[i + 1][2])
 		rapids[i] = smoothstep(0.06, 0.30, drop / RIBBON_STEP)
-	# Emit rows of verts, stitch quads.
+	# Emit rows of verts, stitch quads. UV2 is the FLOW MAP: downstream
+	# direction × a local pace (rapids race, pools laze) — the shader
+	# advects ripples and foam along it, scaled by the live discharge.
 	for i in final_rows.size():
 		var row: Array = final_rows[i]
 		var perp: Vector2 = Vector2(-row[3].y, row[3].x)
 		st.set_color(Color(rapids[i], 0.0, 0.0))
+		var tan_v: Vector2 = row[3]
+		st.set_uv2(tan_v * (0.7 + 1.8 * rapids[i]))
 		for k in RIBBON_ACROSS:
 			var u := (float(k) / (RIBBON_ACROSS - 1)) * 2.0 - 1.0
 			var p: Vector2 = row[0] + perp * (u * row[1])

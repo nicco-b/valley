@@ -12,6 +12,9 @@ const SHOTS := {
 	"flank": {  # down the volcano flank along a river's run
 		"focus": Vector3(-3120, 0, -4300),
 		"cam": Vector3(-3120, 30.0, -4300), "aim": Vector3(-3300, 500, -3772)},
+	"pond": {  # the home pond: the calm-water hero shot for palette work
+		"focus": Vector3(60, 0, -300),
+		"cam": Vector3(40, 6.0, -260), "aim": Vector3(65, -1, -300)},
 	"wide": {  # aerial: the whole radial drainage, count the rivers
 		"focus": Vector3(-3400, 2600, -3450),
 		"cam": Vector3(-3400, 2400, -3450), "aim": Vector3(-3399, 0, -3440),
@@ -44,6 +47,9 @@ func _process(_d: float) -> void:
 	var s: Dictionary = SHOTS[_shot]
 	if _t == 20:
 		GameClock.hours = 14.0
+		if OS.get_environment("RIVER_HOUR") == "gold":
+			# Just before real sunset — the pink palette's hour.
+			GameClock.hours = GameClock.daylight_span().y - 0.2
 		GameClock.time_scale = 0.0
 		# RIVER_WX=storm shows the live water field working the slope.
 		var wx := OS.get_environment("RIVER_WX")

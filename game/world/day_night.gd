@@ -48,6 +48,17 @@ func _process(_delta: float) -> void:
 	mat.set_shader_parameter("top_color", top)
 	mat.set_shader_parameter("horizon_color", horizon)
 	mat.set_shader_parameter("sun_color", sun.light_color)
+
+	# The water's hours (2026-07-05, Nicco's call: "pink only at golden
+	# hours"): the pool's pink is the low sun's gift now — a bell around
+	# sunrise and sunset in solar space; day water runs a quieter teal,
+	# night a dark slate. The water shader mixes its palettes by these.
+	var gold := maxf(1.0 - absf(h - 6.0) / 1.6, 0.0)
+	gold = maxf(gold, 1.0 - absf(h - 18.0) / 1.6)
+	gold = smoothstep(0.0, 1.0, gold)
+	var night := 1.0 - smoothstep(-0.12, 0.05, elevation)
+	RenderingServer.global_shader_parameter_set("water_gold", gold)
+	RenderingServer.global_shader_parameter_set("water_night", night)
 	# Direction TO the sun; disc swells and reddens near the horizon.
 	mat.set_shader_parameter("sun_dir", sun.global_basis.z)
 	mat.set_shader_parameter("sun_size", 0.035 + 0.05 * (1.0 - clampf(absf(elevation) * 3.0, 0.0, 1.0)))

@@ -19,7 +19,7 @@ const ZOOM_MAX := 13000.0  # the Big Island + the whole chain in one view
 
 var active := false
 
-var _from_god := false  # opened from the free-fly cam, not the player
+var _from_toolkit := false  # opened from the free-fly cam, not the player
 var _cam: Camera3D
 var _markers: Control
 var _hint: Label
@@ -39,7 +39,7 @@ func _ready() -> void:
 	_markers.draw.connect(_draw_markers)
 	add_child(_markers)
 	_hint = Label.new()
-	_hint.text = "drag / WASD pan  ·  wheel zoom  ·  M close  ·  god: RMB teleport"
+	_hint.text = "drag / WASD pan  ·  wheel zoom  ·  M close  ·  toolkit: RMB teleport"
 	# Full-rect + bottom alignment (point anchors land off-screen — CLAUDE.md).
 	_hint.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -73,16 +73,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not active:
 		return
 	if event is InputEventMouseButton and event.pressed:
-		if event.button_index == MOUSE_BUTTON_RIGHT and _from_god:
+		if event.button_index == MOUSE_BUTTON_RIGHT and _from_toolkit:
 			# Right-click: drop the fly cam there (the 38km2 commute fix).
 			var org := _cam.project_ray_origin(event.position)
 			var dir := _cam.project_ray_normal(event.position)
 			if absf(dir.y) > 0.001:
 				var t := -org.y / dir.y
 				var hit := org + dir * t
-				GodMode.move_to(Vector2(hit.x, hit.z))
+				Toolkit.move_to(Vector2(hit.x, hit.z))
 				_focus = Vector3(hit.x, 0.0, hit.z)
-				HUD.notify("god cam moved")
+				HUD.notify("toolkit cam moved")
 			get_viewport().set_input_as_handled()
 			return
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
@@ -124,10 +124,10 @@ func _open() -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	if player == null:
 		return  # not in the world (title screen)
-	_from_god = GodMode.active and GodMode.has_camera()
-	# Center on whatever the map is opened over — the fly cam in god
+	_from_toolkit = Toolkit.active and Toolkit.has_camera()
+	# Center on whatever the map is opened over — the fly cam in toolkit
 	# mode, the player otherwise.
-	var here: Vector3 = GodMode.cam_position() if _from_god else player.global_position
+	var here: Vector3 = Toolkit.cam_position() if _from_toolkit else player.global_position
 	active = true
 	visible = true
 	_focus = Vector3(here.x, 0.0, here.z)
@@ -152,7 +152,7 @@ func _open() -> void:
 		add_child(_cam)
 	_cam.current = true
 	RenderingServer.global_shader_parameter_set("map_view", 1.0)
-	if not _from_god:
+	if not _from_toolkit:
 		player.set_physics_process(false)
 		player.set_process_unhandled_input(false)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -165,9 +165,9 @@ func _close() -> void:
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:
 		streamer.load_radius = 2
-	if _from_god:
+	if _from_toolkit:
 		# Hand the view back to the free-fly camera, not the player.
-		GodMode.resume_camera()
+		Toolkit.resume_camera()
 		return
 	var player := get_tree().get_first_node_in_group("player")
 	player.set_physics_process(true)

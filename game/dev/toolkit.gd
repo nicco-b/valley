@@ -1,7 +1,10 @@
 extends Node
-## Dev god mode (autoload). F1 toggles a free-fly camera with a terrain
-## sculpt brush; F1 again returns to the player, teleported to the camera.
-## Edits write to Terrain's authored edit layer (F5 / exit saves).
+## The Toolkit (autoload) — the in-game editor. The game IS the editor
+## (DECISIONS 2026-07-05: one app, never a separate binary; "god mode"
+## as a name is retired). F1 toggles the free-fly camera with the
+## sculpt brush, place mode, sim inspector, and world panel; F1 again
+## returns to the player, teleported to the camera. Edits write to
+## Terrain's authored edit layer (F5 / exit saves).
 
 const FLY_SPEED := 30.0
 const FAST_MULT := 4.0
@@ -43,7 +46,7 @@ func cam_position() -> Vector3:
 
 
 ## Re-assert the free-fly camera (the map borrows CURRENT while open;
-## closing it in god mode hands the view back here, not to the player).
+## closing it in the Toolkit hands the view back here, not to the player).
 func resume_camera() -> void:
 	if _cam:
 		_cam.current = true
@@ -89,7 +92,7 @@ func _here_summary() -> String:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("god_mode") and OS.is_debug_build():
+	if event.is_action_pressed("toolkit_toggle") and OS.is_debug_build():
 		_exit() if active else _enter()
 		return
 	if not active:
@@ -102,12 +105,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_yaw -= event.relative.x * MOUSE_SENSITIVITY
 		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, -1.55, 1.55)
-	elif event.is_action_pressed("god_save"):
+	elif event.is_action_pressed("toolkit_save"):
 		Terrain.save_edits()
-	elif event.is_action_pressed("god_tool"):
+	elif event.is_action_pressed("toolkit_tool"):
 		_tool = Tool.PLACE if _tool == Tool.SCULPT else Tool.SCULPT
 		_update_hud()
-	elif event.is_action_pressed("god_undo"):
+	elif event.is_action_pressed("toolkit_undo"):
 		if _tool == Tool.SCULPT:
 			# One-deep sculpt undo: revert to the pre-stroke snapshot.
 			Terrain.restore_edits(_sculpt_undo)
@@ -167,9 +170,9 @@ func _process(delta: float) -> void:
 
 	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var dir := _cam.global_basis * Vector3(input.x, 0.0, input.y)
-	if Input.is_action_pressed("god_up"):
+	if Input.is_action_pressed("toolkit_up"):
 		dir += Vector3.UP
-	if Input.is_action_pressed("god_down"):
+	if Input.is_action_pressed("toolkit_down"):
 		dir += Vector3.DOWN
 	var speed := FLY_SPEED * _speed_mult
 	if Input.is_action_pressed("sprint"):
@@ -337,11 +340,11 @@ func _build_nodes() -> void:
 
 func _update_hud() -> void:
 	if _tool == Tool.SCULPT:
-		_hud_label.text = "GOD·SCULPT   F1 exit | LMB raise · Shift carve · Ctrl flatten | Z undo stroke | [ ] brush | Tab place | O world panel | M map | F5 save"
+		_hud_label.text = "TOOLKIT·SCULPT   F1 exit | LMB raise · Shift carve · Ctrl flatten | Z undo stroke | [ ] brush | Tab place | O world panel | M map | F5 save"
 	else:
 		var names: Array[String] = []
 		for i in Kit.ENTRIES.size():
 			var label: String = Kit.ENTRIES[i].label
 			names.append(("[%d %s]" if i == _kit_index else "%d %s") % [i + 1, label])
-		_hud_label.text = "GOD·PLACE   " + " · ".join(names) \
+		_hud_label.text = "TOOLKIT·PLACE   " + " · ".join(names) \
 				+ "   |   LMB place | Z undo | Tab sculpt mode | F1 exit"

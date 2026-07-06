@@ -69,7 +69,7 @@ var region_storage: Dictionary = {}
 # a title-screen boot never pays for it.
 var catchment_area: Dictionary = {}
 # The routed basin per grid cell (index into lakes-then-rivers order, -2 =
-# leaves the domain): kept for observability — god-mode overlays and
+# leaves the domain): kept for observability — Toolkit overlays and
 # probes read where any point's rain ends up via basin_at_world().
 var basin_grid := PackedInt32Array()
 var basin_names: Array[String] = []

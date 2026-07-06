@@ -10,7 +10,7 @@ stays workable for a solo human. Read alongside [DESIGN.md](DESIGN.md).*
 
 | Domain | State | Debt / gap |
 |---|---|---|
-| World streaming | ✅ v1 — cell grid, threaded content loads, follows player/god/map | Terrain gen is main-thread (hitches on fast map pans) |
+| World streaming | ✅ v1 — cell grid, threaded content loads, follows player/Toolkit/map | Terrain gen is main-thread (hitches on fast map pans) |
 | Terrain | ✅ v1 — global height fn: noise + valley landform + sculpt layer (EXR) | Parametric valley should eventually become painted/sculpted region tiles; no erosion bake |
 | Biomes | ❌ | Single implicit biome; no biome mask, records, or blending |
 | Water | ⚠️ hardcoded | One pond as a landmark node; needs a water-bodies system |
@@ -19,7 +19,7 @@ stays workable for a solo human. Read alongside [DESIGN.md](DESIGN.md).*
 | NPC | ✅ v1 — schedule records, one inhabitant | No navigation (walks through nothing-yet, into things-eventually); no two-tier; no interaction |
 | RPG spine | ❌ | No world-state store, no interaction layer, no UI baseline, no dialogue, no items |
 | Characters | ⚠️ placeholder | CC0 robot; Blender pipeline not started |
-| Tools | ✅ god mode (sculpt/place/fly), hot-reload, live map | No erosion bake, no region/biome painting, no nav debug; place mode lacks select/move |
+| Tools | ✅ the Toolkit (sculpt/place/fly), hot-reload, live map | No erosion bake, no region/biome painting, no nav debug; place mode lacks select/move |
 | Save | ✅ skeleton — position, clock, versioned | Per-cell world state is a stub; NPC state unsaved |
 | Data/records | ✅ pattern proven (cells, npcs) | No shared loader/validation; items/dialogue/flags don't exist |
 | Canon | ⚠️ | Lore bible scaffolded; **axioms undecided** — blocks all writing |
@@ -33,7 +33,7 @@ stays workable for a solo human. Read alongside [DESIGN.md](DESIGN.md).*
 2. **One source of truth per domain.** Height = `Terrain.height()`. Time =
    `GameClock`. State = `WorldState` (to build). Every consumer reads the
    source, never a copy.
-3. **Tools live in the game** (god mode pattern). Debug builds carry the
+3. **Tools live in the game** (the Toolkit pattern). Debug builds carry the
    editor with them; shipped builds don't.
 4. **Simulation amplifies authored intent, never replaces it** (Skyrim's
    erosion-then-hand-finish, not Starfield's generate-and-pray).
@@ -49,7 +49,7 @@ stays workable for a solo human. Read alongside [DESIGN.md](DESIGN.md).*
 | 1 | **WorldState** — flags/values store, signals on change, saves into the per-cell/global save scaffold | `game/state/world_state.gd` (autoload) | The consequence backbone. Design the naming scheme (`npc.wanderer.met`, `valley.bridge.repaired`) before code |
 | 2 | **Records loader** — one JSON loader with schema validation + error reporting; migrate cells/npcs onto it | `game/data/records.gd` | Catches typos at load, not at runtime |
 | 3 | **Interaction layer** — `Interactable` component (verb, prompt, signal), player raycast targeting, E key | `game/interact/` | Dialogue, examining, doors, harvesting, sitting-on-things all share this |
-| 4 | **UI baseline** — one HUD singleton (prompt line, subtitle/notify line), one Theme resource in project palette | `game/ui/hud.gd`, `game/ui/theme.tres` | Everything on-screen goes through it; god/map HUDs migrate later |
+| 4 | **UI baseline** — one HUD singleton (prompt line, subtitle/notify line), one Theme resource in project palette | `game/ui/hud.gd`, `game/ui/theme.tres` | Everything on-screen goes through it; Toolkit/map HUDs migrate later |
 | 5 | **Items v0** — item records + a pickup Interactable + a bare inventory list on the player | `data/items/`, `game/items/` | Just enough to prove record→world→player flow; no UI polish |
 
 Then dialogue (engine choice: start with the Dialogue Manager addon; its
@@ -69,7 +69,7 @@ this, couldn't observe or constrain it, and shipped it lobotomized):
 | 2 | **NPC needs + utility AI** — needs drain (rest/food/warmth/social/purpose), activities score against them; behavior emerges | Replaces schedule tables. Records define who someone *is* (needs curves, job, home, relationships), not where they stand at 2pm. RimWorld/Sims model |
 | 3 | **Two-tier as core** — every sim system ships with a near/full and far/coarse mode | STALKER A-Life: the world keeps happening offscreen |
 | 4 | **Weather** — per-region state machine driven by biome wind/moisture; affects palette, fog, particles, ambience, and NPC decisions | First player-visible system payoff |
-| 5 | **Sim inspector** — god mode: click an NPC → needs, current goal, decision scores; systems panel for weather/regions | Non-negotiable. Simulation without instruments is chaos |
+| 5 | **Sim inspector** — the Toolkit: click an NPC → needs, current goal, decision scores; systems panel for weather/regions | Non-negotiable. Simulation without instruments is chaos |
 | 6 | **Guardrails** — canon-critical NPCs/states protected from emergent outcomes; sim writes to WorldState through defined channels | The other half of the Radiant AI lesson |
 | 7 | Later: flora cycles (blooms as ecological events — axioms tie-in), temperature/comfort, wildlife populations, hydrology-fed ecology | One at a time, each player-visible + inspectable before the next |
 
@@ -116,7 +116,7 @@ set pieces.
 ### F3 — world authoring maturation (as the world grows past the valley)
 
 - **Region tiles**: painted heightmap registry (`data/regions/` + images);
-  god-sculpt saves per-region; the parametric valley migrates into the first
+  Toolkit-sculpt saves per-region; the parametric valley migrates into the first
   painted tile; frontier rim generated at unauthored edges
 - **Biome system**: world biome mask (painted image) + biome records
   (`data/biomes/*.json`: palette keyframes, flora table, ambience beds,

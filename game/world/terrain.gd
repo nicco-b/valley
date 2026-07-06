@@ -294,7 +294,7 @@ const VALLEY_INNER := 120.0
 const VALLEY_OUTER := 220.0
 const WALL_HEIGHT := 42.0
 
-# Authored edit layer: a float heightmap sculpted in god mode (and later
+# Authored edit layer: a float heightmap sculpted in the Toolkit (and later
 # paintable externally), added on top of the base noise. World-anchored,
 # EDIT_M_PER_PX meters per pixel, centered on the origin.
 const EDIT_SIZE := 2048  # pixels per side
@@ -370,7 +370,7 @@ func _ready() -> void:
 
 # Load and configure the native kernel (no-op off macOS or without the
 # built library — every caller has a GDScript fallback). The kernel
-# holds REFERENCES to the same noise objects and edit Image, so god-mode
+# holds REFERENCES to the same noise objects and edit Image, so Toolkit
 # sculpting is seen live; all other data is copied once and immutable.
 func _init_kernel() -> void:
 	# class_exists, not can_instantiate: the latter ERRORS on unknown

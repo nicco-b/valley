@@ -206,7 +206,7 @@ policy (what the world forgets is design, not GC).
 
 **Observability — the system that makes the rest shippable.** The
 Radiant AI lesson, institutionalized:
-- **Sim dashboard** (god mode): time controls, climate/flora/moon dials,
+- **Sim dashboard** (the Toolkit): time controls, climate/flora/moon dials,
   herd census + positions on the live map, rumor table, seed states,
   event log tail. Every system above lands with its panel *in the same
   commit* or it doesn't land.

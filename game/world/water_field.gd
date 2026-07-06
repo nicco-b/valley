@@ -98,10 +98,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 # The window follows whoever the world streams around (the water_bodies
-# focus rule): the god cam when flying, else the player.
+# focus rule): the Toolkit cam when flying, else the player.
 func _focus() -> Vector2:
-	if GodMode.active:
-		var p := GodMode.cam_position()
+	if Toolkit.active:
+		var p := Toolkit.cam_position()
 		return Vector2(p.x, p.z)
 	var player := get_tree().get_first_node_in_group("player")
 	if player:

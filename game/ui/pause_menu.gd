@@ -3,7 +3,7 @@ extends CanvasLayer
 ## WORLD KEEPS RUNNING underneath (no tree pause — a 1:1 world doesn't
 ## stop for a menu; only the player's body freezes, like the map). Panel
 ## offers resume, settings, save & quit. Esc in the map closes the map;
-## god mode keeps its own Esc behavior. Wears UITheme; Resume grabs
+## the Toolkit keeps its own Esc behavior. Wears UITheme; Resume grabs
 ## focus on open so the gamepad can walk the menu.
 
 var paused := false
@@ -31,8 +31,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		return  # Esc ends the conversation instead
 	if Journal.visible:
 		return  # Esc closes the journal instead
-	if GodMode.active:
-		return  # god mode owns Esc while flying
+	if Toolkit.active:
+		return  # the Toolkit owns Esc while flying
 	if MapScreen.active:
 		MapScreen._close()
 		return

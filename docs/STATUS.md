@@ -16,7 +16,7 @@ the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 **World** — streamed 128m cell grid (threaded generation); one height
 function feeding near terrain, far-terrain LOD to the horizon, and the map
 ("if you can see it, you can go there" — the distant mountains are real);
-authored valley landform (spawn → pond ~310m → shrine ~620m); god-mode
+authored valley landform (spawn → pond ~310m → shrine ~620m); Toolkit
 sculpt layer (EXR); painterly terrain shader (height/slope bands, wind
 ripples, sun glints); scattered flora from her 3 paintings + dense
 ground-cover stratum (placeholder SVGs); **water bodies as records**
@@ -92,7 +92,7 @@ replayed via shared `GameClock.advance_hours()` catch-up (weather rolls,
 NPCs live the skipped hours — needs/position/activity persist hourly);
 FocusThrottle (unfocused window fps-capped but watchable, minimized
 near-idle); needs/utility NPC AI from records; two-tier (bodies dissolve
->170m, coarse sim continues); sim inspector (god mode → right-click NPC).
+>170m, coarse sim continues); sim inspector (the Toolkit → right-click NPC).
 
 **Deep sim (built 2026-07-02, the six-domain pass — every sim obeys the
 CLAUDE.md sim contract):** Climate substrate (`temperature(x,z)` +
@@ -136,7 +136,7 @@ menus gamepad-navigable — focus grabbed on open, D-pad walks, Start/Esc
 via ui_cancel; verified by tests/ui_probe.gd screenshots), autosave (**hardened
 2026-07-04:** atomic write via tmp+rename, rotating `.bak1`/`.bak2`
 refreshed ≤ every 10 min, load falls back live → bak1 → bak2 with a
-warning — a torn save costs minutes, never the world); god mode (F1:
+warning — a torn save costs minutes, never the world); the Toolkit (F1:
 fly/sculpt/place/inspect); live map (M, gestures); hot-reload of paintings;
 place mode writing cell records; gamepad support (physics interpolation
 was tried 2026-07-04 and REVERTED: a streamed world teleports/adds nodes
@@ -369,7 +369,7 @@ painted BIOME map + `biome_at(x,z)` substrate (shader palettes,
 per-biome flora species/density, Climate/Weather biome response,
 sand physicality) — the palette is a kitchen-table item. Stage C:
 river proposal from the erosion flow map (Hydrology-compatible
-records), beach rules. Same-day Toolkit pass: god-mode WORLD PANEL
+records), beach rules. Same-day Toolkit pass: Toolkit WORLD PANEL
 (O — every system's summary live), sculpt flatten (Ctrl) + stroke
 undo (Z), map right-click teleport, summary() coverage completed
 (Climate/Hydrology/Sand/WaterField/Flora/Wear/Nav).
@@ -429,7 +429,7 @@ stays future work.
 **Live flow everywhere (2026-07-05, the Elements/Watershed): the
 tier-2 field is now a SCROLLING WINDOW.** The 1024² 2m-texel dynamics
 field no longer sits on the home watershed — it follows the focus
-(player or god cam) anywhere in the archipelago, the sand-field
+(player or Toolkit cam) anywhere in the archipelago, the sand-field
 recipe: re-anchor past 384m drift, depth scrolled by texel offset
 (new water_copy kernel), terrain base rebaked off-thread through the
 native kernel; entering texels start dry and rain refills them. Storm
@@ -532,7 +532,7 @@ picker).
    light-scaled sight, hearing, alert/flee/resume) · ✅ navmesh-per-cell
    (baked per streamed cell on the worker thread from terrain triangles,
    water carved out; NPCs and wildlife walk waypoints via PathCursor,
-   straight-line fallback where no navmesh exists; god mode N toggles
+   straight-line fallback where no navmesh exists; Toolkit N toggles
    the overlay) · ✅ far waypoint graph (roads as records in data/roads/;
    graph derived — consecutive nodes edge, coincident nodes junction;
    A* route(); Nav.path()'s far tier now follows the road instead of

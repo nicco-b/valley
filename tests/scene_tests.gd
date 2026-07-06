@@ -462,7 +462,7 @@ func _test_climate_v2() -> void:
 	# The Toolkit sees all of it: the world panel's HERE block composes
 	# every per-position query without a camera (falls back to the
 	# valley), and the substrate summaries carry the new numbers.
-	var here: String = GodMode._here_summary()
+	var here: String = Toolkit._here_summary()
 	for token in ["hum=", "wet=", "swing=", "aspect=", "stage=", "biome=", "snowline"]:
 		_check(here.contains(token), "world panel HERE block carries " + token)
 	_check(Climate.summary().contains("hum("), "Climate summary carries humidity")

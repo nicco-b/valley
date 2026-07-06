@@ -64,7 +64,7 @@ stabilizes; place names come from the lore bible's naming language.
 
 - Re-exporting a PNG while the game runs hot-reloads it in-world within a
   second — paint with the game open on a second screen.
-- The god camera (F1) and map (M) are composition tools: use them to judge
+- The Toolkit camera (F1) and map (M) are composition tools: use them to judge
   how paintings sit in the world at distance, at dusk, in fog.
 - Screenshots are canon reference: a folder of in-game dusk shots is the
   brief for every next painting.

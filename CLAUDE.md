@@ -34,9 +34,9 @@ global height function: noise + valley landform + sculpt edit layer),
 publishes `ground_wetness` — new sims read these, never roll their own),
 `Records` (validated JSON loading), `HUD` (all on-screen text: prompt/say/
 notify/satchel), `Items`, `Kit` (placeable palette), `CellRecords` (placed-
-object JSON), `GodMode` (dev tools), `HotReload`, `MapScreen`, `SaveGame`.
+object JSON), `Toolkit` (the in-game editor), `HotReload`, `MapScreen`, `SaveGame`.
 
-The world is a 128m cell grid streamed around the player (or god cam / map
+The world is a 128m cell grid streamed around the player (or Toolkit cam / map
 focus) by `game/world/world_streamer.gd`: per-cell terrain mesh + collision,
 deterministic flora scatter (seeded by cell coords), authored cell scenes
 (`game/world/cells/cell_X_Y.tscn`), placed records (`data/cells/*.json`).
@@ -54,9 +54,11 @@ sand field/patch/slide · **the Elements** Weather/Climate/FloraLife/snow ·
 Nav/WaypointGraph/roads · **the Traces** InteractionField wear/desire
 paths · **the Understory** AgentSim/NPCs/wildlife/rumors (offscreen
 lives) · **the Chronicle** WorldState/SaveGame/Records/CellRecords ·
-**the Campfire** Dialogue/Journal/quests/Skills · **the Toolkit** god
-mode/place mode/sculpt/hot-reload/module layer (the Creation Kit
-decision). Tag new scripts' ## doc comments with their system name.
+**the Campfire** Dialogue/Journal/quests/Skills · **the Toolkit** the
+in-game editor (F1): fly/sculpt/place/inspect/world panel + hot-reload
++ module layer (the Creation Kit decision; "god mode" as a name is
+RETIRED 2026-07-05 — the autoload is `Toolkit`, one app forever). Tag
+new scripts' ## doc comments with their system name.
 
 ## Hard-won gotchas (do not relearn these)
 
@@ -92,7 +94,7 @@ decision). Tag new scripts' ## doc comments with their system name.
   boundaries — JSON access needs explicit types, `:=` fails on Variant),
   `##` doc comments on every script explaining its role in the system.
 - Every placeholder is labeled placeholder with its replacement path.
-- Simulation code must ship with observability (the god-mode inspector
+- Simulation code must ship with observability (the Toolkit inspector
   pattern) — see FOUNDATIONS F1.5 rules. **Toolkit control (2026-07-04):**
   every new system ships a Toolkit hook — at minimum a summary()/
   sim_debug() the inspector can print, plus override knobs where the

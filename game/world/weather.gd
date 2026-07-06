@@ -74,7 +74,7 @@ var dust := 0.05       # airborne sand at the focus, 0..1
 #    edge), width (m), speed (m/s)}
 # Local weather anywhere = the YOUNGEST front covering that point,
 # with a soft leading edge; between bands it's calm. Weather.state /
-# wind / storminess remain the values AT THE FOCUS (player/god cam),
+# wind / storminess remain the values AT THE FOCUS (player/Toolkit cam),
 # so every existing consumer keeps working; sims anchored in space
 # (Climate at the valley, Hydrology at its watershed) read
 # state_at() their own coordinates — rain fills the pond only when a
@@ -266,8 +266,8 @@ func rain_at(x: float, z: float) -> float:
 
 
 func _focus_xz() -> Vector2:
-	if GodMode.active:
-		var p := GodMode.cam_position()
+	if Toolkit.active:
+		var p := Toolkit.cam_position()
 		return Vector2(p.x, p.z)
 	var player := get_tree().get_first_node_in_group("player")
 	if player:

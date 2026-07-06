@@ -109,8 +109,8 @@ func _process(delta: float) -> void:
 
 
 func _focus_xz() -> Vector2:
-	if GodMode.active:
-		var p := GodMode.cam_position()
+	if Toolkit.active:
+		var p := Toolkit.cam_position()
 		return Vector2(p.x, p.z)
 	var player := get_tree().get_first_node_in_group("player")
 	if player:

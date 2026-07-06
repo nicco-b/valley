@@ -1,6 +1,6 @@
 extends Node
 ## Streaming hitch probe (dev-only, the Toolkit): boots the valley,
-## drags the focus fast across the range cells (the god-mode flight
+## drags the focus fast across the range cells (the Toolkit flight
 ## complaint), and reports real main-thread frame costs — worst frames
 ## and the top spikes — so streaming work is measured, not guessed at.
 ## Movie Maker + minimized (frame TIME is still real work time).

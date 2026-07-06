@@ -12,8 +12,8 @@ extends Node
 ##
 ## Sim contract: stateful; advanced by live ticks and by the sim_advance
 ## group during catch-up; persisted hourly to WorldState
-## ("wildlife.<species>"); world_state_reader group. Observability: god
-## mode right-click a body → sim_debug, like NPCs.
+## ("wildlife.<species>"); world_state_reader group. Observability: the
+## Toolkit right-click a body → sim_debug, like NPCs.
 
 const BODY_SCENE := preload("res://game/wildlife/hound_body.tscn")
 const EMBODY_DISTANCE := 130.0
@@ -120,8 +120,8 @@ func _process(delta: float) -> void:
 
 
 func _focus_position() -> Vector2:
-	if GodMode.active:
-		var c := GodMode.cam_position()
+	if Toolkit.active:
+		var c := Toolkit.cam_position()
 		return Vector2(c.x, c.z)
 	if MapScreen.active:
 		var m := MapScreen.focus_position()

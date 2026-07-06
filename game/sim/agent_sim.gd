@@ -167,7 +167,7 @@ func from_state(state: Dictionary) -> void:
 			break
 
 
-## One-line-per-fact dump for the god-mode sim inspector.
+## One-line-per-fact dump for the Toolkit sim inspector.
 func debug_text() -> String:
 	var lines: Array[String] = []
 	lines.append("activity: %s" % current.get("id", "—"))

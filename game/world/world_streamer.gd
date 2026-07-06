@@ -13,7 +13,7 @@ const TERRAIN_RES := 49  # vertices per cell side (~2.7m grid; gen is threaded)
 # vertices where the feet are). Nav faces and far cells stay coarse.
 const NEAR_RES := 193
 const NEAR_RING := 1  # Chebyshev radius of dense cells around the focus
-# Velocity LOOKAHEAD (2026-07-05, the god-cam pop-in): the load ring is
+# Velocity LOOKAHEAD (2026-07-05, the Toolkit-cam pop-in): the load ring is
 # centered not on the focus but on where it will be in LEAD_SECONDS, so
 # cells finish before you reach them instead of popping over the far
 # LOD at the ring edge. On-foot speeds (<LEAD_MIN_SPEED) get no lead —
@@ -150,14 +150,14 @@ func _scan_authored() -> void:
 
 
 func _focus_position() -> Vector3:
-	# Streaming follows the god camera or map focus when either is active.
+	# Streaming follows the Toolkit camera or map focus when either is active.
 	var p := _player.global_position
-	# An open, streaming map drives the view even in god mode (so
+	# An open, streaming map drives the view even in the Toolkit (so
 	# panning the map builds cells where you look, not at the fly cam).
 	if MapScreen.active and MapScreen.wants_streaming():
 		p = MapScreen.focus_position()
-	elif GodMode.active:
-		p = GodMode.cam_position()
+	elif Toolkit.active:
+		p = Toolkit.cam_position()
 	return p
 
 
@@ -349,7 +349,7 @@ func _res_for(c: Vector2i, center: Vector2i) -> int:
 # Finishing a cell on the main thread costs real milliseconds (scatter
 # nodes, cover MultiMesh upload, the physics body entering the space —
 # Jolt builds its BVH there, not when the Shape3D was made — and the
-# nav region add). A fast god-cam flight completes cells in BURSTS, and
+# nav region add). A fast Toolkit-cam flight completes cells in BURSTS, and
 # finishing a burst in one frame was the flight stutter (2026-07-05).
 # So: drain into a queue, spend at most FINISH_BUDGET_MS per frame.
 const FINISH_BUDGET_MS := 4.0

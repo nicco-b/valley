@@ -155,7 +155,7 @@ func _perceive(delta: float) -> void:
 				_flee_target = global_position + Vector3(away.x, 0.0, away.z)
 
 
-## One-line-per-fact dump for the god-mode sim inspector.
+## One-line-per-fact dump for the Toolkit sim inspector.
 func sim_debug() -> String:
 	var state: String = ["calm", "alert", "fleeing"][attention]
 	if sim == null:

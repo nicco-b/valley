@@ -98,8 +98,8 @@ func _process(_delta: float) -> void:
 		return
 	var focus := Vector2.ZERO
 	var player := get_tree().get_first_node_in_group("player")
-	if GodMode.active:
-		var p := GodMode.cam_position()
+	if Toolkit.active:
+		var p := Toolkit.cam_position()
 		focus = Vector2(p.x, p.z)
 	elif MapScreen.active:
 		var p := MapScreen.focus_position()

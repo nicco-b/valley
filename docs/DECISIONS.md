@@ -41,7 +41,7 @@ All decided 2026-07-01 (first design day) unless noted.*
   World-scale volumetric fluid/granular solvers: never.
 - **Maps: functional map rendered live from the world** (Skyrim-style camera);
   her illustrated map traced from it later.
-- **Tools live in the game, dev-gated** (god mode pattern); content is
+- **Tools live in the game, dev-gated** (the Toolkit — renamed from "god mode" 2026-07-05); content is
   records; place mode writes JSON, not scenes.
 - **If you can see it, you can go there.** No fake vista geometry, ever.
   Distant terrain renders from the same height function the streamer
@@ -212,7 +212,7 @@ All decided 2026-07-01 (first design day) unless noted.*
   through our tools, so tool quality multiplies everything (the map
   will be rebuilt from scratch at 12km scale — the current valley is
   a test fixture; only the systems and the toolkit carry forward).
-  Standing pieces already live: god mode (fly/sculpt/place/inspect),
+  Standing pieces already live: the Toolkit (fly/sculpt/place/inspect),
   place mode → cell records, hot-reload of paintings, the sim
   inspector, "hydrology proposes / the author disposes." Committed
   direction: the module layer (placed records grouped into reusable
@@ -254,6 +254,28 @@ All decided 2026-07-01 (first design day) unless noted.*
   sparse guardian encounters as punctuation. Combat stays deliberate
   and rare regardless. Checkpoint: when caravans walk and no-compass
   navigation works, play for a week and let the loop that pulls win.
+
+- **The Toolkit is the editor, the editor is the game — one app,
+  forever** *(2026-07-05, Nicco)*. "God mode" as a name is retired: the
+  autoload is `Toolkit`, the F1 mode is the Toolkit, the input actions
+  are `toolkit_*`. No separate editor binary, ever — an external editor
+  can't see the live world (the Blender terrain bridge's jank is the
+  proof: two session types, seating policies, stale surfaces), and
+  because all authored state is files (records/EXR/PNG), a future split
+  stays cheap if modding-at-scale ever demands one — so we spend
+  nothing today keeping the option. The separation *advantages* become
+  the toolkit-mode checklist instead: eager saves (mostly true),
+  debug-build gating for exports, a sim-freeze toggle, multi-window
+  docks when the UI wants them, batch work stays headless (the CLI
+  scripts are the "second app"). **The UI must get much better** — the
+  named build-out, in order: a `--toolkit` boot posture · paint the
+  elevation guide + biome map in-game on the live map (kills the
+  Blender terrain trip) · the palette becomes the records (asset cards,
+  not hardcoded ENTRIES) · real placement tools (multi-select,
+  duplicate, align, scatter brush) · live rule-card editing ·
+  undo/history across tools. External apps are asset factories
+  (Blender: meshes/rigs/clips; image editors: paintings), never world
+  editors.
 
 ## Open (deliberately undecided)
 

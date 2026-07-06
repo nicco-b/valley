@@ -15,7 +15,7 @@ and [FOUNDATIONS.md](FOUNDATIONS.md) (build plan).*
 
 ## Controls
 
-| Key | In game | | Key | God mode (F1) |
+| Key | In game | | Key | Toolkit (F1) |
 |---|---|---|---|---|
 | WASD | move | | WASD + mouse | fly |
 | Shift | sprint | | E / Q | up / down |
@@ -47,7 +47,7 @@ travelling back).
 **Weather** rolls a state each hour and eases `wind`/`storminess` values
 that drive flora sway (global shader param), wind audio, fog, sun, dust,
 and NPC decisions. **Terrain** is one height function: noise + the authored
-valley landform + your god-mode sculpts (saved to
+valley landform + your Toolkit sculpts (saved to
 `data/terrain/edit_layer.exr`). The **streamer** keeps a 5×5 patch of 128m
 cells alive around you: per-cell terrain, deterministic flora scatter,
 authored cell scenes, and placed records. **NPCs** are needs-driven: their
@@ -76,7 +76,7 @@ Placements save instantly to `data/cells/cell_X_Y.json` (commit them).
 tune needs weights (higher = drains faster) and activities (`at` is
 `"home"` or `{x,z}`; optional `hours: [start,end]` preferred window,
 `pose: "sit"`, `rate`, `wander`, `storm_boost`). They spawn at home on
-launch. Inspect their mind with god-mode RMB.
+launch. Inspect their mind with Toolkit RMB.
 
 **Add an item** — JSON in `data/items/` (id, name, desc). To place one in
 the world: instance `game/items/pickup.tscn` in a cell scene, set

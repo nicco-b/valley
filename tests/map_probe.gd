@@ -1,5 +1,5 @@
 extends Node
-## Map probe (dev-only): boots the valley, opens the map from god mode,
+## Map probe (dev-only): boots the valley, opens the map from the Toolkit,
 ## zooms to the requested level, saves /tmp/map_<zoom>.png. Run under
 ## Movie Maker, minimized (windowed-probes-annoy-nicco).
 ##   MAP_ORTHO=6000 godot --write-movie x.avi --fixed-fps 15 res://tests/map_probe.tscn

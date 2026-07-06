@@ -180,11 +180,11 @@ func load_state() -> void:
 
 func _process(delta: float) -> void:
 	# Tier switching runs regardless of mode; the focus is whatever the
-	# streamer follows (player, god camera, or map).
+	# streamer follows (player, Toolkit camera, or map).
 	var focus := global_position
 	var player := get_tree().get_first_node_in_group("player")
-	if GodMode.active:
-		focus = GodMode.cam_position()
+	if Toolkit.active:
+		focus = Toolkit.cam_position()
 	elif MapScreen.active:
 		focus = MapScreen.focus_position()
 	elif player:
@@ -328,7 +328,7 @@ func _blocked(dir: Vector3) -> bool:
 	return not space.intersect_ray(params).is_empty()
 
 
-## One-line-per-fact debug dump for the god-mode sim inspector: the
+## One-line-per-fact debug dump for the Toolkit sim inspector: the
 ## mind's own dump (activity/needs/utilities) plus the person around it.
 func sim_debug() -> String:
 	var lines: Array[String] = [display_name, ""]

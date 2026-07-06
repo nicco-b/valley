@@ -35,8 +35,9 @@ exactly DESIGN.md pillar 5.
 - Skills **converge**: everyone eventually masters everything.
 
 Valley's counters, respectively: the consequence contract; sim-carried
-consequences; the 1:1 clock (already shipped); the one-timeline save
-(below); opportunity-cost progression (★ decision).
+consequences; the 1:1 clock (already shipped); consequences worth
+keeping (weight from content, not save friction — v2 below);
+opportunity-cost progression (★ decision).
 
 ## The Consequence Contract (proposed law, sibling to the sim contract)
 

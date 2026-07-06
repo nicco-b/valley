@@ -241,6 +241,19 @@ that's the tax that keeps the fingerprint honest. And the scope law
 stands guard over all of it: consequences mutate existing content,
 never spawn parallel branches.
 
+## Tone directives (Nicco, 2026-07-06)
+
+Whimsical and magical-feeling: exploring and gathering in a wondrous
+land, making friends AND enemies, helping the locals, quests with a
+little complexity. Mappings: friends/enemies = BOTH ends of R1's
+standing (warm bands get gifts/errands/being-asked-after; cold bands
+get refused trade, counter-rumors, shut doors — U2 in reverse);
+helping locals = U1's sim-authored quest board; complexity = R2's
+schema under the scope law; whimsy = art/writing direction plus a
+systems rule: consequences stay warm-hearted (Ghibli, not grimdark).
+Note: "magical" is the FEELING — the canon ban on the word "magic"
+(the glow has rules) is assumed to stand; confirm at the table.
+
 ## Kitchen-table decisions this plan needs (★)
 
 1. Adopt the Consequence Contract as canon (edit into DESIGN.md).
@@ -252,6 +265,16 @@ never spawn parallel branches.
    R4/R5 give them concrete first forms to react to.
 6. The axioms — unchanged, still gate all real WRITING of choices;
    none of R1/R2 code waits on them.
+7. ★★ VOICE: Nicco wants "a lot of voiced dialog" (2026-07-06) —
+   this REVERSES DESIGN.md canon ("text-only, no voice acting — by
+   design; reactivity over performance"), and the reactivity reasoning
+   is load-bearing for this whole plan (recorded VO is the most
+   reactivity-hostile asset class there is). Proposed third path: an
+   INVENTED SPOKEN LANGUAGE (animalese/Simlish-style syllable banks,
+   per-character voice + emotion) — audibly voiced, whimsy-native,
+   costless per text variant, deepens the naming-language canon item,
+   recordable by one person. Decide: full VO / partial VO (barks +
+   key lines) / invented language / text-only stands.
 
 ## What starts now (no decisions needed)
 

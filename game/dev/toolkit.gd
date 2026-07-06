@@ -21,7 +21,7 @@ const MOUSE_SENSITIVITY := 0.003
 # Enter. The map keeps its pens for whole-world strokes — both ride
 # the same shared cores (WorldBake.paint_disc, RiverPen).
 const GUIDE_PAINT_RATE := 0.35  # normalized guide units/sec at brush center
-const GUIDE_QUIET_BAKE := 0.7  # seconds of stroke-quiet before auto-bake
+const GUIDE_QUIET_BAKE := 0.25  # seconds of stroke-quiet before auto-bake
 const MACRO_MIN := 24.0
 const MACRO_MAX := 1200.0
 
@@ -56,8 +56,11 @@ var _guide_meta: Dictionary
 var _guide_undo: Image = null
 var _guide_dirty := false
 var _guide_quiet := 0.0
+var _guide_bbox := Rect2()  # painted world region (scoped rebuild)
+var _baked_img: Image = null  # last bake result (applied live, saved on F5)
 var _bake_task := -1
 var _bake_pending := false
+var _terrain_unsaved := false
 
 # BIOME pen state.
 var _biome_index := 4
@@ -322,6 +325,11 @@ func _process(delta: float) -> void:
 				_macro_radius, dir_g * GUIDE_PAINT_RATE * delta)
 			_guide_dirty = true
 			_guide_quiet = 0.0
+			# Accumulate the painted world region so the bake rebuilds only
+			# these cells (grown a cell so the feathered edge lands too).
+			var pr := Rect2(hit.x, hit.z, 0, 0).grow(_macro_radius + 128.0)
+			_guide_bbox = pr if _guide_bbox.size == Vector2.ZERO \
+					else _guide_bbox.merge(pr)
 		# BIOME pen: instant tint; flora re-composes on stroke release.
 		elif _tool == Tool.BIOME and painting:
 			_biome_stroke = true
@@ -367,7 +375,12 @@ func _process(delta: float) -> void:
 	if _bake_pending and WorkerThreadPool.is_task_completed(_bake_task):
 		WorkerThreadPool.wait_for_task_completion(_bake_task)
 		_bake_pending = false
-		HUD.notify("terrain baked — reshaping")
+		# Swap the baked heightfield in-memory and rebuild ONLY the
+		# painted cells (no disk write, no whole-tile HotReload churn).
+		if _baked_img != null:
+			Terrain.apply_baked_tile("baked_world", _baked_img, _guide_bbox)
+			_guide_bbox = Rect2()
+			_terrain_unsaved = true
 
 	# BIOME pen: the tint was live per-stroke; flora re-composes once,
 	# on release (cell rebuilds ride the streamer's finish budget).
@@ -380,12 +393,11 @@ func _process(delta: float) -> void:
 	_update_river_preview()
 
 
-# The whole paint→bake→write chain, off the main thread (the image is a
-# duplicate — the live one keeps painting while this runs).
-func _bake_guide_task(guide: Image, meta: Dictionary) -> void:
-	WorldBake.save_guide(guide)
-	var baked := WorldBake.bake(guide, meta, Terrain.kernel)
-	WorldBake.write_tile(baked, meta)
+# Just the erosion bake, off the main thread (the image is a duplicate —
+# the live one keeps painting while this runs). Result applied in-memory
+# by _process; disk persistence waits for save.
+func _bake_guide_task(guide: Image, _meta: Dictionary) -> void:
+	_baked_img = WorldBake.bake(guide, _meta, Terrain.kernel)
 
 
 # Persist what the pens changed (F5 and exit, beside the sculpt layer).
@@ -393,10 +405,18 @@ func _save_pens() -> void:
 	if _biome_unsaved:
 		Terrain.save_biome_map()
 		_biome_unsaved = false
+	if _terrain_unsaved and _baked_img != null:
+		WorldBake.save_guide(_guide)       # the source of truth
+		WorldBake.write_tile(_baked_img, _guide_meta)  # the cache
+		_terrain_unsaved = false
+		HUD.notify("terrain saved")
 
 
-# The drawn river course as a floating line strip: nodes plus a rubber
-# band to the cursor, lifted above the ground so it reads over relief.
+# The drawn river course: a floating line strip PLUS a filled marker
+# quad at each dropped node (bare 1px lines vanish over big terrain).
+# Lifted above the ground so it reads over relief; rubber-bands to the
+# cursor.
+const RIVER_MARK := 3.0  # marker quad half-size, meters
 func _update_river_preview() -> void:
 	if _river_preview == null:
 		return
@@ -404,13 +424,25 @@ func _update_river_preview() -> void:
 	mesh.clear_surfaces()
 	if _tool != Tool.RIVER or _river_nodes.is_empty():
 		return
+	# The course line (+ rubber band to the cursor).
 	mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
 	for wp in _river_nodes:
 		mesh.surface_add_vertex(Vector3(wp.x,
-			Terrain.height(wp.x, wp.y) + 1.0, wp.y))
+			Terrain.height(wp.x, wp.y) + 1.5, wp.y))
 	var hit := _ray_to_ground()
 	if hit != Vector3.INF:
-		mesh.surface_add_vertex(hit + Vector3.UP)
+		mesh.surface_add_vertex(hit + Vector3.UP * 1.5)
+	mesh.surface_end()
+	# A flat marker quad at each node — clearly visible from the air.
+	mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	for wp in _river_nodes:
+		var c := Vector3(wp.x, Terrain.height(wp.x, wp.y) + 1.5, wp.y)
+		var a := c + Vector3(-RIVER_MARK, 0, -RIVER_MARK)
+		var b := c + Vector3(RIVER_MARK, 0, -RIVER_MARK)
+		var d := c + Vector3(RIVER_MARK, 0, RIVER_MARK)
+		var e := c + Vector3(-RIVER_MARK, 0, RIVER_MARK)
+		mesh.surface_add_vertex(a); mesh.surface_add_vertex(b); mesh.surface_add_vertex(d)
+		mesh.surface_add_vertex(a); mesh.surface_add_vertex(d); mesh.surface_add_vertex(e)
 	mesh.surface_end()
 
 

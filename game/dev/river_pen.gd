@@ -11,6 +11,10 @@ extends RefCounted
 
 const NODE_SPACING := 50.0   # densify the clicked course to this
 const SURFACE_DIP := 0.3     # waterline sits this far below ground
+const MAX_CARVE := 3.0       # a node's surface can't sit deeper than this
+	# below its OWN ground — so a hand-drawn path that rises never gouges
+	# a canyon (the monotone clamp would otherwise drag the bed to the
+	# lowest point seen; bounding it trades physical purity for no-gouge)
 const WIDTH_HEAD := 3.0
 const WIDTH_MOUTH := 11.0
 const DEPTH := 1.6
@@ -25,11 +29,16 @@ static func commit(points: Array) -> Dictionary:
 		return {}
 	var pts := densify(points, NODE_SPACING)
 	var nodes: Array = []
-	var surf := INF
+	var running := INF  # monotone-downhill waterline cap
 	var length := 0.0
 	for i in pts.size():
 		var p: Vector2 = pts[i]
-		surf = minf(surf, Terrain.height(p.x, p.y) - SURFACE_DIP)
+		var ground: float = Terrain.height(p.x, p.y)
+		running = minf(running, ground - SURFACE_DIP)
+		# Monotone downhill, but never deeper than MAX_CARVE below THIS
+		# node's ground: a course that climbs lifts the waterline back up
+		# with the terrain instead of gouging a trench down to it.
+		var surf: float = maxf(running, ground - MAX_CARVE)
 		if i > 0:
 			length += p.distance_to(pts[i - 1])
 		var f := float(i) / maxf(pts.size() - 1, 1)

@@ -27,6 +27,7 @@ var load_radius := 2  # Chebyshev radius of cells kept loaded (map widens this)
 var _prev_focus := Vector2.INF
 var _focus_vel := Vector2.ZERO
 var _load_center := Vector2i.ZERO  # lead-biased ring center (see _lead)
+var _focus_cell := Vector2i.ZERO   # the true focus cell (union anchor)
 
 var _authored: Dictionary = {}  # Vector2i -> scene path
 var _terrain: Dictionary = {}  # Vector2i -> terrain node
@@ -186,15 +187,27 @@ func _update_cells(sync: bool) -> void:
 	# true focus so the cell under you is always dense.
 	var lead := _lead()
 	var lcenter := center + lead
+	_focus_cell = center
 	_load_center = lcenter
-	# The far LOD's discard zone follows where full cells actually are:
-	# the exact focus (smooth as you walk a cell) shifted by the lead, so
-	# it doesn't double-draw under cells streamed in ahead of a flight.
+	# The far LOD's discard zone stays on the ACTUAL focus (not the lead):
+	# full cells always cover under/around you (the union below), so the
+	# discard must too, or the far LOD double-draws where you stand. (The
+	# lead only ADDS cells ahead; it never drops the ones beneath you —
+	# shifting the whole ring forward was the disappearing-terrain bug.)
 	RenderingServer.global_shader_parameter_set("stream_center",
-		Vector2(fp.x, fp.z) + Vector2(lead) * CELL_SIZE)
-	for dy in range(-load_radius, load_radius + 1):
-		for dx in range(-load_radius, load_radius + 1):
-			var c := lcenter + Vector2i(dx, dy)
+		Vector2(fp.x, fp.z))
+	# Load the UNION of a ring around the focus and a ring around the lead
+	# point: under-you is always covered, lookahead extends toward travel.
+	var lo := Vector2i(mini(center.x, lcenter.x), mini(center.y, lcenter.y)) \
+		- Vector2i(load_radius, load_radius)
+	var hi := Vector2i(maxi(center.x, lcenter.x), maxi(center.y, lcenter.y)) \
+		+ Vector2i(load_radius, load_radius)
+	for cy in range(lo.y, hi.y + 1):
+		for cx in range(lo.x, hi.x + 1):
+			var c := Vector2i(cx, cy)
+			if _chebyshev(c - center) > load_radius \
+					and _chebyshev(c - lcenter) > load_radius:
+				continue  # outside both rings — not in the load zone
 			if not _terrain.has(c) and not _terrain_pending.has(c):
 				if sync:
 					_add_terrain_sync(c)
@@ -216,11 +229,12 @@ func _update_cells(sync: bool) -> void:
 				else:
 					ResourceLoader.load_threaded_request(_authored[c])
 					_pending[c] = _authored[c]
-	# Unload around the lead center too, so cells falling behind a fast
-	# flight free promptly (and the count stays bounded).
+	# Unload only cells outside BOTH rings (a small hysteresis past the
+	# load zone), so nothing under or just-behind you frees mid-flight.
 	var unload_radius := load_radius + 1
 	for c in _terrain.keys():
-		if _chebyshev(c - lcenter) > unload_radius:
+		if _chebyshev(c - center) > unload_radius \
+				and _chebyshev(c - lcenter) > unload_radius:
 			_terrain[c].queue_free()
 			_terrain.erase(c)
 			_mesh_instances.erase(c)
@@ -379,7 +393,8 @@ func _drain_terrain_results() -> void:
 			_terrain.erase(c)
 			_mesh_instances.erase(c)
 			_stale.erase(c)
-		if _chebyshev(c - _load_center) > load_radius + 1:
+		if _chebyshev(c - _focus_cell) > load_radius + 1 \
+				and _chebyshev(c - _load_center) > load_radius + 1:
 			continue  # streamed past it while building; let it lapse
 		_finish_terrain(c, r[1], r[2], r[3], r[4])
 		# Always land at least one; stop when the frame's budget is spent.

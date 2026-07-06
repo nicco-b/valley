@@ -428,6 +428,29 @@ func _init_kernel() -> void:
 	print("[terrain] native kernel live: worker sampling runs in C++")
 
 
+## Toolkit live terrain paint: swap a tile's heightfield from an
+## in-memory baked Image (no disk round-trip) and invalidate ONLY the
+## painted world rect — so painting rebuilds a few nearby cells, not the
+## whole 16km tile (the HotReload path). Persisting to the EXR is the
+## Toolkit's job on save. Returns true if the tile id matched.
+func apply_baked_tile(tile_id: String, baked: Image, world_rect: Rect2) -> bool:
+	for i in _tiles.size():
+		var t: Dictionary = _tiles[i]
+		if t.id != tile_id:
+			continue
+		var fresh := t.duplicate()
+		fresh.data = baked.get_data().to_float32_array()
+		fresh.res = baked.get_width()
+		var swapped := _tiles.duplicate()
+		swapped[i] = fresh
+		_tiles = swapped
+		if kernel:
+			_init_kernel()  # fresh instance; workers keep the old ref
+		edited.emit(world_rect)  # scoped — only painted cells rebuild
+		return true
+	return false
+
+
 ## Dev hot-reload of one painted tile: reload the image, swap the tile
 ## array and a FRESH kernel wholesale (workers mid-build keep a ref to
 ## the old one — never a torn mix), then invalidate the tile's rect so

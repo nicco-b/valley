@@ -32,6 +32,10 @@ func _ready() -> void:
 	visible = false
 	_markers = Control.new()
 	_markers.set_anchors_preset(Control.PRESET_FULL_RECT)
+	# Control's default filter is STOP: full-rect, it silently ate every
+	# click and wheel tick over the map (RMB teleport dead, wheel zoom
+	# only working via trackpad gestures). Labels are paint, not UI.
+	_markers.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_markers.draw.connect(_draw_markers)
 	add_child(_markers)
 	_hint = Label.new()

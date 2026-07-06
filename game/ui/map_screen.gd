@@ -349,72 +349,15 @@ func _toggle_river() -> void:
 	_update_hint()
 
 
-## Commit the drawn course to a river record: densify to node spacing,
-## take each surface from the baked terrain (clamped downhill), taper the
-## width head→mouth, then Terrain.add_river carves it live and we persist
-## the JSON so it survives a restart.
+## Commit the drawn course through the shared pen core (RiverPen —
+## the flyover pen uses the same densify/surface/clamp rules).
 func _commit_river() -> void:
 	if _river_nodes.size() < 2:
 		HUD.notify("river needs at least 2 points")
 		return
-	var pts := _densify(_river_nodes, RIVER_NODE_SPACING)
-	var out_nodes: Array = []
-	var surf := INF
-	var length := 0.0
-	for i in pts.size():
-		var p: Vector2 = pts[i]
-		surf = minf(surf, Terrain.height(p.x, p.y) - RIVER_SURFACE_DIP)
-		if i > 0:
-			length += p.distance_to(pts[i - 1])
-		var f := float(i) / maxf(pts.size() - 1, 1)
-		out_nodes.append({
-			"x": snappedf(p.x, 0.1), "z": snappedf(p.y, 0.1),
-			"width": snappedf(lerpf(RIVER_WIDTH_HEAD, RIVER_WIDTH_MOUTH, f), 0.1),
-			"surface": snappedf(surf, 0.1)})
-	var n := _next_pen_index()
-	# Rough catchment for the region tier: a ~200m drainage strip along
-	# the course (mood physics; a longer river breathes wider).
-	var rec := {"id": "pen_%d" % n, "no_sim": true,
-		"depth": RIVER_DEPTH, "feather": RIVER_FEATHER,
-		"catchment_m2": snappedf(length * 200.0, 1.0), "nodes": out_nodes}
-	Terrain.add_river(rec)
-	var fh := FileAccess.open("res://data/water/rivers/pen_%d.json" % n, FileAccess.WRITE)
-	fh.store_string(JSON.stringify(rec, "\t") + "\n")
-	fh.close()
+	RiverPen.commit(_river_nodes)
 	_river_nodes.clear()
 	_update_hint()
-	HUD.notify("river penned (%d nodes, %.0fm) — carving" % [out_nodes.size(), int(length)])
-
-
-## Uniform arc-length resample of a clicked polyline (endpoints kept), so
-## the carve's node-lerped bed follows the terrain instead of bridging
-## between far-apart clicks.
-func _densify(pts: Array, spacing: float) -> Array:
-	var out: Array = [pts[0]]
-	var carry := 0.0
-	for i in pts.size() - 1:
-		var a: Vector2 = pts[i]
-		var ab: Vector2 = pts[i + 1] - a
-		var seg := ab.length()
-		if seg < 1e-4:
-			continue
-		var s := spacing - carry
-		while s < seg:
-			out.append(a + ab * (s / seg))
-			s += spacing
-		carry = seg - (s - spacing)
-	out.append(pts[pts.size() - 1])
-	return out
-
-
-func _next_pen_index() -> int:
-	var n := 0
-	var dir := DirAccess.open("res://data/water/rivers")
-	if dir:
-		for f in dir.get_files():
-			if f.begins_with("pen_") and f.ends_with(".json"):
-				n = maxi(n, f.trim_prefix("pen_").trim_suffix(".json").to_int() + 1)
-	return n
 
 
 ## Screen mouse → world XZ on the y=0 plane. The map cam is pitched, so
@@ -431,21 +374,9 @@ func _mouse_world() -> Vector2:
 	return Vector2(hit.x, hit.z)
 
 
-## Raise (or lower) the guide within the brush disc, linear falloff to the
-## rim, clamped to the paintable 0..1 range.
+## One shared brush (WorldBake.paint_disc) with the flyover pen.
 func _paint_guide(world_xz: Vector2, amount: float) -> void:
-	var res := _guide.get_width()
-	var c := WorldBake.world_to_texel(world_xz.x, world_xz.y, _guide_meta, res)
-	var rad := _brush_m / float(_guide_meta["world_size"]) * res
-	if rad < 0.5:
-		return
-	for pz in range(maxi(0, int(c.y - rad)), mini(res, int(c.y + rad) + 1)):
-		for px in range(maxi(0, int(c.x - rad)), mini(res, int(c.x + rad) + 1)):
-			var d := Vector2(px + 0.5, pz + 0.5).distance_to(c)
-			if d > rad:
-				continue
-			var v := _guide.get_pixel(px, pz).r + amount * (1.0 - d / rad)
-			_guide.set_pixel(px, pz, Color(clampf(v, 0.0, 1.0), 0.0, 0.0))
+	WorldBake.paint_disc(_guide, _guide_meta, world_xz, _brush_m, amount)
 
 
 ## Commit the painted guide: persist it, bake through the kernel (the same

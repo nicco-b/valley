@@ -64,6 +64,25 @@ static func save_guide(guide_img: Image) -> void:
 	guide_img.save_exr(ProjectSettings.globalize_path(GUIDE_EXR), true)
 
 
+## Raise (or lower) the guide within a world-space disc, linear falloff
+## to the rim, clamped to the paintable 0..1 range — the ONE brush both
+## pens share (map top-down and flyover ground-painting).
+static func paint_disc(guide_img: Image, m: Dictionary, world_xz: Vector2,
+		radius_m: float, amount: float) -> void:
+	var res := guide_img.get_width()
+	var c := world_to_texel(world_xz.x, world_xz.y, m, res)
+	var rad := radius_m / float(m["world_size"]) * res
+	if rad < 0.5:
+		return
+	for pz in range(maxi(0, int(c.y - rad)), mini(res, int(c.y + rad) + 1)):
+		for px in range(maxi(0, int(c.x - rad)), mini(res, int(c.x + rad) + 1)):
+			var d := Vector2(px + 0.5, pz + 0.5).distance_to(c)
+			if d > rad:
+				continue
+			var v := guide_img.get_pixel(px, pz).r + amount * (1.0 - d / rad)
+			guide_img.set_pixel(px, pz, Color(clampf(v, 0.0, 1.0), 0.0, 0.0))
+
+
 ## Write the baked heightfield to the tiles cache + its region record.
 ## HotReload watches the tiles dir and calls Terrain.reload_tile, so the
 ## live world reshapes within a second of this landing.

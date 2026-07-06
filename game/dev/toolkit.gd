@@ -12,7 +12,20 @@ const BRUSH_RATE := 14.0  # meters of height per second at brush center
 const BRUSH_INTERVAL := 0.05  # seconds between brush applications
 const MOUSE_SENSITIVITY := 0.003
 
-enum Tool { SCULPT, PLACE }
+# The world pens live HERE in the flyover (2026-07-06, Nicco's call —
+# in map mode you couldn't watch the ground change): TERRAIN paints the
+# elevation guide on the ground you're looking at and AUTO-BAKES on
+# stroke-quiet (~0.4s kernel bake on a worker; HotReload reshapes the
+# world under the camera), BIOME retints instantly and re-floras on
+# stroke release, RIVER drops points on the terrain and carves on
+# Enter. The map keeps its pens for whole-world strokes — both ride
+# the same shared cores (WorldBake.paint_disc, RiverPen).
+const GUIDE_PAINT_RATE := 0.35  # normalized guide units/sec at brush center
+const GUIDE_QUIET_BAKE := 0.7  # seconds of stroke-quiet before auto-bake
+const MACRO_MIN := 24.0
+const MACRO_MAX := 1200.0
+
+enum Tool { SCULPT, PLACE, TERRAIN, BIOME, RIVER }
 
 var active := false
 
@@ -25,6 +38,7 @@ var _inspected: Node = null
 var _yaw := 0.0
 var _pitch := -0.9
 var _brush_radius := 12.0
+var _macro_radius := 160.0  # TERRAIN/BIOME brush (guide texels are 16m)
 var _brush_accum := 0.0
 var _speed_mult := 1.0
 var _tool := Tool.SCULPT
@@ -35,6 +49,25 @@ var _sculpt_undo: Image = null
 var _flatten_target := 0.0
 var _flattening := false
 var _stroke_live := false
+
+# TERRAIN pen state.
+var _guide: Image = null
+var _guide_meta: Dictionary
+var _guide_undo: Image = null
+var _guide_dirty := false
+var _guide_quiet := 0.0
+var _bake_task := -1
+var _bake_pending := false
+
+# BIOME pen state.
+var _biome_index := 4
+var _biome_dirty := Rect2()
+var _biome_stroke := false
+var _biome_unsaved := false
+
+# RIVER pen state.
+var _river_nodes: Array[Vector2] = []
+var _river_preview: MeshInstance3D
 
 
 ## Boot posture (DECISIONS 2026-07-05, build-out item 1): launched with
@@ -132,22 +165,51 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, -1.55, 1.55)
 	elif event.is_action_pressed("toolkit_save"):
 		Terrain.save_edits()
+		_save_pens()
 	elif event.is_action_pressed("toolkit_tool"):
-		_tool = Tool.PLACE if _tool == Tool.SCULPT else Tool.SCULPT
+		_tool = ((_tool as int) + 1) % Tool.size() as Tool
+		if _tool == Tool.TERRAIN and _guide == null:
+			_guide = WorldBake.load_guide()
+			_guide_meta = WorldBake.meta()
 		_update_hud()
 	elif event.is_action_pressed("toolkit_undo"):
-		if _tool == Tool.SCULPT:
-			# One-deep sculpt undo: revert to the pre-stroke snapshot.
-			Terrain.restore_edits(_sculpt_undo)
-			_sculpt_undo = null
+		match _tool:
+			Tool.SCULPT:
+				# One-deep sculpt undo: revert to the pre-stroke snapshot.
+				Terrain.restore_edits(_sculpt_undo)
+				_sculpt_undo = null
+			Tool.TERRAIN:
+				if _guide_undo != null:
+					_guide = _guide_undo.duplicate()
+					_guide_dirty = true
+					_guide_quiet = 0.0  # rebake shortly
+			Tool.RIVER:
+				if not _river_nodes.is_empty():
+					_river_nodes.pop_back()
+					_update_hud()
+			_:
+				var hit := _ray_to_ground()
+				if hit != Vector3.INF:
+					CellRecords.remove_last(CellRecords.cell_of(hit))
+	elif event is InputEventKey and event.pressed and not event.echo \
+			and _tool == Tool.RIVER \
+			and (event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER):
+		if _river_nodes.size() >= 2:
+			RiverPen.commit(_river_nodes)
+			_river_nodes.clear()
+			_update_hud()
 		else:
-			var hit := _ray_to_ground()
-			if hit != Vector3.INF:
-				CellRecords.remove_last(CellRecords.cell_of(hit))
+			HUD.notify("river needs at least 2 points")
 	elif event.is_action_pressed("brush_bigger"):
-		_brush_radius = minf(_brush_radius * 1.3, 64.0)
+		if _tool == Tool.TERRAIN or _tool == Tool.BIOME:
+			_macro_radius = minf(_macro_radius * 1.3, MACRO_MAX)
+		else:
+			_brush_radius = minf(_brush_radius * 1.3, 64.0)
 	elif event.is_action_pressed("brush_smaller"):
-		_brush_radius = maxf(_brush_radius / 1.3, 3.0)
+		if _tool == Tool.TERRAIN or _tool == Tool.BIOME:
+			_macro_radius = maxf(_macro_radius / 1.3, MACRO_MIN)
+		else:
+			_brush_radius = maxf(_brush_radius / 1.3, 3.0)
 	elif event is InputEventKey and event.pressed and not event.echo \
 			and event.physical_keycode == KEY_O:
 		# The world panel: every system's Toolkit summary, live.
@@ -159,10 +221,16 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("ui_cancel"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventKey and event.pressed and not event.echo \
-			and event.physical_keycode >= KEY_1 \
-			and event.physical_keycode < KEY_1 + Kit.ENTRIES.size():
-		_kit_index = event.physical_keycode - KEY_1
-		_update_hud()
+			and event.physical_keycode >= KEY_1 and event.physical_keycode <= KEY_9:
+		# Number keys pick within the active tool's palette.
+		if _tool == Tool.BIOME:
+			_biome_index = clampi(event.physical_keycode - KEY_1,
+				0, Terrain.biomes.size() - 1)
+			_update_hud()
+		elif _tool == Tool.PLACE \
+				and event.physical_keycode < KEY_1 + Kit.ENTRIES.size():
+			_kit_index = event.physical_keycode - KEY_1
+			_update_hud()
 	elif event is InputEventMouseButton and event.pressed:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED \
 				and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
@@ -176,6 +244,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			if hit != Vector3.INF:
 				CellRecords.add(hit, Kit.ENTRIES[_kit_index].id,
 						randf() * TAU, randf_range(0.85, 1.15))
+		elif event.button_index == MOUSE_BUTTON_LEFT and _tool == Tool.RIVER:
+			var hit := _ray_to_ground()
+			if hit != Vector3.INF:
+				_river_nodes.append(Vector2(hit.x, hit.z))
+				_update_hud()
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			# Sim inspector: right-click an NPC to watch its mind.
 			var space := _cam.get_world_3d().direct_space_state
@@ -232,10 +305,32 @@ func _process(delta: float) -> void:
 	_cursor.visible = hit != Vector3.INF
 	if _cursor.visible:
 		_cursor.global_position = hit
-		var r := _brush_radius if _tool == Tool.SCULPT else 1.5
+		var r := 1.5
+		match _tool:
+			Tool.SCULPT: r = _brush_radius
+			Tool.TERRAIN, Tool.BIOME: r = _macro_radius
 		_cursor.scale = Vector3(r, 1.0, r)
-		if _tool == Tool.SCULPT and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
-				and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		var painting := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
+				and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+		# TERRAIN pen: paint the guide on the ground; auto-bake on quiet.
+		if _tool == Tool.TERRAIN and painting and _guide != null:
+			if not _stroke_live:
+				_stroke_live = true
+				_guide_undo = _guide.duplicate()  # Z reverts the stroke
+			var dir_g := -1.0 if Input.is_action_pressed("sprint") else 1.0
+			WorldBake.paint_disc(_guide, _guide_meta, Vector2(hit.x, hit.z),
+				_macro_radius, dir_g * GUIDE_PAINT_RATE * delta)
+			_guide_dirty = true
+			_guide_quiet = 0.0
+		# BIOME pen: instant tint; flora re-composes on stroke release.
+		elif _tool == Tool.BIOME and painting:
+			_biome_stroke = true
+			var painted: Rect2 = Terrain.paint_biome_index(
+				hit.x, hit.z, _macro_radius, _biome_index)
+			_biome_dirty = painted if _biome_dirty.size == Vector2.ZERO \
+					else _biome_dirty.merge(painted)
+			_biome_unsaved = true
+		if _tool == Tool.SCULPT and painting:
 			if not _stroke_live:
 				# Stroke begins: snapshot for Z-undo.
 				_stroke_live = true
@@ -258,6 +353,65 @@ func _process(delta: float) -> void:
 					Terrain.apply_brush(hit, _brush_radius, amount)
 		elif not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			_stroke_live = false  # stroke ended; snapshot stays for Z
+
+	# TERRAIN pen: auto-bake on stroke-quiet — the guide bakes on a
+	# worker (~0.4s) and HotReload reshapes the ground you're watching.
+	if _guide_dirty and not _bake_pending:
+		_guide_quiet += delta
+		if _guide_quiet >= GUIDE_QUIET_BAKE and Terrain.kernel != null \
+				and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			_guide_dirty = false
+			_bake_pending = true
+			_bake_task = WorkerThreadPool.add_task(
+				_bake_guide_task.bind(_guide.duplicate(), _guide_meta))
+	if _bake_pending and WorkerThreadPool.is_task_completed(_bake_task):
+		WorkerThreadPool.wait_for_task_completion(_bake_task)
+		_bake_pending = false
+		HUD.notify("terrain baked — reshaping")
+
+	# BIOME pen: the tint was live per-stroke; flora re-composes once,
+	# on release (cell rebuilds ride the streamer's finish budget).
+	if _biome_stroke and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		_biome_stroke = false
+		if _biome_dirty.size != Vector2.ZERO:
+			Terrain.commit_biome_paint(_biome_dirty)
+			_biome_dirty = Rect2()
+
+	_update_river_preview()
+
+
+# The whole paint→bake→write chain, off the main thread (the image is a
+# duplicate — the live one keeps painting while this runs).
+func _bake_guide_task(guide: Image, meta: Dictionary) -> void:
+	WorldBake.save_guide(guide)
+	var baked := WorldBake.bake(guide, meta, Terrain.kernel)
+	WorldBake.write_tile(baked, meta)
+
+
+# Persist what the pens changed (F5 and exit, beside the sculpt layer).
+func _save_pens() -> void:
+	if _biome_unsaved:
+		Terrain.save_biome_map()
+		_biome_unsaved = false
+
+
+# The drawn river course as a floating line strip: nodes plus a rubber
+# band to the cursor, lifted above the ground so it reads over relief.
+func _update_river_preview() -> void:
+	if _river_preview == null:
+		return
+	var mesh := _river_preview.mesh as ImmediateMesh
+	mesh.clear_surfaces()
+	if _tool != Tool.RIVER or _river_nodes.is_empty():
+		return
+	mesh.surface_begin(Mesh.PRIMITIVE_LINE_STRIP)
+	for wp in _river_nodes:
+		mesh.surface_add_vertex(Vector3(wp.x,
+			Terrain.height(wp.x, wp.y) + 1.0, wp.y))
+	var hit := _ray_to_ground()
+	if hit != Vector3.INF:
+		mesh.surface_add_vertex(hit + Vector3.UP)
+	mesh.surface_end()
 
 
 func _ray_to_ground() -> Vector3:
@@ -291,6 +445,7 @@ func _enter() -> void:
 func _exit() -> void:
 	active = false
 	Terrain.save_edits()
+	_save_pens()
 	var player := _player()
 	var ground := Terrain.height(_cam.global_position.x, _cam.global_position.z)
 	player.global_position = Vector3(_cam.global_position.x, ground + 1.5, _cam.global_position.z)
@@ -328,6 +483,16 @@ func _build_nodes() -> void:
 	_cursor.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_cursor)
 
+	# The river pen's course preview (line strip, rebuilt per frame).
+	var line_mat := StandardMaterial3D.new()
+	line_mat.albedo_color = Color(0.30, 0.80, 0.95)
+	line_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_river_preview = MeshInstance3D.new()
+	_river_preview.mesh = ImmediateMesh.new()
+	_river_preview.material_override = line_mat
+	_river_preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_river_preview)
+
 	_hud = CanvasLayer.new()
 	_hud_label = Label.new()
 	_hud_label.position = Vector2(12, 8)
@@ -364,12 +529,24 @@ func _build_nodes() -> void:
 
 
 func _update_hud() -> void:
-	if _tool == Tool.SCULPT:
-		_hud_label.text = "TOOLKIT·SCULPT   F1 exit | LMB raise · Shift carve · Ctrl flatten | Z undo stroke | [ ] brush | Tab place | O world panel | M map | F5 save"
-	else:
-		var names: Array[String] = []
-		for i in Kit.ENTRIES.size():
-			var label: String = Kit.ENTRIES[i].label
-			names.append(("[%d %s]" if i == _kit_index else "%d %s") % [i + 1, label])
-		_hud_label.text = "TOOLKIT·PLACE   " + " · ".join(names) \
-				+ "   |   LMB place | Z undo | Tab sculpt mode | F1 exit"
+	match _tool:
+		Tool.SCULPT:
+			_hud_label.text = "TOOLKIT·SCULPT   F1 exit | LMB raise · Shift carve · Ctrl flatten | Z undo stroke | [ ] brush | Tab next tool | O world panel | M map | F5 save"
+		Tool.PLACE:
+			var names: Array[String] = []
+			for i in Kit.ENTRIES.size():
+				var label: String = Kit.ENTRIES[i].label
+				names.append(("[%d %s]" if i == _kit_index else "%d %s") % [i + 1, label])
+			_hud_label.text = "TOOLKIT·PLACE   " + " · ".join(names) \
+					+ "   |   LMB place | Z undo | Tab next tool | F1 exit"
+		Tool.TERRAIN:
+			_hud_label.text = "TOOLKIT·TERRAIN   LMB raise · Shift lower — bakes when you pause | [ ] brush %dm | Z undo stroke | Tab next tool | F1 exit" % int(_macro_radius)
+		Tool.BIOME:
+			var bnames: Array[String] = []
+			for i in mini(Terrain.biomes.size(), 9):
+				var bid := String(Terrain.biomes[i].id)
+				bnames.append(("[%d %s]" if i == _biome_index else "%d %s") % [i + 1, bid])
+			_hud_label.text = "TOOLKIT·BIOME   " + " · ".join(bnames) \
+					+ "   |   LMB paint (re-flora on release) | [ ] brush %dm | Tab next tool" % int(_macro_radius)
+		Tool.RIVER:
+			_hud_label.text = "TOOLKIT·RIVER   LMB drop point (%d) | Enter carve | Z undo point | Tab next tool | F1 exit" % _river_nodes.size()

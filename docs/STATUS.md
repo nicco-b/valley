@@ -537,7 +537,16 @@ picker).
    basin live via Terrain.add_river — densify + baked surface + downhill
    clamp, ribbon + region hydrology attach, persists pen_N.json). All
    three write authored data and hot-reshape without a restart; soak
-   untouched (1333567381). Remaining, in order: (3)
+   untouched (1333567381). **Pens moved into the FLYOVER (2026-07-06,
+   Nicco: "I couldn't see the terrain changing in map mode"):** Tab now
+   cycles SCULPT → PLACE → TERRAIN → BIOME → RIVER in the fly cam —
+   TERRAIN paints the guide on the ground you're looking at and
+   AUTO-BAKES on stroke-quiet (worker bake, HotReload reshapes under
+   you), BIOME retints live and re-floras on release (1-9 pick), RIVER
+   drops points on the terrain (cyan preview strip) and carves on
+   Enter. Shared cores so the map pens can't drift: WorldBake.paint_disc
+   + RiverPen (commit/densify). Map pens kept for whole-world strokes.
+   Remaining, in order: (3)
    the palette becomes the records — asset cards, not
    Kit.ENTRIES hardcoded · (4) real placement tools (multi-select,
    duplicate, align, scatter brush) · (5) live rule-card editing · (6)

@@ -9,6 +9,11 @@ const WATER_SHADER := preload("res://game/shaders/water.gdshader")
 const DISC_STEP := 0.9  # meters between lake verts (ripple-scale)
 const RIBBON_STEP := 1.8  # meters between river cross-sections
 const RIBBON_ACROSS := 5
+const EDGE_TUCK := 0.4  # ribbon reaches past the waterline into the bank
+const STEP_SPLIT := 1.1  # a POOL LIP (flat above, cliff below) this tall
+	# gets a vertical fall face; sustained steep runs stay continuous —
+	# splitting every steep row turned cascades into shingles.
+const STEP_FLAT := 0.35  # "flat above" threshold for lip detection
 
 var _lake_meshes: Dictionary = {}
 var _river_meshes: Dictionary = {}
@@ -214,23 +219,50 @@ func _ribbon(nodes: Array, level: float, depth: float) -> ArrayMesh:
 		surf[i] = minf(rows[i][2], Terrain.height(p.x, p.y) + depth)
 	for i in range(rows.size() - 2, -1, -1):
 		surf[i] = maxf(surf[i], surf[i + 1])
-	# Rapids strength from the local grade (COLOR.r → shader foam).
-	var rapids := PackedFloat32Array(); rapids.resize(rows.size())
+	# Seam fixes (2026-07-05, the Skyrim lessons — bed and surface must
+	# AGREE, and where they can't, hide the disagreement):
+	#  - tangents smoothed over ±2 rows so cross-sections stop crossing
+	#    on tight bends (the notch);
+	#  - edges tucked EDGE_TUCK past the waterline so they bury in the
+	#    carved bank instead of meeting the terrain edge-on (the crack);
+	#  - big drops become a lip row + a vertical fall face instead of
+	#    one stretched quad the terrain pokes through (the sliver).
+	var tans: Array = []
 	for i in rows.size():
-		var j := mini(i + 1, rows.size() - 1)
-		var drop := surf[i] - surf[j] if j > i else 0.0
+		var t: Vector2 = Vector2.ZERO
+		for j in range(maxi(i - 2, 0), mini(i + 3, rows.size())):
+			t += rows[j][3]
+		tans.append(t.normalized() if t.length() > 1e-4 else rows[i][3])
+	var final_rows: Array = []  # [pos, half, surface, tangent]
+	for i in rows.size():
+		final_rows.append([rows[i][0], rows[i][1] + EDGE_TUCK, surf[i], tans[i]])
+		if i > 0 and i < rows.size() - 1 \
+				and surf[i] - surf[i + 1] > STEP_SPLIT \
+				and surf[i - 1] - surf[i] < STEP_FLAT:
+			# A pool lip: flat water arriving at a cliff. Carry the
+			# upstream surface to the downstream spot so the next row
+			# drops straight down (a fall face) instead of one long
+			# stretched quad the terrain pokes through.
+			final_rows.append([rows[i + 1][0], rows[i + 1][1] + EDGE_TUCK,
+				surf[i], tans[i + 1]])
+	# Rapids strength from the local grade (COLOR.r → shader foam).
+	var rapids := PackedFloat32Array(); rapids.resize(final_rows.size())
+	for i in final_rows.size():
+		var drop := 0.0
+		if i < final_rows.size() - 1:
+			drop = float(final_rows[i][2]) - float(final_rows[i + 1][2])
 		rapids[i] = smoothstep(0.06, 0.30, drop / RIBBON_STEP)
 	# Emit rows of verts, stitch quads.
-	for i in rows.size():
-		var row: Array = rows[i]
+	for i in final_rows.size():
+		var row: Array = final_rows[i]
 		var perp: Vector2 = Vector2(-row[3].y, row[3].x)
 		st.set_color(Color(rapids[i], 0.0, 0.0))
 		for k in RIBBON_ACROSS:
 			var u := (float(k) / (RIBBON_ACROSS - 1)) * 2.0 - 1.0
 			var p: Vector2 = row[0] + perp * (u * row[1])
 			st.set_normal(Vector3.UP)
-			st.add_vertex(Vector3(p.x, surf[i] + level, p.y))
-	for i in rows.size() - 1:
+			st.add_vertex(Vector3(p.x, float(row[2]) + level, p.y))
+	for i in final_rows.size() - 1:
 		for k in RIBBON_ACROSS - 1:
 			var a := i * RIBBON_ACROSS + k
 			st.add_index(a)

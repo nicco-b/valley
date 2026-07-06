@@ -461,6 +461,13 @@ lag was water_bodies rebuilding every draped ribbon on each hourly
 levels_changed (~80ms, found by the new `tests/clock_probe.tscn`
 per-consumer timer); levels now TRANSLATE the built mesh (1h chunk:
 80ms → 1ms). New Ctrl+T = +1 hour, Ctrl+Shift+T = +15 min.
+**Ribbon seam pass (same day, the Skyrim lessons — bed and surface
+authored to agree, disagreements hidden):** tangents smoothed ±2 rows
+(bend notches), edges tucked 0.4m past the waterline into the carved
+bank (edge cracks), and POOL LIPS (flat water arriving at a >1.1m
+cliff) emit a vertical fall face instead of one stretched quad —
+lip detection requires the flat above, because splitting every steep
+row shingled the cascades (tried, reverted same hour).
 
 ## Placeholder ledger (each has a named replacement path)
 

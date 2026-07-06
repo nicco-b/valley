@@ -92,6 +92,13 @@ to any scene; set `prompt`, `text`, optional WorldState `flag`.
 `game/world/weather.gd`. World metabolism (need drain, hysteresis):
 constants atop `game/npc/npc.gd`.
 
+**Edit the world in Blender** — `blender -b --python
+assets/blender/terrain/valley_terrain.py -- import` builds
+`valley_map.blend` from the elevation guide + placed records; sculpt
+the landform and set-dress with kit objects, export back with the same
+script (`-- export`), then rebake (`tests/bake_world.gd`). Full
+conventions in `assets/blender/terrain/README.md`.
+
 **Swap placeholder audio** — replace `assets/audio/wind_loop.wav` /
 `night_loop.wav` with real recordings (seamless loops), then
 `./scripts/reimport.sh wind_loop` (force). Check `.import` has

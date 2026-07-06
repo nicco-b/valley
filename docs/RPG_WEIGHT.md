@@ -139,6 +139,108 @@ years, because consequences are interesting enough to keep.)*
    — wake at the last camp with real days lost, goods scattered, a
    rumor of your fall circulating. Probably the journey premise's job.
 
+## What the sim-forward setup unlocks (second pass, 2026-07-06)
+
+*Each entry names the RAILS it rides (verified in code this week) and
+the honest GAP. Tiered by cost. The through-line: other RPGs fake
+these with scripts; here they'd be true statements about sim state.*
+
+### Nearly free (rails exist; wiring + content)
+
+**U1 — The sim writes the quest board.** "The Dry Spell" already
+proved the pattern: a sim state latches a journal seed. Generalize:
+`valley.parched` → a water-hauling errand; storm-days + river level
+max → the ford closes, a repair need appears; the REAL winter snowline
+crossing the volcano → the pass shuts seasonally and caravans reroute.
+This is Radiant done honestly — Bethesda generates fetch quests from
+templates; we latch quests onto things that actually happened.
+RAILS: WorldState values all exist; seed-latching shipped. GAP: quest
+content + a review pass per seed (scope law applies).
+
+**U2 — Gossip with provenance.** Rumors already travel person-to-person
+with a teller. Store the provenance chain and standing (R1) inherits
+it: "who told you that?" becomes playable — trace a rumor to its
+source, repair your name by confronting the origin. Social gameplay
+no mainstream RPG has, from ~20 lines on the existing exchange.
+RAILS: learn(fact, from_whom) exists. GAP: persist the teller;
+dialogue conditions on provenance.
+
+**U3 — The almanac is content.** Real seasons, real sunrise, real moon.
+Appointments at actual dawn; a festival on the ACTUAL solstice;
+winter-only regions (the snowline is already emergent); the cricket-
+thermometer (IDEAS ★) as a learnable skill. GAP: none — content only.
+
+**U4 — Ecology-driven economy.** Forage depletion, regrowth, vitality,
+and NPC `produces` stocks already exist. Hook production rates to
+local vitality and prices to actual stock: a drought RAISES the price
+of dried blooms because gathering genuinely slowed. The player who
+reads weather can play the market — knowledge as literal profit.
+RAILS: stocks + vitality_at + depletion. GAP: produces×vitality hook
+(small) + R4 pricing.
+
+### Medium builds
+
+**U5 — Witnessing.** Perception v1 exists (wildlife: light-scaled
+sight, hearing; moon phase already thins night light). Extend to NPCs:
+deeds seed rumors ONLY from actual witnesses — darkness and weather
+genuinely conceal; a new-moon heist is mechanically real stealth.
+Thief-grade systems emerging from the existing light model + rumors.
+GAP: NPC perception port + a deed→witness→rumor bridge; crime/
+ownership design (★ eventually).
+
+**U6 — The world testifies (tracking).** Wear paths record where
+people actually walk (saved, fading over months); sand holds real
+prints (conserved, longer in damp); depletion wounds show harvesting.
+A tracker skill that reads REAL traces — "someone gathered here
+recently, prints head north" as a true statement, not a spawned decal.
+GAP: query APIs over existing fields + content.
+
+**U7 — Routine as puzzle.** Needs-driven schedules are emergent but
+OBSERVABLE and stable — "catch the Keeper alone" is a genuine
+deduction from watching her days, not a quest marker. GAP: none
+technically; quest-design discipline.
+
+**U8 — The away-chronicle.** Catch-up already replays every missed
+hour deterministically. Tap notable events during replay into a
+digest: "While you were away: Tuesday's storm flooded the brook; the
+Keeper asked after you; the bloom came in." The save's 1:1 wall-clock
+life becomes NARRATED — Animal Crossing's warmth with Dwarf Fortress'
+chronicle. GAP: an event-tap taxonomy in advance_hours consumers
+(medium; needs care to stay cheap).
+
+### Horizon-defining
+
+**U9 — The year as structure.** Real seasons + hydrology + snowline =
+an annual rhythm: summer expeditions when the pass opens, autumn
+gathering gluts, winter scarcity. The game becomes a COMPANION over
+months of real life — which is pillar 1 (sit-and-soak) at
+calendar scale. Design implication: content paced as weeks-long arcs
++ a daily-check-in loop, not a 40-hour burn.
+
+**U10 — Lived history.** Placed records already stamp their day; wear
+persists and fades. Let heavy wear PROMOTE into road records (the
+Traces feeding the Ways): paths, then roads, then settlement logic —
+"two legible historical eras" (DESIGN) where the newest era is the
+player's own. GAP: wear→road promotion pass (real build, the fields
+exist).
+
+**U11 — Everyone's Tuesday storm.** Weather is an Rng stream. Seed it
+from the REAL DATE instead of the world and every player on Earth
+lives the same fronts on the same days — communal weather, shared
+almanacs, "were you out in Thursday's gale?" — community events with
+ZERO netcode. ★ design choice (per-world weather vs. shared sky);
+trivially cheap either way.
+
+### What it does NOT unlock (honesty ledger)
+
+Text is still hand-written — rumors are facts, not prose; the
+reactivity SURFACE is writing, gated on axioms. NPC witnessing, crime,
+and ownership are real builds, not wiring. Every unlock inherits the
+sim contract's discipline (deterministic, catch-up-able, observable) —
+that's the tax that keeps the fingerprint honest. And the scope law
+stands guard over all of it: consequences mutate existing content,
+never spawn parallel branches.
+
 ## Kitchen-table decisions this plan needs (★)
 
 1. Adopt the Consequence Contract as canon (edit into DESIGN.md).

@@ -524,6 +524,18 @@ picker).
 
 ## Next up (in rough priority)
 
+−1. **The Toolkit UI build-out** (DECISIONS 2026-07-05, the named order):
+   ✅ (1) `--toolkit` boot posture — `scripts/toolkit.sh` / `godot --path
+   . -- --toolkit` skips the title and lands the fly camera over the live
+   world (dev-only, gated on is_debug_build; Toolkit watches node_added
+   for the player, opens itself). Remaining, in order: (2) paint the
+   elevation guide + biome map in-game on the live map (kills the Blender
+   terrain trip) · (3) the palette becomes the records — asset cards, not
+   Kit.ENTRIES hardcoded · (4) real placement tools (multi-select,
+   duplicate, align, scatter brush) · (5) live rule-card editing · (6)
+   undo/history across tools. Toolkit-mode checklist extras still open:
+   sim-freeze toggle, eager saves.
+
 0. **[SIM_ROADMAP.md](SIM_ROADMAP.md) Phase A — in progress** (started
    2026-07-02 on "go"): ✅ A1 determinism (Rng streams) + soak harness
    (30 days headless ×2, fingerprint-matched) · ✅ A2 AgentSim core

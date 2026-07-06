@@ -51,6 +51,24 @@ time with step 1. Commit what the export writes: the guide EXR and
 - New kit ids: add the scene to `game/world/kit.gd` ENTRIES and a
   proxy shape to `KIT_PROXY` in `valley_terrain.py`.
 
+## "It looks low-res"
+
+It's showing you the **guide** — the 16 m/pixel landform layer. The
+detail you know from the game (drainage grooves, talus, coast
+raggedness, per-cell relief) is *baked on top* by the erosion pass
+after every export, then the cell mesher adds its own near-field
+noise. You're sculpting the skeleton; the bake regrows the skin.
+Two knobs if you want more anyway:
+
+- `-- import --res 2048` builds the sculpt mesh at 8 m/vertex
+  (bilinear upsample — no new information, but finer brush control;
+  export writes the guide at the mesh's res and the bake accepts any
+  width). 2048² ≈ 4M verts: still sculptable, slower to import.
+- The real global-fidelity knob is the bake's `out_res` in
+  `data/world/guide.json` (2048 today = 8 m/px baked). Raising it is
+  a map-pipeline decision (bake cost/memory ×4 per step) — kitchen
+  table, not a Blender-side setting.
+
 ## Sculpting notes
 
 - **Turn OFF X-symmetry** (Blender sculpt default) — the archipelago

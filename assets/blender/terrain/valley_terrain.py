@@ -128,7 +128,17 @@ def _proxy_mesh(kit_id: str) -> "bpy.types.Mesh":
 	return mesh
 
 
-def import_world(save_blend: bool = True) -> None:
+def _upsample_bilinear(a: "np.ndarray", out: int) -> "np.ndarray":
+	n = a.shape[0]
+	t = np.linspace(0.0, n - 1.0, out)
+	i0 = np.clip(t.astype(np.int64), 0, n - 2)
+	f = (t - i0).astype(np.float32)
+	rows = a[i0] * (1.0 - f)[:, None] + a[i0 + 1] * f[:, None]
+	cols = rows[:, i0] * (1.0 - f)[None, :] + rows[:, i0 + 1] * f[None, :]
+	return cols.astype(np.float32)
+
+
+def import_world(save_blend: bool = True, res_override: int = 0) -> None:
 	root = repo_root()
 	meta = load_meta(root)
 	gmin = float(meta.get("guide_min", -60.0))
@@ -140,6 +150,14 @@ def import_world(save_blend: bool = True) -> None:
 
 	norm, res = read_exr_pixels(os.path.join(root, "data", "world", "elevation_guide.exr"))
 	meters = gmin + np.power(np.clip(norm, 0.0, 1.0), inv_gamma) * gspan
+	# Optional denser sculpt grid (-- import --res 2048): bilinear
+	# upsample — no new information, but finer brush control; export
+	# writes the guide back at whatever res the mesh carries (the bake
+	# reads any width). Note the mesh shows the GUIDE: the game's
+	# fractal relief + erosion detail is baked on top after export.
+	if res_override and res_override != res:
+		meters = _upsample_bilinear(meters, res_override)
+		res = res_override
 	step = world / res
 
 	# The terrain: one vertex per guide pixel, heights baked into the
@@ -154,6 +172,9 @@ def import_world(save_blend: bool = True) -> None:
 			axis=-1).reshape(-1, 4)
 	mesh = bpy.data.meshes.new(TERRAIN_NAME)
 	mesh.from_pydata(verts.tolist(), [], quads.tolist())
+	# Smooth shading: flat-shaded 16m quads read far coarser than the
+	# data is; smoothing shows the actual landform.
+	mesh.polygons.foreach_set("use_smooth", np.ones(len(mesh.polygons), dtype=bool))
 	mesh.update()
 	obj = bpy.data.objects.new(TERRAIN_NAME, mesh)
 	bpy.context.scene.collection.objects.link(obj)
@@ -328,8 +349,9 @@ def _test() -> None:
 def _main() -> None:
 	argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 	mode = argv[0] if argv else ("export" if bpy.data.objects.get(TERRAIN_NAME) else "import")
+	res_override = int(argv[argv.index("--res") + 1]) if "--res" in argv else 0
 	if mode == "import":
-		import_world()
+		import_world(res_override=res_override)
 	elif mode == "export":
 		export_world()
 	elif mode == "test":

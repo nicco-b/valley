@@ -165,8 +165,20 @@ func _init() -> void:
 			wdt = maxf(wdt, clampf(2.5 + fl[ci] / thresh * 0.9, 3.0, 16.0))
 			nodes.append({"x": snappedf(p.x, 0.1), "z": snappedf(p.y, 0.1),
 				"width": snappedf(wdt, 0.1), "surface": snappedf(surf, 0.1)})
+		# Real catchment from the droplet flow: droplets spawn uniformly,
+		# so each one stands for world_area/droplets m² of drainage; the
+		# peak passage count along the channel (≈ the mouth) times that
+		# is the river's watershed. Hydrology's region tier rains on it.
+		var peak_fl := 0.0
+		for pi: int in path:
+			peak_fl = maxf(peak_fl, fl[pi])
+		# fl is the fine grid SUMMED down×down: a droplet crossing the
+		# coarse cell touches ~down fine cells, so divide the inflation.
+		var catchment := peak_fl / float(down) * world_size * world_size \
+			/ float(meta.params.droplets)
 		var rec := {"id": "gen_%d" % written, "no_sim": true,
-			"depth": 1.4, "feather": 6.0, "nodes": nodes}
+			"depth": 1.4, "feather": 6.0,
+			"catchment_m2": snappedf(catchment, 1.0), "nodes": nodes}
 		var fh := FileAccess.open("res://data/water/rivers/gen_%d.json" % written,
 			FileAccess.WRITE)
 		fh.store_string(JSON.stringify(rec, "\t") + "\n")

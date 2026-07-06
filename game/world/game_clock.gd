@@ -226,6 +226,7 @@ func clock_text() -> String:
 
 ## --- Dev time travel (debug builds) --------------------------------------
 ## T: live forward to the next anchor (sunrise / noon / sunset / midnight).
+## Ctrl+T: +1 hour. Ctrl+Shift+T: +15 minutes (the granular dial).
 ## Shift+T: +1 day. Alt+T: +1 week. Shift+Alt+T: back to now (play mode).
 ## Forward travel always goes through advance_hours — the world lives the
 ## skipped time; there is no travelling back (the sim can't unlive hours).
@@ -238,7 +239,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mods := event as InputEventWithModifiers
 		var shift := mods != null and mods.shift_pressed
 		var alt := mods != null and mods.alt_pressed
-		if shift and alt:
+		var ctrl := mods != null and mods.ctrl_pressed
+		if ctrl:
+			if shift:
+				_dev_skip(0.25, "a quarter hour passes")
+			else:
+				_dev_skip(1.0, "an hour passes")
+		elif shift and alt:
 			return_to_now()
 		elif alt:
 			_dev_skip(24.0 * 7.0, "a week passes")

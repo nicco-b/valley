@@ -30,8 +30,6 @@ const SEEP := 0.16  # per-second drain proportional to depth — bounds the film
 const PROBE_INTERVAL := 0.15
 const CURRENT_SCALE := 9.0  # net-flux -> m/s-ish push (mood physics)
 const CURRENT_MAX := 2.4
-const GEN_FLOW_NORM := 0.45  # no_sim rivers have no Hydrology discharge;
-	# their current pushes at this fixed fraction of CURRENT_MAX
 const WINDOW := 2048.0  # meters — the scrolling domain (2m texels)
 const RECENTER := 384.0  # re-anchor when the focus drifts this far
 const ANCHOR_SNAP := 16.0  # 8 texels — scroll offsets stay integral
@@ -139,11 +137,9 @@ func current_at(pos: Vector3) -> Vector2:
 	for r in Terrain.rivers:
 		var q := Terrain._river_probe(r, pos.x, pos.z)
 		if q.x < q.y:  # inside the ribbon
-			# Generated rivers aren't Hydrology-routed (no discharge to
-			# read); they push at a fixed healthy-flow fraction.
-			var fn: float = GEN_FLOW_NORM if r.get("no_sim", false) \
-				else Hydrology.flow_norm(r.id)
-			return Terrain.river_tangent(r, pos.x, pos.z) * (CURRENT_MAX * fn)
+			# Hydrology's region tier answers for generated rivers too.
+			return Terrain.river_tangent(r, pos.x, pos.z) \
+				* (CURRENT_MAX * Hydrology.flow_norm(r.id))
 	return Vector2.ZERO
 
 

@@ -627,10 +627,12 @@ func _load_rivers() -> void:
 			"flow": flow,
 			"nodes": nodes,
 			# Generated rivers (proposed from the erosion flow map) carve
-			# and render but are NOT sim-routed — Hydrology's domain is
-			# the home watershed until per-region instances exist, and
-			# registering them would perturb the soak fingerprint.
+			# and render but are NOT routed on the home watershed grid —
+			# Hydrology's REGION tier breathes them instead, off the soak
+			# fingerprint (they're a regenerable local cache), using the
+			# catchment the erosion bake measured for them.
 			"no_sim": bool(rec.get("no_sim", false)),
+			"catchment": float(rec.get("catchment_m2", 0.0)),
 		}
 		_index_river(river)
 		rivers.append(river)

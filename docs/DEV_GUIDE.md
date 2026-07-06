@@ -30,6 +30,7 @@ and [FOUNDATIONS.md](FOUNDATIONS.md) (build plan).*
 | F / R | deploy / recall fireflies | | LMB | place object |
 | Esc | pause (or close map/talk) | | Z | undo last placement |
 | **T** | *debug:* → next sunrise/noon/sunset/midnight | | F5 | save terrain edits |
+| **Ctrl+T / Ctrl+Shift+T** | *debug:* +1 hour / +15 min | | | |
 | **Shift+T / Alt+T** | *debug:* +1 day / +1 week | | | |
 | **Shift+Alt+T** | *debug:* back to now (real time) | | | |
 | **Y** | *debug:* next weather | | F1 | exit **(teleports player)** |

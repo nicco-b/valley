@@ -441,6 +441,26 @@ discharge to read — per-region routing is still the future item).
 Presentation-only: off headless, soak untouched. Verified live at the
 volcano: river_probe RIVER_WX=storm (+RIVER_WALK=1 exercises the
 mid-run re-anchor/scroll path).
+**Region hydrology (2026-07-05): the generated rivers BREATHE.**
+Hydrology grows a region tier: every no_sim river is a linear
+reservoir on the same hourly balance, rained on through
+`Weather.rain_at` at its own midpoint (fronts + the v2 rain shadow
+make flanks differ for real) and fed by the catchment the erosion
+bake measured (`catchment_m2` in the record — peak droplet passage ×
+area-per-droplet; the tracer writes it now). Discharge feeds
+flow_norm → ribbon flow speed, surface level, and current_at push,
+exactly like the brook. State in `region_storage` — SEPARATE from
+river_storage because the soak fingerprint digests that dict and gen
+records are a regenerable cache; verified: fingerprint identical
+with and without gen_*.json present. Saved via WorldState water.*,
+hour_tick catch-up, load_state — full sim contract. Soak note: the
+expected fingerprint is 1333567381 since the Climate v2 rain-shadow
+commits (their message records the move; STATUS's flora-era
+4124434361 was stale). **Dev time travel fixed + granular:** the T
+lag was water_bodies rebuilding every draped ribbon on each hourly
+levels_changed (~80ms, found by the new `tests/clock_probe.tscn`
+per-consumer timer); levels now TRANSLATE the built mesh (1h chunk:
+80ms → 1ms). New Ctrl+T = +1 hour, Ctrl+Shift+T = +15 min.
 
 ## Placeholder ledger (each has a named replacement path)
 

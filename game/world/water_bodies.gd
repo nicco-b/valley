@@ -13,6 +13,7 @@ const RIBBON_ACROSS := 5
 var _lake_meshes: Dictionary = {}
 var _river_meshes: Dictionary = {}
 var _river_mats: Dictionary = {}
+var _river_built_level: Dictionary = {}  # level each ribbon was built at
 
 # The world sea (Terrain.sea_level): two meshes. A wave-capable patch
 # rides with the focus (the 512² wave window is what displaces verts —
@@ -59,6 +60,7 @@ func _ready() -> void:
 		var mat := _material(r.flow * _flow_speed(r.id))
 		mat.set_shader_parameter("rapids_boost", 1.0)
 		mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx], float(r.depth))
+		_river_built_level[r.id] = Terrain.river_levels[r.idx]
 		mi.mesh.surface_set_material(0, mat)
 		mi.extra_cull_margin = 2.0
 		add_child(mi)
@@ -106,11 +108,15 @@ func _on_levels_changed() -> void:
 		var mi: MeshInstance3D = _lake_meshes.get(w.id)
 		if mi:
 			mi.position.y = float(w.surface) + Terrain.lake_levels[w.idx]
+	# The live level is a constant offset over the whole ribbon —
+	# TRANSLATE the built mesh instead of rebuilding it. (The hourly
+	# rebuild was 80ms across all rivers once the drape sampled
+	# Terrain.height per row — it was the dev time-skip lag.)
 	for r in Terrain.rivers:
 		var mi: MeshInstance3D = _river_meshes.get(r.id)
 		if mi:
-			mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx], float(r.depth))
-			mi.mesh.surface_set_material(0, _river_mats[r.id])
+			mi.position.y = Terrain.river_levels[r.idx] \
+				- float(_river_built_level[r.id])
 			_river_mats[r.id].set_shader_parameter("flow",
 					Vector2(r.flow) * _flow_speed(r.id))
 

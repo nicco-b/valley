@@ -50,6 +50,20 @@ const LAKE_LEVEL_MAX := 0.35
 var river_storage: Dictionary = {}
 var lake_level: Dictionary = {}
 
+# The REGION tier (2026-07-05): generated (no_sim) rivers breathe too —
+# same linear-reservoir balance, rained on through Weather.rain_at at
+# their own midpoint (fronts are spatial), catchment measured by the
+# erosion bake (record catchment_m2). Kept in a SEPARATE dict that the
+# soak fingerprint never digests: gen records are a regenerable local
+# cache, and the fingerprint must not depend on what's in it. Saved via
+# WorldState water.<id>.* like everything else; deterministic all the
+# same (advanced only on hour_tick from Weather's Rng-streamed fronts).
+const REGION_SPRING_M3H := 25.0  # flat spring floor: idle flow_norm ~0.35,
+	# a visibly alive river between rains (mood physics, like SPRING_M3H)
+const REGION_BASEFLOW_M := 1e-4  # + m³/h per m² catchment on top
+const REGION_CATCHMENT_FALLBACK := 4e4  # old records without catchment_m2
+var region_storage: Dictionary = {}
+
 # Boot-derived (deterministic function of terrain + records, not saved):
 # basin id -> catchment area m^2. Built lazily on the first hour tick so
 # a title-screen boot never pays for it.
@@ -69,6 +83,9 @@ func _ready() -> void:
 	_load_watershed()
 	for r in Terrain.sim_rivers():
 		river_storage[r.id] = SPRING_M3H / RIVER_K  # boot at baseflow equilibrium
+	for r in Terrain.rivers:
+		if r.get("no_sim", false):
+			region_storage[r.id] = _region_baseflow(r) / RIVER_K
 	for w in Terrain.water_bodies:
 		lake_level[w.id] = 0.0
 	load_state()
@@ -92,6 +109,9 @@ func load_state() -> void:
 	for id in river_storage:
 		river_storage[id] = float(WorldState.get_value(
 			"water.%s.storage" % id, river_storage[id]))
+	for id in region_storage:
+		region_storage[id] = float(WorldState.get_value(
+			"water.%s.storage" % id, region_storage[id]))
 	for id in lake_level:
 		lake_level[id] = float(WorldState.get_value(
 			"water.%s.level" % id, lake_level[id]))
@@ -132,7 +152,17 @@ func _load_watershed() -> void:
 
 ## River discharge right now, m^3/h.
 func discharge(river_id: String) -> float:
+	if region_storage.has(river_id):
+		return float(region_storage[river_id]) * RIVER_K
 	return float(river_storage.get(river_id, 0.0)) * RIVER_K
+
+
+# Spring inflow for a region river, m³/h — scaled to its catchment so a
+# big river idles wider than a gully (the brook's flat SPRING_M3H would
+# make every generated river identically lazy).
+func _region_baseflow(r: Dictionary) -> float:
+	return REGION_SPRING_M3H + maxf(float(r.get("catchment", 0.0)),
+		REGION_CATCHMENT_FALLBACK) * REGION_BASEFLOW_M
 
 
 ## Discharge normalized 0..1 against the authored-surface reference —
@@ -150,6 +180,11 @@ func summary() -> String:
 			r.id, discharge(r.id), flow_norm(r.id), Terrain.river_levels[r.idx]])
 	for w in Terrain.water_bodies:
 		lines.append("%s: level %+.2fm" % [w.id, float(lake_level.get(w.id, 0.0))])
+	for r in Terrain.rivers:
+		if r.get("no_sim", false):
+			lines.append("%s (region): %.0f m3/h (norm %.2f, catchment %.1f km2)" % [
+				r.id, discharge(r.id), flow_norm(r.id),
+				float(r.get("catchment", 0.0)) / 1e6])
 	return "\n".join(lines)
 
 func _hourly(_h: int) -> void:
@@ -177,6 +212,28 @@ func _hourly(_h: int) -> void:
 		Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
 				RIVER_LEVEL_MAX, flow_norm(id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
 		WorldState.set_value("water.%s.storage" % id, river_storage[id])
+		WorldState.set_value("water.%s.flow" % id, snappedf(flow_norm(id), 0.001))
+
+	# Region rivers (generated, off the home watershed grid): the same
+	# reservoir balance, but each one lives under ITS OWN sky — rain_at
+	# its midpoint — and drains the catchment the erosion bake measured.
+	for r in Terrain.rivers:
+		if not r.get("no_sim", false):
+			continue
+		var id: String = r.id
+		var nodes: Array = r.nodes
+		var mid: Vector2 = nodes[nodes.size() >> 1].pos
+		var local_rain := STORM_RAIN_M * Weather.rain_at(mid.x, mid.y)
+		var area: float = maxf(float(r.get("catchment", 0.0)),
+			REGION_CATCHMENT_FALLBACK)
+		var storage: float = region_storage[id]
+		storage += area * local_rain * runoff + _region_baseflow(r)
+		var q := storage * RIVER_K
+		storage -= q
+		region_storage[id] = snappedf(storage, 0.01)
+		Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
+				RIVER_LEVEL_MAX, flow_norm(id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
+		WorldState.set_value("water.%s.storage" % id, region_storage[id])
 		WorldState.set_value("water.%s.flow" % id, snappedf(flow_norm(id), 0.001))
 
 	# Lakes: river discharge + own catchment + direct rain in; evaporation

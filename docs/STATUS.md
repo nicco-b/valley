@@ -528,9 +528,17 @@ picker).
    ✅ (1) `--toolkit` boot posture — `scripts/toolkit.sh` / `godot --path
    . -- --toolkit` skips the title and lands the fly camera over the live
    world (dev-only, gated on is_debug_build; Toolkit watches node_added
-   for the player, opens itself). Remaining, in order: (2) paint the
-   elevation guide + biome map in-game on the live map (kills the Blender
-   terrain trip) · (3) the palette becomes the records — asset cards, not
+   for the player, opens itself). ✅ (2) paint the world in-game on the
+   live map (kills the Blender terrain trip): P = elevation guide (brush
+   + B bake through WorldBake, HotReload reshapes live) · G = biome pen
+   (LMB paints the selected biome into the live index map, ground tint
+   updates instantly, 1-9 pick, B commits — persists the PNG +
+   rescatters flora) · R = river pen (draw a course, Enter carves the
+   basin live via Terrain.add_river — densify + baked surface + downhill
+   clamp, ribbon + region hydrology attach, persists pen_N.json). All
+   three write authored data and hot-reshape without a restart; soak
+   untouched (1333567381). Remaining, in order: (3)
+   the palette becomes the records — asset cards, not
    Kit.ENTRIES hardcoded · (4) real placement tools (multi-select,
    duplicate, align, scatter brush) · (5) live rule-card editing · (6)
    undo/history across tools. Toolkit-mode checklist extras still open:

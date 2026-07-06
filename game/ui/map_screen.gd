@@ -51,6 +51,15 @@ const RIVER_FEATHER := 8.0
 var _river_mode := false
 var _river_nodes: Array[Vector2] = []  # clicked course, world XZ
 
+# Biome pen (Toolkit build-out item 2, second half): paint the whole-world
+# biome map on the live map. LMB paints the selected biome — the ground
+# TINT changes instantly (the shader samples the index texture); B commits
+# so flora re-composes to the new biomes and the PNG persists. Number keys
+# pick the biome. Completes item 2 (paint elevation + biome in-game).
+var _biome_paint := false
+var _biome_index := 4  # default: a mid palette entry (placeholder oasis_green)
+var _biome_dirty := Rect2()  # painted region awaiting a flora rescatter
+
 
 func _ready() -> void:
 	layer = 10
@@ -111,6 +120,27 @@ func _unhandled_input(event: InputEvent) -> void:
 				and event.physical_keycode == KEY_R:
 			_toggle_river()
 			return
+		if event is InputEventKey and event.pressed and not event.echo \
+				and event.physical_keycode == KEY_G:
+			_toggle_biome()
+			return
+		if _biome_paint and event is InputEventKey and event.pressed and not event.echo:
+			# 1..9 select a biome; B commits (rescatter + persist).
+			if event.keycode >= KEY_1 and event.keycode <= KEY_9:
+				_biome_index = clampi(event.keycode - KEY_1, 0, Terrain.biomes.size() - 1)
+				_update_hint()
+				return
+			elif event.physical_keycode == KEY_B:
+				_commit_biome()
+				return
+			elif event.is_action_pressed("brush_bigger"):
+				_brush_m = minf(_brush_m * 1.3, 2500.0)
+				_update_hint()
+				return
+			elif event.is_action_pressed("brush_smaller"):
+				_brush_m = maxf(_brush_m / 1.3, 40.0)
+				_update_hint()
+				return
 		if _river_mode and event is InputEventKey and event.pressed and not event.echo:
 			if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
 				_commit_river()
@@ -166,7 +196,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_focus.x += event.delta.x * scale * 2.2
 		_focus.z += event.delta.y * scale * 2.2
 	elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT \
-			and not _paint and not _river_mode:
+			and not _paint and not _river_mode and not _biome_paint:
 		var scale := _ortho / get_viewport().get_visible_rect().size.y
 		_focus.x -= event.relative.x * scale
 		_focus.z -= event.relative.y * scale
@@ -194,6 +224,15 @@ func _process(delta: float) -> void:
 		if w != Vector2.INF:
 			var dir := -1.0 if Input.is_key_pressed(KEY_SHIFT) else 1.0
 			_paint_guide(w, dir * PAINT_RATE * delta)
+	# Biome stroke: LMB stamps the selected biome into the live index map
+	# (ground tint updates instantly); the painted region accumulates for
+	# the flora rescatter on commit.
+	if _biome_paint and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		var w := _mouse_world()
+		if w != Vector2.INF:
+			var painted := Terrain.paint_biome_index(w.x, w.y, _brush_m, _biome_index)
+			_biome_dirty = painted if _biome_dirty.size == Vector2.ZERO \
+				else _biome_dirty.merge(painted)
 	_markers.queue_redraw()
 
 
@@ -242,6 +281,7 @@ func _close() -> void:
 	_paint = false
 	_river_mode = false
 	_river_nodes.clear()
+	_biome_paint = false
 	RenderingServer.global_shader_parameter_set("map_view", 0.0)
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:
@@ -264,10 +304,37 @@ func _toggle_paint() -> void:
 	if _paint:
 		_river_mode = false  # tools are exclusive
 		_river_nodes.clear()
+		_biome_paint = false
 		if _guide == null:
 			_guide = WorldBake.load_guide()
 			_guide_meta = WorldBake.meta()
 	_update_hint()
+
+
+## Enter/leave biome-paint mode (exclusive with the other pens).
+func _toggle_biome() -> void:
+	_biome_paint = not _biome_paint
+	if _biome_paint:
+		_paint = false
+		_river_mode = false
+		_river_nodes.clear()
+		_biome_dirty = Rect2()
+		if Terrain.biomes.is_empty():
+			HUD.notify("no biome palette loaded")
+			_biome_paint = false
+	_update_hint()
+
+
+## Commit the painted biomes: persist the PNG and rescatter flora over the
+## painted region (the ground tint was already live).
+func _commit_biome() -> void:
+	if _biome_dirty.size == Vector2.ZERO:
+		HUD.notify("paint some biome first")
+		return
+	Terrain.save_biome_map()
+	Terrain.commit_biome_paint(_biome_dirty)
+	_biome_dirty = Rect2()
+	HUD.notify("biomes committed — flora re-composing")
 
 
 ## Enter/leave river-pen mode (tools are exclusive; leaving discards an
@@ -276,6 +343,7 @@ func _toggle_river() -> void:
 	_river_mode = not _river_mode
 	if _river_mode:
 		_paint = false
+		_biome_paint = false
 	else:
 		_river_nodes.clear()
 	_update_hint()
@@ -396,12 +464,18 @@ func _bake() -> void:
 
 
 func _update_hint() -> void:
-	if _river_mode:
+	if _biome_paint:
+		var name := "?"
+		if _biome_index < Terrain.biomes.size():
+			name = String(Terrain.biomes[_biome_index].id)
+		_hint.text = "BIOME pen  ·  LMB paint [%d:%s]  ·  1-9 pick · [ ] brush %dm  ·  B commit  ·  G exit" % [
+			_biome_index + 1, name, int(_brush_m)]
+	elif _river_mode:
 		_hint.text = "RIVER pen  ·  LMB add point (%d)  ·  Enter carve  ·  Backspace undo  ·  R exit" % _river_nodes.size()
 	elif _paint:
 		_hint.text = "PAINT elevation  ·  LMB raise · Shift lower  ·  [ ] brush %dm  ·  B bake  ·  P exit" % int(_brush_m)
 	elif _from_toolkit:
-		_hint.text = "drag / WASD pan  ·  wheel zoom  ·  P paint elevation  ·  R river pen  ·  RMB teleport  ·  M close"
+		_hint.text = "drag / WASD pan  ·  wheel zoom  ·  P elevation · R river · G biome  ·  RMB teleport  ·  M close"
 	else:
 		_hint.text = "drag / WASD pan  ·  wheel zoom  ·  M close"
 
@@ -414,6 +488,14 @@ func _draw_markers() -> void:
 		var r_px := _brush_m * _markers.size.y / _cam.size
 		_markers.draw_circle(_mouse, r_px, Color(0.95, 0.55, 0.25, 0.12))
 		_markers.draw_arc(_mouse, r_px, 0.0, TAU, 48, Color(1, 0.6, 0.25, 0.9), 1.5)
+	# The biome brush footprint, filled with the selected biome's ink.
+	if _biome_paint:
+		var r_px := _brush_m * _markers.size.y / _cam.size
+		var ink := Color(0.9, 0.6, 0.3)
+		if _biome_index < Terrain.biomes.size():
+			ink = Terrain.biomes[_biome_index].ink
+		_markers.draw_circle(_mouse, r_px, Color(ink.r, ink.g, ink.b, 0.30))
+		_markers.draw_arc(_mouse, r_px, 0.0, TAU, 48, Color(ink.r, ink.g, ink.b, 0.95), 2.0)
 	# The river-pen course: dropped points + a rubber band to the cursor.
 	if _river_mode:
 		var rprev := Vector2.INF

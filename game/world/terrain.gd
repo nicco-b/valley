@@ -312,8 +312,9 @@ signal river_added(river: Dictionary)  # a runtime pen river (water_bodies/Hydro
 # textures directly (global params). Hot-reloads.
 const BIOME_MAP_PATH := "res://data/world/biome_map.png"
 const BIOME_PALETTE_PATH := "res://data/world/biomes.json"
-var biomes: Array[Dictionary] = []  # palette (index order)
+var biomes: Array[Dictionary] = []  # palette (index order; carries ink+ground)
 var _biome_img: Image  # R8 index map for CPU reads (biome_at)
+var _biome_idx_tex: ImageTexture  # the GPU index texture (live paint updates it)
 var _biome_origin := Vector2.ZERO
 var _biome_size := 0.0
 var _biome_res := 0
@@ -839,6 +840,7 @@ func _load_biomes() -> void:
 		var ink: Array = b["ink"]
 		biomes.append({"id": b.get("id", "biome"),
 			"ground": Color(g[0], g[1], g[2]),
+			"ink": Color(ink[0], ink[1], ink[2]),  # what save_biome_map writes
 			"flora": float(b.get("flora", 0.5)),
 			"repose": float(b.get("repose", 0.3)),
 			"dust": float(b.get("dust", 0.3))})
@@ -873,8 +875,8 @@ func _load_biomes() -> void:
 					best = i
 			# R8 stores index/255; the shader multiplies back by 255.
 			_biome_img.set_pixel(x, z, Color8(best, 0, 0))
-	var idx_tex := ImageTexture.create_from_image(_biome_img)
-	RenderingServer.global_shader_parameter_set("biome_index_map", idx_tex)
+	_biome_idx_tex = ImageTexture.create_from_image(_biome_img)
+	RenderingServer.global_shader_parameter_set("biome_index_map", _biome_idx_tex)
 	RenderingServer.global_shader_parameter_set("biome_index_rect", Vector4(
 		_biome_origin.x, _biome_origin.y, _biome_size, _biome_size))
 	RenderingServer.global_shader_parameter_set("biome_present", true)
@@ -920,6 +922,46 @@ func biome_density(x: float, z: float) -> float:
 func reload_biomes() -> void:
 	_load_biomes()
 	edited.emit(Rect2(_biome_origin, Vector2(_biome_size, _biome_size)))
+
+
+## Paint a biome index into the live index map within a world-space disc
+## and re-upload the GPU texture — the ground TINT changes instantly (the
+## shader samples the texture per-fragment). Flora only re-composes when
+## the cells rebuild, so the map tool commits that separately. Returns the
+## painted rect (world) so the caller can invalidate exactly what changed.
+func paint_biome_index(x: float, z: float, radius_m: float, index: int) -> Rect2:
+	if _biome_img == null or index < 0 or index >= biomes.size():
+		return Rect2()
+	var cx := (x - _biome_origin.x) / _biome_size * _biome_res
+	var cz := (z - _biome_origin.y) / _biome_size * _biome_res
+	var rad := maxf(radius_m / _biome_size * _biome_res, 0.5)
+	var col := Color8(index, 0, 0)
+	var center := Vector2(cx, cz)
+	for pz in range(maxi(0, int(cz - rad)), mini(_biome_res, int(cz + rad) + 1)):
+		for px in range(maxi(0, int(cx - rad)), mini(_biome_res, int(cx + rad) + 1)):
+			if Vector2(px + 0.5, pz + 0.5).distance_to(center) <= rad:
+				_biome_img.set_pixel(px, pz, col)
+	_biome_idx_tex.update(_biome_img)  # cheap 1024^2 R8 re-upload
+	return Rect2(x - radius_m, z - radius_m, radius_m * 2.0, radius_m * 2.0)
+
+
+## Persist the live index map back to the painted colour PNG (index → the
+## palette's ink), so a painted biome survives a restart.
+func save_biome_map() -> void:
+	if _biome_img == null:
+		return
+	var out := Image.create(_biome_res, _biome_res, false, Image.FORMAT_RGB8)
+	for z in _biome_res:
+		for x in _biome_res:
+			var i: int = _biome_img.get_pixel(x, z).r8
+			out.set_pixel(x, z, biomes[i].ink if i < biomes.size() else Color.BLACK)
+	out.save_png(ProjectSettings.globalize_path(BIOME_MAP_PATH))
+
+
+## Rescatter flora over a painted region without reloading from disk (the
+## live index map is already current — reload_biomes would re-read the PNG).
+func commit_biome_paint(rect: Rect2) -> void:
+	edited.emit(rect)
 
 
 ## Load one painted-tile record: image → float array, once at boot

@@ -16,6 +16,7 @@ const CAM_DISTANCE := 400.0
 const STREAM_ZOOM := 900.0
 const ZOOM_MIN := 130.0
 const ZOOM_MAX := 13000.0  # the Big Island + the whole chain in one view
+const PAINT_RATE := 0.5  # normalized guide units/sec at the brush center
 
 var active := false
 
@@ -25,6 +26,30 @@ var _markers: Control
 var _hint: Label
 var _focus := Vector3.ZERO
 var _ortho := 420.0
+
+# Elevation painting (Toolkit build-out item 2): brush the whole-world
+# elevation guide on the live map, bake through WorldBake, let HotReload
+# reshape the ground under you — no Blender terrain trip. Toolkit-gated.
+var _paint := false
+var _guide: Image = null
+var _guide_meta: Dictionary
+var _brush_m := 300.0  # brush radius in world meters (the map scale is huge)
+var _mouse := Vector2.ZERO
+
+# River pen (Toolkit build-out item 2c): draw a river's course on the
+# map — LMB drops points, Enter carves. The clicked polyline is
+# densified and each node takes its surface from the baked terrain,
+# clamped monotonically downhill, then Terrain.add_river writes it into
+# the height function live: the basin carves, the ribbon renders, the
+# region hydrology breathes it — all from one record, no restart.
+const RIVER_NODE_SPACING := 50.0   # densify the clicked course to this
+const RIVER_SURFACE_DIP := 0.3     # waterline sits this far below ground
+const RIVER_WIDTH_HEAD := 3.0
+const RIVER_WIDTH_MOUTH := 11.0
+const RIVER_DEPTH := 1.6
+const RIVER_FEATHER := 8.0
+var _river_mode := false
+var _river_nodes: Array[Vector2] = []  # clicked course, world XZ
 
 
 func _ready() -> void:
@@ -39,7 +64,6 @@ func _ready() -> void:
 	_markers.draw.connect(_draw_markers)
 	add_child(_markers)
 	_hint = Label.new()
-	_hint.text = "drag / WASD pan  ·  wheel zoom  ·  M close  ·  toolkit: RMB teleport"
 	# Full-rect + bottom alignment (point anchors land off-screen — CLAUDE.md).
 	_hint.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -51,6 +75,7 @@ func _ready() -> void:
 	_hint.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
 	_hint.add_theme_constant_override("shadow_offset_y", 1)
 	add_child(_hint)
+	_update_hint()
 
 
 func focus_position() -> Vector3:
@@ -72,7 +97,50 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if not active:
 		return
+	if event is InputEventMouseMotion:
+		_mouse = event.position
+	# Elevation painting (Toolkit-gated): P toggles, [ ] size the brush,
+	# B bakes the strokes into the world. Handled before pan/zoom so the
+	# brush owns LMB while painting.
+	if _from_toolkit:
+		if event is InputEventKey and event.pressed and not event.echo \
+				and event.physical_keycode == KEY_P:
+			_toggle_paint()
+			return
+		if event is InputEventKey and event.pressed and not event.echo \
+				and event.physical_keycode == KEY_R:
+			_toggle_river()
+			return
+		if _river_mode and event is InputEventKey and event.pressed and not event.echo:
+			if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
+				_commit_river()
+				return
+			elif event.keycode == KEY_BACKSPACE:
+				if not _river_nodes.is_empty():
+					_river_nodes.pop_back()
+					_update_hint()
+				return
+		if _paint:
+			if event.is_action_pressed("brush_bigger"):
+				_brush_m = minf(_brush_m * 1.3, 2500.0)
+				_update_hint()
+				return
+			elif event.is_action_pressed("brush_smaller"):
+				_brush_m = maxf(_brush_m / 1.3, 40.0)
+				_update_hint()
+				return
+			elif event is InputEventKey and event.pressed and not event.echo \
+					and event.physical_keycode == KEY_B:
+				_bake()
+				return
 	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_LEFT and _river_mode:
+			var w := _mouse_world()
+			if w != Vector2.INF:
+				_river_nodes.append(w)
+				_update_hint()
+			get_viewport().set_input_as_handled()
+			return
 		if event.button_index == MOUSE_BUTTON_RIGHT and _from_toolkit:
 			# Right-click: drop the fly cam there (the 38km2 commute fix).
 			var org := _cam.project_ray_origin(event.position)
@@ -97,7 +165,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		var scale := _ortho / get_viewport().get_visible_rect().size.y
 		_focus.x += event.delta.x * scale * 2.2
 		_focus.z += event.delta.y * scale * 2.2
-	elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
+	elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT \
+			and not _paint and not _river_mode:
 		var scale := _ortho / get_viewport().get_visible_rect().size.y
 		_focus.x -= event.relative.x * scale
 		_focus.z -= event.relative.y * scale
@@ -117,6 +186,14 @@ func _process(delta: float) -> void:
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:
 		streamer.load_radius = 4 if wants_streaming() else 2
+	# Paint stroke: LMB held over the map raises the guide, Shift lowers —
+	# dt-scaled so the rate is frame-independent (the Toolkit sculpt idiom).
+	if _paint and _guide != null \
+			and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		var w := _mouse_world()
+		if w != Vector2.INF:
+			var dir := -1.0 if Input.is_key_pressed(KEY_SHIFT) else 1.0
+			_paint_guide(w, dir * PAINT_RATE * delta)
 	_markers.queue_redraw()
 
 
@@ -125,6 +202,7 @@ func _open() -> void:
 	if player == null:
 		return  # not in the world (title screen)
 	_from_toolkit = Toolkit.active and Toolkit.has_camera()
+	_update_hint()
 	# Center on whatever the map is opened over — the fly cam in toolkit
 	# mode, the player otherwise.
 	var here: Vector3 = Toolkit.cam_position() if _from_toolkit else player.global_position
@@ -161,6 +239,9 @@ func _open() -> void:
 func _close() -> void:
 	active = false
 	visible = false
+	_paint = false
+	_river_mode = false
+	_river_nodes.clear()
 	RenderingServer.global_shader_parameter_set("map_view", 0.0)
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:
@@ -176,9 +257,175 @@ func _close() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+## Enter/leave elevation paint mode. The guide loads lazily on first use;
+## it stays cached across opens so long paint sessions don't re-read disk.
+func _toggle_paint() -> void:
+	_paint = not _paint
+	if _paint:
+		_river_mode = false  # tools are exclusive
+		_river_nodes.clear()
+		if _guide == null:
+			_guide = WorldBake.load_guide()
+			_guide_meta = WorldBake.meta()
+	_update_hint()
+
+
+## Enter/leave river-pen mode (tools are exclusive; leaving discards an
+## uncommitted course).
+func _toggle_river() -> void:
+	_river_mode = not _river_mode
+	if _river_mode:
+		_paint = false
+	else:
+		_river_nodes.clear()
+	_update_hint()
+
+
+## Commit the drawn course to a river record: densify to node spacing,
+## take each surface from the baked terrain (clamped downhill), taper the
+## width head→mouth, then Terrain.add_river carves it live and we persist
+## the JSON so it survives a restart.
+func _commit_river() -> void:
+	if _river_nodes.size() < 2:
+		HUD.notify("river needs at least 2 points")
+		return
+	var pts := _densify(_river_nodes, RIVER_NODE_SPACING)
+	var out_nodes: Array = []
+	var surf := INF
+	var length := 0.0
+	for i in pts.size():
+		var p: Vector2 = pts[i]
+		surf = minf(surf, Terrain.height(p.x, p.y) - RIVER_SURFACE_DIP)
+		if i > 0:
+			length += p.distance_to(pts[i - 1])
+		var f := float(i) / maxf(pts.size() - 1, 1)
+		out_nodes.append({
+			"x": snappedf(p.x, 0.1), "z": snappedf(p.y, 0.1),
+			"width": snappedf(lerpf(RIVER_WIDTH_HEAD, RIVER_WIDTH_MOUTH, f), 0.1),
+			"surface": snappedf(surf, 0.1)})
+	var n := _next_pen_index()
+	# Rough catchment for the region tier: a ~200m drainage strip along
+	# the course (mood physics; a longer river breathes wider).
+	var rec := {"id": "pen_%d" % n, "no_sim": true,
+		"depth": RIVER_DEPTH, "feather": RIVER_FEATHER,
+		"catchment_m2": snappedf(length * 200.0, 1.0), "nodes": out_nodes}
+	Terrain.add_river(rec)
+	var fh := FileAccess.open("res://data/water/rivers/pen_%d.json" % n, FileAccess.WRITE)
+	fh.store_string(JSON.stringify(rec, "\t") + "\n")
+	fh.close()
+	_river_nodes.clear()
+	_update_hint()
+	HUD.notify("river penned (%d nodes, %.0fm) — carving" % [out_nodes.size(), int(length)])
+
+
+## Uniform arc-length resample of a clicked polyline (endpoints kept), so
+## the carve's node-lerped bed follows the terrain instead of bridging
+## between far-apart clicks.
+func _densify(pts: Array, spacing: float) -> Array:
+	var out: Array = [pts[0]]
+	var carry := 0.0
+	for i in pts.size() - 1:
+		var a: Vector2 = pts[i]
+		var ab: Vector2 = pts[i + 1] - a
+		var seg := ab.length()
+		if seg < 1e-4:
+			continue
+		var s := spacing - carry
+		while s < seg:
+			out.append(a + ab * (s / seg))
+			s += spacing
+		carry = seg - (s - spacing)
+	out.append(pts[pts.size() - 1])
+	return out
+
+
+func _next_pen_index() -> int:
+	var n := 0
+	var dir := DirAccess.open("res://data/water/rivers")
+	if dir:
+		for f in dir.get_files():
+			if f.begins_with("pen_") and f.ends_with(".json"):
+				n = maxi(n, f.trim_prefix("pen_").trim_suffix(".json").to_int() + 1)
+	return n
+
+
+## Screen mouse → world XZ on the y=0 plane. The map cam is pitched, so
+## this carries a little parallax over tall terrain (good enough for a
+## whole-world guide brush; the same approximation the RMB teleport uses).
+func _mouse_world() -> Vector2:
+	if _cam == null:
+		return Vector2.INF
+	var org := _cam.project_ray_origin(_mouse)
+	var dir := _cam.project_ray_normal(_mouse)
+	if absf(dir.y) < 0.001:
+		return Vector2.INF
+	var hit := org + dir * (-org.y / dir.y)
+	return Vector2(hit.x, hit.z)
+
+
+## Raise (or lower) the guide within the brush disc, linear falloff to the
+## rim, clamped to the paintable 0..1 range.
+func _paint_guide(world_xz: Vector2, amount: float) -> void:
+	var res := _guide.get_width()
+	var c := WorldBake.world_to_texel(world_xz.x, world_xz.y, _guide_meta, res)
+	var rad := _brush_m / float(_guide_meta["world_size"]) * res
+	if rad < 0.5:
+		return
+	for pz in range(maxi(0, int(c.y - rad)), mini(res, int(c.y + rad) + 1)):
+		for px in range(maxi(0, int(c.x - rad)), mini(res, int(c.x + rad) + 1)):
+			var d := Vector2(px + 0.5, pz + 0.5).distance_to(c)
+			if d > rad:
+				continue
+			var v := _guide.get_pixel(px, pz).r + amount * (1.0 - d / rad)
+			_guide.set_pixel(px, pz, Color(clampf(v, 0.0, 1.0), 0.0, 0.0))
+
+
+## Commit the painted guide: persist it, bake through the kernel (the same
+## WorldBake the headless CLI runs), write the tile cache. HotReload sees
+## the fresh EXR within a second and reshapes the ground under you. The
+## bake is sub-second but synchronous — the static map holds one beat.
+func _bake() -> void:
+	if _guide == null or Terrain.kernel == null:
+		HUD.notify("bake needs the native kernel")
+		return
+	HUD.notify("baking terrain…")
+	WorldBake.save_guide(_guide)
+	var baked := WorldBake.bake(_guide, _guide_meta, Terrain.kernel)
+	WorldBake.write_tile(baked, _guide_meta)
+	HUD.notify("terrain baked — reshaping")
+
+
+func _update_hint() -> void:
+	if _river_mode:
+		_hint.text = "RIVER pen  ·  LMB add point (%d)  ·  Enter carve  ·  Backspace undo  ·  R exit" % _river_nodes.size()
+	elif _paint:
+		_hint.text = "PAINT elevation  ·  LMB raise · Shift lower  ·  [ ] brush %dm  ·  B bake  ·  P exit" % int(_brush_m)
+	elif _from_toolkit:
+		_hint.text = "drag / WASD pan  ·  wheel zoom  ·  P paint elevation  ·  R river pen  ·  RMB teleport  ·  M close"
+	else:
+		_hint.text = "drag / WASD pan  ·  wheel zoom  ·  M close"
+
+
 func _draw_markers() -> void:
 	if _cam == null:
 		return
+	# The paint brush footprint (world-meters → screen px via the ortho scale).
+	if _paint:
+		var r_px := _brush_m * _markers.size.y / _cam.size
+		_markers.draw_circle(_mouse, r_px, Color(0.95, 0.55, 0.25, 0.12))
+		_markers.draw_arc(_mouse, r_px, 0.0, TAU, 48, Color(1, 0.6, 0.25, 0.9), 1.5)
+	# The river-pen course: dropped points + a rubber band to the cursor.
+	if _river_mode:
+		var rprev := Vector2.INF
+		for wp in _river_nodes:
+			var sp := _cam.unproject_position(
+				Vector3(wp.x, Terrain.height(wp.x, wp.y) + 1.0, wp.y))
+			if rprev != Vector2.INF:
+				_markers.draw_line(rprev, sp, Color(0.30, 0.80, 0.95, 0.95), 2.0)
+			_markers.draw_circle(sp, 4.0, Color(0.30, 0.80, 0.95))
+			rprev = sp
+		if rprev != Vector2.INF:
+			_markers.draw_line(rprev, _mouse, Color(0.30, 0.80, 0.95, 0.4), 1.5)
 	var font := _markers.get_theme_default_font()
 	# The archipelago's islands, straight from the region records — a
 	# new landform on the map is a new JSON, nothing hand-listed here.

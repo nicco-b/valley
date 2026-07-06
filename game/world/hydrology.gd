@@ -93,6 +93,11 @@ func _ready() -> void:
 	# worker at boot so the first hour tick never hitches the frame.
 	_catch_task = WorkerThreadPool.add_task(_build_catchments)
 	GameClock.hour_tick.connect(_hourly)
+	# The map river pen adds no_sim rivers mid-session; seed the new
+	# reservoir at baseflow so its ribbon flows from the first frame.
+	Terrain.river_added.connect(func(r: Dictionary) -> void:
+		if r.get("no_sim", false):
+			region_storage[r.id] = _region_baseflow(r) / RIVER_K)
 
 
 func _ensure_catchments() -> void:

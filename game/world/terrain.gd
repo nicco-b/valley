@@ -302,6 +302,7 @@ const EDIT_M_PER_PX := 2.0
 const EDIT_PATH := "res://data/terrain/edit_layer.exr"
 
 signal edited(world_rect: Rect2)
+signal river_added(river: Dictionary)  # a runtime pen river (water_bodies/Hydrology attach)
 
 # The biome substrate (Stage B, 2026-07-05): a painted indexed map over
 # the whole world (data/world/biome_map.png, matched to the palette in
@@ -605,38 +606,60 @@ func _load_rivers() -> void:
 			push_error("[terrain] bad river record (needs nodes): " + path)
 			continue
 		var rec: Dictionary = parsed
-		var raw_nodes: Array = rec["nodes"]
-		if raw_nodes.size() < 2:
+		if (rec["nodes"] as Array).size() < 2:
 			push_error("[terrain] river needs >=2 nodes: " + path)
 			continue
-		var nodes: Array[Dictionary] = []
-		for n in raw_nodes:
-			nodes.append({
-				"pos": Vector2(float(n["x"]), float(n["z"])),
-				"half": float(n["width"]) * 0.5,
-				"surface": float(n["surface"]),
-			})
-		# Downstream flow direction: first node to last, in the XZ plane.
-		var flow: Vector2 = (nodes[nodes.size() - 1].pos - nodes[0].pos)
-		flow = flow.normalized() if flow.length() > 1e-4 else Vector2.ZERO
-		var river := {
-			"id": rec.get("id", f.trim_suffix(".json")),
-			"idx": rivers.size(),
-			"depth": float(rec.get("depth", 1.2)),
-			"feather": float(rec.get("feather", 4.0)),
-			"flow": flow,
-			"nodes": nodes,
-			# Generated rivers (proposed from the erosion flow map) carve
-			# and render but are NOT routed on the home watershed grid —
-			# Hydrology's REGION tier breathes them instead, off the soak
-			# fingerprint (they're a regenerable local cache), using the
-			# catchment the erosion bake measured for them.
-			"no_sim": bool(rec.get("no_sim", false)),
-			"catchment": float(rec.get("catchment_m2", 0.0)),
-		}
+		var river := _river_from_record(rec, f.trim_suffix(".json"))
 		_index_river(river)
 		rivers.append(river)
 	river_levels.resize(rivers.size())
+
+
+# Normalize a raw river record (nodes as x/z/width/surface dicts) into the
+# live river dict. Shared by _load_rivers and the runtime pen (add_river).
+func _river_from_record(rec: Dictionary, fallback_id: String) -> Dictionary:
+	var raw_nodes: Array = rec["nodes"]
+	var nodes: Array[Dictionary] = []
+	for n in raw_nodes:
+		nodes.append({
+			"pos": Vector2(float(n["x"]), float(n["z"])),
+			"half": float(n["width"]) * 0.5,
+			"surface": float(n["surface"]),
+		})
+	# Downstream flow direction: first node to last, in the XZ plane.
+	var flow: Vector2 = (nodes[nodes.size() - 1].pos - nodes[0].pos)
+	flow = flow.normalized() if flow.length() > 1e-4 else Vector2.ZERO
+	return {
+		"id": rec.get("id", fallback_id),
+		"idx": rivers.size(),
+		"depth": float(rec.get("depth", 1.2)),
+		"feather": float(rec.get("feather", 4.0)),
+		"flow": flow,
+		"nodes": nodes,
+		# Generated/penned rivers carve and render but are NOT routed on
+		# the home watershed grid — Hydrology's REGION tier breathes them
+		# instead, off the soak fingerprint (regenerable local cache).
+		"no_sim": bool(rec.get("no_sim", false)),
+		"catchment": float(rec.get("catchment_m2", 0.0)),
+	}
+
+
+## Add a river from a record at RUNTIME (the map river pen): index it,
+## refresh the kernel so worker sampling carves it, and invalidate the
+## cells it spans (edited) so the basin re-forms within a rebuild — the
+## far quadtree refreshes off the same signal. Returns the live river
+## dict; the caller persists the JSON so it survives a restart.
+func add_river(rec: Dictionary) -> Dictionary:
+	var river := _river_from_record(rec, "river_%d" % rivers.size())
+	_index_river(river)
+	rivers.append(river)
+	river_levels.resize(rivers.size())
+	river_levels[river.idx] = 0.0
+	if kernel:
+		_init_kernel()  # fresh, fully-configured instance sees the new river
+	river_added.emit(river)
+	edited.emit(river.bbox)
+	return river
 
 
 # Precompute the pruning structures _river_probe() needs: a margin-grown

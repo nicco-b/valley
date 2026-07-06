@@ -60,21 +60,31 @@ func _ready() -> void:
 		add_child(mi)
 		_lake_meshes[w.id] = mi
 	for r in Terrain.rivers:
-		var mi := MeshInstance3D.new()
+		_build_river_mesh(r)
+	Hydrology.levels_changed.connect(_on_levels_changed)
+	# The map river pen adds rivers at runtime; give each its ribbon.
+	Terrain.river_added.connect(_build_river_mesh)
+
+
+## Build (or rebuild) one river's ribbon mesh + flow material — shared by
+## the boot loop and the runtime pen (Terrain.river_added).
+func _build_river_mesh(r: Dictionary) -> void:
+	var mi: MeshInstance3D = _river_meshes.get(r.id)
+	if mi == null:
+		mi = MeshInstance3D.new()
 		mi.name = String(r.id)
-		# Rivers flow by their per-vertex map (UV2), not the whole-mesh
-		# drift: direction lives in the mesh, speed in flow_scale.
-		var mat := _material(Vector2.ZERO)
-		mat.set_shader_parameter("rapids_boost", 1.0)
-		mat.set_shader_parameter("flow_scale", _flow_speed(r.id))
-		mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx], float(r.depth))
-		_river_built_level[r.id] = Terrain.river_levels[r.idx]
-		mi.mesh.surface_set_material(0, mat)
 		mi.extra_cull_margin = 2.0
 		add_child(mi)
 		_river_meshes[r.id] = mi
-		_river_mats[r.id] = mat
-	Hydrology.levels_changed.connect(_on_levels_changed)
+	# Rivers flow by their per-vertex map (UV2), not the whole-mesh drift:
+	# direction lives in the mesh, speed in flow_scale.
+	var mat := _material(Vector2.ZERO)
+	mat.set_shader_parameter("rapids_boost", 1.0)
+	mat.set_shader_parameter("flow_scale", _flow_speed(r.id))
+	mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx], float(r.depth))
+	_river_built_level[r.id] = Terrain.river_levels[r.idx]
+	mi.mesh.surface_set_material(0, mat)
+	_river_mats[r.id] = mat
 
 
 func _process(_delta: float) -> void:

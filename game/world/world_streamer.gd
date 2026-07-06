@@ -13,8 +13,20 @@ const TERRAIN_RES := 49  # vertices per cell side (~2.7m grid; gen is threaded)
 # vertices where the feet are). Nav faces and far cells stay coarse.
 const NEAR_RES := 193
 const NEAR_RING := 1  # Chebyshev radius of dense cells around the focus
+# Velocity LOOKAHEAD (2026-07-05, the god-cam pop-in): the load ring is
+# centered not on the focus but on where it will be in LEAD_SECONDS, so
+# cells finish before you reach them instead of popping over the far
+# LOD at the ring edge. On-foot speeds (<LEAD_MIN_SPEED) get no lead —
+# walking is unchanged; only fast flight leads. Same cell count: the
+# ring shifts, it doesn't grow.
+const LEAD_SECONDS := 5.0
+const LEAD_MAX_CELLS := 3
+const LEAD_MIN_SPEED := 8.0  # m/s below which no lead (walking)
 
 var load_radius := 2  # Chebyshev radius of cells kept loaded (map widens this)
+var _prev_focus := Vector2.INF
+var _focus_vel := Vector2.ZERO
+var _load_center := Vector2i.ZERO  # lead-biased ring center (see _lead)
 
 var _authored: Dictionary = {}  # Vector2i -> scene path
 var _terrain: Dictionary = {}  # Vector2i -> terrain node
@@ -83,6 +95,12 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
+	# Focus velocity (smoothed) drives the load lookahead below.
+	var fp := _focus_position()
+	var fxz := Vector2(fp.x, fp.z)
+	if _prev_focus.is_finite() and delta > 0.0:
+		_focus_vel = _focus_vel.lerp((fxz - _prev_focus) / delta, 0.35)
+	_prev_focus = fxz
 	_update_cells(false)
 	_poll_pending()
 	_drain_terrain_results()
@@ -148,15 +166,35 @@ func _player_cell() -> Vector2i:
 	return Vector2i(roundi(p.x / CELL_SIZE), roundi(p.z / CELL_SIZE))
 
 
+## How many cells ahead to shift the load ring, from the focus velocity.
+## Zero at walking speed (integer rounding also gives hysteresis, so the
+## ring doesn't thrash cells at the threshold). Capped so a sprint can't
+## outrun the finish budget by demanding a huge burst at once.
+func _lead() -> Vector2i:
+	if _focus_vel.length() < LEAD_MIN_SPEED:
+		return Vector2i.ZERO
+	var cells := _focus_vel * LEAD_SECONDS / CELL_SIZE
+	return Vector2i(
+		clampi(roundi(cells.x), -LEAD_MAX_CELLS, LEAD_MAX_CELLS),
+		clampi(roundi(cells.y), -LEAD_MAX_CELLS, LEAD_MAX_CELLS))
+
+
 func _update_cells(sync: bool) -> void:
 	var fp := _focus_position()
-	# The far LOD's discard zone follows wherever full cells exist.
-	RenderingServer.global_shader_parameter_set(
-		"stream_center", Vector2(fp.x, fp.z))
 	var center := _player_cell()
+	# The load ring leads the focus; density (res_for) stays keyed on the
+	# true focus so the cell under you is always dense.
+	var lead := _lead()
+	var lcenter := center + lead
+	_load_center = lcenter
+	# The far LOD's discard zone follows where full cells actually are:
+	# the exact focus (smooth as you walk a cell) shifted by the lead, so
+	# it doesn't double-draw under cells streamed in ahead of a flight.
+	RenderingServer.global_shader_parameter_set("stream_center",
+		Vector2(fp.x, fp.z) + Vector2(lead) * CELL_SIZE)
 	for dy in range(-load_radius, load_radius + 1):
 		for dx in range(-load_radius, load_radius + 1):
-			var c := center + Vector2i(dx, dy)
+			var c := lcenter + Vector2i(dx, dy)
 			if not _terrain.has(c) and not _terrain_pending.has(c):
 				if sync:
 					_add_terrain_sync(c)
@@ -178,9 +216,11 @@ func _update_cells(sync: bool) -> void:
 				else:
 					ResourceLoader.load_threaded_request(_authored[c])
 					_pending[c] = _authored[c]
+	# Unload around the lead center too, so cells falling behind a fast
+	# flight free promptly (and the count stays bounded).
 	var unload_radius := load_radius + 1
 	for c in _terrain.keys():
-		if _chebyshev(c - center) > unload_radius:
+		if _chebyshev(c - lcenter) > unload_radius:
 			_terrain[c].queue_free()
 			_terrain.erase(c)
 			_mesh_instances.erase(c)
@@ -339,7 +379,7 @@ func _drain_terrain_results() -> void:
 			_terrain.erase(c)
 			_mesh_instances.erase(c)
 			_stale.erase(c)
-		if _chebyshev(c - _player_cell()) > load_radius + 1:
+		if _chebyshev(c - _load_center) > load_radius + 1:
 			continue  # streamed past it while building; let it lapse
 		_finish_terrain(c, r[1], r[2], r[3], r[4])
 		# Always land at least one; stop when the frame's budget is spent.

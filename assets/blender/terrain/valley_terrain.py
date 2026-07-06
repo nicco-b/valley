@@ -48,6 +48,12 @@ KIT_PROXY = {
 }
 
 
+def _roundi(v: float) -> int:
+	"""GDScript roundi: round half away from zero (cell grouping must
+	match the game's cell_of exactly)."""
+	return int(math.floor(v + 0.5)) if v >= 0.0 else int(math.ceil(v - 0.5))
+
+
 def repo_root() -> str:
 	scene = bpy.context.scene
 	if "valley_repo" in scene:
@@ -228,6 +234,10 @@ def import_world(save_blend: bool = True, res_override: int = 0,
 				p.rotation_euler = (0.0, 0.0, float(rec.get("yaw", 0.0)))
 				s = float(rec.get("scale", 1.0))
 				p.scale = (s, s, s)
+				# Preserve the record's own seating policy: explicit-y
+				# placements (set that way in place mode) must not get
+				# re-snapped onto the terrain by a round-trip.
+				p["snap"] = bool(rec.get("snap", False))
 				if "day" in rec:
 					p["day"] = int(rec["day"])
 				place_col.objects.link(p)
@@ -307,15 +317,25 @@ def export_world(guide_out: str = "", cells_out: str = "") -> dict:
 				continue
 			wx = p.location.x / SCALE
 			wz = -p.location.y / SCALE
-			cell = (int(round(wx / CELL_SIZE)), int(round(wz / CELL_SIZE)))
-			cells.setdefault(cell, []).append({
+			# GDScript roundi rounds half AWAY FROM ZERO; Python round()
+			# is banker's — they disagree exactly on cell boundaries,
+			# which is where grid-snapped placements sit.
+			cell = (_roundi(wx / CELL_SIZE), _roundi(wz / CELL_SIZE))
+			# New objects snap onto the terrain; imported records keep
+			# the seating policy they came with (explicit y survives).
+			snap = bool(p.get("snap", True))
+			rec = {
 				"kit": kit,
-				"x": round(wx, 2), "y": 0.0, "z": round(wz, 2),
+				"x": round(wx, 2),
+				"y": 0.0 if snap else round(p.location.z / SCALE, 2),
+				"z": round(wz, 2),
 				"yaw": round(p.rotation_euler.z % math.tau, 3),
 				"scale": round(sum(p.scale) / 3.0, 3),
-				"snap": True,
 				"day": int(p.get("day", 0)),
-			})
+			}
+			if snap:
+				rec["snap"] = True
+			cells.setdefault(cell, []).append(rec)
 	out_dir = cells_out or os.path.join(root, "data", "cells")
 	os.makedirs(out_dir, exist_ok=True)
 	for cell, records in sorted(cells.items()):

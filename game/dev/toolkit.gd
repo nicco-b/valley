@@ -37,6 +37,31 @@ var _flattening := false
 var _stroke_live := false
 
 
+## Boot posture (DECISIONS 2026-07-05, build-out item 1): launched with
+## `--toolkit`, the game skips the title and drops straight into the editor
+## — the fly camera live over the world the moment the player streams in.
+## Dev-only, like the F1 toggle it shares. One truth for title + toolkit.
+static func launch_requested() -> bool:
+	return OS.is_debug_build() and (
+		OS.get_cmdline_user_args().has("--toolkit")
+		or OS.get_cmdline_args().has("--toolkit"))
+
+
+func _ready() -> void:
+	if launch_requested():
+		get_tree().node_added.connect(_boot_watch)
+
+
+## Boot posture: open the Toolkit as soon as the world's player enters the
+## tree. Scene-declared groups are set before node_added fires, so the
+## group check is reliable; the enter defers one idle frame to let the rest
+## of the world scene finish assembling around the player.
+func _boot_watch(node: Node) -> void:
+	if node is CharacterBody3D and node.is_in_group("player"):
+		get_tree().node_added.disconnect(_boot_watch)
+		_enter.call_deferred()
+
+
 func has_camera() -> bool:
 	return _cam != null
 

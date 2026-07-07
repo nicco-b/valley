@@ -553,11 +553,14 @@ picker).
    hills/volcano) into an elevation field — rolling FBM base relief on
    every land cell + noised coastline so erosion carves everywhere —
    and the SAME WorldBake erosion weathers it (drainage, talus, fans);
-   ~490ms for a continent. Authored in the MAP (Toolkit) via L =
-   sketch: Tab toggles coastline-draw vs stamp-drop, 1-6 pick the
-   stamp kind, [ ] size, Enter GENERATEs live (compose → erode →
-   apply_baked_tile over the world), S saves. Persists data/world/
-   sketch.json; CLI tests/gen_world.gd runs the same path. The
+   ~490ms for a continent. Authored as FILES, NOT drawn in-game
+   (2026-07-06 Nicco: rely on committed map files, not in-game map
+   drawing): edit data/world/sketch.json (outline + stamps) OR paint
+   the elevation guide EXR in any image editor, then run
+   tests/gen_world.gd (WorldBake.load_sketch → generate → guide +
+   tile), offline. The in-map sketch editor was removed; the live
+   pens (elevation/biome/river/sculpt) remain for LOCAL edits that
+   need the world. The
    palette becomes the records — asset cards, not
    Kit.ENTRIES hardcoded · (4) real placement tools (multi-select,
    duplicate, align, scatter brush) · (5) live rule-card editing · (6)

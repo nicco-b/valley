@@ -301,6 +301,7 @@ func _process(delta: float) -> void:
 				"WAYS     " + Nav.summary(),
 				"CARAVANS " + Caravans.summary().replace("\n", "\n         "),
 				"LAND     " + Terrain.regions_summary().split("\n")[0],
+				"CARDS    " + Cards.summary().replace("\n", "\n         "),
 			])
 
 	# Brush cursor: ray from screen center to terrain.

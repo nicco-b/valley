@@ -108,7 +108,8 @@ static func generate(sketch: Dictionary, m: Dictionary, kernel: Object) -> Dicti
 	return {"guide": guide, "baked": bake(guide, m, kernel)}
 
 
-## Load the sketch record (land outline + stamps), or a blank one.
+## Load the sketch record (land outline + stamps) — the committed
+## source of truth (edited as a file, not drawn in-game), or a blank one.
 static func load_sketch() -> Dictionary:
 	var path := "res://data/world/sketch.json"
 	if FileAccess.file_exists(path):
@@ -117,12 +118,6 @@ static func load_sketch() -> Dictionary:
 			return d
 	return {"sea_level": -2, "land_base": 8, "sea_base": -40,
 		"land": [[]], "stamps": []}
-
-
-static func save_sketch(sketch: Dictionary) -> void:
-	var f := FileAccess.open("res://data/world/sketch.json", FileAccess.WRITE)
-	f.store_string(JSON.stringify(sketch, "\t") + "\n")
-	f.close()
 
 
 ## Write the baked heightfield to the tiles cache + its region record.

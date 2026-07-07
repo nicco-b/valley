@@ -12,6 +12,44 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
+## ⭐ Session handoff — resume here (2026-07-06, later)
+
+**The placeholder drop landed + Toolkit Phase 1 (cards → palette).** Ran
+PLAN_TOOLKIT_AND_PLACEHOLDERS.md Phases 0 + 1; all on main, tests +
+soak green (fingerprint 1333567381 unchanged).
+- **Phase 0 — drop on disk, NO LFS (Nicco's call this session).** 258
+  synth billboards (86 slots) + 345 static GLBs (112 slots), each with a
+  `.card.json`, copied to `assets/paintings|models/` at their real paths;
+  generators → `tools/placeholders/`; contact sheets there too. Binaries
+  are gitignored (**on disk, untracked** — pending the real LFS decision);
+  the tiny **cards ARE tracked** as the source of truth. Import clean (605
+  steps), billboards inherit mipmaps-off/lossless automatically. On a fresh
+  clone the cards exist but binaries don't — regenerate with
+  `tools/placeholders/gen_*.py` or copy the drop; loaders tolerate missing.
+- **Phase 1 — cards are the palette.** New **Cards** autoload (the
+  Chronicle, `game/data/cards.gd`) scans `assets/**/*.card.json` → 198
+  slots / 100 placeable meshes / 11 categories; `resolve`/`variant_for`
+  hand back the RESOLVED file (deterministic by position). Toolkit world
+  panel (O) grew a **CARDS** line = the real/synth ledger. Toolkit **PLACE**
+  now reads its palette from Cards ([ ] step slots, 1-9 jump categories);
+  placement writes the resolved `.glb` FILE into the cell record, never the
+  slot, so retiring a placeholder never moves it. `Kit.scene_for()` loads
+  either a res:// file or a legacy ENTRIES id (old placements keep working).
+  **Ground cover per biome**: 38 `data/flora/gc_<biome>_<slot>.json` species
+  from the drop's ground sets — the 8 biomes each grow their own cover
+  through the existing scatter; the 3 SVG placeholders (dry_tuft/pebbles/
+  bloom_tuft) retired to painted PNGs.
+- **Deferred (in the ledger):** foliage 2×2 clump sheets need per-instance
+  UV cutting before they can be wired (needs a windowed visual check);
+  sky/horizon/decals/swarms/water billboard consumers noted but unwired
+  (sky is a shader today); wildlife/char GLBs are placeable as static props
+  but NOT agent bodies (no clips). **Git LFS still unresolved** — install on
+  both machines, then decide track-vs-ignore for the binaries.
+- **Next: PLAN Phase 2** (cross-pen undo/history — generalize sculpt's
+  Z-undo across sculpt/terrain/biome/river/placement), then Phase 3
+  (placement tools: multi-select, duplicate, scatter brush — how the 345
+  meshes reach full-treatment density) + Phase 4 QoL.
+
 ## ⭐ Session handoff — resume here (2026-07-06)
 
 **Shipped this session** (all on main, tests green): river-proposal
@@ -579,8 +617,13 @@ in-engine, restoring what the flat glb export loses); apply the same
 CharacterPaint pass to the star hound and NPC models when they land ·
 synth wind + footsteps
 (→ his recordings; night bed is a CC0 field recording, see
-assets/audio/SOURCES.md) · SVG tufts/pebbles/cactus (→ her painted PNGs,
-same slots) · noise terrain beyond the valley (→ painted region tiles,
+assets/audio/SOURCES.md) · **the synth placeholder drop** (2026-07-06:
+258 billboards + 345 static GLBs, every slot `placeholder-synth` in its
+`.card.json` — flip status when real art lands in the same file slot; the
+Cards catalog + Toolkit CARDS panel count real vs synth) · SVG cactus
+(dune_cactus still on placeholder_cactus.svg; tuft/pebble/bloom SVGs
+retired to painted PNGs this session) · noise terrain beyond the valley
+(→ painted region tiles,
 FOUNDATIONS F3) · all dialogue text (→ post-axioms rewrite) · seasons
 change daylight/weather only (→ her seasonal palettes + flora states when
 painted) · location via one-shot IP lookup (→ settings-screen location
@@ -624,12 +667,12 @@ picker).
    tests/gen_world.gd (WorldBake.load_sketch → generate → guide +
    tile), offline. The in-map sketch editor was removed; the live
    pens (elevation/biome/river/sculpt) remain for LOCAL edits that
-   need the world. The
-   palette becomes the records — asset cards, not
-   Kit.ENTRIES hardcoded · (4) real placement tools (multi-select,
-   duplicate, align, scatter brush) · (5) live rule-card editing · (6)
-   undo/history across tools. Toolkit-mode checklist extras still open:
-   sim-freeze toggle, eager saves.
+   need the world. ✅ (2026-07-06) **the palette IS the records** — the
+   Cards catalog (asset `.card.json`) drives Toolkit PLACE; Kit.ENTRIES
+   only survives for legacy already-placed records. Remaining: (4) real
+   placement tools (multi-select, duplicate, align, scatter brush) · (5)
+   live rule-card editing · (6) undo/history across tools. Toolkit-mode
+   checklist extras still open: sim-freeze toggle, eager saves.
 
 0. **[SIM_ROADMAP.md](SIM_ROADMAP.md) Phase A — in progress** (started
    2026-07-02 on "go"): ✅ A1 determinism (Rng streams) + soak harness

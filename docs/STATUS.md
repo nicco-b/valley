@@ -46,6 +46,13 @@ of voiced dialog" reverses text-only canon — proposed invented
 spoken language) · progression cost model · death fiction · adopt the
 Consequence Contract into DESIGN.md.
 
+**Execution plan ready:**
+[PLAN_TOOLKIT_AND_PLACEHOLDERS.md](PLAN_TOOLKIT_AND_PLACEHOLDERS.md)
+(2026-07-06) — land the synth placeholder drop (258 billboards + 345
+meshes w/ asset cards, in Nicco's Downloads; forces the Git LFS
+decision), then Toolkit build-out: cards→palette, pens+undo,
+placement tools, QoL. Spin up a session on it directly.
+
 **Next-move options** (Nicco's call):
   1. **RPG spine** — R1 standing on the rumor rails (~2 days, pure
      code, no ★ gate; the multiplier for every future quest). The

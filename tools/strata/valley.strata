@@ -1,0 +1,135 @@
+{
+  "format": 1,
+  "frozen": {
+    "biomes": false,
+    "landform": false
+  },
+  "name": "valley",
+  "profile": "valley",
+  "seed": 7,
+  "stages": [
+    {
+      "enabled": true,
+      "id": "macro",
+      "params": {
+        "archetype": "valley",
+        "base_wavelength_m": 5200,
+        "carve_depth_m": 340,
+        "carve_width": 0.34,
+        "falloff": 0.5,
+        "gain": 0.5,
+        "highlands_lift": 0.4,
+        "lacunarity": 2,
+        "mode": "fbm",
+        "octaves": 9,
+        "ridged": 0.55,
+        "sea_bite": 1,
+        "sea_threshold": 0.55
+      }
+    },
+    {
+      "enabled": true,
+      "id": "strokes",
+      "params": {}
+    },
+    {
+      "enabled": true,
+      "id": "strata",
+      "params": {
+        "base_hardness": 0.4,
+        "contrast": 0.6,
+        "dip_dir_deg": 30,
+        "layer_thickness_m": 45,
+        "tilt_deg": 4,
+        "warp_amp_m": 15,
+        "warp_wavelength_m": 400
+      }
+    },
+    {
+      "enabled": true,
+      "id": "thermal",
+      "params": {
+        "factor": 0.2,
+        "iterations": 30,
+        "talus_angle_deg": 38
+      }
+    },
+    {
+      "enabled": true,
+      "id": "hydraulic",
+      "params": {
+        "capacity": 0.9,
+        "deposit": 0.5,
+        "dissolve": 0.5,
+        "dt": 0.015,
+        "evaporation": 0.06,
+        "flow_accel": 4,
+        "iterations": 80,
+        "max_erode_m": 0.05,
+        "min_tilt": 0.02,
+        "rain": 0.02
+      }
+    },
+    {
+      "enabled": true,
+      "id": "terrace",
+      "params": {
+        "amount": 0.5,
+        "hardness_bias": 0.75,
+        "riser": 0.35,
+        "step_m": 38
+      }
+    },
+    {
+      "enabled": true,
+      "id": "stylize",
+      "params": {
+        "amount": 0.7,
+        "edge_keep_m": 9,
+        "iterations": 2,
+        "radius": 2,
+        "sigma_spatial": 1.6
+      }
+    },
+    {
+      "enabled": true,
+      "id": "climate",
+      "params": {
+        "air_moisture": 0.6,
+        "base_temp_c": 22,
+        "fetch_m": 600,
+        "lapse_c_per_100m": 0.65,
+        "lat_gradient_c": 14,
+        "shadow_dryness": 0.75,
+        "wind_deg": 90,
+        "windward_gain": 0.35
+      }
+    },
+    {
+      "enabled": true,
+      "id": "soil",
+      "params": {
+        "base_depth_m": 0.6,
+        "deposit_gain": 1.5,
+        "hard_bias": 0.6,
+        "max_depth_m": 4,
+        "slope_thin": 0.9
+      }
+    },
+    {
+      "enabled": true,
+      "id": "biome",
+      "params": {}
+    }
+  ],
+  "strokes": [],
+  "world": {
+    "size_m": [
+      16384.0,
+      16384.0
+    ],
+    "m_per_px": 8.0,
+    "height_scale_m": 700.0,
+    "sea_level_m": 20.0
+  }
+}

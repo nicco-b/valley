@@ -1,0 +1,11 @@
+{
+	"_comment": "Aquatic plant scatter (the Watershed × the Loom): the drop's paintings/water/ placed AT water, keyed off the authored water surface so they sit on the pond and shorelines, never mid-desert. Per candidate we read Terrain.water_surface_base (valid only where a water body covers the point) and its depth over the ground; a plant grows only within its depth band. `mode` float = a flat pad lying ON the surface (lilies, pool moss); emergent = an upright billboard rooted at the bottom in the shallows (reeds, rushes, cattails, kelp). Depth is (surface - ground): negative = the wet edge just above water, positive = submerged. Uses the AUTHORED base surface (stable), so live level swells don't shuffle the planting. Deterministic per cell, presentation only.",
+	"groups": [
+		{"slot": "water/lily_disc_big", "mode": "float", "attempts": 7, "height": 1.1, "depth": [0.15, 2.5]},
+		{"slot": "water/pool_moss", "mode": "float", "attempts": 6, "height": 0.7, "depth": [0.05, 1.2]},
+		{"slot": "water/reed_tall", "mode": "emergent", "attempts": 9, "height": 1.6, "depth": [-0.25, 0.9]},
+		{"slot": "water/rush_clump", "mode": "emergent", "attempts": 9, "height": 0.9, "depth": [-0.25, 0.6]},
+		{"slot": "water/cattail_bulb", "mode": "emergent", "attempts": 7, "height": 1.3, "depth": [-0.2, 0.7]},
+		{"slot": "water/kelp_frond", "mode": "emergent", "attempts": 6, "height": 1.7, "depth": [0.6, 3.0]}
+	]
+}

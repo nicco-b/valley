@@ -52,6 +52,8 @@ var _species_meshes: Dictionary = {}  # "id/stage" -> QuadMesh
 var _scatter_groups: Array = []  # model-scatter rules (data/scatter/props.json)
 var _cat_slots: Dictionary = {}  # category -> Array[slot id] (from Cards)
 var _decal_groups: Array = []  # ground-decal rules (data/scatter/decals.json)
+var _water_groups: Array = []  # aquatic-plant rules (data/scatter/water_plants.json)
+var _water_meshes: Dictionary = {}  # slot -> Mesh (billboard or flat pad)
 
 @onready var _player: Node3D = get_tree().get_first_node_in_group("player")
 
@@ -96,6 +98,9 @@ func _ready() -> void:
 	var dcfg = Records.load_json("res://data/scatter/decals.json")
 	if dcfg is Dictionary and dcfg.get("groups") is Array:
 		_decal_groups = dcfg["groups"]
+	var wcfg = Records.load_json("res://data/scatter/water_plants.json")
+	if wcfg is Dictionary and wcfg.get("groups") is Array:
+		_water_groups = wcfg["groups"]
 	for e in Cards.placeable():
 		var cat: String = e["category"]
 		if not _cat_slots.has(cat):
@@ -466,6 +471,7 @@ func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	_add_scatter(c, body, origin)
 	_add_model_scatter(c, body, origin)
 	_add_decal_scatter(c, body, origin)
+	_add_water_plants(c, body, origin)
 	_add_ground_cover(c, body, origin,
 			Terrain.valley_factor(origin.x + CELL_SIZE * 0.5, origin.z + CELL_SIZE * 0.5))
 	add_child(body)
@@ -704,6 +710,73 @@ func _add_model_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 			inst.rotation.y = yaw
 			inst.scale = Vector3.ONE * s
 			parent.add_child(inst)
+
+
+## Aquatic plants placed at the authored water surface: floating pads on the
+## water, emergent reeds rooted in the shallows. Only cells overlapping a water
+## body grow anything (water_surface_base gates the rest out fast). Deterministic
+## per cell, presentation only.
+func _add_water_plants(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
+	if _water_groups.is_empty():
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(c) * 61 + 17
+	for group: Dictionary in _water_groups:
+		var mode: String = group.get("mode", "emergent")
+		var depth: Array = group.get("depth", [-0.2, 1.0])
+		var dmin := float(depth[0])
+		var dmax := float(depth[1])
+		var xfs: Array[Transform3D] = []
+		for i in int(group.get("attempts", 6)):
+			var lx := rng.randf() * CELL_SIZE
+			var lz := rng.randf() * CELL_SIZE
+			var yaw := rng.randf() * TAU
+			var s := rng.randf_range(0.8, 1.25)
+			var wx := origin.x + lx
+			var wz := origin.z + lz
+			var wsb := Terrain.water_surface_base(wx, wz)
+			if wsb < -1.0e5:  # no water body here
+				continue
+			var y := Terrain.height(wx, wz)
+			var d := wsb - y
+			if d < dmin or d > dmax:
+				continue
+			if mode == "float":
+				# A flat pad lying on the surface, spun around Y.
+				var b := Basis(Vector3(0, 1, 0), yaw) \
+						* Basis(Vector3(1, 0, 0), -PI * 0.5).scaled(Vector3(s, s, s))
+				xfs.append(Transform3D(b, Vector3(lx, wsb, lz)))
+			else:
+				xfs.append(Transform3D(Basis.IDENTITY.scaled(Vector3(s, s, s)),
+						Vector3(lx, y, lz)))
+		if not xfs.is_empty():
+			_bucket_to_multimesh(xfs, _water_mesh(group), parent, -1.0)
+
+
+## Billboard (emergent) or flat pad (float) mesh for a water-plant slot, cached.
+func _water_mesh(group: Dictionary) -> Mesh:
+	var slot: String = group.get("slot", "")
+	if _water_meshes.has(slot):
+		return _water_meshes[slot]
+	var path: String = Cards.resolve(slot, 0)
+	var h := float(group.get("height", 1.0))
+	var mesh: Mesh
+	if group.get("mode", "emergent") == "float":
+		var tex: Texture2D = load(path)
+		var quad := QuadMesh.new()
+		quad.size = Vector2(h, h)
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = tex
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		mat.alpha_scissor_threshold = 0.5
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED  # seen from above and below
+		mat.vertex_color_use_as_albedo = true
+		quad.material = mat
+		mesh = quad
+	else:
+		mesh = _make_billboard_mesh(path, h, _sway, false)
+	_water_meshes[slot] = mesh
+	return mesh
 
 
 ## Deterministic per-cell ground decals projected onto the terrain, biome-keyed

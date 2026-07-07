@@ -1,0 +1,21 @@
+{
+	"catchment_m2": 1900.0,
+	"depth": 1.6,
+	"feather": 8.0,
+	"id": "pen_8",
+	"no_sim": true,
+	"nodes": [
+		{
+			"surface": -2.4,
+			"width": 3.0,
+			"x": -2610.3,
+			"z": -262.0
+		},
+		{
+			"surface": -2.4,
+			"width": 11.0,
+			"x": -2603.5,
+			"z": -268.7
+		}
+	]
+}

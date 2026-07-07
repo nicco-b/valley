@@ -457,8 +457,11 @@ double TerrainKernel::height(double x, double z) const {
 		}
 	}
 	h += range_term;
-	if (!tiles.empty() && guard > 0.0) {
-		h = tile_blend(x, z, h, guard);
+	// Strata is the whole world: the baked tile overrides the procedural home
+	// valley too, not just the outer ring — guard no longer gates the blend
+	// (home_guard still drives climate/hydrology elsewhere).
+	if (!tiles.empty()) {
+		h = tile_blend(x, z, h, 1.0);
 	}
 	const double *fl = flattens.ptr();
 	for (int i = 0; i + 3 < flattens.size(); i += 4) {

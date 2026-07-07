@@ -548,10 +548,12 @@ func height(x: float, z: float) -> float:
 			# Bay islands rise out of the carved water.
 			h += _region_height(x, z, 1) * guard
 	h += range_term
-	# Painted tiles replace whatever the procedural stack made; the
-	# water carves and the sculpt layer still apply below/after.
-	if not _tiles.is_empty() and guard > 0.0:
-		h = _tile_blend(x, z, h, guard)
+	# Painted tiles replace whatever the procedural stack made; the water
+	# carves and the sculpt layer still apply below/after. Strata is the whole
+	# world now — the tile overrides the home valley too, so the blend is no
+	# longer gated by guard (home_guard still drives climate/hydrology).
+	if not _tiles.is_empty():
+		h = _tile_blend(x, z, h, 1.0)
 	for f in FLATTENS:
 		var d := Vector2(x - f[0], z - f[1]).length()
 		h *= smoothstep(f[2], f[2] + f[3], d)

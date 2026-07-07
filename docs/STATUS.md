@@ -11,6 +11,52 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
+## ⭐ Session handoff — resume here (2026-07-06)
+
+**Shipped this session** (all on main, tests green): river-proposal
+rebuild + drape + rapids; per-region hydrology (gen rivers breathe);
+flow maps + golden-hour water palette; the fill-channels water
+experiment (debug K, off); NPC AgentSim port (Phase A COMPLETE) +
+caravan embodiment; streamer fixes (finish budget, velocity lookahead
+union — no vanishing terrain); the **map generator** (LandformGen:
+sketch/painted-guide → erosion → world, FILE-driven — in-game map
+drawing was removed on purpose); Toolkit world-pens moved into the
+flyover; scoped live terrain bake.
+
+**The big planning artifact:** [RPG_WEIGHT.md](RPG_WEIGHT.md) — the
+plan for real RPG weight (consequence contract, standing on the rumor
+rails, one-timeline saves, 11 sim-forward unlocks). Nicco wants a
+whimsical/magical feel, friends AND enemies, decisions that hold
+(memory: valley-wants-rpg-weight, valley-tone-whimsy-voice).
+
+**Kitchen-table ★ decisions blocking real writing** (see RPG_WEIGHT +
+DESIGN Open Questions): the world axioms · the VOICE question ("lots
+of voiced dialog" reverses text-only canon — proposed invented
+spoken language) · progression cost model · death fiction · adopt the
+Consequence Contract into DESIGN.md.
+
+**Next-move options** (Nicco's call):
+  1. **RPG spine** — R1 standing on the rumor rails (~2 days, pure
+     code, no ★ gate; the multiplier for every future quest). The
+     unbuilt half of "best RPG ever."
+  2. **Generator polish** — polyline ranges in LandformGen (mountain
+     chains, not radial mounds) + the model-scatter records so
+     generated worlds auto-dress with rocks (answers "do I hand-place
+     rocks": no).
+  3. Cheap debt: Toolkit `summary()` sweep (18 autoloads missing it) +
+     a shared `Focus` helper (audit findings); Git LFS chore.
+
+**In Nicco's checkout, uncommitted (HIS authored play — triage, don't
+let a session clobber):** hand-drawn rivers `data/water/rivers/pen_*.
+json` (×14), placed `data/cells/cell_*.json`, and edited
+`elevation_guide.exr` / `biome_map.png` / `sketch.json` / `edit_layer.
+exr`. Commit the keepers; the guide/biome/edit_layer are also the
+runtime-write footgun the audit flagged (LFS/decide-per-file pending).
+
+**To generate a world from a file:** edit `data/world/sketch.json` (or
+paint the guide EXR), then `godot --headless --path . -s
+res://tests/gen_world.gd`. Runbook + keymap in DEV_GUIDE.md.
+
 ## What exists and works (all tested; run `./scripts/test.sh`)
 
 **World** — streamed 128m cell grid (threaded generation); one height

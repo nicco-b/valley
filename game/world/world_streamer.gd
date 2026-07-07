@@ -51,6 +51,7 @@ var _sway: Shader
 var _species_meshes: Dictionary = {}  # "id/stage" -> QuadMesh
 var _scatter_groups: Array = []  # model-scatter rules (data/scatter/props.json)
 var _cat_slots: Dictionary = {}  # category -> Array[slot id] (from Cards)
+var _decal_groups: Array = []  # ground-decal rules (data/scatter/decals.json)
 
 @onready var _player: Node3D = get_tree().get_first_node_in_group("player")
 
@@ -92,6 +93,9 @@ func _ready() -> void:
 	var cfg = Records.load_json("res://data/scatter/props.json")
 	if cfg is Dictionary and cfg.get("groups") is Array:
 		_scatter_groups = cfg["groups"]
+	var dcfg = Records.load_json("res://data/scatter/decals.json")
+	if dcfg is Dictionary and dcfg.get("groups") is Array:
+		_decal_groups = dcfg["groups"]
 	for e in Cards.placeable():
 		var cat: String = e["category"]
 		if not _cat_slots.has(cat):
@@ -461,6 +465,7 @@ func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	body.position = origin
 	_add_scatter(c, body, origin)
 	_add_model_scatter(c, body, origin)
+	_add_decal_scatter(c, body, origin)
 	_add_ground_cover(c, body, origin,
 			Terrain.valley_factor(origin.x + CELL_SIZE * 0.5, origin.z + CELL_SIZE * 0.5))
 	add_child(body)
@@ -699,6 +704,52 @@ func _add_model_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 			inst.rotation.y = yaw
 			inst.scale = Vector3.ONE * s
 			parent.add_child(inst)
+
+
+## Deterministic per-cell ground decals projected onto the terrain, biome-keyed
+## (data/scatter/decals.json). Same recipe as the model scatter; presentation
+## only. Distance-faded so far cells cost little.
+func _add_decal_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
+	if _decal_groups.is_empty():
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(c) * 53 + 9
+	var cc := Vector2(origin.x + CELL_SIZE * 0.5, origin.z + CELL_SIZE * 0.5)
+	var biome_mult: float = 0.4 + 0.6 * Terrain.biome_density(cc.x, cc.y)
+	for group: Dictionary in _decal_groups:
+		var slot: String = group.get("slot", "")
+		var tex: Texture2D = load(Cards.resolve(slot,
+				Cards.variant_for(slot, Vector3(cc.x, 0.0, cc.y))))
+		if tex == null:
+			continue
+		var biomes: Dictionary = group.get("biomes", {})
+		var size: Array = group.get("size", [3, 2, 3])
+		for i in int(group.get("attempts", 2)):
+			var lx := rng.randf() * CELL_SIZE
+			var lz := rng.randf() * CELL_SIZE
+			var accept := rng.randf()
+			var yaw := rng.randf() * TAU
+			var scl := rng.randf_range(0.75, 1.4)
+			var wx := origin.x + lx
+			var wz := origin.z + lz
+			var bidx: int = Terrain.biome_at(wx, wz)
+			var bid := ""
+			if bidx >= 0 and bidx < Terrain.biomes.size():
+				bid = str(Terrain.biomes[bidx].id)
+			if accept > float(biomes.get(bid, 0.0)) * biome_mult:
+				continue
+			var y := Terrain.height(wx, wz)
+			if y < Terrain.water_surface_base(wx, wz) + 0.1:
+				continue
+			var decal := Decal.new()
+			decal.texture_albedo = tex
+			decal.size = Vector3(float(size[0]) * scl, float(size[1]), float(size[2]) * scl)
+			decal.position = Vector3(lx, y, lz)
+			decal.rotation.y = yaw
+			decal.distance_fade_enabled = true
+			decal.distance_fade_begin = 55.0
+			decal.distance_fade_length = 18.0
+			parent.add_child(decal)
 
 
 ## Make a synth-placeholder GLB read right in-engine. The generator bakes

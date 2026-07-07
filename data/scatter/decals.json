@@ -1,0 +1,15 @@
+{
+	"_comment": "Ground decal scatter (the Loom): projects the drop's paintings/decals/ onto the terrain per cell, biome-keyed, so ground reads lived-in — moss in the wet, scorch on the volcano, cracks in the dry, lichen on rock, tide stains on the strand. Deterministic per cell, presentation only (never saved/fingerprinted). `slot` is a Cards billboard slot; `attempts` = candidate points per 128m cell (accepted by biome weight × cell density), `size` = decal projection box [x,y,z] before per-instance scale. path_wear is intentionally absent — it belongs to the InteractionField desire-path layer, not biome scatter. Tune attempts to taste; decals aren't free, so keep them sparse-ish (distance-faded past ~70m).",
+	"groups": [
+		{"slot": "decals/moss_patch", "attempts": 3, "size": [2.6, 2.0, 2.6],
+			"biomes": {"wetland": 0.6, "oasis_green": 0.45, "scrub": 0.2}},
+		{"slot": "decals/crack", "attempts": 2, "size": [3.2, 2.0, 3.2],
+			"biomes": {"dune_desert": 0.4, "volcanic_rock": 0.45, "bare_peak": 0.4, "scrub": 0.25}},
+		{"slot": "decals/scorch", "attempts": 2, "size": [3.0, 2.0, 3.0],
+			"biomes": {"volcanic_rock": 0.7}},
+		{"slot": "decals/lichen_splash", "attempts": 2, "size": [2.2, 2.0, 2.2],
+			"biomes": {"bare_peak": 0.5, "volcanic_rock": 0.4, "scrub": 0.25}},
+		{"slot": "decals/tide_stain", "attempts": 3, "size": [3.8, 2.0, 3.8],
+			"biomes": {"strand": 0.7, "wetland": 0.3}}
+	]
+}

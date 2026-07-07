@@ -1,0 +1,19 @@
+{
+	"_comment": "The map SKETCH (Toolkit map generator): a land outline + typed elevation stamps. LandformGen composes this into the elevation guide, the erosion bake weathers it into believable terrain. High-level authoring — you mark WHERE landforms go, erosion makes them good. Edit by hand or (soon) draw in the Toolkit.",
+	"sea_level": -2,
+	"land_base": 8,
+	"sea_base": -40,
+	"land": [
+		[[-3800, -1200], [-2600, -3400], [-200, -4000], [2400, -3200], [3900, -800], [3600, 1800], [1800, 3600], [-900, 3900], [-3200, 2600], [-4000, 600]]
+	],
+	"stamps": [
+		{"kind": "range", "nodes": [[-2200, -1800], [600, -400], [2600, 1200]], "radius": 850, "height": 640, "roughness": 0.45},
+		{"kind": "peak", "x": -2200, "z": -1800, "radius": 450, "height": 320},
+		{"kind": "peak", "x": 2600, "z": 1200, "radius": 400, "height": 280},
+		{"kind": "volcano", "x": 900, "z": -2500, "radius": 750, "height": 860, "crater": 0.12},
+		{"kind": "plateau", "x": -1700, "z": 1700, "radius": 750, "height": 210, "flat": 0.5},
+		{"kind": "basin", "x": 0, "z": 200, "radius": 650, "depth": 90},
+		{"kind": "hills", "x": -2800, "z": 900, "radius": 1300, "amp": 55, "freq": 0.004},
+		{"kind": "hills", "x": 2400, "z": -1500, "radius": 1100, "amp": 45, "freq": 0.005}
+	]
+}

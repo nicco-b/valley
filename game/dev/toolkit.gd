@@ -42,7 +42,8 @@ var _macro_radius := 160.0  # TERRAIN/BIOME brush (guide texels are 16m)
 var _brush_accum := 0.0
 var _speed_mult := 1.0
 var _tool := Tool.SCULPT
-var _kit_index := 0
+var _palette: Array = []  # Cards.placeable(), cached at _ready
+var _place_index := 0     # flat index into _palette
 var _world_panel: Label
 var _panel_accum := 0.0
 var _sculpt_undo: Image = null
@@ -84,6 +85,7 @@ static func launch_requested() -> bool:
 
 
 func _ready() -> void:
+	_palette = Cards.placeable()  # card-driven PLACE palette (the Kit from cards)
 	if launch_requested():
 		get_tree().node_added.connect(_boot_watch)
 
@@ -204,12 +206,16 @@ func _unhandled_input(event: InputEvent) -> void:
 		else:
 			HUD.notify("river needs at least 2 points")
 	elif event.is_action_pressed("brush_bigger"):
-		if _tool == Tool.TERRAIN or _tool == Tool.BIOME:
+		if _tool == Tool.PLACE:
+			_step_palette(1)
+		elif _tool == Tool.TERRAIN or _tool == Tool.BIOME:
 			_macro_radius = minf(_macro_radius * 1.3, MACRO_MAX)
 		else:
 			_brush_radius = minf(_brush_radius * 1.3, 64.0)
 	elif event.is_action_pressed("brush_smaller"):
-		if _tool == Tool.TERRAIN or _tool == Tool.BIOME:
+		if _tool == Tool.PLACE:
+			_step_palette(-1)
+		elif _tool == Tool.TERRAIN or _tool == Tool.BIOME:
 			_macro_radius = maxf(_macro_radius / 1.3, MACRO_MIN)
 		else:
 			_brush_radius = maxf(_brush_radius / 1.3, 3.0)
@@ -230,10 +236,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			_biome_index = clampi(event.physical_keycode - KEY_1,
 				0, Terrain.biomes.size() - 1)
 			_update_hud()
-		elif _tool == Tool.PLACE \
-				and event.physical_keycode < KEY_1 + Kit.ENTRIES.size():
-			_kit_index = event.physical_keycode - KEY_1
-			_update_hud()
+		elif _tool == Tool.PLACE:
+			# Number keys jump the palette to a category's first slot.
+			_jump_category(event.physical_keycode - KEY_1)
 	elif event is InputEventMouseButton and event.pressed:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED \
 				and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
@@ -244,9 +249,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			_speed_mult = maxf(_speed_mult / 1.2, 0.2)
 		elif event.button_index == MOUSE_BUTTON_LEFT and _tool == Tool.PLACE:
 			var hit := _ray_to_ground()
-			if hit != Vector3.INF:
-				CellRecords.add(hit, Kit.ENTRIES[_kit_index].id,
-						randf() * TAU, randf_range(0.85, 1.15))
+			if hit != Vector3.INF and not _palette.is_empty():
+				var slot: Dictionary = _palette[_place_index % _palette.size()]
+				# Store the RESOLVED file (deterministic variant by position),
+				# never the slot — retiring a placeholder can't move it.
+				var file: String = Cards.resolve(slot["slot"],
+						Cards.variant_for(slot["slot"], hit))
+				if file != "":
+					CellRecords.add(hit, file,
+							randf() * TAU, randf_range(0.85, 1.15))
 		elif event.button_index == MOUSE_BUTTON_LEFT and _tool == Tool.RIVER:
 			var hit := _ray_to_ground()
 			if hit != Vector3.INF:
@@ -566,12 +577,21 @@ func _update_hud() -> void:
 		Tool.SCULPT:
 			_hud_label.text = "TOOLKIT·SCULPT   F1 exit | LMB raise · Shift carve · Ctrl flatten | Z undo stroke | [ ] brush | Tab next tool | O world panel | M map | F5 save"
 		Tool.PLACE:
-			var names: Array[String] = []
-			for i in Kit.ENTRIES.size():
-				var label: String = Kit.ENTRIES[i].label
-				names.append(("[%d %s]" if i == _kit_index else "%d %s") % [i + 1, label])
-			_hud_label.text = "TOOLKIT·PLACE   " + " · ".join(names) \
-					+ "   |   LMB place | Z undo | Tab next tool | F1 exit"
+			if _palette.is_empty():
+				_hud_label.text = "TOOLKIT·PLACE   (no cards) | Tab next tool | F1 exit"
+			else:
+				var slot: Dictionary = _palette[_place_index % _palette.size()]
+				var nm: String = String(slot["slot"]).trim_prefix(String(slot["category"]) + "/")
+				var syn := " ~synth" if slot["status"] == "placeholder-synth" else ""
+				# 1-9 jump categories; the numbered list shows which is where.
+				var cats: Array = Cards.placeable_categories()
+				var tabs: Array[String] = []
+				for i in mini(cats.size(), 9):
+					var mark := "[%d %s]" if cats[i] == slot["category"] else "%d %s"
+					tabs.append(mark % [i + 1, cats[i]])
+				_hud_label.text = "TOOLKIT·PLACE   %s › %s (%dv%s) %d/%d   %s   |   LMB place · [ ] item · 1-9 category · Z undo · Tab tool · F1 exit" % [
+					slot["category"], nm, int(slot["variants"]), syn,
+					_place_index + 1, _palette.size(), " ".join(tabs)]
 		Tool.TERRAIN:
 			_hud_label.text = "TOOLKIT·TERRAIN   LMB raise · Shift lower — bakes when you pause | [ ] brush %dm | Z undo stroke | Tab next tool | F1 exit" % int(_macro_radius)
 		Tool.BIOME:
@@ -583,3 +603,24 @@ func _update_hud() -> void:
 					+ "   |   LMB paint (re-flora on release) | [ ] brush %dm | Tab next tool" % int(_macro_radius)
 		Tool.RIVER:
 			_hud_label.text = "TOOLKIT·RIVER   LMB drop point (%d) | Enter carve | Z undo point | Tab next tool | F1 exit" % _river_nodes.size()
+
+
+## Step the PLACE palette by ±1 slot (wraps).
+func _step_palette(d: int) -> void:
+	if _palette.is_empty():
+		return
+	_place_index = wrapi(_place_index + d, 0, _palette.size())
+	_update_hud()
+
+
+## Jump the PLACE palette to the first slot of the n-th category.
+func _jump_category(n: int) -> void:
+	var cats: Array = Cards.placeable_categories()
+	if n < 0 or n >= cats.size():
+		return
+	var target = cats[n]
+	for i in _palette.size():
+		if _palette[i]["category"] == target:
+			_place_index = i
+			_update_hud()
+			return

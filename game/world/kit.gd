@@ -20,3 +20,14 @@ func _ready() -> void:
 
 func scene(id: String) -> PackedScene:
 	return _by_id.get(id)
+
+
+## Resolve a cell record's `kit` field to a scene. Card-driven placements
+## store a res:// file (a .glb the Cards catalog resolved, or a .tscn); legacy
+## records store a Kit.ENTRIES id. This handles both, so retiring a placeholder
+## (new file in the same slot) is transparent and old placements keep working.
+func scene_for(kit_ref: String) -> PackedScene:
+	if kit_ref.begins_with("res://"):
+		var res = load(kit_ref)
+		return res if res is PackedScene else null
+	return _by_id.get(kit_ref)

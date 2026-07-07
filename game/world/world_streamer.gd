@@ -633,7 +633,7 @@ func _on_flora_cell_changed(c: Vector2i) -> void:
 func _add_records(c: Vector2i) -> void:
 	var container := Node3D.new()
 	for rec in CellRecords.records(c):
-		var scene: PackedScene = Kit.scene(rec.kit)
+		var scene: PackedScene = Kit.scene_for(rec.kit)
 		if scene == null:
 			continue
 		var node: Node3D = scene.instantiate()

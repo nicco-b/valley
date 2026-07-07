@@ -83,43 +83,6 @@ static func paint_disc(guide_img: Image, m: Dictionary, world_xz: Vector2,
 			guide_img.set_pixel(px, pz, Color(clampf(v, 0.0, 1.0), 0.0, 0.0))
 
 
-## Compose a SKETCH (land outline + typed stamps) into a normalized
-## guide Image — the same 0..1 gamma encoding the hand-painter uses, so
-## a generated world bakes exactly like a painted one.
-const GUIDE_RES := 1024
-static func compose_guide(sketch: Dictionary, m: Dictionary) -> Image:
-	var origin := Vector2(float(m.origin.x), float(m.origin.z))
-	var meters := LandformGen.compose(sketch, GUIDE_RES, float(m.world_size), origin)
-	var gmin := float(m.get("guide_min", -60.0))
-	var gspan := float(m.get("guide_max", 1000.0)) - gmin
-	var gamma := float(m.get("guide_gamma", 1.0))
-	var img := Image.create(GUIDE_RES, GUIDE_RES, false, Image.FORMAT_RF)
-	for pz in GUIDE_RES:
-		for px in GUIDE_RES:
-			var lin := clampf((meters[pz * GUIDE_RES + px] - gmin) / gspan, 0.0, 1.0)
-			img.set_pixel(px, pz, Color(pow(lin, gamma), 0, 0))
-	return img
-
-
-## Sketch → guide → eroded heightfield in one call: returns
-## {guide, baked} (both Images) for the caller to apply live + persist.
-static func generate(sketch: Dictionary, m: Dictionary, kernel: Object) -> Dictionary:
-	var guide := compose_guide(sketch, m)
-	return {"guide": guide, "baked": bake(guide, m, kernel)}
-
-
-## Load the sketch record (land outline + stamps) — the committed
-## source of truth (edited as a file, not drawn in-game), or a blank one.
-static func load_sketch() -> Dictionary:
-	var path := "res://data/world/sketch.json"
-	if FileAccess.file_exists(path):
-		var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
-		if d is Dictionary:
-			return d
-	return {"sea_level": -2, "land_base": 8, "sea_base": -40,
-		"land": [[]], "stamps": []}
-
-
 ## Write the baked heightfield to the tiles cache + its region record.
 ## HotReload watches the tiles dir and calls Terrain.reload_tile, so the
 ## live world reshapes within a second of this landing.

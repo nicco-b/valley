@@ -8,6 +8,17 @@ var _motes: GPUParticles3D
 var _glow: GPUParticles3D
 var _moths: GPUParticles3D
 
+# Swarms (the drop's paintings/swarms/): biome-and-time-keyed ambient life
+# that rides the player like the moths — butterflies over greenery by day,
+# pollen on the breeze, gnat columns at dusk near water, embers over the
+# volcano's rock, gulls wheeling above the strand. Placeholder sprites →
+# her painted swarms in the same slots. glow_mote is gated (skipped).
+var _butterflies: GPUParticles3D
+var _pollen: GPUParticles3D
+var _gnats: GPUParticles3D
+var _embers: GPUParticles3D
+var _gulls: GPUParticles3D
+
 # The fog bank (the Elements): one broad FogVolume of 3D noise that
 # DRIFTS along the wind through the player's area — morning dew fog is
 # patchy and something you wade through, not a uniform tint. Density
@@ -126,6 +137,27 @@ func _ready() -> void:
 	glow_mat.emission_energy_multiplier = 2.2
 	_moths = _make_particles(10, 9.0, 0.5, Color(1, 1, 1, 1), 0.8, 2.2,
 			load("res://assets/paintings/moth.png"))
+	var sw := "res://assets/paintings/swarms/"
+	_butterflies = _make_particles(9, 8.0, 0.42, Color(1, 1, 1, 1), 0.7, 2.0,
+			load(sw + "butterfly_01.png"))
+	_pollen = _make_particles(40, 7.0, 0.09, Color(1, 0.98, 0.85, 0.5), 0.4, 1.4,
+			load(sw + "pollen_drift_01.png"))
+	# Gnat columns rise in a tight, near-still swirl; embers drift upward.
+	_gnats = _make_particles(44, 5.5, 0.11, Color(0.3, 0.32, 0.28, 0.6), 0.2, 0.8,
+			load(sw + "gnat_column_01.png"))
+	(_gnats.process_material as ParticleProcessMaterial).emission_box_extents = Vector3(6, 5, 6)
+	_embers = _make_particles(22, 6.0, 0.14, Color(1, 1, 1, 1), 0.6, 1.8,
+			load(sw + "ash_ember_01.png"))
+	var em := _embers.process_material as ParticleProcessMaterial
+	em.direction = Vector3(0.1, 1.0, 0.1)
+	em.gravity = Vector3(0, 1.2, 0)
+	var em_mat: StandardMaterial3D = _embers.draw_pass_1.surface_get_material(0)
+	em_mat.emission_enabled = true
+	em_mat.emission = Color(0.95, 0.5, 0.2)
+	em_mat.emission_energy_multiplier = 2.4
+	_gulls = _make_particles(6, 12.0, 0.9, Color(1, 1, 1, 1), 0.6, 1.6,
+			load(sw + "shore_wheel_01.png"))
+	_gulls.visibility_aabb = AABB(Vector3(-60, -10, -60), Vector3(120, 80, 120))
 
 
 func _process(delta: float) -> void:
@@ -168,6 +200,27 @@ func _process(delta: float) -> void:
 	# The phenomenon prefers dark skies: sparse under a full moon.
 	_glow.amount_ratio = 0.4 + 0.6 * (1.0 - GameClock.moon_light())
 	_moths.emitting = h >= 16.5 and h < 23.0 and Weather.storminess < 0.4
+	_update_swarms(h)
+
+
+## Biome-and-time-keyed ambient swarms, sampled at the player's feet.
+func _update_swarms(h: float) -> void:
+	var bidx: int = Terrain.biome_at(global_position.x, global_position.z)
+	var biome := ""
+	if bidx >= 0 and bidx < Terrain.biomes.size():
+		biome = str(Terrain.biomes[bidx].id)
+	var green := biome in ["oasis_green", "wetland", "scrub"]
+	var day := h >= 8.0 and h < 18.0
+	var dusk := (h >= 17.0 and h < 20.5) or (h >= 4.5 and h < 7.0)
+	var calm := Weather.storminess < 0.35
+	_butterflies.emitting = day and calm and green
+	_pollen.emitting = day and green and Weather.rain < 0.1
+	_pollen.speed_scale = 0.6 + Weather.wind * 1.8
+	(_pollen.process_material as ParticleProcessMaterial).direction = \
+			Vector3(Weather.wind_dir.x, 0.15, Weather.wind_dir.y)
+	_gnats.emitting = dusk and calm and biome in ["wetland", "oasis_green"]
+	_embers.emitting = biome == "volcanic_rock" and Weather.rain < 0.1
+	_gulls.emitting = biome == "strand" and day and Weather.storminess < 0.6
 
 
 ## Hang a translucent rain wall under each rainy front's leading edge

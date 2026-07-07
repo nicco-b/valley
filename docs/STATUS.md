@@ -39,12 +39,30 @@ soak green (fingerprint 1333567381 unchanged).
   from the drop's ground sets — the 8 biomes each grow their own cover
   through the existing scatter; the 3 SVG placeholders (dry_tuft/pebbles/
   bloom_tuft) retired to painted PNGs.
-- **Deferred (in the ledger):** foliage 2×2 clump sheets need per-instance
-  UV cutting before they can be wired (needs a windowed visual check);
-  sky/horizon/decals/swarms/water billboard consumers noted but unwired
-  (sky is a shader today); wildlife/char GLBs are placeable as static props
-  but NOT agent bodies (no clips). **Git LFS still unresolved** — install on
-  both machines, then decide track-vs-ignore for the binaries.
+- **Then, from Nicco playing it (color + "generate across the map"):** synth
+  GLBs bake color into VERTEX colors with no PBR material → rendered grey;
+  `_dress_placeable` flips vertex_color_use_as_albedo on + hides the visible
+  `-col` hull (kept its StaticBody). **Auto model-scatter** (`data/scatter/
+  props.json`): rocks/cacti/shrubs/trees/cliffs auto-dress the world by biome
+  (category groups draw every non-gated Cards slot — new cards join free).
+  Then the asset-consumption sweep: **blooms → 7 wildflower species**
+  (`data/flora/bloom_*.json`); **swarms → 5 ambient emitters** in
+  atmosphere.gd (butterflies/pollen/gnats/embers/gulls, biome+time gated);
+  **decals → per-cell projected ground detail** (`data/scatter/decals.json`);
+  **water plants → lilies + reeds at the water** (`data/scatter/
+  water_plants.json`, keyed off water_surface_base). All presentation-only,
+  soak 1333567381 throughout.
+- **Consumption map (which of the drop is live):** ✅ meshes rocks/cacti/
+  shrubs/trees/cliffs (scatter + place); ✅ ground cover (38) + blooms (7) +
+  water (6) as flora/aquatic; ✅ swarms (5) + decals (5) ambient. **Placement-
+  only by nature** (their home is the PLACE palette, Phase 3 makes it fluent):
+  props (16), arch (27), landmarks (6), chars (9), wildlife (15) — buildings/
+  hero/clip-less stand-ins, NOT auto-scattered on purpose. **Deferred:**
+  foliage 2×2 clump sheets (need per-instance UV cutting + a windowed check);
+  sky (a shader today) + horizon (distant backdrop); forage-item pickups
+  (blooms/fruit/roots → tie to the Foraging skill, not yet wired). **Git LFS
+  still unresolved.** Scatter density lives in `data/scatter/*.json` `attempts`
+  (restart to re-read — not hot-reloaded yet).
 - **Next: PLAN Phase 2** (cross-pen undo/history — generalize sculpt's
   Z-undo across sculpt/terrain/biome/river/placement), then Phase 3
   (placement tools: multi-select, duplicate, scatter brush — how the 345

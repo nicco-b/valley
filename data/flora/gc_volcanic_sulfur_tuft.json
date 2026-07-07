@@ -1,0 +1,16 @@
+{
+	"_comment": "Ground-cover species (the Elements) generated 2026-07-06 from card ground/volcanic/sulfur_tuft. Placeholder-synth billboard; her painted cover drops into the same file slot. One variant used today (art.grow); the slot has 3.",
+	"id": "gc_volcanic_sulfur_tuft",
+	"name": "Sulfur Tuft",
+	"height": 0.34,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/ground/volcanic/sulfur_tuft_01.png"
+	},
+	"biomes": {
+		"volcanic_rock": 1.0
+	},
+	"weight_default": 0.0,
+	"moisture_need": 0.05
+}

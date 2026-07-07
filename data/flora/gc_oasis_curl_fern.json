@@ -1,0 +1,16 @@
+{
+	"_comment": "Ground-cover species (the Elements) generated 2026-07-06 from card ground/oasis/curl_fern. Placeholder-synth billboard; her painted cover drops into the same file slot. One variant used today (art.grow); the slot has 3.",
+	"id": "gc_oasis_curl_fern",
+	"name": "Curl Fern",
+	"height": 0.5,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/ground/oasis/curl_fern_01.png"
+	},
+	"biomes": {
+		"oasis_green": 1.0
+	},
+	"weight_default": 0.0,
+	"moisture_need": 0.4
+}

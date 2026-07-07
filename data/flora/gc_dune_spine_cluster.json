@@ -1,0 +1,16 @@
+{
+	"_comment": "Ground-cover species (the Elements) generated 2026-07-06 from card ground/dune/spine_cluster. Placeholder-synth billboard; her painted cover drops into the same file slot. One variant used today (art.grow); the slot has 3.",
+	"id": "gc_dune_spine_cluster",
+	"name": "Spine Cluster",
+	"height": 0.34,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/ground/dune/spine_cluster_01.png"
+	},
+	"biomes": {
+		"dune_desert": 1.0
+	},
+	"weight_default": 0.0,
+	"moisture_need": 0.05
+}

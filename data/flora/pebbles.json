@@ -1,12 +1,12 @@
 {
-	"_comment": "Mineral 'species': same art in every stage, ignores vitality by having no moisture need — rides the cover scatter so stony ground reads stony.",
+	"_comment": "Mineral 'species': same art in every stage, ignores vitality by having no moisture need — rides the cover scatter so stony ground reads stony. Art repointed 2026-07-06 from placeholder_pebbles.svg to the painted stone billboard.",
 	"id": "pebbles",
 	"name": "Pebbles",
 	"height": 0.22,
 	"cover": true,
 	"collider": false,
 	"art": {
-		"grow": "res://assets/paintings/placeholder_pebbles.svg"
+		"grow": "res://assets/paintings/ground/filler/small_stone_01.png"
 	},
 	"biomes": {"strand": 0.4, "dune_desert": 0.3, "volcanic_rock": 0.3, "bare_peak": 0.35, "scrub": 0.2, "oasis_green": 0.15, "wetland": 0.15},
 	"weight_default": 0.2,

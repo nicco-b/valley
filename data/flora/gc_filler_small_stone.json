@@ -1,0 +1,22 @@
+{
+	"_comment": "Ground-cover species (the Elements) generated 2026-07-06 from card ground/filler/small_stone. Placeholder-synth billboard; her painted cover drops into the same file slot. One variant used today (art.grow); the slot has 4.",
+	"id": "gc_filler_small_stone",
+	"name": "Small Stone",
+	"height": 0.16,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/ground/filler/small_stone_01.png"
+	},
+	"biomes": {
+		"strand": 0.25,
+		"dune_desert": 0.25,
+		"scrub": 0.25,
+		"oasis_green": 0.25,
+		"wetland": 0.25,
+		"volcanic_rock": 0.25,
+		"bare_peak": 0.25
+	},
+	"weight_default": 0.2,
+	"moisture_need": 0.1
+}

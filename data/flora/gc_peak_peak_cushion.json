@@ -1,0 +1,16 @@
+{
+	"_comment": "Ground-cover species (the Elements) generated 2026-07-06 from card ground/peak/peak_cushion. Placeholder-synth billboard; her painted cover drops into the same file slot. One variant used today (art.grow); the slot has 3.",
+	"id": "gc_peak_peak_cushion",
+	"name": "Peak Cushion",
+	"height": 0.16,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/ground/peak/peak_cushion_01.png"
+	},
+	"biomes": {
+		"bare_peak": 1.0
+	},
+	"weight_default": 0.0,
+	"moisture_need": 0.1
+}

@@ -1,0 +1,16 @@
+{
+	"_comment": "Ground-cover species (the Elements) generated 2026-07-06 from card ground/wetland/moss_mat. Placeholder-synth billboard; her painted cover drops into the same file slot. One variant used today (art.grow); the slot has 3.",
+	"id": "gc_wetland_moss_mat",
+	"name": "Moss Mat",
+	"height": 0.16,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/ground/wetland/moss_mat_01.png"
+	},
+	"biomes": {
+		"wetland": 1.0
+	},
+	"weight_default": 0.0,
+	"moisture_need": 0.5
+}

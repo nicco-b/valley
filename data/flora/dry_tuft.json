@@ -1,11 +1,12 @@
 {
+	"_comment": "Art repointed 2026-07-06 from placeholder_tuft_2.svg to the painted-grain PNG that retires it (PLACEHOLDERS.md: 'the dry_tuft SVG is retired by a painted-grain PNG').",
 	"id": "dry_tuft",
 	"name": "Dry Tuft",
 	"height": 0.35,
 	"cover": true,
 	"collider": false,
 	"art": {
-		"grow": "res://assets/paintings/placeholder_tuft_2.svg"
+		"grow": "res://assets/paintings/ground/filler/dry_tuft_01.png"
 	},
 	"biomes": {"scrub": 0.5, "oasis_green": 0.35, "wetland": 0.3, "strand": 0.25, "dune_desert": 0.2, "volcanic_rock": 0.08},
 	"weight_default": 0.35,

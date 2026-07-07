@@ -1,0 +1,14 @@
+{
+ "slot": "decals/lichen_splash",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "decals/lichen_splash_01.png",
+  "decals/lichen_splash_02.png",
+  "decals/lichen_splash_03.png",
+  "decals/lichen_splash_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

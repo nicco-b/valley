@@ -1,0 +1,20 @@
+{
+ "slot": "items/forage/blooms",
+ "class": "gltf_mesh",
+ "variants": 8,
+ "files": [
+  "items/forage/blooms_01.glb",
+  "items/forage/blooms_02.glb",
+  "items/forage/blooms_03.glb",
+  "items/forage/blooms_04.glb",
+  "items/forage/blooms_05.glb",
+  "items/forage/blooms_06.glb",
+  "items/forage/blooms_07.glb",
+  "items/forage/blooms_08.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

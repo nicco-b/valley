@@ -1,0 +1,14 @@
+{
+ "slot": "ground/strand/beach_grass",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/strand/beach_grass_01.png",
+  "ground/strand/beach_grass_02.png",
+  "ground/strand/beach_grass_03.png",
+  "ground/strand/beach_grass_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

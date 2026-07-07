@@ -1,0 +1,14 @@
+{
+ "slot": "chars/villager_trader",
+ "class": "gltf_mesh",
+ "variants": 1,
+ "files": [
+  "chars/villager_trader_01.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false,
+ "note": "reskin of humanoid_base; static"
+}

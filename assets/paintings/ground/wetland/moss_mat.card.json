@@ -1,0 +1,13 @@
+{
+ "slot": "ground/wetland/moss_mat",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/wetland/moss_mat_01.png",
+  "ground/wetland/moss_mat_02.png",
+  "ground/wetland/moss_mat_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

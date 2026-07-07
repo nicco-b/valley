@@ -1,0 +1,13 @@
+{
+ "slot": "ground/dune/dry_scatter",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/dune/dry_scatter_01.png",
+  "ground/dune/dry_scatter_02.png",
+  "ground/dune/dry_scatter_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

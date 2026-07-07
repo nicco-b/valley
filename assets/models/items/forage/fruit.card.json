@@ -1,0 +1,20 @@
+{
+ "slot": "items/forage/fruit",
+ "class": "gltf_mesh",
+ "variants": 8,
+ "files": [
+  "items/forage/fruit_01.glb",
+  "items/forage/fruit_02.glb",
+  "items/forage/fruit_03.glb",
+  "items/forage/fruit_04.glb",
+  "items/forage/fruit_05.glb",
+  "items/forage/fruit_06.glb",
+  "items/forage/fruit_07.glb",
+  "items/forage/fruit_08.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

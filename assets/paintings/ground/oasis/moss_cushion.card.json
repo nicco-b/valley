@@ -1,0 +1,13 @@
+{
+ "slot": "ground/oasis/moss_cushion",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/oasis/moss_cushion_01.png",
+  "ground/oasis/moss_cushion_02.png",
+  "ground/oasis/moss_cushion_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

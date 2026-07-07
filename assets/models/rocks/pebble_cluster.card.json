@@ -1,0 +1,16 @@
+{
+ "slot": "rocks/pebble_cluster",
+ "class": "gltf_mesh",
+ "variants": 4,
+ "files": [
+  "rocks/pebble_cluster_01.glb",
+  "rocks/pebble_cluster_02.glb",
+  "rocks/pebble_cluster_03.glb",
+  "rocks/pebble_cluster_04.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

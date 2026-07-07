@@ -1,0 +1,13 @@
+{
+ "slot": "ground/volcanic/ash_grass",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/volcanic/ash_grass_01.png",
+  "ground/volcanic/ash_grass_02.png",
+  "ground/volcanic/ash_grass_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

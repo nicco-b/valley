@@ -1,0 +1,14 @@
+{
+ "slot": "decals/crack",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "decals/crack_01.png",
+  "decals/crack_02.png",
+  "decals/crack_03.png",
+  "decals/crack_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

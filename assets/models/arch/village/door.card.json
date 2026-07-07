@@ -1,0 +1,16 @@
+{
+ "slot": "arch/village/door",
+ "class": "gltf_mesh",
+ "variants": 4,
+ "files": [
+  "arch/village/door_01.glb",
+  "arch/village/door_02.glb",
+  "arch/village/door_03.glb",
+  "arch/village/door_04.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

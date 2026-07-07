@@ -1,0 +1,12 @@
+{
+ "slot": "swarms/ash_ember",
+ "class": "billboard_png",
+ "variants": 2,
+ "files": [
+  "swarms/ash_ember_01.png",
+  "swarms/ash_ember_02.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

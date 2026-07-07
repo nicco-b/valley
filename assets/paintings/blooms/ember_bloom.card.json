@@ -1,0 +1,13 @@
+{
+ "slot": "blooms/ember_bloom",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "blooms/ember_bloom_01.png",
+  "blooms/ember_bloom_02.png",
+  "blooms/ember_bloom_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

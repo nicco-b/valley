@@ -1,0 +1,14 @@
+{
+ "slot": "decals/path_wear",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "decals/path_wear_01.png",
+  "decals/path_wear_02.png",
+  "decals/path_wear_03.png",
+  "decals/path_wear_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

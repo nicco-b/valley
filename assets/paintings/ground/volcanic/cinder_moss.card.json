@@ -1,0 +1,13 @@
+{
+ "slot": "ground/volcanic/cinder_moss",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/volcanic/cinder_moss_01.png",
+  "ground/volcanic/cinder_moss_02.png",
+  "ground/volcanic/cinder_moss_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

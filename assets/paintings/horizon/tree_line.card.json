@@ -1,0 +1,13 @@
+{
+ "slot": "horizon/tree_line",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "horizon/tree_line_01.png",
+  "horizon/tree_line_02.png",
+  "horizon/tree_line_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

@@ -1,0 +1,14 @@
+{
+ "slot": "ground/oasis/star_bloom",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/oasis/star_bloom_01.png",
+  "ground/oasis/star_bloom_02.png",
+  "ground/oasis/star_bloom_03.png",
+  "ground/oasis/star_bloom_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

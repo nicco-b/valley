@@ -1,0 +1,15 @@
+{
+ "slot": "cliffs/cave_mouth",
+ "class": "gltf_mesh",
+ "variants": 3,
+ "files": [
+  "cliffs/cave_mouth_01.glb",
+  "cliffs/cave_mouth_02.glb",
+  "cliffs/cave_mouth_03.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

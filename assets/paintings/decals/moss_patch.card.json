@@ -1,0 +1,13 @@
+{
+ "slot": "decals/moss_patch",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "decals/moss_patch_01.png",
+  "decals/moss_patch_02.png",
+  "decals/moss_patch_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

@@ -1,0 +1,11 @@
+{
+ "slot": "sky/night",
+ "class": "billboard_png",
+ "variants": 1,
+ "files": [
+  "sky/night_01.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

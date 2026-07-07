@@ -1,0 +1,13 @@
+{
+ "slot": "water/cattail_bulb",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "water/cattail_bulb_01.png",
+  "water/cattail_bulb_02.png",
+  "water/cattail_bulb_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

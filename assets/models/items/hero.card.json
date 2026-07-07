@@ -1,0 +1,18 @@
+{
+ "slot": "items/hero",
+ "class": "gltf_mesh",
+ "variants": 5,
+ "files": [
+  "items/hero_01.glb",
+  "items/hero_02.glb",
+  "items/hero_03.glb",
+  "items/hero_04.glb",
+  "items/hero_05.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": true,
+ "note": "hero props gated on decisions"
+}

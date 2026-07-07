@@ -1,0 +1,17 @@
+{
+ "slot": "props/furniture/table",
+ "class": "gltf_mesh",
+ "variants": 5,
+ "files": [
+  "props/furniture/table_01.glb",
+  "props/furniture/table_02.glb",
+  "props/furniture/table_03.glb",
+  "props/furniture/table_04.glb",
+  "props/furniture/table_05.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

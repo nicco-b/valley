@@ -1,0 +1,16 @@
+{
+ "slot": "arch/village/awning",
+ "class": "gltf_mesh",
+ "variants": 4,
+ "files": [
+  "arch/village/awning_01.glb",
+  "arch/village/awning_02.glb",
+  "arch/village/awning_03.glb",
+  "arch/village/awning_04.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

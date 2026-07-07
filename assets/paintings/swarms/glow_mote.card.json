@@ -1,0 +1,13 @@
+{
+ "slot": "swarms/glow_mote",
+ "class": "billboard_png",
+ "variants": 2,
+ "files": [
+  "swarms/glow_mote_01.png",
+  "swarms/glow_mote_02.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": true,
+ "note": "UND gated"
+}

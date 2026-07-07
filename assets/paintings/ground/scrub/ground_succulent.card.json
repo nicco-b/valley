@@ -1,0 +1,14 @@
+{
+ "slot": "ground/scrub/ground_succulent",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/scrub/ground_succulent_01.png",
+  "ground/scrub/ground_succulent_02.png",
+  "ground/scrub/ground_succulent_03.png",
+  "ground/scrub/ground_succulent_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

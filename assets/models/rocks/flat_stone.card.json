@@ -1,0 +1,16 @@
+{
+ "slot": "rocks/flat_stone",
+ "class": "gltf_mesh",
+ "variants": 4,
+ "files": [
+  "rocks/flat_stone_01.glb",
+  "rocks/flat_stone_02.glb",
+  "rocks/flat_stone_03.glb",
+  "rocks/flat_stone_04.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

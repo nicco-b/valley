@@ -1,0 +1,14 @@
+{
+ "slot": "ground/peak/rock_lichen",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/peak/rock_lichen_01.png",
+  "ground/peak/rock_lichen_02.png",
+  "ground/peak/rock_lichen_03.png",
+  "ground/peak/rock_lichen_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

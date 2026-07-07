@@ -1,0 +1,13 @@
+{
+ "slot": "foliage/thorn_arch_cards",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "foliage/thorn_arch_cards_01.png",
+  "foliage/thorn_arch_cards_02.png",
+  "foliage/thorn_arch_cards_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

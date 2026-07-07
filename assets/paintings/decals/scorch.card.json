@@ -1,0 +1,13 @@
+{
+ "slot": "decals/scorch",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "decals/scorch_01.png",
+  "decals/scorch_02.png",
+  "decals/scorch_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

@@ -1,0 +1,14 @@
+{
+ "slot": "ground/scrub/needle_grass",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/scrub/needle_grass_01.png",
+  "ground/scrub/needle_grass_02.png",
+  "ground/scrub/needle_grass_03.png",
+  "ground/scrub/needle_grass_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

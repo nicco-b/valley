@@ -1,0 +1,13 @@
+{
+ "slot": "blooms/tide_flower",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "blooms/tide_flower_01.png",
+  "blooms/tide_flower_02.png",
+  "blooms/tide_flower_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

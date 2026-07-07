@@ -1,0 +1,13 @@
+{
+ "slot": "ground/strand/driftwood_tuft",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/strand/driftwood_tuft_01.png",
+  "ground/strand/driftwood_tuft_02.png",
+  "ground/strand/driftwood_tuft_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

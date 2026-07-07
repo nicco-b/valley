@@ -1,0 +1,12 @@
+{
+ "slot": "horizon/dune_ridge",
+ "class": "billboard_png",
+ "variants": 2,
+ "files": [
+  "horizon/dune_ridge_01.png",
+  "horizon/dune_ridge_02.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

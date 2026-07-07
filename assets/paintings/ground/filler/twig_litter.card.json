@@ -1,0 +1,13 @@
+{
+ "slot": "ground/filler/twig_litter",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/filler/twig_litter_01.png",
+  "ground/filler/twig_litter_02.png",
+  "ground/filler/twig_litter_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

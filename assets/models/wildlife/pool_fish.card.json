@@ -1,0 +1,13 @@
+{
+ "slot": "wildlife/pool_fish",
+ "class": "gltf_mesh",
+ "variants": 1,
+ "files": [
+  "wildlife/pool_fish_01.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

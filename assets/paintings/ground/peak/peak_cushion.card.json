@@ -1,0 +1,13 @@
+{
+ "slot": "ground/peak/peak_cushion",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/peak/peak_cushion_01.png",
+  "ground/peak/peak_cushion_02.png",
+  "ground/peak/peak_cushion_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

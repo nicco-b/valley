@@ -16,3 +16,15 @@ data/water/rivers/gen_*.json
 # Blender terrain workspace: derived from the guide + cell records,
 # regenerate with valley_terrain.py -- import.
 assets/blender/terrain/valley_map.blend
+
+# Placeholder synth asset drop (2026-07-06): binaries live ON DISK, UNTRACKED
+# for now, pending the Git LFS decision (no LFS installed here yet). The tiny
+# .card.json files ARE tracked -- they're the palette's source of truth and the
+# real/placeholder ledger; the loader tolerates missing binaries. Regenerate the
+# binaries any time with tools/placeholders/gen_billboards.py / gen_meshes.py.
+assets/paintings/**/*.png
+assets/paintings/**/*.png.import
+assets/models/**/*.glb
+assets/models/**/*.glb.import
+tools/placeholders/contact_*.png
+tools/placeholders/contact_*.png.import

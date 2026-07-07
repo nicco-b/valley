@@ -1,0 +1,14 @@
+{
+ "slot": "wildlife/blind_grazer",
+ "class": "gltf_mesh",
+ "variants": 1,
+ "files": [
+  "wildlife/blind_grazer_01.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": true,
+ "note": "UND gated"
+}

@@ -1,0 +1,14 @@
+{
+ "slot": "water/reed_tall",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "water/reed_tall_01.png",
+  "water/reed_tall_02.png",
+  "water/reed_tall_03.png",
+  "water/reed_tall_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

@@ -1,0 +1,13 @@
+{
+ "slot": "horizon/sea_stack",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "horizon/sea_stack_01.png",
+  "horizon/sea_stack_02.png",
+  "horizon/sea_stack_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

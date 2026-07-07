@@ -1,0 +1,14 @@
+{
+ "slot": "ground/volcanic/lichen_crust",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/volcanic/lichen_crust_01.png",
+  "ground/volcanic/lichen_crust_02.png",
+  "ground/volcanic/lichen_crust_03.png",
+  "ground/volcanic/lichen_crust_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

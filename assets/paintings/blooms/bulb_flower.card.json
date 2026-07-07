@@ -1,0 +1,14 @@
+{
+ "slot": "blooms/bulb_flower",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "blooms/bulb_flower_01.png",
+  "blooms/bulb_flower_02.png",
+  "blooms/bulb_flower_03.png",
+  "blooms/bulb_flower_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

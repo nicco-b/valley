@@ -1,0 +1,15 @@
+{
+ "slot": "landmarks/sea_stack",
+ "class": "gltf_mesh",
+ "variants": 3,
+ "files": [
+  "landmarks/sea_stack_01.glb",
+  "landmarks/sea_stack_02.glb",
+  "landmarks/sea_stack_03.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

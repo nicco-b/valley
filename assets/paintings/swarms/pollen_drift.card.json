@@ -1,0 +1,12 @@
+{
+ "slot": "swarms/pollen_drift",
+ "class": "billboard_png",
+ "variants": 2,
+ "files": [
+  "swarms/pollen_drift_01.png",
+  "swarms/pollen_drift_02.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

@@ -1,0 +1,18 @@
+{
+ "slot": "items/forage/roots",
+ "class": "gltf_mesh",
+ "variants": 6,
+ "files": [
+  "items/forage/roots_01.glb",
+  "items/forage/roots_02.glb",
+  "items/forage/roots_03.glb",
+  "items/forage/roots_04.glb",
+  "items/forage/roots_05.glb",
+  "items/forage/roots_06.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

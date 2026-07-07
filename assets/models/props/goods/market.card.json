@@ -1,0 +1,22 @@
+{
+ "slot": "props/goods/market",
+ "class": "gltf_mesh",
+ "variants": 10,
+ "files": [
+  "props/goods/market_01.glb",
+  "props/goods/market_02.glb",
+  "props/goods/market_03.glb",
+  "props/goods/market_04.glb",
+  "props/goods/market_05.glb",
+  "props/goods/market_06.glb",
+  "props/goods/market_07.glb",
+  "props/goods/market_08.glb",
+  "props/goods/market_09.glb",
+  "props/goods/market_10.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

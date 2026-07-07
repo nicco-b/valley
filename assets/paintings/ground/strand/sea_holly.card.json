@@ -1,0 +1,13 @@
+{
+ "slot": "ground/strand/sea_holly",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/strand/sea_holly_01.png",
+  "ground/strand/sea_holly_02.png",
+  "ground/strand/sea_holly_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

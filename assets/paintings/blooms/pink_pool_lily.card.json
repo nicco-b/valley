@@ -1,0 +1,13 @@
+{
+ "slot": "blooms/pink_pool_lily",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "blooms/pink_pool_lily_01.png",
+  "blooms/pink_pool_lily_02.png",
+  "blooms/pink_pool_lily_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

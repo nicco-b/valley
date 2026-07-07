@@ -1,0 +1,15 @@
+{
+ "slot": "blooms/glow_bloom",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "blooms/glow_bloom_01.png",
+  "blooms/glow_bloom_02.png",
+  "blooms/glow_bloom_03.png",
+  "blooms/glow_bloom_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": true,
+ "note": "UND \u2014 gated on glow fiction; placeholder only"
+}

@@ -1,0 +1,14 @@
+{
+ "slot": "arch/under/sinkhole_rim",
+ "class": "gltf_mesh",
+ "variants": 2,
+ "files": [
+  "arch/under/sinkhole_rim_01.glb",
+  "arch/under/sinkhole_rim_02.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": true
+}

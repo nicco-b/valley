@@ -1,0 +1,12 @@
+{
+ "slot": "foliage/swamp_arch_cards",
+ "class": "billboard_png",
+ "variants": 2,
+ "files": [
+  "foliage/swamp_arch_cards_01.png",
+  "foliage/swamp_arch_cards_02.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

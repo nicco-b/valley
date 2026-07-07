@@ -1,0 +1,13 @@
+{
+ "slot": "swarms/butterfly",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "swarms/butterfly_01.png",
+  "swarms/butterfly_02.png",
+  "swarms/butterfly_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

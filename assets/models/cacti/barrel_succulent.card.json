@@ -1,0 +1,14 @@
+{
+ "slot": "cacti/barrel_succulent",
+ "class": "gltf_mesh",
+ "variants": 2,
+ "files": [
+  "cacti/barrel_succulent_01.glb",
+  "cacti/barrel_succulent_02.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

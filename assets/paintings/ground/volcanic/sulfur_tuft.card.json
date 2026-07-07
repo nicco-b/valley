@@ -1,0 +1,13 @@
+{
+ "slot": "ground/volcanic/sulfur_tuft",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/volcanic/sulfur_tuft_01.png",
+  "ground/volcanic/sulfur_tuft_02.png",
+  "ground/volcanic/sulfur_tuft_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

@@ -1,0 +1,16 @@
+{
+ "slot": "cliffs/face_wall",
+ "class": "gltf_mesh",
+ "variants": 4,
+ "files": [
+  "cliffs/face_wall_01.glb",
+  "cliffs/face_wall_02.glb",
+  "cliffs/face_wall_03.glb",
+  "cliffs/face_wall_04.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

@@ -1,0 +1,14 @@
+{
+ "slot": "ground/wetland/sedge_tuft",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/wetland/sedge_tuft_01.png",
+  "ground/wetland/sedge_tuft_02.png",
+  "ground/wetland/sedge_tuft_03.png",
+  "ground/wetland/sedge_tuft_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

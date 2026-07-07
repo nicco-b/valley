@@ -1,0 +1,18 @@
+{
+ "slot": "items/mineral",
+ "class": "gltf_mesh",
+ "variants": 6,
+ "files": [
+  "items/mineral_01.glb",
+  "items/mineral_02.glb",
+  "items/mineral_03.glb",
+  "items/mineral_04.glb",
+  "items/mineral_05.glb",
+  "items/mineral_06.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

@@ -1,0 +1,13 @@
+{
+ "slot": "ground/scrub/gray_sage",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/scrub/gray_sage_01.png",
+  "ground/scrub/gray_sage_02.png",
+  "ground/scrub/gray_sage_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

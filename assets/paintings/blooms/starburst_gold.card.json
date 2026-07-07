@@ -1,0 +1,14 @@
+{
+ "slot": "blooms/starburst_gold",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "blooms/starburst_gold_01.png",
+  "blooms/starburst_gold_02.png",
+  "blooms/starburst_gold_03.png",
+  "blooms/starburst_gold_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

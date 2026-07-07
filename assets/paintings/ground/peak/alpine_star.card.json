@@ -1,0 +1,13 @@
+{
+ "slot": "ground/peak/alpine_star",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/peak/alpine_star_01.png",
+  "ground/peak/alpine_star_02.png",
+  "ground/peak/alpine_star_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

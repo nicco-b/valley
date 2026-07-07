@@ -1,0 +1,14 @@
+{
+ "slot": "shrubs/bulb_shrub",
+ "class": "gltf_mesh",
+ "variants": 2,
+ "files": [
+  "shrubs/bulb_shrub_01.glb",
+  "shrubs/bulb_shrub_02.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

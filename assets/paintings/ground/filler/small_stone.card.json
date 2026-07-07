@@ -1,0 +1,14 @@
+{
+ "slot": "ground/filler/small_stone",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/filler/small_stone_01.png",
+  "ground/filler/small_stone_02.png",
+  "ground/filler/small_stone_03.png",
+  "ground/filler/small_stone_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

@@ -1,0 +1,14 @@
+{
+ "slot": "horizon/mountain_striped",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "horizon/mountain_striped_01.png",
+  "horizon/mountain_striped_02.png",
+  "horizon/mountain_striped_03.png",
+  "horizon/mountain_striped_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

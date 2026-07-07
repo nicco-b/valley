@@ -1,0 +1,14 @@
+{
+ "slot": "ground/strand/kelp_ribbon",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/strand/kelp_ribbon_01.png",
+  "ground/strand/kelp_ribbon_02.png",
+  "ground/strand/kelp_ribbon_03.png",
+  "ground/strand/kelp_ribbon_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

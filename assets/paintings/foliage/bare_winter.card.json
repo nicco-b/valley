@@ -1,0 +1,14 @@
+{
+ "slot": "foliage/bare_winter",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "foliage/bare_winter_01.png",
+  "foliage/bare_winter_02.png",
+  "foliage/bare_winter_03.png",
+  "foliage/bare_winter_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

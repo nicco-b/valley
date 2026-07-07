@@ -1,0 +1,13 @@
+{
+ "slot": "wildlife/burrow_thing",
+ "class": "gltf_mesh",
+ "variants": 1,
+ "files": [
+  "wildlife/burrow_thing_01.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

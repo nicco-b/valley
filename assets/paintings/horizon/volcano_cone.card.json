@@ -1,0 +1,12 @@
+{
+ "slot": "horizon/volcano_cone",
+ "class": "billboard_png",
+ "variants": 2,
+ "files": [
+  "horizon/volcano_cone_01.png",
+  "horizon/volcano_cone_02.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

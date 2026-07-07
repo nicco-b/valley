@@ -1,0 +1,13 @@
+{
+ "slot": "swarms/shore_wheel",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "swarms/shore_wheel_01.png",
+  "swarms/shore_wheel_02.png",
+  "swarms/shore_wheel_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

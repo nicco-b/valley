@@ -1,0 +1,13 @@
+{
+ "slot": "ground/filler/dust_clump",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/filler/dust_clump_01.png",
+  "ground/filler/dust_clump_02.png",
+  "ground/filler/dust_clump_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

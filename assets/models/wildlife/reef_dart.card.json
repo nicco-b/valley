@@ -1,0 +1,13 @@
+{
+ "slot": "wildlife/reef_dart",
+ "class": "gltf_mesh",
+ "variants": 1,
+ "files": [
+  "wildlife/reef_dart_01.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

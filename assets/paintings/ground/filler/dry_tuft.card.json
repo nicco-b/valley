@@ -1,0 +1,15 @@
+{
+ "slot": "ground/filler/dry_tuft",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/filler/dry_tuft_01.png",
+  "ground/filler/dry_tuft_02.png",
+  "ground/filler/dry_tuft_03.png",
+  "ground/filler/dry_tuft_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false,
+ "note": "retires the \u26a0 SVG"
+}

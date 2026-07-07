@@ -1,0 +1,12 @@
+{
+ "slot": "ground/peak/snow_tuft",
+ "class": "billboard_png",
+ "variants": 2,
+ "files": [
+  "ground/peak/snow_tuft_01.png",
+  "ground/peak/snow_tuft_02.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

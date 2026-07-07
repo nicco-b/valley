@@ -1,0 +1,16 @@
+{
+ "slot": "arch/village/fence",
+ "class": "gltf_mesh",
+ "variants": 4,
+ "files": [
+  "arch/village/fence_01.glb",
+  "arch/village/fence_02.glb",
+  "arch/village/fence_03.glb",
+  "arch/village/fence_04.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

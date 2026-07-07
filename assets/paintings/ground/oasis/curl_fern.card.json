@@ -1,0 +1,13 @@
+{
+ "slot": "ground/oasis/curl_fern",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/oasis/curl_fern_01.png",
+  "ground/oasis/curl_fern_02.png",
+  "ground/oasis/curl_fern_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

@@ -1,0 +1,14 @@
+{
+ "slot": "sky/cloud_bands",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "sky/cloud_bands_01.png",
+  "sky/cloud_bands_02.png",
+  "sky/cloud_bands_03.png",
+  "sky/cloud_bands_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

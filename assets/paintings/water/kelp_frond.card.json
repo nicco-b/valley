@@ -1,0 +1,14 @@
+{
+ "slot": "water/kelp_frond",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "water/kelp_frond_01.png",
+  "water/kelp_frond_02.png",
+  "water/kelp_frond_03.png",
+  "water/kelp_frond_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

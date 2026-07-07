@@ -1,0 +1,13 @@
+{
+ "slot": "ground/wetland/floating_disc",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/wetland/floating_disc_01.png",
+  "ground/wetland/floating_disc_02.png",
+  "ground/wetland/floating_disc_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

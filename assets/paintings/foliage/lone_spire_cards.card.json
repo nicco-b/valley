@@ -1,0 +1,12 @@
+{
+ "slot": "foliage/lone_spire_cards",
+ "class": "billboard_png",
+ "variants": 2,
+ "files": [
+  "foliage/lone_spire_cards_01.png",
+  "foliage/lone_spire_cards_02.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

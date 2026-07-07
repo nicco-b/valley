@@ -1,0 +1,20 @@
+{
+ "slot": "props/container/basket",
+ "class": "gltf_mesh",
+ "variants": 8,
+ "files": [
+  "props/container/basket_01.glb",
+  "props/container/basket_02.glb",
+  "props/container/basket_03.glb",
+  "props/container/basket_04.glb",
+  "props/container/basket_05.glb",
+  "props/container/basket_06.glb",
+  "props/container/basket_07.glb",
+  "props/container/basket_08.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

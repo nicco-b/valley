@@ -1,0 +1,11 @@
+{
+ "slot": "sky/dusk",
+ "class": "billboard_png",
+ "variants": 1,
+ "files": [
+  "sky/dusk_01.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

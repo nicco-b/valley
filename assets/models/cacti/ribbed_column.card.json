@@ -1,0 +1,14 @@
+{
+ "slot": "cacti/ribbed_column",
+ "class": "gltf_mesh",
+ "variants": 2,
+ "files": [
+  "cacti/ribbed_column_01.glb",
+  "cacti/ribbed_column_02.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

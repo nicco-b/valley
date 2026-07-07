@@ -1,0 +1,13 @@
+{
+ "slot": "ground/dune/spine_cluster",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/dune/spine_cluster_01.png",
+  "ground/dune/spine_cluster_02.png",
+  "ground/dune/spine_cluster_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

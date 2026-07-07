@@ -1,0 +1,13 @@
+{
+ "slot": "ground/oasis/clover_mat",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/oasis/clover_mat_01.png",
+  "ground/oasis/clover_mat_02.png",
+  "ground/oasis/clover_mat_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

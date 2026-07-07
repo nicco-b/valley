@@ -1,0 +1,13 @@
+{
+ "slot": "ground/wetland/water_bloom",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/wetland/water_bloom_01.png",
+  "ground/wetland/water_bloom_02.png",
+  "ground/wetland/water_bloom_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

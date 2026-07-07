@@ -1,0 +1,13 @@
+{
+ "slot": "horizon/mesa_far",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "horizon/mesa_far_01.png",
+  "horizon/mesa_far_02.png",
+  "horizon/mesa_far_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

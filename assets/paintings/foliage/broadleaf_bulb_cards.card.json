@@ -1,0 +1,13 @@
+{
+ "slot": "foliage/broadleaf_bulb_cards",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "foliage/broadleaf_bulb_cards_01.png",
+  "foliage/broadleaf_bulb_cards_02.png",
+  "foliage/broadleaf_bulb_cards_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

@@ -1,0 +1,14 @@
+{
+ "slot": "ground/oasis/teal_grass",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/oasis/teal_grass_01.png",
+  "ground/oasis/teal_grass_02.png",
+  "ground/oasis/teal_grass_03.png",
+  "ground/oasis/teal_grass_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

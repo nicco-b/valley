@@ -1,0 +1,12 @@
+{
+ "slot": "foliage/ash_snag_cards",
+ "class": "billboard_png",
+ "variants": 2,
+ "files": [
+  "foliage/ash_snag_cards_01.png",
+  "foliage/ash_snag_cards_02.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

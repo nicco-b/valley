@@ -1,0 +1,13 @@
+{
+ "slot": "ground/oasis/violet_bells",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/oasis/violet_bells_01.png",
+  "ground/oasis/violet_bells_02.png",
+  "ground/oasis/violet_bells_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

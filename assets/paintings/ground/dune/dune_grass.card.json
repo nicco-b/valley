@@ -1,0 +1,14 @@
+{
+ "slot": "ground/dune/dune_grass",
+ "class": "billboard_png",
+ "variants": 4,
+ "files": [
+  "ground/dune/dune_grass_01.png",
+  "ground/dune/dune_grass_02.png",
+  "ground/dune/dune_grass_03.png",
+  "ground/dune/dune_grass_04.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

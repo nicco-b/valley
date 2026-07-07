@@ -1,0 +1,13 @@
+{
+ "slot": "decals/tide_stain",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "decals/tide_stain_01.png",
+  "decals/tide_stain_02.png",
+  "decals/tide_stain_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

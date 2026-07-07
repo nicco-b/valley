@@ -1,0 +1,16 @@
+{
+ "slot": "props/nautical/dock",
+ "class": "gltf_mesh",
+ "variants": 4,
+ "files": [
+  "props/nautical/dock_01.glb",
+  "props/nautical/dock_02.glb",
+  "props/nautical/dock_03.glb",
+  "props/nautical/dock_04.glb"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_meshes.py",
+ "collision": "-col convex hull node included",
+ "clips": "none \u2014 static placeholder",
+ "gated": false
+}

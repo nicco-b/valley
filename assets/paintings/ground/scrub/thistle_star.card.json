@@ -1,0 +1,13 @@
+{
+ "slot": "ground/scrub/thistle_star",
+ "class": "billboard_png",
+ "variants": 3,
+ "files": [
+  "ground/scrub/thistle_star_01.png",
+  "ground/scrub/thistle_star_02.png",
+  "ground/scrub/thistle_star_03.png"
+ ],
+ "status": "placeholder-synth",
+ "generator": "gen_billboards.py",
+ "gated": false
+}

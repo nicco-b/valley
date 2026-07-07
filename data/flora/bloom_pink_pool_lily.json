@@ -1,0 +1,17 @@
+{
+	"_comment": "Wildflower species (the Elements) from card blooms/pink_pool_lily, 2026-07-06. Cover-layer bloom so it carpets its biomes with color; her painted stage variants land in the same art slot.",
+	"id": "bloom_pink_pool_lily",
+	"name": "Pink Pool Lily",
+	"height": 0.3,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/blooms/pink_pool_lily_01.png"
+	},
+	"biomes": {
+		"wetland": 0.6,
+		"oasis_green": 0.4
+	},
+	"weight_default": 0.0,
+	"moisture_need": 0.5
+}

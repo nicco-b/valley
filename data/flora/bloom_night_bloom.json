@@ -1,0 +1,18 @@
+{
+	"_comment": "Wildflower species (the Elements) from card blooms/night_bloom, 2026-07-06. Cover-layer bloom so it carpets its biomes with color; her painted stage variants land in the same art slot.",
+	"id": "bloom_night_bloom",
+	"name": "Night Bloom",
+	"height": 0.55,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/blooms/night_bloom_01.png"
+	},
+	"biomes": {
+		"oasis_green": 0.45,
+		"wetland": 0.45,
+		"scrub": 0.3
+	},
+	"weight_default": 0.0,
+	"moisture_need": 0.3
+}

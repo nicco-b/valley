@@ -1,0 +1,18 @@
+{
+	"_comment": "Wildflower species (the Elements) from card blooms/spire_bloom, 2026-07-06. Cover-layer bloom so it carpets its biomes with color; her painted stage variants land in the same art slot.",
+	"id": "bloom_spire_bloom",
+	"name": "Spire Bloom",
+	"height": 0.85,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/blooms/spire_bloom_01.png"
+	},
+	"biomes": {
+		"scrub": 0.5,
+		"dune_desert": 0.3,
+		"bare_peak": 0.3
+	},
+	"weight_default": 0.0,
+	"moisture_need": 0.1
+}

@@ -1,0 +1,18 @@
+{
+	"_comment": "Wildflower species (the Elements) from card blooms/starburst_gold, 2026-07-06. Cover-layer bloom so it carpets its biomes with color; her painted stage variants land in the same art slot.",
+	"id": "bloom_starburst_gold",
+	"name": "Starburst Gold",
+	"height": 0.6,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/blooms/starburst_gold_01.png"
+	},
+	"biomes": {
+		"oasis_green": 0.5,
+		"scrub": 0.45,
+		"strand": 0.35
+	},
+	"weight_default": 0.0,
+	"moisture_need": 0.25
+}

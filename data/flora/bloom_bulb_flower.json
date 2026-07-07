@@ -1,0 +1,18 @@
+{
+	"_comment": "Wildflower species (the Elements) from card blooms/bulb_flower, 2026-07-06. Cover-layer bloom so it carpets its biomes with color; her painted stage variants land in the same art slot.",
+	"id": "bloom_bulb_flower",
+	"name": "Bulb Flower",
+	"height": 0.5,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/blooms/bulb_flower_01.png"
+	},
+	"biomes": {
+		"oasis_green": 0.5,
+		"scrub": 0.4,
+		"wetland": 0.4
+	},
+	"weight_default": 0.0,
+	"moisture_need": 0.28
+}

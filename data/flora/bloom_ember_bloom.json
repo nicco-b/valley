@@ -1,0 +1,18 @@
+{
+	"_comment": "Wildflower species (the Elements) from card blooms/ember_bloom, 2026-07-06. Cover-layer bloom so it carpets its biomes with color; her painted stage variants land in the same art slot.",
+	"id": "bloom_ember_bloom",
+	"name": "Ember Bloom",
+	"height": 0.5,
+	"cover": true,
+	"collider": false,
+	"art": {
+		"grow": "res://assets/paintings/blooms/ember_bloom_01.png"
+	},
+	"biomes": {
+		"volcanic_rock": 0.5,
+		"scrub": 0.35,
+		"dune_desert": 0.2
+	},
+	"weight_default": 0.0,
+	"moisture_need": 0.05
+}

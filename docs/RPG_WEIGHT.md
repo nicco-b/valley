@@ -61,7 +61,13 @@ button, and gets written as flavor.
 
 ## The systems plan (build order, on existing rails)
 
-**R1 — Standing (reputation).** Per-NPC `standing` value in WorldState
+**R1 — Standing (reputation). SUPERSEDED in part by
+[STORY.md](STORY.md) (2026-07-06):** the stored `standing` scalar is
+DEAD before being built (it double-books against the rumor system —
+the derivation law). The BANDS survive: `opinion(A→B)` becomes a
+derived reading over fact records + sediment (STORY.md Memory v2);
+dialogue/prices/access read the same five bands as planned. Original
+text kept for the record: Per-NPC `standing` value in WorldState
 (`npc.<id>.standing`, −100..100), moved by choice effects, **propagated
 by the existing rumor system**: when NPCs swap news, opinions travel
 with facts, dampened per hop — the Keeper thinks less of you because
@@ -147,7 +153,10 @@ these with scripts; here they'd be true statements about sim state.*
 
 ### Nearly free (rails exist; wiring + content)
 
-**U1 — The sim writes the quest board.** "The Dry Spell" already
+**U1 — The sim writes the quest board.** *(Reframed by
+[STORY.md](STORY.md): this is the ERRAND tier — texture, not the
+headline. Authored Stories carry the meaning; the sim delivers hooks,
+stages scenes, and remembers outcomes.)* "The Dry Spell" already
 proved the pattern: a sim state latches a journal seed. Generalize:
 `valley.parched` → a water-hauling errand; storm-days + river level
 max → the ford closes, a repair need appears; the REAL winter snowline

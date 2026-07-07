@@ -7,6 +7,7 @@ pushed to github.com/nicco-b/valley). This file is the live state;
 update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the game is ·
 [FOUNDATIONS.md](FOUNDATIONS.md) = build plan & backlog · [DEV_GUIDE.md](DEV_GUIDE.md)
 = how to work on it · [DECISIONS.md](DECISIONS.md) = settled questions ·
+[STORY.md](STORY.md) = the story layer (memory/quests/arcs) ·
 [IDEAS.md](IDEAS.md) = the drawer · [ASSETS_NEEDED.md](ASSETS_NEEDED.md) =
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
@@ -23,11 +24,21 @@ sketch/painted-guide → erosion → world, FILE-driven — in-game map
 drawing was removed on purpose); Toolkit world-pens moved into the
 flyover; scoped live terrain bake.
 
-**The big planning artifact:** [RPG_WEIGHT.md](RPG_WEIGHT.md) — the
+**The big planning artifacts:** [RPG_WEIGHT.md](RPG_WEIGHT.md) — the
 plan for real RPG weight (consequence contract, standing on the rumor
 rails, one-timeline saves, 11 sim-forward unlocks). Nicco wants a
 whimsical/magical feel, friends AND enemies, decisions that hold
 (memory: valley-wants-rpg-weight, valley-tone-whimsy-voice).
+**[STORY.md](STORY.md) (2026-07-06, from Nicco's ideas)** — the story
+layer: authored quests on sim delivery ("never ask the ground to
+mean"), Memory v2 (erosion/rehearsal/sediment/legend replaces
+MAX_RUMORS and R1's standing scalar — bands survive as a derived
+reading), three quest tiers (Errands/Stories/Arcs), scenes-as-requests
+(canon: the scene WAITS for the player; hold counts missed attempts),
+NPCs age normally, fossils, rainbows, S1–S5 build order. Its ★s join
+the kitchen-table queue; known bug it flags: quest steps conditioned
+on `npc.X.knows.*` can un-complete when the rumor FIFO forgets — seal
+steps (latch) with or without the rest.
 
 **Kitchen-table ★ decisions blocking real writing** (see RPG_WEIGHT +
 DESIGN Open Questions): the world axioms · the VOICE question ("lots

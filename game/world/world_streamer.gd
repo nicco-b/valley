@@ -49,6 +49,8 @@ const FORAGE_CANDIDATES := 3  # deterministic gather-spot slots per cell
 var _ground_material: ShaderMaterial
 var _sway: Shader
 var _species_meshes: Dictionary = {}  # "id/stage" -> QuadMesh
+var _scatter_groups: Array = []  # model-scatter rules (data/scatter/props.json)
+var _cat_slots: Dictionary = {}  # category -> Array[slot id] (from Cards)
 
 @onready var _player: Node3D = get_tree().get_first_node_in_group("player")
 
@@ -84,6 +86,17 @@ func _ready() -> void:
 	_ground_material = ShaderMaterial.new()
 	_ground_material.shader = load("res://game/shaders/terrain.gdshader")
 	_ground_material.set_shader_parameter("variation", vtex)
+
+	# Model scatter: category rules + a category->slots index from the Cards
+	# catalog, so every placeable slot auto-dresses the world by biome.
+	var cfg = Records.load_json("res://data/scatter/props.json")
+	if cfg is Dictionary and cfg.get("groups") is Array:
+		_scatter_groups = cfg["groups"]
+	for e in Cards.placeable():
+		var cat: String = e["category"]
+		if not _cat_slots.has(cat):
+			_cat_slots[cat] = []
+		_cat_slots[cat].append(e["slot"])
 
 	# Billboard meshes (sway shader) are built lazily per species×stage.
 	_sway = load("res://game/shaders/flora_sway.gdshader")
@@ -447,6 +460,7 @@ func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 	_mesh_instances[c] = mi
 	body.position = origin
 	_add_scatter(c, body, origin)
+	_add_model_scatter(c, body, origin)
 	_add_ground_cover(c, body, origin,
 			Terrain.valley_factor(origin.x + CELL_SIZE * 0.5, origin.z + CELL_SIZE * 0.5))
 	add_child(body)
@@ -630,6 +644,83 @@ func _on_flora_cell_changed(c: Vector2i) -> void:
 		_stale[c] = true
 
 
+## Deterministic per-cell model scatter: GLB props auto-dressing the world by
+## biome, the flora recipe for the 345 meshes. Same cell -> same layout,
+## forever; presentation only (rebuilt from the cell hash at stream time, never
+## saved, never fingerprinted). Each group draws every non-gated slot in its
+## category, so new cards join with no code change. RNG draws are in a fixed
+## order per candidate so acceptance never shifts the layout.
+func _add_model_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
+	if _scatter_groups.is_empty():
+		return
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(c) * 47 + 3
+	var cc := Vector2(origin.x + CELL_SIZE * 0.5, origin.z + CELL_SIZE * 0.5)
+	var biome_mult: float = 0.4 + 0.6 * Terrain.biome_density(cc.x, cc.y)
+	for group: Dictionary in _scatter_groups:
+		var slots: Array = _cat_slots.get(group.get("category", ""), [])
+		if slots.is_empty():
+			continue
+		var biomes: Dictionary = group.get("biomes", {})
+		var srange: Array = group.get("scale", [0.8, 1.2])
+		for i in int(group.get("attempts", 4)):
+			var lx := rng.randf() * CELL_SIZE
+			var lz := rng.randf() * CELL_SIZE
+			var pick := rng.randf()
+			var accept := rng.randf()
+			var yaw := rng.randf() * TAU
+			var s := rng.randf_range(float(srange[0]), float(srange[1]))
+			var wx := origin.x + lx
+			var wz := origin.z + lz
+			var bidx: int = Terrain.biome_at(wx, wz)
+			var bid := ""
+			if bidx >= 0 and bidx < Terrain.biomes.size():
+				bid = str(Terrain.biomes[bidx].id)
+			if accept > float(biomes.get(bid, 0.0)) * biome_mult:
+				continue
+			var clear := false
+			for f in Terrain.FLATTENS:
+				if Vector2(wx - f[0], wz - f[1]).length() < f[2] + f[3]:
+					clear = true
+					break
+			if clear:
+				continue
+			var y := Terrain.height(wx, wz)
+			if y < Terrain.water_surface_base(wx, wz) + 0.2:  # nothing on the water
+				continue
+			var slot: String = slots[int(pick * slots.size()) % slots.size()]
+			var scene: PackedScene = Kit.scene_for(
+					Cards.resolve(slot, Cards.variant_for(slot, Vector3(wx, 0.0, wz))))
+			if scene == null:
+				continue
+			var inst: Node3D = scene.instantiate()
+			_dress_placeable(inst)
+			inst.position = Vector3(lx, y, lz)
+			inst.rotation.y = yaw
+			inst.scale = Vector3.ONE * s
+			parent.add_child(inst)
+
+
+## Make a synth-placeholder GLB read right in-engine. The generator bakes
+## color into VERTEX colors with no PBR material, so Godot's default material
+## renders it grey — flip vertex_color_use_as_albedo on. And the collision hull
+## ships as a visible `-col` mesh (a translucent grey blob over the real mesh);
+## hide it, keeping its StaticBody. Materials are shared sub-resources, so the
+## flag flips once per GLB and later instances short-circuit.
+func _dress_placeable(root: Node) -> void:
+	for mi: MeshInstance3D in root.find_children("*", "MeshInstance3D", true, false):
+		if mi.name.ends_with("-col"):
+			mi.visible = false
+			continue
+		var mesh: Mesh = mi.mesh
+		if mesh == null:
+			continue
+		for s in mesh.get_surface_count():
+			var mat := mesh.surface_get_material(s)
+			if mat is StandardMaterial3D and not mat.vertex_color_use_as_albedo:
+				mat.vertex_color_use_as_albedo = true
+
+
 func _add_records(c: Vector2i) -> void:
 	var container := Node3D.new()
 	for rec in CellRecords.records(c):
@@ -637,6 +728,7 @@ func _add_records(c: Vector2i) -> void:
 		if scene == null:
 			continue
 		var node: Node3D = scene.instantiate()
+		_dress_placeable(node)
 		container.add_child(node)
 		var y: float = rec.y
 		if rec.get("snap", false):

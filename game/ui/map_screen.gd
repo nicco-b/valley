@@ -60,6 +60,30 @@ var _biome_paint := false
 var _biome_index := 4  # default: a mid palette entry (placeholder oasis_green)
 var _biome_dirty := Rect2()  # painted region awaiting a flora rescatter
 
+# Sketch editor (the map generator, 2026-07-06): draw the land outline
+# and drop typed elevation stamps, then GENERATE — LandformGen composes
+# them and the erosion bake weathers them into a whole world, live. The
+# authoring surface for "mark where, generator makes it good"; JSON
+# persists to data/world/sketch.json (WorldBake.load/save_sketch).
+const STAMP_KINDS := ["range", "peak", "plateau", "basin", "hills", "volcano"]
+const STAMP_DEFAULTS := {  # radius, height/depth/amp per kind
+	"range":   {"radius": 800.0, "height": 640.0, "roughness": 0.45},
+	"peak":    {"radius": 450.0, "height": 320.0},
+	"plateau": {"radius": 700.0, "height": 200.0, "flat": 0.5},
+	"basin":   {"radius": 600.0, "depth": 100.0},
+	"hills":   {"radius": 1100.0, "amp": 50.0, "freq": 0.004},
+	"volcano": {"radius": 750.0, "height": 850.0, "crater": 0.12},
+}
+const STAMP_COLORS := {
+	"range": Color(0.75, 0.45, 0.30), "peak": Color(0.85, 0.80, 0.85),
+	"plateau": Color(0.65, 0.60, 0.40), "basin": Color(0.30, 0.45, 0.62),
+	"hills": Color(0.55, 0.65, 0.42), "volcano": Color(0.85, 0.35, 0.25),
+}
+var _sketch_mode := false
+var _sketch: Dictionary = {}
+var _sketch_outline := false  # true = drawing the coast, false = placing stamps
+var _kind_idx := 1  # default: peak
+
 
 func _ready() -> void:
 	layer = 10
@@ -124,6 +148,38 @@ func _unhandled_input(event: InputEvent) -> void:
 				and event.physical_keycode == KEY_G:
 			_toggle_biome()
 			return
+		if event is InputEventKey and event.pressed and not event.echo \
+				and event.physical_keycode == KEY_L:
+			_toggle_sketch()
+			return
+		if _sketch_mode and event is InputEventKey and event.pressed and not event.echo:
+			# Tab: outline vs stamp · 1-6 stamp kind · Enter generate ·
+			# [ ] resize the last stamp · Backspace undo · S save.
+			if event.keycode == KEY_TAB:
+				_sketch_outline = not _sketch_outline
+				_update_hint()
+				return
+			elif event.keycode >= KEY_1 and event.keycode <= KEY_6:
+				_kind_idx = event.keycode - KEY_1
+				_sketch_outline = false
+				_update_hint()
+				return
+			elif event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
+				_generate_sketch()
+				return
+			elif event.physical_keycode == KEY_S:
+				WorldBake.save_sketch(_sketch)
+				HUD.notify("sketch saved")
+				return
+			elif event.keycode == KEY_BACKSPACE:
+				_sketch_undo()
+				return
+			elif event.is_action_pressed("brush_bigger"):
+				_resize_last_stamp(1.3)
+				return
+			elif event.is_action_pressed("brush_smaller"):
+				_resize_last_stamp(1.0 / 1.3)
+				return
 		if _biome_paint and event is InputEventKey and event.pressed and not event.echo:
 			# 1..9 select a biome; B commits (rescatter + persist).
 			if event.keycode >= KEY_1 and event.keycode <= KEY_9:
@@ -171,6 +227,16 @@ func _unhandled_input(event: InputEvent) -> void:
 				_update_hint()
 			get_viewport().set_input_as_handled()
 			return
+		if event.button_index == MOUSE_BUTTON_LEFT and _sketch_mode:
+			var w := _mouse_world()
+			if w != Vector2.INF:
+				if _sketch_outline:
+					(_sketch.land[0] as Array).append([snappedf(w.x, 1), snappedf(w.y, 1)])
+				else:
+					_drop_stamp(w)
+				_update_hint()
+			get_viewport().set_input_as_handled()
+			return
 		if event.button_index == MOUSE_BUTTON_RIGHT and _from_toolkit:
 			# Right-click: drop the fly cam there (the 38km2 commute fix).
 			var org := _cam.project_ray_origin(event.position)
@@ -196,7 +262,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_focus.x += event.delta.x * scale * 2.2
 		_focus.z += event.delta.y * scale * 2.2
 	elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT \
-			and not _paint and not _river_mode and not _biome_paint:
+			and not _paint and not _river_mode and not _biome_paint and not _sketch_mode:
 		var scale := _ortho / get_viewport().get_visible_rect().size.y
 		_focus.x -= event.relative.x * scale
 		_focus.z -= event.relative.y * scale
@@ -282,6 +348,7 @@ func _close() -> void:
 	_river_mode = false
 	_river_nodes.clear()
 	_biome_paint = false
+	_sketch_mode = false
 	RenderingServer.global_shader_parameter_set("map_view", 0.0)
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:
@@ -297,12 +364,80 @@ func _close() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+## Enter/leave the sketch editor (the map generator). Loads the sketch
+## lazily; exclusive with the other pens.
+func _toggle_sketch() -> void:
+	_sketch_mode = not _sketch_mode
+	if _sketch_mode:
+		_paint = false
+		_river_mode = false
+		_river_nodes.clear()
+		_biome_paint = false
+		if _sketch.is_empty():
+			_sketch = WorldBake.load_sketch()
+			if not _sketch.has("land") or (_sketch.land as Array).is_empty():
+				_sketch["land"] = [[]]
+	_update_hint()
+
+
+func _drop_stamp(w: Vector2) -> void:
+	var kind: String = STAMP_KINDS[_kind_idx]
+	var s := {"kind": kind, "x": snappedf(w.x, 1), "z": snappedf(w.y, 1)}
+	for k in STAMP_DEFAULTS[kind]:
+		s[k] = STAMP_DEFAULTS[kind][k]
+	(_sketch.stamps as Array).append(s)
+
+
+func _resize_last_stamp(factor: float) -> void:
+	var stamps: Array = _sketch.get("stamps", [])
+	if stamps.is_empty():
+		return
+	var s: Dictionary = stamps[stamps.size() - 1]
+	s["radius"] = clampf(float(s.get("radius", 400.0)) * factor, 120.0, 3000.0)
+	_update_hint()
+
+
+func _sketch_undo() -> void:
+	if _sketch_outline:
+		var pts: Array = _sketch.land[0]
+		if not pts.is_empty():
+			pts.pop_back()
+	else:
+		var stamps: Array = _sketch.get("stamps", [])
+		if not stamps.is_empty():
+			stamps.pop_back()
+	_update_hint()
+
+
+## Generate the world from the current sketch: compose → erode → apply
+## live (whole-world rebuild, the one time it's warranted) → persist the
+## guide, tile cache, and the sketch itself.
+func _generate_sketch() -> void:
+	if Terrain.kernel == null:
+		HUD.notify("generate needs the native kernel")
+		return
+	if (_sketch.land[0] as Array).size() < 3 and (_sketch.stamps as Array).is_empty():
+		HUD.notify("draw an outline or drop a stamp first")
+		return
+	HUD.notify("generating world…")
+	var meta := WorldBake.meta()
+	var out := WorldBake.generate(_sketch, meta, Terrain.kernel)
+	WorldBake.save_guide(out.guide)
+	WorldBake.write_tile(out.baked, meta)
+	WorldBake.save_sketch(_sketch)
+	var org: Dictionary = meta.origin
+	Terrain.apply_baked_tile("baked_world", out.baked,
+		Rect2(float(org.x), float(org.z), float(meta.world_size), float(meta.world_size)))
+	HUD.notify("world generated — fly in to explore")
+
+
 ## Enter/leave elevation paint mode. The guide loads lazily on first use;
 ## it stays cached across opens so long paint sessions don't re-read disk.
 func _toggle_paint() -> void:
 	_paint = not _paint
 	if _paint:
 		_river_mode = false  # tools are exclusive
+		_sketch_mode = false
 		_river_nodes.clear()
 		_biome_paint = false
 		if _guide == null:
@@ -318,6 +453,7 @@ func _toggle_biome() -> void:
 		_paint = false
 		_river_mode = false
 		_river_nodes.clear()
+		_sketch_mode = false
 		_biome_dirty = Rect2()
 		if Terrain.biomes.is_empty():
 			HUD.notify("no biome palette loaded")
@@ -344,6 +480,7 @@ func _toggle_river() -> void:
 	if _river_mode:
 		_paint = false
 		_biome_paint = false
+		_sketch_mode = false
 	else:
 		_river_nodes.clear()
 	_update_hint()
@@ -395,7 +532,13 @@ func _bake() -> void:
 
 
 func _update_hint() -> void:
-	if _biome_paint:
+	if _sketch_mode:
+		if _sketch_outline:
+			var n: int = (_sketch.land[0] as Array).size() if _sketch.has("land") else 0
+			_hint.text = "SKETCH·outline  ·  LMB add coast point (%d)  ·  Tab → stamps  ·  Enter GENERATE  ·  Backspace undo  ·  S save  ·  L exit" % n
+		else:
+			_hint.text = "SKETCH·stamp [%s]  ·  LMB drop  ·  1-6 kind (range/peak/plateau/basin/hills/volcano)  ·  [ ] size  ·  Tab → outline  ·  Enter GENERATE  ·  L exit" % STAMP_KINDS[_kind_idx]
+	elif _biome_paint:
 		var name := "?"
 		if _biome_index < Terrain.biomes.size():
 			name = String(Terrain.biomes[_biome_index].id)
@@ -406,7 +549,7 @@ func _update_hint() -> void:
 	elif _paint:
 		_hint.text = "PAINT elevation  ·  LMB raise · Shift lower  ·  [ ] brush %dm  ·  B bake  ·  P exit" % int(_brush_m)
 	elif _from_toolkit:
-		_hint.text = "drag / WASD pan  ·  wheel zoom  ·  P elevation · R river · G biome  ·  RMB teleport  ·  M close"
+		_hint.text = "drag / WASD pan  ·  wheel zoom  ·  P elevation · R river · G biome · L sketch  ·  RMB teleport  ·  M close"
 	else:
 		_hint.text = "drag / WASD pan  ·  wheel zoom  ·  M close"
 
@@ -427,6 +570,38 @@ func _draw_markers() -> void:
 			ink = Terrain.biomes[_biome_index].ink
 		_markers.draw_circle(_mouse, r_px, Color(ink.r, ink.g, ink.b, 0.30))
 		_markers.draw_arc(_mouse, r_px, 0.0, TAU, 48, Color(ink.r, ink.g, ink.b, 0.95), 2.0)
+	# The sketch: the coastline polygon + typed stamp footprints.
+	if _sketch_mode:
+		var mpp := _cam.size / _markers.size.y  # meters per screen px
+		# Coastline (closed loop of the drawn points, world XZ on y=0).
+		var pts: Array = _sketch.land[0] if _sketch.has("land") else []
+		var sp: Array = []
+		for pt in pts:
+			sp.append(_cam.unproject_position(Vector3(pt[0], 0.0, pt[1])))
+		for i in sp.size():
+			var col := Color(0.95, 0.9, 0.6, 0.9)
+			_markers.draw_circle(sp[i], 4.0, col)
+			if i > 0:
+				_markers.draw_line(sp[i - 1], sp[i], col, 2.0)
+		if sp.size() >= 3:  # close the loop
+			_markers.draw_line(sp[sp.size() - 1], sp[0], Color(0.95, 0.9, 0.6, 0.4), 1.5)
+		# Stamps: a ring at each, radius to scale, colored + lettered.
+		var font := _markers.get_theme_default_font()
+		for s: Dictionary in _sketch.get("stamps", []):
+			var kind := String(s.kind)
+			var c := _cam.unproject_position(Vector3(float(s.x), 0.0, float(s.z)))
+			var col: Color = STAMP_COLORS.get(kind, Color.WHITE)
+			var r_px := float(s.get("radius", 400.0)) / mpp
+			_markers.draw_arc(c, r_px, 0.0, TAU, 40, Color(col.r, col.g, col.b, 0.8), 2.0)
+			_markers.draw_circle(c, 4.0, col)
+			_markers.draw_string(font, c + Vector2(6, -6), kind.substr(0, 3),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
+		# The cursor's pending stamp footprint / next coast point.
+		if not _sketch_outline:
+			var kind2: String = STAMP_KINDS[_kind_idx]
+			var rr: float = float(STAMP_DEFAULTS[kind2].get("radius", 400.0)) / mpp
+			var c2: Color = STAMP_COLORS.get(kind2, Color.WHITE)
+			_markers.draw_arc(_mouse, rr, 0.0, TAU, 40, Color(c2.r, c2.g, c2.b, 0.5), 1.5)
 	# The river-pen course: dropped points + a rubber band to the cursor.
 	if _river_mode:
 		var rprev := Vector2.INF

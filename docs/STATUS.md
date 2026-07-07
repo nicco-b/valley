@@ -547,7 +547,18 @@ picker).
    Enter. Shared cores so the map pens can't drift: WorldBake.paint_disc
    + RiverPen (commit/densify). Map pens kept for whole-world strokes.
    Remaining, in order: (3)
-   the palette becomes the records — asset cards, not
+   MAP GENERATOR (2026-07-06): a whole eroded world from a high-level
+   sketch, not hand-sculpting. game/world/landform_gen.gd composes a
+   land outline + typed elevation stamps (range/peak/plateau/basin/
+   hills/volcano) into an elevation field — rolling FBM base relief on
+   every land cell + noised coastline so erosion carves everywhere —
+   and the SAME WorldBake erosion weathers it (drainage, talus, fans);
+   ~490ms for a continent. Authored in the MAP (Toolkit) via L =
+   sketch: Tab toggles coastline-draw vs stamp-drop, 1-6 pick the
+   stamp kind, [ ] size, Enter GENERATEs live (compose → erode →
+   apply_baked_tile over the world), S saves. Persists data/world/
+   sketch.json; CLI tests/gen_world.gd runs the same path. The
+   palette becomes the records — asset cards, not
    Kit.ENTRIES hardcoded · (4) real placement tools (multi-select,
    duplicate, align, scatter brush) · (5) live rule-card editing · (6)
    undo/history across tools. Toolkit-mode checklist extras still open:

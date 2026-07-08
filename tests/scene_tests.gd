@@ -46,7 +46,7 @@ func _test_strata_link() -> void:
 		print("  strata link: SKIP (not listening — port busy or release build)")
 		return
 	var peer := StreamPeerTCP.new()
-	if peer.connect_to_host("127.0.0.1", StrataLink.PORT) != OK:
+	if peer.connect_to_host("127.0.0.1", StrataLink.port) != OK:
 		_check(false, "link connect")
 		return
 	for i in 100:

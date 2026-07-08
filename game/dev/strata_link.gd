@@ -22,6 +22,10 @@ extends Node
 const PORT := 46464
 const PROTOCOL := 1
 
+## Actual port (STRATA_LINK_PORT env overrides — a second instance, e.g.
+## the P3.5 embedded pane or a probe, gets its own link beside the game).
+var port := PORT
+
 var _server: TCPServer = null
 var _peers: Array[StreamPeerTCP] = []
 var _served := 0  # commands answered (summary/observability)
@@ -31,15 +35,18 @@ func _ready() -> void:
 	if not OS.is_debug_build():
 		set_process(false)
 		return
+	var env := OS.get_environment("STRATA_LINK_PORT")
+	if not env.is_empty() and env.is_valid_int():
+		port = int(env)
 	_server = TCPServer.new()
 	# Bracket-prefixed logs on purpose: test.sh's smoke gate filters "[".
 	# A second running instance simply doesn't listen (no warning spam).
-	if _server.listen(PORT, "127.0.0.1") != OK:
-		print("[stratalink] port %d busy — link off in this instance" % PORT)
+	if _server.listen(port, "127.0.0.1") != OK:
+		print("[stratalink] port %d busy — link off in this instance" % port)
 		_server = null
 		set_process(false)
 		return
-	print("[stratalink] listening on 127.0.0.1:%d" % PORT)
+	print("[stratalink] listening on 127.0.0.1:%d" % port)
 
 
 func _process(_delta: float) -> void:
@@ -149,4 +156,4 @@ func _focus() -> Vector2:
 func summary() -> String:
 	if _server == null:
 		return "link off"
-	return "listening :%d, %d peer(s), %d served" % [PORT, _peers.size(), _served]
+	return "listening :%d, %d peer(s), %d served" % [port, _peers.size(), _served]

@@ -33,6 +33,7 @@ func _ready() -> void:
 	_test_biome_undo()
 	await _test_toolkit_undo()
 	_test_placement_edit()
+	_test_overrides_emit()
 	_test_edit_flush()
 	_test_map()
 	await _test_strata_link()
@@ -1117,6 +1118,142 @@ func _test_placement_edit() -> void:
 	player.queue_free()
 
 
+## The P4 overrides round trip, emitter half: hand work (a placed record
+## + a pen stroke) lands in data/overrides/overrides.json on the SAME
+## stroke-quiet flush the layers ride — placements keyed by stable id,
+## terrain layers as deflate_f32le blobs Strata can inflate. Schema
+## round-trips, the `overrides status` verb answers, a second emit is
+## byte-idempotent. Restores every touched file — the checkout stays
+## clean.
+func _test_overrides_emit() -> void:
+	if not Terrain.has_world_tile():
+		print("  overrides emit: SKIP (no baked tile cache)")
+		return
+	# Snapshot everything the emitter may touch, absent files as null.
+	var guard_paths := [Overrides.FILE,
+		Overrides.DIR + "/terrain_pen_override.f32z",
+		Overrides.DIR + "/terrain_sculpt.f32z",
+		Terrain.TILE_OVERRIDE_EXR, Terrain.TILE_OVERRIDE_META]
+	var guard: Dictionary = {}
+	for gp: String in guard_paths:
+		guard[gp] = FileAccess.get_file_as_bytes(gp) \
+				if FileAccess.file_exists(gp) else null
+	var ov_snap: Image = Terrain.snapshot_tile_override()
+
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	Toolkit._enter()
+	Toolkit._tool = Toolkit.Tool.PLACE
+
+	# Hand work: one placed record (write-through) + one pen stroke.
+	var x := 907.0 * 128.0
+	var z := 905.0 * 128.0
+	var cell: Vector2i = CellRecords.cell_of(Vector3(x, 0.0, z))
+	var rec: Dictionary = CellRecords.add(
+		Vector3(x, Terrain.height(x, z) + 0.25, z), "kit_ov", 0.5, 1.1)
+	var rid := String(rec["id"])
+	_check(Overrides.pending, "a placement marks the artifact stale")
+	var pp := Vector2(1800.0, -1750.0)
+	Terrain.commit_tile_override(Terrain.paint_tile_override(pp, 150.0, 8.0))
+	Toolkit._terrain_unsaved = true  # what a real stroke sets
+
+	# Half the quiet window: nothing emitted yet.
+	var pre_bytes: Variant = guard[Overrides.FILE]
+	Toolkit._flush_quiet = 0.0
+	Toolkit._process(Toolkit.FLUSH_QUIET * 0.5)
+	var half: Variant = FileAccess.get_file_as_bytes(Overrides.FILE) \
+			if FileAccess.file_exists(Overrides.FILE) else null
+	_check(half == pre_bytes, "half the quiet window: artifact untouched")
+
+	# Past the window: the flush emits.
+	Toolkit._process(Toolkit.FLUSH_QUIET)
+	_check(FileAccess.file_exists(Overrides.FILE),
+		"stroke-quiet flush writes overrides.json")
+	_check(not Overrides.pending, "emit clears the pending flag")
+
+	# Schema round trip.
+	var parsed: Variant = JSON.parse_string(
+		FileAccess.get_file_as_string(Overrides.FILE))
+	_check(parsed is Dictionary and int(parsed.get("format", 0)) == 1,
+		"artifact parses, format 1")
+	var placements: Dictionary = parsed.get("placements", {})
+	_check(placements.has(rid), "the placed record is keyed by its id")
+	var entry: Dictionary = placements.get(rid, {})
+	var ecell: Array = entry.get("cell", [0, 0])
+	_check(String(entry.get("kit", "")) == "kit_ov"
+		and absf(float(entry.get("x", 0.0)) - x) < 0.001
+		and int(ecell[0]) == cell.x and int(ecell[1]) == cell.y,
+		"the placement entry carries kit/x/cell verbatim (got %s)" % [entry])
+	_check(entry.has("ground_dy"), "the ground anchor rides the entry")
+	var layers: Array = (parsed.get("terrain", {}) as Dictionary).get("layers", [])
+	var pen: Dictionary = {}
+	for l: Dictionary in layers:
+		if String(l.get("id", "")) == "pen_override":
+			pen = l
+	_check(not pen.is_empty(), "the pen layer is listed")
+	if not pen.is_empty():
+		var blob_path: String = "res://" + String(pen["file"])
+		_check(FileAccess.get_sha256(blob_path) == String(pen["sha256"]),
+			"the blob sha256 matches the file")
+		var res: Array = pen["res"]
+		var raw := FileAccess.get_file_as_bytes(blob_path).decompress(
+			int(res[0]) * int(res[1]) * 4, FileAccess.COMPRESSION_DEFLATE)
+		_check(raw.size() == int(res[0]) * int(res[1]) * 4,
+			"the blob inflates to the declared grid")
+		var floats := raw.to_float32_array()
+		var peak := 0.0
+		for v in floats:
+			peak = maxf(peak, v)
+		_check(absf(peak - 8.0) < 0.5,
+			"the painted stroke survives the round trip (peak %.2fm)" % peak)
+		# The sampling law: the peak texel maps back inside the stroke.
+		var mpp := float(pen["m_per_px"])
+		var ox := (pp.x - float(pen["x0"])) / mpp
+		var oz := (pp.y - float(pen["z0"])) / mpp
+		var center := floats[int(roundf(oz)) * int(res[0]) + int(roundf(ox))]
+		_check(center > 6.0, "the stroke center texel is hot (%.2fm)" % center)
+
+	# The link verb (data, not hand state — answers in any posture).
+	var status: String = StrataLink._execute("overrides status")
+	_check(status.begins_with("ok overrides placements="),
+		"`overrides status` answers (got %s)" % status)
+	_check(" layers=" in status and " last_write=" in status,
+		"status carries layer count and last write")
+
+	# Idempotence: a second emit changes nothing on disk.
+	var bytes1 := FileAccess.get_file_as_bytes(Overrides.FILE)
+	var mtime1 := FileAccess.get_modified_time(Overrides.FILE)
+	Overrides.emit()
+	_check(FileAccess.get_file_as_bytes(Overrides.FILE) == bytes1
+		and FileAccess.get_modified_time(Overrides.FILE) == mtime1,
+		"an unchanged emit is byte- and mtime-idempotent")
+
+	# Leave no trace: record, layers, artifact, toolkit posture.
+	CellRecords.remove(cell, rid)
+	var cell_path := "%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]
+	if FileAccess.file_exists(cell_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(cell_path))
+	Terrain.restore_tile_override(ov_snap)
+	for gp: String in guard_paths:
+		var was: Variant = guard[gp]
+		if was == null:
+			if FileAccess.file_exists(gp):
+				DirAccess.remove_absolute(ProjectSettings.globalize_path(gp))
+		else:
+			var f := FileAccess.open(gp, FileAccess.WRITE)
+			f.store_buffer(was)
+			f.close()
+	Overrides.pending = false
+	Overrides._layer_cache.clear()
+	Toolkit._terrain_unsaved = false
+	Toolkit._flush_quiet = 0.0
+	Toolkit.set_tool("sculpt")
+	Toolkit.active = false
+	player.remove_from_group("player")
+	player.queue_free()
+
+
 ## The stroke-quiet disk flush (audit quick win 3, crash-safety): hand
 ## edits write through the SAME F5 path a few seconds after the last
 ## stroke — nothing lands before FLUSH_QUIET, the biome PNG lands after.
@@ -1129,6 +1266,15 @@ func _test_edit_flush() -> void:
 	var png_path: String = Terrain.BIOME_MAP_PATH
 	var orig_bytes := FileAccess.get_file_as_bytes(png_path)
 	_check(not orig_bytes.is_empty(), "biome map PNG exists to flush over")
+	# The flush now emits the P4 overrides artifact too — snapshot it so
+	# this test leaves the checkout exactly as found.
+	var ov_paths := [Overrides.FILE,
+		Overrides.DIR + "/terrain_pen_override.f32z",
+		Overrides.DIR + "/terrain_sculpt.f32z"]
+	var ov_guard: Dictionary = {}
+	for gp: String in ov_paths:
+		ov_guard[gp] = FileAccess.get_file_as_bytes(gp) \
+				if FileAccess.file_exists(gp) else null
 	var player := CharacterBody3D.new()
 	player.add_to_group("player")
 	add_child(player)
@@ -1155,6 +1301,17 @@ func _test_edit_flush() -> void:
 	var f := FileAccess.open(png_path, FileAccess.WRITE)
 	f.store_buffer(orig_bytes)
 	f.close()
+	for gp: String in ov_paths:
+		var was: Variant = ov_guard[gp]
+		if was == null:
+			if FileAccess.file_exists(gp):
+				DirAccess.remove_absolute(ProjectSettings.globalize_path(gp))
+		else:
+			var g := FileAccess.open(gp, FileAccess.WRITE)
+			g.store_buffer(was)
+			g.close()
+	Overrides.pending = false
+	Overrides._layer_cache.clear()
 	Toolkit._biome_unsaved = false
 	Toolkit._biome_dirty = Rect2()
 	Toolkit._flush_quiet = 0.0

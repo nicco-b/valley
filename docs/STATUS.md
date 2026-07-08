@@ -12,6 +12,83 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
+## ⭐ Session handoff — resume here (2026-07-08, end of day): THE GAME GREW A STORY LAYER, INTERIORS, AND FABRIC
+
+**This note is the day's roof — the handoffs below it are the rooms.**
+The Q1+Q2 handoff (next section) has the Teller's full detail; what
+follows is everything else that landed around and after it, so the
+stack reads as one day. `strata/docs/ONE_APP.md` stays the cross-repo
+spine (its second-half progress log + next steps were rewritten to the
+true end-of-session state).
+
+The game now has:
+
+- **Quests — the Teller** (Q1+Q2, the handoff below;
+  [DESIGN_QUESTS.md](DESIGN_QUESTS.md) is the design ledger). Its §15
+  is RULED (commit `8ec2280`, Nicco away-mode): ★1–★6/★9 BLESSED as
+  working defaults, ★4 amended to both scene-initiation modes chosen
+  per-scene; **★7 (direction vocabulary), ★8 (deadline tone), ★10
+  (the Main thread) stay OPEN** at their gates Q7/Q8/Q10. Next rung:
+  **Q3 the hooks door**. **The soak fingerprint moved BY DESIGN with
+  Q2: 4027936959 → 2814434129** (journal.*/choice.* ride the digest
+  whole) — same-day sections below correctly report the old number;
+  the fingerprint still floats with live re-imports until a world is
+  blessed.
+- **Interiors — the Threshold** (I1, commit `09642a1`;
+  [PLAN_INTERIORS.md](PLAN_INTERIORS.md) is the plan): a door is a
+  placement row that learned one key (`"door": {"interior": id}`);
+  the pocket instantiates +1500m over its own door in the SAME running
+  world behind a fade — no scene change, every autoload keeps ticking,
+  the 1:1 clock holds (step out into a later sky). First proto-dungeon
+  `data/interiors/smugglers_cellar.json` (47 rows of ruins/* +
+  under/*); save v2 with honest fallback; the sun kept out by cull
+  layer; presentation gates read the ONE flag — the weather SIM is
+  never told. Next rung: **I2 the hand inside** (InteriorRecords, the
+  Toolkit targets the active book — unblocks Strata's L11
+  kit-bashing). Soak unmoved.
+- **Fabric — the one-wind law** (F1 banners, handoff below; + F2
+  spring bones, commit `e3d5e44`; [PLAN_FABRIC.md](PLAN_FABRIC.md) is
+  the plan): tails and ears hear the ONE wind — FabricSpring
+  (SkeletonModifier3D over the engine's SpringBoneSimulator3D)
+  auto-adopts the chains a rig carries (hound tail, fox ears) and
+  feeds `external_force` from Weather; gouache-tuned, damped and
+  chunky, influence fades by 60m. Presentation tier, soak digest
+  untouched. Next rungs: F3 cloaks (blocked on bodies), **F4 the
+  village flutters** (card flag alone — gated on the village kit).
+- **Placement editing v2** (handoff below) **and, riding its stable
+  ids, P4 overrides EMISSION** (commits `6abe9e1` emitter + `cb480d1`
+  probe): the game maintains `data/overrides/overrides.json` (format
+  1 — every placed record by id + the hand-terrain layers as
+  deflate_f32le blobs with their frames), emitted on the stroke-quiet
+  flush / F5 / exit; `overrides status` link verb. Strata consumes it
+  at bless + Send; the round-trip probe (`tests/overrides_probe.gd`)
+  proved a +12m pen knoll and two records ride a full seed re-roll,
+  hand delta identical on both sides of the seam to the centimeter.
+  Hand work is DATA the re-roll respects now.
+- **The chrome contract v2** (commit `a86207a`): the Toolkit fully
+  drivable from Strata — `toolkit on|off` (F1 over the wire) and
+  `toolkit undo`; `hud off` is TOTAL (every label dark, scene-tested)
+  with HUD.notify rerouted to the `notices` drain verb; `panel` and
+  `inspect` answer machine-readably; `toolkit status` carries the
+  profile's real terrain names (`biomes=`) + `cats=` + `river=`. When
+  Strata's chrome drives, the game view shows nothing but the world.
+
+**In flight as this is written: the substances plan** — a
+water/snow/sand/particles investigation on branch `plan/substances`
+(worktree `~/code/valley-substances`); read its verdict before
+touching anything wet, frozen, or granular. **Nicco's eye-check
+queue** (banners/tails in a storm — regenerate the untracked GLBs
+first, the F1 note below has the command; the Threshold; the map; the
+P2 water checks — the parked `~/code/valley-p2` worktree holds the P2
+fixture state, remove it after) lives in ONE_APP's next steps, with
+the open-★ table calls beside it.
+
+Known wart for fresh checkouts: the spawn-on-land unit test only
+SKIPS when a live tile is cached — a fresh worktree has no tile, so
+`test.sh` fails one test ("spawn is on land") against the committed
+procedural world. Pre-existing, documented in the map handoff below;
+the fix is in flight on `agent/spawn-on-land`.
+
 ## ⭐ Session handoff (2026-07-08, worktree agent): THE TELLER'S FIRST LATCH (Q1+Q2)
 
 **DESIGN_QUESTS Q1 (the monotone core) + Q2 (the robustness spine)

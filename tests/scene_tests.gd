@@ -15,6 +15,7 @@ func _ready() -> void:
 	_test_climate_v2()
 	_test_water()
 	_test_swell()
+	_test_shoaling()
 	_test_hydrology()
 	_test_water_field()
 	_test_flora()
@@ -371,6 +372,33 @@ func _test_swell() -> void:
 	var flat_sea: float = Terrain.sea_surface()
 	_check(absf(flat_sea - Terrain.sea_level) <= Terrain.TIDE_AMP + 1e-4,
 		"sea_surface() stays flat-sea + tide — the swell is presentation only")
+
+
+## W2 shoaling + breakers: the shader's per-vertex math has a pure
+## GDScript mirror on SeaSwell — pin it. Gain is 1 in the deep (the open
+## sea is untouched), grows monotonically as depth shrinks, and caps;
+## the 0.78 surf criterion breaks a storm on the shallow bar, spares the
+## deep coast, and spares the same bar under a calm sea.
+func _test_shoaling() -> void:
+	var deep := SeaSwell.shoal_gain(40.0, 200.0)
+	_check(absf(deep - 1.0) < 1e-3, "deep water swell is unchanged")
+	var g8 := SeaSwell.shoal_gain(40.0, 8.0)
+	var g3 := SeaSwell.shoal_gain(40.0, 3.0)
+	var g1 := SeaSwell.shoal_gain(40.0, 1.0)
+	_check(g8 > deep and g3 > g8 and g1 >= g3,
+		"shoaling gain grows monotonically as depth shrinks")
+	_check(g1 <= SeaSwell.SHOAL_MAX + 1e-6, "shoal gain caps (Green's law bounded)")
+	# Storm primary component: SWELL_MAX * PRIMARY_SHARE ≈ 0.42m amp.
+	var storm_a: float = SeaSwell.SWELL_MAX * SeaSwell.PRIMARY_SHARE
+	_check(SeaSwell.break_frac(storm_a, 60.0, 1.2) > 1.0,
+		"storm swell breaks on the 1.2m bar")
+	_check(SeaSwell.break_frac(storm_a, 60.0, 10.0) < 1.0,
+		"ten meters of water carries storm swell unbroken")
+	_check(SeaSwell.break_frac(SeaSwell.BASE_AMP * SeaSwell.PRIMARY_SHARE,
+			24.0, 1.2) < 1.0, "a calm sea spares the same bar")
+	_check(SeaSwell.break_depth(storm_a, 60.0)
+			> SeaSwell.break_depth(0.1 * SeaSwell.PRIMARY_SHARE, 30.0),
+		"heavier swell breaks in deeper water — the surf band widens with the storm")
 
 
 func _test_hydrology() -> void:

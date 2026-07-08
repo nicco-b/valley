@@ -11,6 +11,11 @@ extends Node
 ## function of (time, wind, fronts) — never saved, never fingerprinted,
 ## off headless. Physics and sims keep reading the flat
 ## Terrain.sea_surface(); swimming rides mean water at W1.
+## W2 adds the shore: water_bodies bakes real bathymetry into the sea
+## meshes and the shader shoals/breaks the swell against it — this node
+## carries the pure mirror math (shoal_gain/break_frac/break_depth) so
+## the surf criterion is scene-testable and the Toolkit can report the
+## live breaker depth-band.
 
 const SWELL_MAX := 0.95    # meters of amplitude a full storm earns
 const BASE_AMP := 0.05     # a dead-calm sea never goes glassy-flat
@@ -21,8 +26,17 @@ const HERALD_M := 5200.0   # e-fold reach of swell AHEAD of a front's edge
 const WAKE_M := 2200.0     # swell decay behind a spent front's trailing edge
 const EASE := 0.4          # per-second approach (presentation smoothing)
 
+# W2 shoaling — the SHADER-MIRROR constants. water.gdshader owns the
+# per-vertex copy of this math (SURF_GAMMA/SHOAL_MAX/DEPTH_MIN there);
+# keep both in lockstep or the Toolkit's surf line will lie.
+const SURF_GAMMA := 0.78   # break when waveheight/depth tops this
+const SHOAL_MAX := 1.7     # Green's-law amplitude gain cap
+const DEPTH_MIN := 0.05    # the water column never divides by zero
+const PRIMARY_SHARE := 0.44  # the primary Gerstner component's amp share
+
 var enabled := false
 var force_amp := -1.0      # Toolkit knob: >= 0 pins the amplitude (meters)
+var force_surf := -1.0     # Toolkit knob: >= 0 pins the breaker foam boost
 var amp := 0.0             # live eased amplitude, meters
 var wavelength := LEN_CALM # live eased primary wavelength, meters
 var direction := Vector2(1.0, 0.0)  # live eased travel direction
@@ -52,6 +66,8 @@ func _process(delta: float) -> void:
 	RenderingServer.global_shader_parameter_set("swell_amp", amp)
 	RenderingServer.global_shader_parameter_set("swell_len", wavelength)
 	RenderingServer.global_shader_parameter_set("swell_dir", direction)
+	RenderingServer.global_shader_parameter_set("surf_boost",
+			force_surf if force_surf >= 0.0 else 1.0)
 
 
 ## The energy math, pure + deterministic (scene-tested): swell at `focus`
@@ -91,13 +107,51 @@ func compute(fronts: Array, focus: Vector2, wind_local: float,
 		"source": best_src if best > base else "wind"}
 
 
-## Toolkit: the open sea's state in one line.
+## W2 shoaling math, pure + deterministic (scene-tested; shader-mirror —
+## water.gdshader computes the same per vertex). Amplitude gain as a wave
+## of `wavelength_m` climbs into `depth` meters of water: 1.0 in the deep
+## (tanh(kd) -> 1: the open sea is untouched), rising by Green's law as
+## the wave feels the bottom, capped at SHOAL_MAX.
+func shoal_gain(wavelength_m: float, depth: float) -> float:
+	var k := TAU / maxf(wavelength_m, 0.1)
+	var tk := tanh(k * maxf(depth, DEPTH_MIN))
+	return clampf(pow(maxf(tk, 0.02), -0.25), 1.0, SHOAL_MAX)
+
+
+## The surf criterion: shoaled waveheight over the breakable column.
+## >= 1.0 means this depth BREAKS a swell of `amp_m` (one component's
+## amplitude, meters) — the breaker line is this function's level set.
+func break_frac(amp_m: float, wavelength_m: float, depth: float) -> float:
+	var a_s := amp_m * shoal_gain(wavelength_m, depth)
+	return a_s / (0.5 * SURF_GAMMA * maxf(depth, DEPTH_MIN))
+
+
+## The deepest water the primary swell component breaks in (bisection on
+## break_frac's monotone depth axis) — the Toolkit's surf line.
+func break_depth(amp_m: float, wavelength_m: float) -> float:
+	var lo := DEPTH_MIN
+	var hi := 60.0
+	if break_frac(amp_m, wavelength_m, hi) >= 1.0:
+		return hi
+	for i in 40:
+		var mid := (lo + hi) * 0.5
+		if break_frac(amp_m, wavelength_m, mid) >= 1.0:
+			lo = mid
+		else:
+			hi = mid
+	return lo
+
+
+## Toolkit: the open sea's state in one line — swell energy plus the
+## surf band it earns (breakers live shoreward of that depth).
 func summary() -> String:
 	if not enabled:
 		return "off (headless)"
-	return "%s  amp=%.2fm  L=%.0fm  dir=(%.2f, %.2f)%s" % [
-		source, amp, wavelength, direction.x, direction.y,
-		"" if force_amp < 0.0 else "  (FORCED)"]
+	var surf := break_depth(amp * PRIMARY_SHARE, wavelength)
+	return "%s  amp=%.2fm  L=%.0fm  dir=(%.2f, %.2f)  surf<=%.1fm%s%s" % [
+		source, amp, wavelength, direction.x, direction.y, surf,
+		"" if force_amp < 0.0 else "  (FORCED amp)",
+		"" if force_surf < 0.0 else "  (FORCED surf x%.1f)" % force_surf]
 
 
 func _focus_xz() -> Vector2:

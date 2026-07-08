@@ -27,15 +27,26 @@ var _river_built_level: Dictionary = {}  # level each ribbon was built at
 # disc carries the surface to the horizon. Each tier sits a step lower
 # to avoid z-fighting where they overlap; the shader fades the swell to
 # flat at the mid rim so the far disc takes over seamlessly.
+# W2 shoaling: the near patch + mid disc also carry BAKED BATHYMETRY —
+# CUSTOM0 = (depth below sea level, ∇depth) per vertex, sampled from the
+# real seabed via the kernel's height_block on a worker thread. The
+# shader shoals and breaks the swell against it, so the breaker line
+# follows reefs and bars. A tier's snap-move WAITS for its bake: mesh
+# position and depth data land in the same frame (a stale bake would
+# slide the surf line off the seabed). Without the native kernel the
+# depth stays at its deep default — pure W1 swell, no shoaling.
 const SEA_NEAR_RADIUS := 300.0
 const SEA_NEAR_STEP := 3.0
 const SEA_MID_RADIUS := 1600.0
 const SEA_MID_STEP := 12.0  # carries the 37-60m storm swell bands
 const SEA_FAR_RADIUS := 9000.0
 const SEA_FAR_STEP := 250.0
+const BATHY_DEEP := 1000.0  # "no data" depth: shoaling math degenerates to W1
+const BATHY_FMT: int = Mesh.ARRAY_CUSTOM_RGB_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT
 var _sea_near: MeshInstance3D
 var _sea_mid: MeshInstance3D
 var _sea_far: MeshInstance3D
+var _bathy: Dictionary = {}  # tier -> bake state (see _bathy_register)
 
 
 func _ready() -> void:
@@ -61,6 +72,9 @@ func _ready() -> void:
 		_sea_far.mesh.surface_set_material(0, _material(Vector2.ZERO))
 		_sea_far.position.y = Terrain.sea_level - 0.15
 		add_child(_sea_far)
+		# W2: the shoaling tiers get their bathymetry channel.
+		_bathy_register("near", _sea_near, SEA_NEAR_RADIUS, SEA_NEAR_STEP)
+		_bathy_register("mid", _sea_mid, SEA_MID_RADIUS, SEA_MID_STEP)
 	for w in Terrain.water_bodies:
 		var center: Vector2 = w.center
 		var mi := MeshInstance3D.new()
@@ -130,12 +144,10 @@ func _process(_delta: float) -> void:
 	elif player:
 		focus = Vector2(player.global_position.x, player.global_position.z)
 	# Snapped so the wave-sampling verts don't shimmer as the focus moves.
-	var snapped_focus := focus.snappedf(SEA_NEAR_STEP * 2.0)
-	_sea_near.position.x = snapped_focus.x
-	_sea_near.position.z = snapped_focus.y
-	var mid_focus := focus.snappedf(SEA_MID_STEP * 2.0)
-	_sea_mid.position.x = mid_focus.x
-	_sea_mid.position.z = mid_focus.y
+	# W2: the shoaling tiers move through _bathy_follow, which rebakes
+	# their seabed depth for each new anchor before the mesh jumps.
+	_bathy_follow("near", focus.snappedf(SEA_NEAR_STEP * 2.0))
+	_bathy_follow("mid", focus.snappedf(SEA_MID_STEP * 2.0))
 	# The far disc follows too (coarse snap): static at the origin it
 	# ran out 6km short of the horizon on far coasts — a visible band of
 	# missing sea from any strand past ~3km out.
@@ -190,7 +202,123 @@ func _sea_material(step: float, fade_radius: float) -> ShaderMaterial:
 	mat.set_shader_parameter("swell_boost", 1.0)
 	mat.set_shader_parameter("swell_step", step)
 	mat.set_shader_parameter("swell_fade_radius", fade_radius)
+	mat.set_shader_parameter("bathy_boost", 1.0)  # W2: CUSTOM0 carries the seabed
 	return mat
+
+
+## W2: give one sea tier its bathymetry channel — rebuild the disc's
+## surface with a CUSTOM0 slot (depth + ∇depth per vertex, RGB float),
+## deep-defaulted so the swell stays pure W1 until the first bake lands.
+func _bathy_register(tier: String, mi: MeshInstance3D, radius: float, step: float) -> void:
+	var mesh: ArrayMesh = mi.mesh
+	var arrays: Array = mesh.surface_get_arrays(0)
+	var mat: Material = mesh.surface_get_material(0)
+	var vcount: int = (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+	var n := int(ceil(radius * 2.0 / step)) + 2
+	if vcount != n * n:
+		push_warning("[water] sea %s: %d verts != %d² grid — no bathymetry" % [
+			tier, vcount, n])
+		return
+	var custom := PackedFloat32Array()
+	custom.resize(vcount * 3)
+	for i in vcount:
+		custom[i * 3] = BATHY_DEEP
+	arrays[Mesh.ARRAY_CUSTOM0] = custom
+	mesh.clear_surfaces()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, BATHY_FMT)
+	mesh.surface_set_material(0, mat)
+	_bathy[tier] = {"mi": mi, "radius": radius, "step": step, "n": n,
+		"arrays": arrays, "anchor": Vector2.INF, "goal": Vector2.INF,
+		"task": -1, "out": PackedFloat32Array()}
+
+
+## W2: move one sea tier to `goal`, rebaking its seabed for the new
+## anchor first (kernel, worker thread) so the depth attribute and the
+## mesh position swap in the same frame — the surf line never slides off
+## the seabed. Without the native kernel the tiers still follow the
+## focus but keep their deep default (bulk seabed sampling in GDScript
+## would hitch on-main and crash off-main; see Terrain.height_block).
+func _bathy_follow(tier: String, goal: Vector2) -> void:
+	var st: Dictionary = _bathy.get(tier, {})
+	if st.is_empty() or Terrain.kernel == null \
+			or DisplayServer.get_name() == "headless":
+		var direct: MeshInstance3D = _sea_near if tier == "near" else _sea_mid
+		direct.position.x = goal.x
+		direct.position.z = goal.y
+		return
+	var task: int = st.task
+	if task >= 0:
+		if not WorkerThreadPool.is_task_completed(task):
+			return  # the tier trails one snap until its bake lands
+		WorkerThreadPool.wait_for_task_completion(task)
+		st.task = -1
+		_bathy_apply(st)
+	if Vector2(st.anchor) != goal:
+		st.goal = goal
+		st.task = WorkerThreadPool.add_task(_bathy_bake.bind(st, goal),
+			false, "sea bathymetry " + tier)
+
+
+## Worker thread (W2): sample the real seabed on the disc's own vertex
+## grid — one kernel height_block, never per-sample GDScript off-main
+## (the descent-crash law) — and write depth + central-difference ∇depth.
+func _bathy_bake(st: Dictionary, anchor: Vector2) -> void:
+	var n: int = st.n
+	var step: float = st.step
+	var radius: float = st.radius
+	var h := Terrain.height_block(anchor.x - radius, anchor.y - radius, step, n, n)
+	var level: float = Terrain.sea_level
+	var custom := PackedFloat32Array()
+	custom.resize(n * n * 3)
+	var inv2 := 1.0 / (2.0 * step)
+	for iz in n:
+		var row := iz * n
+		var zm := maxi(iz - 1, 0) * n
+		var zp := mini(iz + 1, n - 1) * n
+		for ix in n:
+			var i := row + ix
+			custom[i * 3] = level - h[i]
+			# ∇depth = -∇height (rim rows fall back to one-sided).
+			custom[i * 3 + 1] = -(h[row + mini(ix + 1, n - 1)]
+					- h[row + maxi(ix - 1, 0)]) * inv2
+			custom[i * 3 + 2] = -(h[zp + ix] - h[zm + ix]) * inv2
+	st.out = custom
+
+
+## Main thread (W2): a finished bake swaps in — fresh CUSTOM0, mesh moved
+## to the anchor it was baked for, atomically.
+func _bathy_apply(st: Dictionary) -> void:
+	var arrays: Array = st.arrays
+	arrays[Mesh.ARRAY_CUSTOM0] = st.out
+	var mi: MeshInstance3D = st.mi
+	var mesh: ArrayMesh = mi.mesh
+	var mat: Material = mesh.surface_get_material(0)
+	mesh.clear_surfaces()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, BATHY_FMT)
+	mesh.surface_set_material(0, mat)
+	var goal: Vector2 = st.goal
+	mi.position.x = goal.x
+	mi.position.z = goal.y
+	if not Vector2(st.anchor).is_finite():
+		# First bake: say what the seabed under this tier looks like once
+		# (the probe + Toolkit read this to trust the surf line).
+		var out: PackedFloat32Array = st.out
+		var dmin := 1e12
+		var dmax := -1e12
+		for i in range(0, out.size(), 3):
+			dmin = minf(dmin, out[i])
+			dmax = maxf(dmax, out[i])
+		print("[water] sea bathymetry %s live: depth %.1f..%.1fm at (%.0f, %.0f)" % [
+			mi.name, dmin, dmax, goal.x, goal.y])
+	st.anchor = goal
+
+
+func _exit_tree() -> void:
+	# WorkerThreadPool ids must be waited on before the pool tears down.
+	for tier in _bathy:
+		var st: Dictionary = _bathy[tier]
+		if int(st.task) >= 0:
+			WorkerThreadPool.wait_for_task_completion(int(st.task))
 
 
 # A vertex-dense disc: every corner of a DISC_STEP grid (clamped to the

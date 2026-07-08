@@ -44,6 +44,23 @@ uniform float swell_fade_radius = 0.0;
 global uniform float swell_amp;
 global uniform vec2 swell_dir;
 global uniform float swell_len;
+// Shoaling + breakers (W2, the Watershed): sea meshes with bathy_boost=1
+// carry baked bathymetry in CUSTOM0 — depth below sea level in .x, the
+// horizontal depth gradient in .yz (water_bodies bakes it per vertex from
+// the real seabed and rebakes as the discs follow the focus). In shallow
+// water each swell component slows (phase lag from tanh(kd) dispersion),
+// steepens (Green's-law gain, capped), and BREAKS where its crest height
+// would top SURF_GAMMA of the water column — the classic 0.78 surf
+// criterion — saturating to the column so waves die at the waterline.
+// Breaking is gated by alignment with the shoreward direction: swell
+// running offshore never breaks, so the lee shore stays calm (the island
+// shelters itself). surf_boost is SeaSwell's Toolkit knob (default 1).
+uniform float bathy_boost = 0.0;
+global uniform float surf_boost;
+const float SURF_GAMMA = 0.78;   // break when waveheight/depth tops this
+const float SHOAL_MAX = 1.7;     // Green's-law amplitude gain cap
+const float SLOW_M = 6.0;        // meters of phase lag at zero depth (crests bunch)
+const float DEPTH_MIN = 0.05;    // the water column never divides by zero
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 global uniform sampler2D wave_map; // tier-2.5 height field, meters
@@ -59,6 +76,8 @@ varying float rapids_v;
 varying vec2 flow_v;
 varying float swell_crest;  // normalized crest phase, foams in storms
 varying vec2 swell_grad;    // swell surface slope for the normal
+varying float surf_v;       // breaker band strength (W2): crest foam here
+varying float after_v;      // afterfoam sheet shoreward of the break line
 
 // Window-edge fade so the wave field's border never shows on the mesh.
 float wave_fade(vec2 uv) {
@@ -83,17 +102,32 @@ void vertex() {
 	// the sum from ever reading as one marching pattern.
 	swell_crest = 0.0;
 	swell_grad = vec2(0.0);
+	surf_v = 0.0;
+	after_v = 0.0;
 	if (swell_boost > 0.0 && swell_amp > 0.001) {
 		float fade = swell_boost;
 		if (swell_fade_radius > 0.0) {
 			fade *= 1.0 - smoothstep(swell_fade_radius * 0.75,
 					swell_fade_radius, length(VERTEX.xz));
 		}
+		// Bathymetry (W2): baked depth + shoreward direction, or "deep
+		// everywhere" (the exact W1 sea) when the mesh carries none.
+		float depth = 1000.0;
+		vec2 shoreward = vec2(0.0);
+		if (bathy_boost > 0.5) {
+			depth = CUSTOM0.x;
+			vec2 g = CUSTOM0.yz;  // ∇depth: shallower is -g
+			float gl = length(g);
+			if (gl > 1e-4) { shoreward = -g / gl; }
+		}
+		float col = max(depth, DEPTH_MIN);  // the water column
 		float rot[4] = float[](0.0, 0.35, -0.42, 0.83);
 		float lsc[4] = float[](1.0, 0.62, 0.38, 0.23);
 		float asc[4] = float[](0.44, 0.28, 0.17, 0.11);
 		vec2 hoff = vec2(0.0);
 		float voff = 0.0;
+		float break_x = 0.0;   // waveheight over the surf criterion, best band
+		float crest_raw = 0.0; // ungated crest phase — times the surf band
 		for (int i = 0; i < 4; i++) {
 			float wl = swell_len * lsc[i];
 			// Grid gate: a component the mesh can't carry fades out.
@@ -106,14 +140,47 @@ void vertex() {
 					swell_dir.x * sr + swell_dir.y * cr));
 			float k = TAU / wl;
 			float w = sqrt(9.8 * k);
-			float ph = k * dot(d, wpos.xz) - w * TIME;
+			// Shallow-water dispersion: tanh(kd) is 1 in the deep and
+			// falls toward 0 up the shelf — everything below keys off it.
+			float tk = tanh(k * col);
+			float shal = 1.0 - tk;
+			// The lee gate: only swell RUNNING AT the shallows shoals and
+			// breaks. Offshore-bound waves leave the sheltered shore calm.
+			float align = clamp(dot(d, shoreward), 0.0, 1.0);
+			// Slow: shrinking phase speed reads as a bounded phase lag —
+			// crests bunch as they climb the shelf (never unbounded k).
+			float ph = k * dot(d, wpos.xz) - w * TIME + k * SLOW_M * shal;
+			// Steepen: Green's-law gain, capped, windward only...
+			float gain = mix(1.0, clamp(pow(max(tk, 0.02), -0.25), 1.0, SHOAL_MAX), align);
+			// ...and sheltered shallows genuinely calmer than open water.
+			float a_s = a * gain * mix(1.0, mix(0.45, 1.0, align), shal);
+			// Break: crest height saturates to SURF_GAMMA of the column,
+			// so waves collapse at the bar/strand instead of clipping it.
+			float hcap = 0.5 * SURF_GAMMA * col;
+			float a_f = min(a_s, hcap);
 			float s = sin(ph);
 			float c = cos(ph);
-			voff += a * s;
-			hoff -= d * (3.0 * a * c);  // trochoid: crests gather, troughs stretch
-			swell_grad += d * (k * a * c);
-			swell_crest += s * asc[i];
+			voff += a_f * s;
+			// Trochoid gather, sharpening as the wave feels the bottom.
+			hoff -= d * ((3.0 + 2.5 * shal * align) * a_f * c);
+			swell_grad += d * (k * a_f * c);
+			// Cap foam rides what the wave ACTUALLY carries: full in the
+			// deep (pure W1), fading where the lee damps or the surf
+			// saturation eats the swell — the breaker band takes over.
+			swell_crest += s * asc[i] * (a_f / max(a, 1e-5));
+			crest_raw += s * asc[i];
+			break_x = max(break_x, (a_s / hcap) * align);
 		}
+		// The surf bands (fragment paints them): a posterized breaker
+		// line where the criterion trips, and a softer afterfoam sheet
+		// riding shoreward of it, gone before the waterline (the wave
+		// window's shoreline lap takes over there). Dead calm keeps a
+		// clean strand — lap foam, no surf line.
+		float surf_e = surf_boost * clamp((swell_amp - 0.08) * 6.0, 0.0, 1.0);
+		surf_v = smoothstep(0.7, 1.15, break_x) * surf_e
+				* (0.6 + 0.4 * smoothstep(-0.2, 0.8, crest_raw));
+		after_v = smoothstep(1.05, 1.8, break_x)
+				* (1.0 - smoothstep(4.0, 8.0, break_x)) * surf_e;
 		VERTEX.y += voff;
 		VERTEX.xz += hoff;
 		wpos.y += voff;
@@ -207,6 +274,13 @@ void fragment() {
 	foam += smoothstep(0.25, 0.75, swell_crest)
 			* clamp((swell_amp - 0.12) * 1.6, 0.0, 0.9)
 			* (0.65 + 0.35 * sin(fp.x * 0.37 + fp.y * 0.61));
+	// The surf (W2): breakers wear their foam ON the crest face — the
+	// band tracks the seabed (bars break offshore, the deep coast never
+	// does) — and the afterfoam sheet drifts shoreward of the line,
+	// mottled by hand so it reads painted, not misted.
+	foam += surf_v * (0.85 + 0.15 * sin(fp.x * 0.9 + fp.y * 1.3));
+	foam += after_v * (0.42 + 0.28 * sin(fp.x * 0.23 + fp.y * 0.31)
+			* sin(fp.x * 0.07 - fp.y * 0.11));
 	foam = floor(clamp(foam, 0.0, 1.0) * 3.0) / 3.0;  // stepped: gouache, not mist
 	vec3 foam_col = pal_b * mix(1.04, 1.12, water_gold) + vec3(0.04 * water_gold + 0.01);
 	col = mix(col, foam_col, foam * 0.85);

@@ -80,6 +80,32 @@ rain shadow, felt in the water).
 ✓ Breakers form on the windward strand and not in the lee bay;
 a shallow bar breaks offshore while deep coast doesn't.
 
+**✅ DONE 2026-07-08 (the Watershed/the Elements).** The sea near+mid
+discs carry baked bathymetry: CUSTOM0 = (depth, ∇depth) per vertex,
+sampled by the kernel's `height_block` on a worker thread; a tier's
+snap-move WAITS for its bake so mesh position and seabed swap
+atomically (no kernel ⇒ deep default, pure W1). In the shader each
+Gerstner component feels the bottom through tanh(kd): bounded phase
+lag (crests bunch, never unbounded k), capped Green's-law gain, crest
+sharpening, and the 0.78 surf criterion saturating waveheight to the
+column — waves die at the waterline instead of clipping the strand.
+Breaking gates on dot(swell dir, shoreward-from-∇depth): offshore-bound
+swell never breaks, so the lee shore is calm — the island shelters
+itself. Cap foam now rides the DISPLACED amplitude (deep water is
+bit-for-bit W1; lee/saturated zones hand off to the breaker band +
+afterfoam sheet, both posterized gouache). SeaSwell mirrors the math
+pure (`shoal_gain`/`break_frac`/`break_depth`, scene-tested), its
+Toolkit line reports the live surf depth-band, `force_surf` knob →
+`surf_boost` global. `sea_probe` SEA_SHOT=windward|lee: the same
+computationally-found strand (gentlest submerged shelf of 24 headings),
+flipped swell heading — breaker ribbon vs clean seam, verified by eye;
+plus a printed depth/break_x ledger that must agree with the bake.
+Soak bit-identical to base (485024255). W3 notes: the breaker line sits
+at static sea_level (tide moves it only on rebake — the wet band should
+own that); `break_x` is the swash driver and the mirror math can
+rebuild it CPU-side; this world's shores are steep — the surf band is
+a 10-20m ribbon, so W3's tongues are short and quick.
+
 **W3 · Swash + the wet strand.** Run-up: each breaker sends a foam
 tongue up the beach slope and drags it back. The swash band WETS the
 ground (feeds the existing `ground_wetness`/sand wet-repose locally) so

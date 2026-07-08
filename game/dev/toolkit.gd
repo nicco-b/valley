@@ -224,7 +224,36 @@ func _here_summary() -> String:
 		vit, FloraLife.stage_for(GameClock.season, vit),
 		FloraLife.depletion(cell),
 		("%.0fm overhead" % snow_gap) if snow_gap > 0.0 else "BELOW YOU"])
-	return "\n         ".join(lines)
+	return "\n".join(lines)
+
+
+## The world panel's sections, [name, text] pairs — ONE builder feeds the
+## O overlay and the link's `panel` verb (chrome contract v2: the in-game
+## panel and Strata's inspector render the SAME truth, so they cannot
+## drift). Text may be multi-line; each renderer flattens it its own way.
+## Data, not hand state — answers with or without the hand (the sims are
+## always on).
+func panel_sections() -> Array:
+	var loom := get_tree().get_first_node_in_group("world_streamer")
+	return [
+		["HERE", _here_summary()],
+		["AIR", Weather.summary()],
+		["CLIMATE", Climate.summary()],
+		["WATER", Hydrology.summary()],
+		["FIELD", WaterField.summary()],
+		["SWELL", SeaSwell.summary()],
+		["FLORA", FloraLife.summary()],
+		["SPRING", FabricSpring.summary()],
+		["SAND", SandField.summary()],
+		["WEAR", InteractionField.summary()],
+		["WAYS", Nav.summary()],
+		["LAND", Terrain.regions_summary().split("\n")[0]],
+		["FABRIC", loom.fabric_summary() if loom else "no world streaming"],
+		["CARDS", Cards.summary()],
+		["DOORS", Interiors.summary()],
+		["STORY", Story.summary()],
+		["LINK", StrataLink.summary()],
+	]
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -613,26 +642,13 @@ func _process(delta: float) -> void:
 		_panel_accum += delta
 		if _panel_accum >= 0.5:
 			_panel_accum = 0.0
-			var loom := get_tree().get_first_node_in_group("world_streamer")
-			_world_panel.text = "\n".join([
-				"HERE     " + _here_summary(),
-				"AIR      " + Weather.summary(),
-				"CLIMATE  " + Climate.summary(),
-				"WATER    " + Hydrology.summary().replace("\n", "\n         "),
-				"FIELD    " + WaterField.summary(),
-				"SWELL    " + SeaSwell.summary(),
-				"FLORA    " + FloraLife.summary(),
-				"SPRING   " + FabricSpring.summary(),
-				"SAND     " + SandField.summary(),
-				"WEAR     " + InteractionField.summary(),
-				"WAYS     " + Nav.summary(),
-				"LAND     " + Terrain.regions_summary().split("\n")[0],
-				"FABRIC   " + (loom.fabric_summary() if loom else "no world streaming"),
-				"CARDS    " + Cards.summary().replace("\n", "\n         "),
-				"DOORS    " + Interiors.summary(),
-				"STORY    " + Story.summary(),
-				"LINK     " + StrataLink.summary(),
-			])
+			# The sections come from the ONE builder the link's `panel`
+			# verb reads too; only the indentation is the overlay's own.
+			var rows := PackedStringArray()
+			for s: Array in panel_sections():
+				rows.append("%-9s%s" % [s[0],
+					String(s[1]).replace("\n", "\n         ")])
+			_world_panel.text = "\n".join(rows)
 
 	# Brush cursor: ray from screen center to terrain.
 	var hit := _ray_to_ground()
@@ -1057,11 +1073,24 @@ func link_state() -> Dictionary:
 	# The selection rides along (placement v2) so Strata's mirror can
 	# grow an inspector without a new verb — empty strings mean none.
 	var sel := _selected()
+	# The tools' text options, data-driven (chrome contract v2): every
+	# name a tool shows as in-game text rides the state so Strata can
+	# render real pickers — the biome/macro-terrain names from the
+	# profile's own table (never hardcoded), the PLACE categories from
+	# the card catalog, the river pen's pending point count.
+	var biome_ids: Array[String] = []
+	for b in Terrain.biomes:
+		biome_ids.append(String(b.id).replace(",", "_").replace(" ", "_"))
+	var cats: Array[String] = []
+	for c in Cards.placeable_categories():
+		cats.append(String(c).replace(",", "_").replace(" ", "_"))
 	return {
 		"tool": TOOL_NAMES[_tool],
 		"view": "orbit" if orbit else "fly",
 		"brush_m": brush_m(),
 		"biome": _biome_index + 1, "biome_id": biome,
+		"biome_ids": biome_ids, "cats": cats,
+		"river": _river_nodes.size(),
 		"place": idx, "place_count": count,
 		"place_slot": String(_palette[idx - 1]["slot"]) if count > 0 else "",
 		"hud": hud_on,
@@ -1123,6 +1152,36 @@ func _key_of(action: String) -> String:
 			var code := k.physical_keycode if k.physical_keycode != 0 else k.keycode
 			return OS.get_keycode_string(code).replace(" ", "")
 	return "?"
+
+
+## Enter/exit the hand remotely (the link's `toolkit on|off` — what F1
+## does, minus the key; chrome contract v2: the flyover one click away).
+## Returns the state that RESULTED: entering without a player (title
+## screen) stays off, and the link errs honestly on the mismatch.
+func set_active(on: bool) -> bool:
+	if on and not active:
+		_enter()
+	elif not on and active:
+		_exit()
+	return active
+
+
+## One Z, remotely (the link's `toolkit undo` — Strata's Undo In Game
+## menu item). The SAME per-tool memento dispatch as the key; a mode
+## with nothing to undo notices instead of acting (and while the chrome
+## drives, that notice rides the `notices` drain).
+func undo_last() -> void:
+	_undo()
+
+
+## The last RMB-inspected agent (the link's `inspect` verb) — read back
+## through validity every call, so a despawned animal reads as nothing
+## instead of a freed-object crash. Same honesty as the on-screen label.
+func inspected() -> Node:
+	if _inspected != null and is_instance_valid(_inspected) \
+			and _inspected.has_method("sim_debug"):
+		return _inspected
+	return null
 
 
 ## Switch the active tool by name; false on an unknown name.

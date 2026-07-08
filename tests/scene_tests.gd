@@ -120,6 +120,9 @@ func _test_strata_link() -> void:
 	await _test_preview_mesh(peer)
 	await _test_camera_verb(peer)
 	await _test_toolkit_verbs(peer)
+	await _test_toolkit_power(peer)
+	await _test_panel_verb(peer)
+	await _test_inspect_notices(peer)
 	peer.disconnect_from_host()
 
 
@@ -242,8 +245,23 @@ func _test_toolkit_verbs(peer: StreamPeerTCP) -> void:
 	_check(replies.size() == 14, "toolkit verb replies land (got %d)" % replies.size())
 	if replies.size() == 14:
 		_check(replies[0].begins_with("ok tool=sculpt view=fly brush=12.0m biome=5:")
-			and replies[0].ends_with("hud=on"),
+			and " hud=on " in replies[0],
 			"toolkit status reports the boot state (got %s)" % replies[0])
+		# The chrome's picker names (contract v2): status carries every
+		# macro-terrain name from the PROFILE's table (1-9 key order,
+		# data-driven — Strata renders real pickers, never "1..9"), the
+		# PLACE categories, and the river pen's pending point count.
+		_check(" biomes=" in replies[0] and " cats=" in replies[0]
+			and replies[0].ends_with(" river=0"),
+			"status carries the chrome fields (got %s)" % replies[0])
+		var bfield := String(replies[0]).split(" biomes=")[1].split(" ")[0]
+		var bnames := bfield.split(",", false)
+		_check(bnames.size() == Terrain.biomes.size(),
+			"status biomes lists every profile name (got %d of %d)"
+				% [bnames.size(), Terrain.biomes.size()])
+		if not bnames.is_empty() and not Terrain.biomes.is_empty():
+			_check(bnames[0] == String(Terrain.biomes[0].id).replace(" ", "_"),
+				"status biomes ride the profile's own ids (got %s)" % bnames[0])
 		_check(replies[1] == "ok tool biome", "toolkit tool switches")
 		_check(replies[2] == "ok brush 300.0m", "biome brush is the macro brush")
 		_check(replies[3].begins_with("ok biome 3:"), "toolkit biome picks")
@@ -258,7 +276,7 @@ func _test_toolkit_verbs(peer: StreamPeerTCP) -> void:
 			"bad brush errs with the contract line")
 		_check(replies[10].begins_with("err toolkit biome needs 1.."),
 			"biome 0 errs with the contract line")
-		_check(replies[11] == "err toolkit needs status|tool|brush|biome|place|keys",
+		_check(replies[11] == "err toolkit needs status|tool|brush|biome|place|keys|on|off|undo",
 			"unknown subverb errs with the contract line")
 		# hud off is the batch's LAST state change: the darkness is
 		# assertable here (hud on rides its own batch below).
@@ -268,6 +286,12 @@ func _test_toolkit_verbs(peer: StreamPeerTCP) -> void:
 	var hreplies := await _link_send(peer, ["hud on"])
 	_check(hreplies.size() == 1 and hreplies[0] == "ok hud on" and HUD.visible
 		and Toolkit._hud.visible, "hud on relights both overlays")
+	# One Z over the wire (contract v2): the same per-tool memento
+	# dispatch as the key — sculpt with no memento is the honest no-op,
+	# and the reply names the tool it dispatched to.
+	var ureplies := await _link_send(peer, ["toolkit undo"])
+	_check(ureplies.size() == 1 and ureplies[0] == "ok undo sculpt",
+		"toolkit undo answers the tool it dispatched to (got %s)" % str(ureplies))
 	# The place slot rides the Cards palette (skip empty: fresh clone
 	# without the placeholder drop still has the tracked cards, but honest).
 	var count := int(Toolkit.link_state()["place_count"])
@@ -294,6 +318,207 @@ func _test_toolkit_verbs(peer: StreamPeerTCP) -> void:
 	Toolkit.set_biome(5)
 	Toolkit.active = false
 	Toolkit.set_hud_visible(true)  # hud_on stays true; overlay dark (inactive)
+	player.queue_free()
+
+
+## toolkit on|off (chrome contract v2): F1 over the wire. Off without
+## the hand is already the asked-for state (ok, idempotent); on without
+## a player errs honestly; with a full player rig the round trip enters
+## and exits the REAL paths — physics frozen and returned, and the exit
+## saves ride the same F5 writes (guarded so the checkout stays clean).
+func _test_toolkit_power(peer: StreamPeerTCP) -> void:
+	_check(not Toolkit.active, "power probe starts without the hand")
+	var pre := await _link_send(peer, ["toolkit off", "toolkit on"])
+	_check(pre.size() == 2, "power replies land (got %d)" % pre.size())
+	if pre.size() == 2:
+		_check(pre[0] == "ok toolkit off", "off without the hand is idempotent")
+		_check(pre[1] == "err no player in tree", "on without a player errs honestly")
+	# Guard: _exit persists through the F5 path — the edit layer is
+	# written unconditionally and Overrides.emit can mint the artifact
+	# into a pristine checkout; snapshot everything it may touch (absent
+	# files as null) and put it all back (the _test_overrides_emit pattern).
+	var guard_paths := [Terrain.EDIT_PATH, Overrides.FILE,
+		Overrides.DIR + "/terrain_pen_override.f32z",
+		Overrides.DIR + "/terrain_sculpt.f32z"]
+	var guard: Dictionary = {}
+	for gp: String in guard_paths:
+		guard[gp] = FileAccess.get_file_as_bytes(gp) \
+				if FileAccess.file_exists(gp) else null
+	# The full player rig (the _test_map shape): _exit re-seats this.
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	var cam_rig := Node3D.new()
+	cam_rig.name = "CameraRig"
+	var arm := SpringArm3D.new()
+	arm.name = "SpringArm3D"
+	var pcam := Camera3D.new()
+	pcam.name = "Camera3D"
+	arm.add_child(pcam)
+	cam_rig.add_child(arm)
+	player.add_child(cam_rig)
+	add_child(player)
+	var on := await _link_send(peer, ["toolkit on", "toolkit on"])
+	_check(on.size() == 2, "on replies land (got %d)" % on.size())
+	if on.size() == 2:
+		_check(on[0] == "ok toolkit on" and Toolkit.active,
+			"toolkit on enters the hand (got %s)" % on[0])
+		_check(on[1] == "ok toolkit on", "on is idempotent")
+	_check(not player.is_physics_processing(), "the hand freezes the player")
+	var off := await _link_send(peer, ["toolkit off"])
+	_check(off.size() == 1 and off[0] == "ok toolkit off" and not Toolkit.active,
+		"toolkit off returns the player (got %s)" % str(off))
+	_check(player.is_physics_processing(), "exit unfreezes the player")
+	_check(pcam.current, "exit hands the view back to the player camera")
+	# Leave no trace: restore every guarded file _exit's saves touched —
+	# bytes back where they were, absent files absent again (and the
+	# artifact dir gone if the emit minted it).
+	for gp: String in guard_paths:
+		var was: Variant = guard[gp]
+		if was == null:
+			if FileAccess.file_exists(gp):
+				DirAccess.remove_absolute(ProjectSettings.globalize_path(gp))
+		else:
+			var f := FileAccess.open(gp, FileAccess.WRITE)
+			f.store_buffer(was)
+			f.close()
+	var ov_dir := ProjectSettings.globalize_path(Overrides.DIR)
+	if guard[Overrides.FILE] == null and DirAccess.dir_exists_absolute(ov_dir) \
+			and DirAccess.get_files_at(ov_dir).is_empty():
+		DirAccess.remove_absolute(ov_dir)
+	Overrides.pending = false
+	Overrides._layer_cache.clear()
+	player.remove_from_group("player")
+	player.queue_free()
+
+
+## The panel verb (chrome contract v2): the O world panel, machine-
+## readable — TAB-separated NAME=text sections, names uppercase, one per
+## overlay row, straight from the ONE builder both renderers share.
+## Answers in every posture (data, not hand state).
+func _test_panel_verb(peer: StreamPeerTCP) -> void:
+	var replies := await _link_send(peer, ["panel"])
+	_check(replies.size() == 1 and String(replies[0]).begins_with("ok panel HERE="),
+		"panel answers ok, HERE first (got %s)" % str(replies))
+	if replies.size() != 1:
+		return
+	var toks := String(replies[0]).trim_prefix("ok panel ").split("\t")
+	var secs: Array = Toolkit.panel_sections()
+	_check(toks.size() == secs.size(),
+		"panel carries every overlay section (got %d of %d)"
+			% [toks.size(), secs.size()])
+	for i in mini(toks.size(), secs.size()):
+		var t := String(toks[i])
+		_check("=" in t, "panel section is NAME=text (got '%s')" % t.substr(0, 40))
+		var name := t.split("=")[0]
+		_check(name == secs[i][0],
+			"panel section %d matches the overlay's (%s vs %s)" % [i, name, secs[i][0]])
+		_check(name == name.to_upper(), "panel names are uppercase (got %s)" % name)
+	for want in ["HERE", "AIR", "CLIMATE", "WATER", "FLORA", "SPRING", "SAND",
+			"WAYS", "LAND", "FABRIC", "CARDS", "DOORS", "STORY", "LINK"]:
+		_check(("\t%s=" % want) in replies[0] or replies[0].begins_with("ok panel %s=" % want),
+			"panel carries the %s section" % want)
+
+
+## inspect + notices + the TOTAL hud gate (chrome contract v2): RMB's
+## sim-inspector and the SEL line answer over the link; with the chrome
+## driving (`hud off`) NO text UI survives in view and HUD.notify routes
+## to the `notices` drain instead of a dark label.
+func _test_inspect_notices(peer: StreamPeerTCP) -> void:
+	# Without the hand: the honest err; the drain answers (and clears).
+	var pre := await _link_send(peer, ["inspect", "notices", "notices"])
+	_check(pre.size() == 3, "inspect/notices replies land (got %d)" % pre.size())
+	if pre.size() == 3:
+		_check(pre[0] == "err toolkit not active", "inspect errs without the hand")
+		_check(String(pre[1]).begins_with("ok notices "), "notices answers without the hand")
+		_check(pre[2] == "ok notices 0", "a drained queue reads empty")
+	# The hand, over a disposable player (the _test_toolkit_verbs shape).
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	Toolkit._enter()
+	_check(Toolkit.active, "toolkit enters for the inspect test")
+	var bare := await _link_send(peer, ["inspect"])
+	_check(bare.size() == 1 and bare[0] == "ok inspect sel=- agent=-",
+		"inspect with nothing picked reads dashes (got %s)" % str(bare))
+	# An agent with a mind to read: sim_debug flattens onto the line,
+	# the node name loses its spaces (the reply stays token-parseable).
+	var sc := GDScript.new()
+	sc.source_code = "extends Node3D\nfunc sim_debug() -> String:\n\treturn \"mood hungry\\ngoal water hole\""
+	sc.reload()
+	var agent := Node3D.new()
+	agent.set_script(sc)
+	agent.name = "probe agent"
+	add_child(agent)
+	Toolkit._inspected = agent
+	var got := await _link_send(peer, ["inspect"])
+	_check(got.size() == 1
+		and got[0] == "ok inspect sel=- agent=probe_agent text=mood hungry | goal water hole",
+		"inspect reads the agent's mind, flattened (got %s)" % str(got))
+	# The PLACE selection rides the same line (placement v2's sel state).
+	var x := 909.0 * 128.0
+	var z := 906.0 * 128.0
+	var cell: Vector2i = CellRecords.cell_of(Vector3(x, 0.0, z))
+	var rec: Dictionary = CellRecords.add(
+		Vector3(x, Terrain.height(x, z), z), "res://kits/kit_probe.glb", TAU / 8.0, 1.5)
+	Toolkit._tool = Toolkit.Tool.PLACE
+	Toolkit._pick_at(Vector3(x, 0.0, z))
+	_check(Toolkit._sel_id == String(rec["id"]), "the probe record is selected")
+	got = await _link_send(peer, ["inspect"])
+	if got.size() == 1 and " sel=" in got[0]:
+		var sel := String(got[0]).split(" sel=")[1].split(" ")[0]
+		var f := sel.split(":")
+		_check(f.size() == 4 and f[0] == String(rec["id"]) and f[1] == "kit_probe"
+			and f[2] == "45" and f[3] == "1.50",
+			"inspect sel carries id:kit:yaw:scale (got %s)" % sel)
+	else:
+		_check(false, "inspect with a selection answers (got %s)" % str(got))
+	# A freed agent reads as nothing again — validity, never a crash.
+	Toolkit._inspected = null
+	agent.free()
+	# THE TOTAL GATE: hud off leaves NO text UI visible in the view —
+	# the Toolkit lines (HUD, SEL, inspector, world panel) and every
+	# gameplay label (prompt/say/notify/satchel) — and notify reroutes.
+	var dark := await _link_send(peer, ["hud off"])
+	_check(dark.size() == 1 and dark[0] == "ok hud off", "hud off lands")
+	Toolkit._world_panel.visible = true  # even the O panel's own switch
+	HUD.prompt("press E")                # even a prompt fired while dark
+	for lbl: Array in [["toolkit hud", Toolkit._hud_label],
+			["sim inspector", Toolkit._inspector],
+			["world panel", Toolkit._world_panel],
+			["prompt", HUD._prompt], ["say", HUD._line],
+			["notice", HUD._notice], ["satchel", HUD._satchel]]:
+		_check(not (lbl[1] as CanvasItem).is_visible_in_tree(),
+			"hud off is TOTAL: %s stays dark" % lbl[0])
+	HUD.notify("first notice")
+	HUD.notify("second\tnotice")
+	_check(not HUD._notice.is_visible_in_tree(), "a dark notify never lights the label")
+	var drained := await _link_send(peer, ["notices", "notices"])
+	_check(drained.size() == 2, "notice drains land (got %d)" % drained.size())
+	if drained.size() == 2:
+		_check(drained[0] == "ok notices 2\tfirst notice\tsecond notice",
+			"notify routes to the drain, oldest first, tabs stripped (got %s)" % drained[0])
+		_check(drained[1] == "ok notices 0", "the drain clears on read")
+	# Relit: notify shows on screen again and stays OFF the drain.
+	var lit := await _link_send(peer, ["hud on"])
+	_check(lit.size() == 1 and lit[0] == "ok hud on", "hud on lands")
+	HUD.notify("back on screen")
+	_check(HUD._notice.visible, "a lit notify lights the label")
+	var empty := await _link_send(peer, ["notices"])
+	_check(empty.size() == 1 and empty[0] == "ok notices 0",
+		"a lit notify never queues")
+	# Leave no trace: record, cell file, labels, posture.
+	HUD.prompt("")
+	HUD._notice.visible = false
+	Toolkit._deselect()
+	Toolkit._place_undo = {}
+	CellRecords.remove(cell, String(rec["id"]))
+	var cell_path := "%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]
+	if FileAccess.file_exists(cell_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(cell_path))
+	Toolkit._world_panel.visible = false
+	Toolkit.set_tool("sculpt")
+	Toolkit.active = false
+	player.remove_from_group("player")
 	player.queue_free()
 
 

@@ -90,7 +90,30 @@ extends Node
 ##   toolkit status           -> the hand's state in one line (Strata's
 ##                               toolbar mirror polls this on pane focus):
 ##                               "ok tool=sculpt view=fly brush=12.0m
-##                                biome=5:<id> place=3/100:<slot> hud=on"
+##                                biome=5:<id> place=3/100:<slot> hud=on
+##                                biomes=<id,id,...> cats=<c,c,...|->
+##                                river=<n>"
+##                               The trailing fields are chrome contract
+##                               v2 — every name a tool shows as in-game
+##                               text, so Strata renders REAL pickers:
+##                               biomes = the profile's macro-terrain
+##                               names in 1-9 key order (data-driven,
+##                               never hardcoded), cats = the PLACE
+##                               palette's categories ("-" without
+##                               cards), river = pending pen points.
+##   toolkit on|off           -> enter/exit the Toolkit (what F1 does —
+##                               chrome contract v2: the flyover one
+##                               click / one hotkey away in Strata).
+##                               Works from the play posture; replies
+##                               with the state that RESULTED ("ok
+##                               toolkit on|off", idempotent). Entering
+##                               with no player in the world (title
+##                               screen) errs "err no player in tree".
+##   toolkit undo             -> one Z, remotely (Strata's Undo In Game):
+##                               the same per-tool memento dispatch as
+##                               the key — replies "ok undo <tool>"; a
+##                               mode with nothing to undo notices via
+##                               the `notices` drain instead of acting.
 ##   toolkit tool <name>      -> switch the active tool
 ##                               (sculpt|place|terrain|biome|river)
 ##   toolkit brush <m>        -> set the active tool's brush radius in
@@ -115,9 +138,52 @@ extends Node
 ##                               from the live InputMap (a rebind changes
 ##                               the reply); answers with or without the
 ##                               hand — it is static help, not state.
-##   hud <on|off>             -> hide/show the in-game text HUD (the
-##                               embedded pane goes chrome-less when
-##                               Strata's toolbar is driving)
+##   hud <on|off>             -> hide/show the in-game text UI — TOTAL
+##                               (chrome contract v2): off darkens the
+##                               Toolkit HUD lines, the SEL line, the
+##                               sim-inspector label, the O world panel,
+##                               and every gameplay prompt/say/notify
+##                               (they all live under two CanvasLayers,
+##                               both gated). While dark, HUD.notify
+##                               routes to the `notices` drain instead
+##                               of a label nobody can see — the pane
+##                               shows NOTHING but the world when
+##                               Strata's chrome is driving.
+##   panel                    -> the O world panel, machine-readable:
+##                               every section the in-game overlay shows
+##                               (HERE/AIR/CLIMATE/.../LINK), one line —
+##                               "ok panel <NAME>=<text>[\t<NAME>=<text>...]"
+##                               Sections TAB-separated, names uppercase,
+##                               embedded newlines flattened to " | "
+##                               (ASCII on purpose — the wire stays
+##                               single-byte clean).
+##                               Both renderers read Toolkit
+##                               .panel_sections() — one truth, no drift.
+##                               Data, not hand state: answers in every
+##                               posture. Strata's WorldPanel parser pins
+##                               this grammar — change both or neither.
+##   inspect                  -> the RMB sim-inspector + the PLACE
+##                               selection over the link (RMB in the
+##                               pane, glance at Strata's inspector):
+##                               "ok inspect sel=<id>:<kit>:<yaw°>:<scale>
+##                                agent=<name> text=<sim_debug>"
+##                               sel/agent read "-" when nothing is
+##                               picked/inspected; text= (last field,
+##                               spaces allowed, newlines -> " | ")
+##                               appears only with an agent. kit is the
+##                               record's file basename; yaw in whole
+##                               degrees; scale 2dp. Errs "err toolkit
+##                               not active" without the hand — the
+##                               inspector is an editor's eye. Strata's
+##                               InspectReport parser pins this grammar.
+##   notices                  -> drain the notice queue (chrome contract
+##                               v2): while the chrome drives (`hud
+##                               off`), HUD.notify lines queue here —
+##                               "ok notices <n>[\t<line>...]", TAB-
+##                               separated, oldest first, cleared by the
+##                               read. Strata polls this on its 2s
+##                               heartbeat and lands the lines in its
+##                               status bar. Cap 32, oldest dropped.
 ##   overrides status         -> the P4 seam artifact in one line, for
 ##                               Strata's UI and probes:
 ##                               "ok overrides placements=<n> layers=<n>
@@ -150,7 +216,7 @@ const PROTOCOL := 1
 const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
 	"teleport", "screenshot", "weather", "time", "preview_world",
 	"preview_mesh", "camera", "view", "view_layer", "probe", "toolkit", "hud",
-	"overrides", "state"]
+	"panel", "inspect", "notices", "overrides", "state"]
 
 ## Actual port (STRATA_LINK_PORT env overrides — a second instance, e.g.
 ## the P3.5 embedded pane or a probe, gets its own link beside the game).
@@ -320,6 +386,24 @@ func _execute(line: String) -> String:
 			Toolkit.set_hud_visible(on)
 			HUD.visible = on  # gameplay text (prompt/say/notify) rides along
 			return "ok hud %s" % parts[1]
+		"panel":
+			# The O world panel, machine-readable (chrome contract v2):
+			# the SAME sections the overlay renders, TAB-separated. Data,
+			# not hand state — the sims answer in every posture.
+			var toks := PackedStringArray()
+			for s: Array in Toolkit.panel_sections():
+				toks.append("%s=%s" % [s[0], String(s[1])
+					.replace("\n", " | ").replace("\t", " ")])
+			return "ok panel " + "\t".join(toks)
+		"inspect":
+			return _inspect()
+		"notices":
+			# Drain the queued notice lines (oldest first); the read clears.
+			var drained := "ok notices %d" % _notices.size()
+			if not _notices.is_empty():
+				drained += "\t" + "\t".join(_notices)
+			_notices.clear()
+			return drained
 		_:
 			return "err unknown verb '%s'" % parts[0]
 
@@ -332,11 +416,23 @@ func _execute(line: String) -> String:
 ## viewer's Toolkit is active in orbit; status says view=orbit).
 func _toolkit(parts: PackedStringArray) -> String:
 	if parts.size() < 2:
-		return "err toolkit needs status|tool|brush|biome|place|keys"
+		return "err toolkit needs status|tool|brush|biome|place|keys|on|off|undo"
 	if parts[1] == "keys":
 		# Static data (the bindings, not the hand's state): answers even
 		# without the hand, so Strata can render help before F1 is pressed.
 		return "ok keys " + Toolkit.link_keys()
+	if parts[1] == "on" or parts[1] == "off":
+		# Enter/exit the hand (what F1 does — chrome contract v2): the ONE
+		# subverb pair that must work from the play posture, so it rides
+		# above the active gate. Idempotent; the reply is the state that
+		# RESULTED, and an enter with nobody in the world errs honestly.
+		var want := parts[1] == "on"
+		if want != Toolkit.active:
+			if want and get_tree().get_first_node_in_group("player") == null:
+				return "err no player in tree"
+			if Toolkit.set_active(want) != want:
+				return "err toolkit did not %s" % ("enter" if want else "exit")
+		return "ok toolkit %s" % parts[1]
 	if not Toolkit.active:
 		return "err toolkit not active"
 	match parts[1]:
@@ -346,10 +442,19 @@ func _toolkit(parts: PackedStringArray) -> String:
 			if int(s["place_count"]) > 0:
 				place = "%d/%d:%s" % [int(s["place"]),
 					int(s["place_count"]), s["place_slot"]]
-			return "ok tool=%s view=%s brush=%.1fm biome=%d:%s place=%s hud=%s" % [
+			var cats: Array = s["cats"]
+			return "ok tool=%s view=%s brush=%.1fm biome=%d:%s place=%s hud=%s biomes=%s cats=%s river=%d" % [
 				s["tool"], s["view"], float(s["brush_m"]),
 				int(s["biome"]), s["biome_id"], place,
-				"on" if s["hud"] else "off"]
+				"on" if s["hud"] else "off",
+				",".join(s["biome_ids"]),
+				",".join(cats) if not cats.is_empty() else "-",
+				int(s["river"])]
+		"undo":
+			# One Z, remotely — the same per-tool memento dispatch as the
+			# key (a no-op mode notices via the `notices` drain).
+			Toolkit.undo_last()
+			return "ok undo %s" % Toolkit.link_state()["tool"]
 		"tool":
 			if parts.size() < 3 or not Toolkit.set_tool(parts[2]):
 				return "err toolkit tool needs sculpt|place|terrain|biome|river"
@@ -374,7 +479,47 @@ func _toolkit(parts: PackedStringArray) -> String:
 			var s: Dictionary = Toolkit.link_state()
 			return "ok place %d/%d:%s" % [landed, int(s["place_count"]), s["place_slot"]]
 		_:
-			return "err toolkit needs status|tool|brush|biome|place|keys"
+			return "err toolkit needs status|tool|brush|biome|place|keys|on|off|undo"
+
+
+## The RMB sim-inspector + the PLACE selection, one line (chrome contract
+## v2): what the in-game inspector label and SEL line show, machine-lean —
+## Strata's Inspect section renders THIS after an RMB in the pane. Gated
+## on the hand (inspecting is an editor's act); grammar pinned by Strata's
+## InspectReport parser — change both or neither.
+func _inspect() -> String:
+	if not Toolkit.active:
+		return "err toolkit not active"
+	var s: Dictionary = Toolkit.link_state()
+	var sel := "-"
+	if String(s["sel_id"]) != "":
+		sel = "%s:%s:%.0f:%.2f" % [s["sel_id"],
+			String(s["sel_kit"]).get_file().get_basename(),
+			rad_to_deg(float(s["sel_yaw"])), float(s["sel_scale"])]
+	var line := "ok inspect sel=%s" % sel
+	var agent: Node = Toolkit.inspected()
+	if agent == null:
+		return line + " agent=-"
+	line += " agent=%s" % String(agent.name).replace(" ", "_")
+	var text := String(agent.sim_debug()).strip_edges() \
+		.replace("\n", " | ").replace("\t", " ")
+	if text != "":
+		line += " text=" + text
+	return line
+
+
+## Transient notices while the chrome drives (chrome contract v2): with
+## the text UI dark (`hud off`), HUD.notify routes here instead of a
+## label nobody can see; the `notices` verb drains oldest-first. Capped —
+## an unpolled queue drops its oldest, never grows unbounded.
+const NOTICE_CAP := 32
+var _notices: PackedStringArray = []
+
+
+func post_notice(text: String) -> void:
+	if _notices.size() >= NOTICE_CAP:
+		_notices.remove_at(0)
+	_notices.append(text.replace("\t", " ").replace("\n", " | "))
 
 
 ## The state set verb's write: value parses as JSON (true/false/numbers/

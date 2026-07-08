@@ -76,6 +76,12 @@ func say(speaker: String, text: String, seconds := 4.5) -> void:
 
 
 func notify(text: String, seconds := 2.5) -> void:
+	if not visible:
+		# The chrome is driving (StrataLink `hud off` is TOTAL): a notice
+		# on a dark layer is a notice nobody sees — it rides the link's
+		# `notices` drain instead, and lands in Strata's status bar.
+		StrataLink.post_notice(text)
+		return
 	_notify_token += 1
 	var token := _notify_token
 	_notice.text = text

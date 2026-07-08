@@ -371,16 +371,23 @@ func _test_preview_mesh(peer: StreamPeerTCP) -> void:
 		"view_layer",                # 2: bare verb errs with the layer list
 		"preview_mesh /no/such/dir", # 3: honest missing-manifest error
 		"preview_mesh " + dir,       # 4: manifest yes, height not yet
+		"probe 0 0",                 # 5: no preview worn yet
+		"probe",                     # 6: bare verb errs
+		"probe 1 two",               # 7: non-numeric args err
 	])
-	_check(pre.size() == 5, "preview_mesh pre-wear replies land (got %d)" % pre.size())
-	if pre.size() == 5:
+	_check(pre.size() == 8, "preview_mesh pre-wear replies land (got %d)" % pre.size())
+	if pre.size() == 8:
 		_check(pre[0] == "err preview_mesh needs a dir (or off)", "bare preview_mesh errs")
 		_check(pre[1] == "err no preview mesh worn (preview_mesh <dir> first)",
 			"view_layer before a wear errs honestly")
-		_check(pre[2] == "err view_layer needs shaded|moisture|temperature|slope|biome",
+		_check(pre[2] == "err view_layer needs shaded|moisture|temperature|flow|slope|biome",
 			"bare view_layer errs with the layer list")
 		_check(pre[3].begins_with("err no bake_manifest.json"), "missing manifest errs")
 		_check(pre[4].begins_with("err no height.exr"), "missing height.exr errs")
+		_check(pre[5] == "err no preview mesh worn (preview_mesh <dir> first)",
+			"probe before a wear errs honestly")
+		_check(pre[6] == "err probe needs x z", "bare probe errs")
+		_check(pre[7] == "err probe needs x z", "non-numeric probe args err")
 	var img := Image.create(64, 64, false, Image.FORMAT_RF)
 	img.fill(Color(42.0, 0.0, 0.0))
 	img.save_exr(dir.path_join("height.exr"))
@@ -403,8 +410,10 @@ func _test_preview_mesh(peer: StreamPeerTCP) -> void:
 		"preview_mesh never touches Terrain's sea level")
 	_check(Terrain.height(3000.0, 3000.0) == height_before,
 		"preview_mesh never touches the height function (the kernel is not re-tiled)")
-	# The layer matrix: present files drape, the absent one errs by name,
-	# computed layers (slope) and file-less modes (shaded) always answer.
+	# The layer matrix: present files drape, the absent ones err by name
+	# (temperature.png and flow.exr are deliberately missing here — the
+	# old-export path M3 keeps honest), computed layers (slope) and
+	# file-less modes (shaded) always answer.
 	var layers := await _link_send(peer, [
 		"view_layer moisture",     # 0
 		"view_layer temperature",  # 1: file absent from this export
@@ -412,19 +421,61 @@ func _test_preview_mesh(peer: StreamPeerTCP) -> void:
 		"view_layer slope",        # 3
 		"view_layer biome",        # 4
 		"view_layer shaded",       # 5
-		"view_layer moisture",     # 6: back on, to ride through the re-wear
+		"view_layer flow",         # 6: file absent from this export
+		"view_layer moisture",     # 7: back on, to ride through the re-wear
 	])
-	_check(layers.size() == 7, "view_layer replies land (got %d)" % layers.size())
-	if layers.size() == 7:
+	_check(layers.size() == 8, "view_layer replies land (got %d)" % layers.size())
+	if layers.size() == 8:
 		_check(layers[0].begins_with("ok layer moisture"), "moisture drapes")
 		_check(layers[1] == "err layer file missing: temperature.png (re-export from Strata)",
 			"a layer the export lacks errs by filename")
-		_check(layers[2] == "err view_layer needs shaded|moisture|temperature|slope|biome",
+		_check(layers[2] == "err view_layer needs shaded|moisture|temperature|flow|slope|biome",
 			"unknown layer errs with the layer list")
 		_check(layers[3].begins_with("ok layer slope"), "slope computes in-shader")
 		_check(layers[4].begins_with("ok layer biome"), "biome drapes the colormap")
 		_check(layers[5].begins_with("ok layer shaded"), "shaded always answers")
-		_check(layers[6].begins_with("ok layer moisture"), "moisture re-drapes")
+		_check(layers[6] == "err layer file missing: flow.exr (re-export from Strata)",
+			"flow without flow.exr errs by filename (the old-export path)")
+		_check(layers[7].begins_with("ok layer moisture"), "moisture re-drapes")
+	# The probe (M3 value-under-cursor): the ACTIVE layer's value at a
+	# world XZ, physical units, grammar pinned by Strata's LayerProbe.
+	# flow.exr (raw floats) and biome.png (ids) join the export here.
+	var fimg := Image.create(64, 64, false, Image.FORMAT_RF)
+	fimg.fill(Color(15.0, 0.0, 0.0))
+	fimg.save_exr(dir.path_join("flow.exr"))
+	var bbytes := PackedByteArray()
+	bbytes.resize(64 * 64)
+	bbytes.fill(7)  # id 7 everywhere — exact bytes, no float round-trip
+	var bimg := Image.create_from_data(64, 64, false, Image.FORMAT_L8, bbytes)
+	bimg.save_png(dir.path_join("biome.png"))
+	var probes := await _link_send(peer, [
+		"probe 0 0",               # 0: moisture is active — png 0.5
+		"probe 99999 0",           # 1: outside the worn world
+		"view_layer shaded",       # 2
+		"probe 1024 -300",         # 3: shaded = height (flat 42m world)
+		"view_layer slope",        # 4
+		"probe 0 0",               # 5: flat world -> slope 0
+		"view_layer flow",         # 6: flow.exr present now
+		"probe 0 0",               # 7: raw exr value
+		"view_layer biome",        # 8
+		"probe 0 0",               # 9: the id from biome.png
+		"view_layer moisture",     # 10: restore for the re-wear leg
+	])
+	_check(probes.size() == 11, "probe replies land (got %d)" % probes.size())
+	if probes.size() == 11:
+		_check(probes[0] == "ok probe moisture 0.50 at (0, 0)",
+			"probe answers the active layer (got %s)" % probes[0])
+		_check(probes[1] == "err probe (99999, 0) outside the world (max 8192m from center)",
+			"probe outside the world errs (got %s)" % probes[1])
+		_check(probes[3] == "ok probe shaded 42.0 at (1024, -300)",
+			"shaded probe answers height in meters (got %s)" % probes[3])
+		_check(probes[5] == "ok probe slope 0.00 at (0, 0)",
+			"slope probe computes from the height mirror (got %s)" % probes[5])
+		_check(probes[6].begins_with("ok layer flow"), "flow drapes once flow.exr exists")
+		_check(probes[7] == "ok probe flow 15.00 at (0, 0)",
+			"flow probe answers the raw exr value (got %s)" % probes[7])
+		_check(probes[9] == "ok probe biome 7 at (0, 0)",
+			"biome probe answers the id from biome.png (got %s)" % probes[9])
 	# Warm re-wear (the slider loop): still ok, the dress stays aside
 	# WITHOUT re-recording (restore must remember the original state),
 	# and the active drape survives the push.
@@ -457,7 +508,8 @@ func _test_preview_mesh(peer: StreamPeerTCP) -> void:
 	_check(not StrataLink._preview.worn and not StrataLink._preview.visible,
 		"the grid steps back after off")
 	# Leave no trace: the export files, the stage hands, the grid.
-	for f in ["height.exr", "colormap.png", "bake_manifest.json"]:
+	for f in ["height.exr", "colormap.png", "flow.exr", "biome.png",
+			"bake_manifest.json"]:
 		DirAccess.remove_absolute(dir.path_join(f))
 	DirAccess.remove_absolute(dir)
 	ground.queue_free()

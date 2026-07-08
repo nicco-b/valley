@@ -58,10 +58,21 @@ func _process(_d: float) -> void:
 		if env != null and env.environment != null:
 			env.environment.fog_enabled = false
 			env.environment.volumetric_fog_enabled = false
+	if _t == 260:
+		_dts.clear()  # boot churn ends here: frames 260..300 are the baseline
 	if _t == 300:
+		# The hitch dial needs a floor: what does this scene's frame noise
+		# look like BEFORE any push? (Streaming/far builds still run.)
+		var b := _dts.duplicate()
+		b.sort()
+		print("[preview_shots] baseline frames: p50=%.1f max=%.1f ms (%d frames)"
+			% [b[b.size() / 2], b[b.size() - 1], b.size()])
 		# Cold wear (includes the one-time mesh build), then the slider
 		# loop: three warm re-wears, each timed at the verb.
 		print("[preview_shots] cold: ", _verb("preview_mesh " + _dir))
+	if _t == 302:
+		# Clear AFTER the cold-wear frame has been measured — the warm
+		# window must not inherit the one-time mesh-build frame.
 		_dts.clear()
 	if _t >= 330 and _t < 420 and (_t - 330) % 30 == 0:
 		print("[preview_shots] warm: ", _verb("preview_mesh " + _dir))
@@ -70,6 +81,11 @@ func _process(_d: float) -> void:
 		s.sort()
 		print("[preview_shots] frames across 3 warm wears: p50=%.1f max=%.1f ms (%d frames)"
 			% [s[s.size() / 2], s[s.size() - 1], s.size()])
+		# Attribute any spike: which frames ran long, relative to the
+		# pushes (offsets ~28/58/88 in this window)?
+		for i in _dts.size():
+			if _dts[i] > 25.0:
+				print("[preview_shots]   long frame at offset %d: %.1f ms" % [i, _dts[i]])
 	# Layer pass 1 (cold texture loads) with a screenshot per layer…
 	if _t >= 450 and (_t - 450) % 30 == 0 and _step < LAYERS.size():
 		print("[preview_shots] ", _verb("view_layer " + LAYERS[_step]))

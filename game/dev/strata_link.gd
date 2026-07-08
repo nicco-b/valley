@@ -95,8 +95,8 @@ const PROTOCOL := 1
 ## The scene tests assert this list matches the dispatcher's match arms
 ## exactly, both ways: add a verb there and it MUST land here too.
 const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
-	"teleport", "screenshot", "weather", "time", "preview_world", "view",
-	"toolkit", "hud"]
+	"teleport", "screenshot", "weather", "time", "preview_world",
+	"preview_mesh", "view", "view_layer", "toolkit", "hud"]
 
 ## Actual port (STRATA_LINK_PORT env overrides — a second instance, e.g.
 ## the P3.5 embedded pane or a probe, gets its own link beside the game).

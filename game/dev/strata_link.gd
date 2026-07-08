@@ -23,6 +23,11 @@ extends Node
 ##                               GameClock.advance_hours — the sim contract's
 ##                               one door (never a dial-set); replies
 ##                               "ok <hours 2dp>h day=<day>"
+##   preview_world <dir>      -> wear a Strata export IN MEMORY ONLY (the
+##                               P8 viewer: tile + sea level from the
+##                               export's height.exr + bake_manifest.json;
+##                               NOTHING under res://data is written — the
+##                               checkout stays pristine until a real Send)
 ##
 ## summary() feeds the Toolkit world panel (systems it can't see are debt).
 
@@ -134,6 +139,11 @@ func _execute(line: String) -> String:
 			if parts.size() < 2:
 				return "err time needs +<h> or <0..24>"
 			return _time(parts[1])
+		"preview_world":
+			if parts.size() < 2:
+				return "err preview_world needs a dir"
+			# Paths may carry spaces: everything after the verb is the dir.
+			return _preview_world(line.substr(len("preview_world")).strip_edges())
 		_:
 			return "err unknown verb '%s'" % parts[0]
 
@@ -158,6 +168,28 @@ func _time(arg: String) -> String:
 		return "err time needs +<h> or <0..24>"
 	GameClock.advance_hours(delta)
 	return "ok %.2fh day=%d" % [GameClock.hours, GameClock.day]
+
+
+## The P8 viewer: swap the live world tile + sea level from a Strata
+## world_vN export, ENTIRELY in memory — the hub previews a bake in the
+## real engine (shaders, sims, weather) without committing anything to
+## the checkout. A later real import/Send persists; a restart reverts.
+func _preview_world(dir: String) -> String:
+	var manifest: Variant = JSON.parse_string(FileAccess.get_file_as_string(
+		dir.path_join("bake_manifest.json")))
+	if not (manifest is Dictionary):
+		return "err no bake_manifest.json in %s" % dir
+	var world: Dictionary = manifest.get("world", {})
+	var size_arr: Array = world.get("size_m", [16384.0, 16384.0])
+	var size := maxf(float(size_arr[0]), float(size_arr[1]))
+	var rec := {"id": "baked_world", "layer": "surface", "kind": "tile",
+		"origin": {"x": -size * 0.5, "z": -size * 0.5}, "size": size,
+		"feather": 600, "heightmap": dir.path_join("height.exr"),
+		"height_min": 0.0, "height_max": 1.0}
+	if not Terrain.preview_tile(rec, float(world.get("sea_level_m", Terrain.sea_level))):
+		return "err could not load %s" % rec["heightmap"]
+	return "ok preview %.0fm sea=%.1fm (in memory — Send persists)" % [
+		size, Terrain.sea_level]
 
 
 ## Drop the view at a world XZ: the Toolkit fly cam when it's open (the

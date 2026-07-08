@@ -452,6 +452,30 @@ func _init_kernel() -> void:
 	print("[terrain] native kernel live: worker sampling runs in C++")
 
 
+## The P8 viewer (StrataLink preview_world): wear a tile record IN MEMORY
+## ONLY — replaces the whole tile set (and the sea level) with the given
+## record, swaps a fresh kernel, invalidates the world. Nothing touches
+## disk: the checkout's tile cache and sea.json stay pristine; a restart
+## (or a real import + reload_tile) reverts. The pen override layer rides
+## along (composited over the preview like any blessed tile). Returns
+## false when the heightmap can't load.
+func preview_tile(rec: Dictionary, p_sea_level: float) -> bool:
+	var tile := _load_tile(rec, "preview")
+	if tile.is_empty():
+		return false
+	var composited := _composited_tile(tile, _override_rect)
+	if not composited.is_empty():
+		tile = composited
+	var swapped: Array[Dictionary] = [tile]
+	_tiles = swapped
+	sea_level = p_sea_level
+	if kernel:
+		_init_kernel()  # fresh instance; workers keep the old ref
+	edited.emit(Rect2(tile.x0, tile.z0, tile.size, tile.size))
+	print("[terrain] preview tile worn (in memory): %s" % rec["heightmap"])
+	return true
+
+
 ## Dev hot-reload of one painted tile: reload the image, swap the tile
 ## array and a FRESH kernel wholesale (workers mid-build keep a ref to
 ## the old one — never a torn mix), then invalidate the tile's rect so

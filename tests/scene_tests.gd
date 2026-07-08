@@ -90,7 +90,55 @@ func _test_strata_link() -> void:
 		"time <hour> answers ok")
 	_check(absf(GameClock.hours - target) < 0.05,
 		"time <hour> lands on the hour (at %.2f, wanted %.2f)" % [GameClock.hours, target])
+	await _test_preview_world(peer)
 	peer.disconnect_from_host()
+
+
+## preview_world (ONE_APP P8, the viewer): the game wears a Strata export
+## IN MEMORY — the ground reshapes, the sea moves, and NOTHING under
+## res://data changes; restoring is just wearing the original again.
+## Runs only when the real tile cache exists (it is the restore point).
+func _test_preview_world(peer: StreamPeerTCP) -> void:
+	if not Terrain.has_world_tile():
+		print("  preview world: SKIP (no baked tile cache to restore to)")
+		return
+	var orig_rec: Variant = JSON.parse_string(FileAccess.get_file_as_string(
+		"res://data/regions/baked_world.json"))
+	if not (orig_rec is Dictionary):
+		print("  preview world: SKIP (no baked_world.json record)")
+		return
+	var orig_sea: float = Terrain.sea_level
+	# Probe points OUTSIDE the sculpt layer's ±2048m frame and away from
+	# tile feather — the flat preview must read exactly 42m there.
+	var before_a: float = Terrain.height(3000.0, 3000.0)
+	# A synthetic export: flat 42m world, sea at 5m.
+	var dir := ProjectSettings.globalize_path("user://preview_test_world")
+	DirAccess.make_dir_recursive_absolute(dir)
+	var img := Image.create(64, 64, false, Image.FORMAT_RF)
+	img.fill(Color(42.0, 0.0, 0.0))
+	img.save_exr(dir.path_join("height.exr"))
+	var mf := FileAccess.open(dir.path_join("bake_manifest.json"), FileAccess.WRITE)
+	mf.store_string(JSON.stringify({"world": {
+		"size_m": [16384.0, 16384.0], "sea_level_m": 5.0}}))
+	mf.close()
+	var tile_mtime := FileAccess.get_modified_time(ProjectSettings.globalize_path(
+		"res://data/terrain/tiles/baked_world.exr"))
+	var replies := await _link_send(peer, ["preview_world " + dir])
+	_check(replies.size() == 1 and replies[0].begins_with("ok preview"),
+		"preview_world answers ok (got %s)" % str(replies))
+	_check(absf(Terrain.height(3000.0, 3000.0) - 42.0) < 0.01,
+		"preview reshapes the ground in memory (%.2f)" % Terrain.height(3000.0, 3000.0))
+	_check(absf(Terrain.sea_level - 5.0) < 0.01, "preview carries the sea level")
+	_check(FileAccess.get_modified_time(ProjectSettings.globalize_path(
+		"res://data/terrain/tiles/baked_world.exr")) == tile_mtime,
+		"the checkout's tile cache is untouched")
+	# Restore: wear the original record again (the same in-memory door).
+	_check(Terrain.preview_tile(orig_rec, orig_sea), "restore wears the original")
+	_check(Terrain.height(3000.0, 3000.0) == before_a,
+		"restore returns bit-identical ground")
+	DirAccess.remove_absolute(dir.path_join("height.exr"))
+	DirAccess.remove_absolute(dir.path_join("bake_manifest.json"))
+	DirAccess.remove_absolute(dir)
 
 
 ## Send commands one per line, then pump frames until every reply lands.

@@ -1,0 +1,13 @@
+{
+  "asset_roots" : [
+    "assets"
+  ],
+  "format" : 1,
+  "game_path" : ".",
+  "last_world" : "tools/strata/valley.strata",
+  "name" : "valley",
+  "worlds" : [
+    "tools/strata/valley.strata"
+  ],
+  "worlds_dir" : "worlds"
+}

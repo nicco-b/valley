@@ -34,6 +34,7 @@ Climate="*res://game/world/climate.gd"
 Hydrology="*res://game/world/hydrology.gd"
 WaterField="*res://game/world/water_field.gd"
 WaterWaves="*res://game/world/water_waves.gd"
+SeaSwell="*res://game/world/sea_swell.gd"
 FloraLife="*res://game/world/flora_life.gd"
 InteractionField="*res://game/world/interaction_field.gd"
 SandField="*res://game/world/sand_field.gd"
@@ -76,6 +77,18 @@ water_night={
 sea_level={
 "type": "float",
 "value": -1000000.0
+}
+swell_amp={
+"type": "float",
+"value": 0.0
+}
+swell_dir={
+"type": "vec2",
+"value": Vector2(1, 0)
+}
+swell_len={
+"type": "float",
+"value": 24.0
 }
 lightning_flash={
 "type": "float",

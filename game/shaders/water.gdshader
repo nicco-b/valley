@@ -29,6 +29,21 @@ uniform float flow_scale = 0.0;
 // lakes/sea, whose meshes carry no vertex color (default white would
 // foam everything).
 uniform float rapids_boost = 0.0;
+// Ocean swell (W1, the Watershed): four Gerstner components summed in
+// the vertex stage roll the SEA meshes only — swell_boost is 1 on the
+// sea patch/discs, 0 (default) on lakes and rivers. SeaSwell publishes
+// amplitude/wavelength/direction from the Elements' fronts (storm swell
+// arrives before the storm). Physics never sees this: it is vertex
+// displacement, exactly like the wave window. swell_step is the mesh's
+// vertex spacing — components too short for the grid fade out instead
+// of aliasing; swell_fade_radius eases the mid disc flat at its rim so
+// the coarse far disc takes over without a seam.
+uniform float swell_boost = 0.0;
+uniform float swell_step = 3.0;
+uniform float swell_fade_radius = 0.0;
+global uniform float swell_amp;
+global uniform vec2 swell_dir;
+global uniform float swell_len;
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 global uniform sampler2D wave_map; // tier-2.5 height field, meters
@@ -42,6 +57,8 @@ varying vec3 wpos;
 varying float wave_h;
 varying float rapids_v;
 varying vec2 flow_v;
+varying float swell_crest;  // normalized crest phase, foams in storms
+varying vec2 swell_grad;    // swell surface slope for the normal
 
 // Window-edge fade so the wave field's border never shows on the mesh.
 float wave_fade(vec2 uv) {
@@ -60,6 +77,48 @@ void vertex() {
 	}
 	VERTEX.y += clamp(wave_h, -0.12, 0.12);
 	wpos.y += clamp(wave_h, -0.12, 0.12);
+
+	// The swell: big rolling trochoids, world-anchored so every sea
+	// mesh agrees. Deep-water dispersion (long waves outrun short) keeps
+	// the sum from ever reading as one marching pattern.
+	swell_crest = 0.0;
+	swell_grad = vec2(0.0);
+	if (swell_boost > 0.0 && swell_amp > 0.001) {
+		float fade = swell_boost;
+		if (swell_fade_radius > 0.0) {
+			fade *= 1.0 - smoothstep(swell_fade_radius * 0.75,
+					swell_fade_radius, length(VERTEX.xz));
+		}
+		float rot[4] = float[](0.0, 0.35, -0.42, 0.83);
+		float lsc[4] = float[](1.0, 0.62, 0.38, 0.23);
+		float asc[4] = float[](0.44, 0.28, 0.17, 0.11);
+		vec2 hoff = vec2(0.0);
+		float voff = 0.0;
+		for (int i = 0; i < 4; i++) {
+			float wl = swell_len * lsc[i];
+			// Grid gate: a component the mesh can't carry fades out.
+			float a = swell_amp * asc[i] * fade
+					* smoothstep(swell_step * 2.0, swell_step * 3.0, wl);
+			if (a < 1e-4) { continue; }
+			float cr = cos(rot[i]);
+			float sr = sin(rot[i]);
+			vec2 d = normalize(vec2(swell_dir.x * cr - swell_dir.y * sr,
+					swell_dir.x * sr + swell_dir.y * cr));
+			float k = TAU / wl;
+			float w = sqrt(9.8 * k);
+			float ph = k * dot(d, wpos.xz) - w * TIME;
+			float s = sin(ph);
+			float c = cos(ph);
+			voff += a * s;
+			hoff -= d * (3.0 * a * c);  // trochoid: crests gather, troughs stretch
+			swell_grad += d * (k * a * c);
+			swell_crest += s * asc[i];
+		}
+		VERTEX.y += voff;
+		VERTEX.xz += hoff;
+		wpos.y += voff;
+		wpos.xz += hoff;
+	}
 }
 
 float ripple(vec2 p, float t) {
@@ -112,8 +171,9 @@ void fragment() {
 			texture(wave_map, wuv + vec2(0.0, px)).r - texture(wave_map, wuv - vec2(0.0, px)).r
 		) * f * 7.0;
 	}
-	vec3 n_ws = normalize(vec3(-rx * (0.3 + t * 0.5) - wgrad.x, 1.0,
-			-rz * (0.3 + t * 0.5) - wgrad.y));
+	vec3 n_ws = normalize(vec3(
+			-rx * (0.3 + t * 0.5) - wgrad.x - swell_grad.x * 2.8, 1.0,
+			-rz * (0.3 + t * 0.5) - wgrad.y - swell_grad.y * 2.8));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_ws, 0.0)).xyz);
 
 	// The hour picks the palette: teal day, slate night, pink low sun.
@@ -140,6 +200,13 @@ void fragment() {
 	foam += smoothstep(0.8, 1.6, length(f)) * (0.5 + 0.5 * sin(fp.x * 3.1 + fp.y * 1.7)) * 0.35;
 	foam += t * 0.5;
 	foam += rapids_v * rapids_boost * (0.38 + 0.28 * sin(fp.x * 2.3 + fp.y * 2.9));
+	// Storm rollers wear painted caps: crest phase gated by amplitude, so
+	// a calm sea stays clean and heavy swell reads from the strand. Kept
+	// strong enough to survive the posterize floor in deep water (the
+	// shoreline term carried it in the shallows; out here it is alone).
+	foam += smoothstep(0.25, 0.75, swell_crest)
+			* clamp((swell_amp - 0.12) * 1.6, 0.0, 0.9)
+			* (0.65 + 0.35 * sin(fp.x * 0.37 + fp.y * 0.61));
 	foam = floor(clamp(foam, 0.0, 1.0) * 3.0) / 3.0;  // stepped: gouache, not mist
 	vec3 foam_col = pal_b * mix(1.04, 1.12, water_gold) + vec3(0.04 * water_gold + 0.01);
 	col = mix(col, foam_col, foam * 0.85);

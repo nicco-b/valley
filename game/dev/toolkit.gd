@@ -304,6 +304,7 @@ func _process(delta: float) -> void:
 				"CLIMATE  " + Climate.summary(),
 				"WATER    " + Hydrology.summary().replace("\n", "\n         "),
 				"FIELD    " + WaterField.summary(),
+				"SWELL    " + SeaSwell.summary(),
 				"FLORA    " + FloraLife.summary(),
 				"SAND     " + SandField.summary(),
 				"WEAR     " + InteractionField.summary(),

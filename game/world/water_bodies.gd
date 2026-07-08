@@ -20,16 +20,21 @@ var _river_meshes: Dictionary = {}
 var _river_mats: Dictionary = {}
 var _river_built_level: Dictionary = {}  # level each ribbon was built at
 
-# The world sea (Terrain.sea_level): two meshes. A wave-capable patch
+# The world sea (Terrain.sea_level): three meshes. A wave-capable patch
 # rides with the focus (the 512² wave window is what displaces verts —
-# density past it is wasted), and a coarse static disc carries the
-# surface to the horizon. Far disc sits 15cm lower to avoid z-fighting
-# where they overlap.
+# density past it is wasted), a mid disc dense enough to carry the
+# Gerstner swell (W1) out to where it stops reading, and a coarse static
+# disc carries the surface to the horizon. Each tier sits a step lower
+# to avoid z-fighting where they overlap; the shader fades the swell to
+# flat at the mid rim so the far disc takes over seamlessly.
 const SEA_NEAR_RADIUS := 300.0
 const SEA_NEAR_STEP := 3.0
+const SEA_MID_RADIUS := 1600.0
+const SEA_MID_STEP := 12.0  # carries the 37-60m storm swell bands
 const SEA_FAR_RADIUS := 9000.0
 const SEA_FAR_STEP := 250.0
 var _sea_near: MeshInstance3D
+var _sea_mid: MeshInstance3D
 var _sea_far: MeshInstance3D
 
 
@@ -38,10 +43,18 @@ func _ready() -> void:
 		_sea_near = MeshInstance3D.new()
 		_sea_near.name = "sea_near"
 		_sea_near.mesh = _disc(SEA_NEAR_RADIUS, SEA_NEAR_STEP)
-		_sea_near.mesh.surface_set_material(0, _material(Vector2.ZERO))
+		_sea_near.mesh.surface_set_material(0, _sea_material(SEA_NEAR_STEP, 0.0))
 		_sea_near.extra_cull_margin = 4.0
 		_sea_near.position.y = Terrain.sea_level
 		add_child(_sea_near)
+		_sea_mid = MeshInstance3D.new()
+		_sea_mid.name = "sea_mid"
+		_sea_mid.mesh = _disc(SEA_MID_RADIUS, SEA_MID_STEP)
+		_sea_mid.mesh.surface_set_material(0,
+				_sea_material(SEA_MID_STEP, SEA_MID_RADIUS))
+		_sea_mid.extra_cull_margin = 4.0
+		_sea_mid.position.y = Terrain.sea_level - 0.07
+		add_child(_sea_mid)
 		_sea_far = MeshInstance3D.new()
 		_sea_far.name = "sea_far"
 		_sea_far.mesh = _disc(SEA_FAR_RADIUS, SEA_FAR_STEP)
@@ -120,10 +133,20 @@ func _process(_delta: float) -> void:
 	var snapped_focus := focus.snappedf(SEA_NEAR_STEP * 2.0)
 	_sea_near.position.x = snapped_focus.x
 	_sea_near.position.z = snapped_focus.y
-	# The tide: both sheets ride the live surface, and the strand
+	var mid_focus := focus.snappedf(SEA_MID_STEP * 2.0)
+	_sea_mid.position.x = mid_focus.x
+	_sea_mid.position.z = mid_focus.y
+	# The far disc follows too (coarse snap): static at the origin it
+	# ran out 6km short of the horizon on far coasts — a visible band of
+	# missing sea from any strand past ~3km out.
+	var far_focus := focus.snappedf(SEA_FAR_STEP * 2.0)
+	_sea_far.position.x = far_focus.x
+	_sea_far.position.z = far_focus.y
+	# The tide: all sheets ride the live surface, and the strand
 	# shader's dark band follows it via the sea_level global.
 	var live: float = Terrain.sea_surface()
 	_sea_near.position.y = live
+	_sea_mid.position.y = live - 0.07
 	_sea_far.position.y = live - 0.15
 	RenderingServer.global_shader_parameter_set("sea_level", live)
 
@@ -155,6 +178,18 @@ func _material(flow: Vector2) -> ShaderMaterial:
 	var mat := ShaderMaterial.new()
 	mat.shader = WATER_SHADER
 	mat.set_shader_parameter("flow", flow)
+	return mat
+
+
+## Sea-tier material: the Gerstner swell (W1) displaces these meshes.
+## step tells the shader which swell bands the grid can carry (shorter
+## ones fade instead of aliasing); fade_radius > 0 eases the swell flat
+## at the mesh rim so the coarse far disc takes over without a seam.
+func _sea_material(step: float, fade_radius: float) -> ShaderMaterial:
+	var mat := _material(Vector2.ZERO)
+	mat.set_shader_parameter("swell_boost", 1.0)
+	mat.set_shader_parameter("swell_step", step)
+	mat.set_shader_parameter("swell_fade_radius", fade_radius)
 	return mat
 
 

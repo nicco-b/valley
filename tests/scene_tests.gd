@@ -14,6 +14,7 @@ func _ready() -> void:
 	_test_climate()
 	_test_climate_v2()
 	_test_water()
+	_test_swell()
 	_test_hydrology()
 	_test_water_field()
 	_test_flora()
@@ -218,6 +219,36 @@ func _test_water() -> void:
 	_check(Terrain.home_guard(9000.0, 9000.0) > 0.0, "the open world lies outside the guard")
 	_check(is_equal_approx(Terrain.water_surface(9000.0, 9000.0), Terrain.sea_surface()),
 		"the world sea fills everything outside the home guard")
+
+
+## W1 ocean swell: presentation-only (off headless), but its energy math
+## is a pure function — pin the herald: storm swell precedes the storm,
+## grows monotonically as the front nears, peaks overhead, and a calm
+## sea still breathes. Physics stays flat: sea_surface() ignores swell.
+func _test_swell() -> void:
+	var wdir := Vector2(1.0, 0.0)
+	var storm_at := func(edge: float) -> Array:
+		return [{"kind": "storm", "dx": 1.0, "dz": 0.0, "edge": edge,
+			"width": 4000.0, "speed": 4.0}]
+	var focus := Vector2.ZERO
+	var calm: Dictionary = SeaSwell.compute([], focus, 0.12, wdir)
+	var far: Dictionary = SeaSwell.compute(storm_at.call(-8000.0), focus, 0.12, wdir)
+	var near_f: Dictionary = SeaSwell.compute(storm_at.call(-2000.0), focus, 0.12, wdir)
+	var over: Dictionary = SeaSwell.compute(storm_at.call(1000.0), focus, 0.12, wdir)
+	_check(float(calm.amp) > 0.0, "a calm sea still breathes")
+	_check(float(far.amp) < float(near_f.amp), "swell grows as the storm nears")
+	_check(float(near_f.amp) < float(over.amp), "an overhead storm rolls hardest")
+	_check(float(over.amp) > 3.0 * float(calm.amp),
+		"storm swell reads far bigger than calm")
+	_check(String(near_f.source) == "storm",
+		"an approaching storm owns the swell before its rain arrives")
+	_check(float(near_f.len) > float(calm.len), "heavy swell runs longer wavelengths")
+	_check(Vector2(near_f.dir).is_equal_approx(wdir),
+		"swell travels the front's own heading")
+	# The sea the sim sees is untouched: flat level + tide only.
+	var flat_sea: float = Terrain.sea_surface()
+	_check(absf(flat_sea - Terrain.sea_level) <= Terrain.TIDE_AMP + 1e-4,
+		"sea_surface() stays flat-sea + tide — the swell is presentation only")
 
 
 func _test_hydrology() -> void:

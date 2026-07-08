@@ -110,6 +110,11 @@ func _init() -> void:
 		"origin": {"x": -world_size * 0.5, "z": -world_size * 0.5}, "world_size": world_size}
 	meta["strata_layers"] = _layer_index(world_dir, manifest)
 
+	# Sync the game sea to Strata's sea level so the shallows read as water, not
+	# land (skipped when importing to a scratch GUIDE_OUT).
+	if OS.get_environment("GUIDE_OUT").is_empty():
+		_sync_sea_level(sea_level)
+
 	var f := FileAccess.open(out_dir.path_join("guide.json"), FileAccess.WRITE)
 	f.store_string(JSON.stringify(meta, "\t", true) + "\n")
 	f.close()
@@ -120,6 +125,23 @@ func _init() -> void:
 		print("  biome_map %dx%d painted from Strata biomes" % [BIOME_RES, BIOME_RES])
 	print("  next: godot --headless --path . -s res://tests/bake_world.gd")
 	quit()
+
+
+## Set the game's sea surface (data/water/sea.json) to Strata's sea level, so a
+## point below it reads as sea. Without this the shallows sit above the old sea
+## height and render as land.
+func _sync_sea_level(sea_level: float) -> void:
+	var path := "res://data/water/sea.json"
+	var rec := {"id": "sea", "sea": true, "surface": sea_level}
+	if FileAccess.file_exists(path):
+		var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if d is Dictionary:
+			rec = d
+			rec["surface"] = sea_level
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(rec, "\t", true) + "\n")
+	f.close()
+	print("  sea level synced to %.1fm" % sea_level)
 
 
 ## Paint data/world/biome_map.png from Strata's biome.png, remapping Strata

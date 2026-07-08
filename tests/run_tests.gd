@@ -58,7 +58,7 @@ func _test_terrain_determinism() -> void:
 	var a: float = t.height(123.0, -456.0)
 	var b: float = t.height(123.0, -456.0)
 	_check(a == b, "height() is deterministic")
-	_check(absf(t.height(0.0, 5.0)) < 1.5, "spawn area is near-flat")
+	_check(t.height(0.0, 5.0) > t.sea_level, "spawn is on land (above sea)")
 	_check(t.valley_factor(0.0, -100.0) < 0.1, "valley floor factor ~0")
 	_check(t.valley_factor(900.0, -100.0) > 0.9, "far plateau factor ~1")
 	t.free()

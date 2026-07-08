@@ -304,9 +304,24 @@ func _test_water_field() -> void:
 
 
 func _test_climate() -> void:
-	var floor_temp: float = Climate.temperature(0.0, -100.0)
-	var ridge_temp: float = Climate.temperature(900.0, -100.0)
-	_check(ridge_temp < floor_temp, "ridges run colder than the valley floor")
+	# Temperature falls with elevation (lapse). Find the lowest and highest of a
+	# broad sample — robust to whatever Strata world is loaded, not the old valley.
+	var lo_p := Vector2.ZERO
+	var hi_p := Vector2.ZERO
+	var lo_h := 1e12
+	var hi_h := -1e12
+	for gx in range(-4, 5):
+		for gz in range(-4, 5):
+			var p := Vector2(gx * 700.0, gz * 700.0)
+			var ph := Terrain.height(p.x, p.y)
+			if ph < lo_h:
+				lo_h = ph
+				lo_p = p
+			if ph > hi_h:
+				hi_h = ph
+				hi_p = p
+	_check(Climate.temperature(hi_p.x, hi_p.y) < Climate.temperature(lo_p.x, lo_p.y),
+		"higher ground runs colder (lapse rate)")
 	var span: Vector2 = GameClock.daylight_span()
 	GameClock.hours = fposmod(span.x - 2.0, 24.0)  # before dawn
 	var predawn: float = Climate.temperature(0.0, -100.0)
@@ -426,9 +441,12 @@ func _test_climate_v2() -> void:
 	else:
 		_check(Climate._swing(open_sea.x, open_sea.y) < valley_swing,
 			"open water reads more maritime than the valley")
+	# The reference reads base temperature minus its own altitude lapse (not
+	# pinned to a flat valley floor any more — the reference sits on real terrain).
+	var ref_h := maxf(Terrain.height(Climate.REFERENCE.x, Climate.REFERENCE.y), 0.0)
 	_check(absf(Climate.temperature(Climate.REFERENCE.x, Climate.REFERENCE.y)
-			- Climate.base_temperature()) < 1.0,
-		"the valley thermometer still reads the valley")
+			- (Climate.base_temperature() - Climate.LAPSE * ref_h)) < 3.0,
+		"temperature at the reference follows the lapse rate")
 	# Phase 3 — humidity. Same point, same wind: only the pinned factor
 	# moves, so these hold on any map.
 	_check(Climate._humidity_for(0.0, -150.0, 0.5, 10.0)

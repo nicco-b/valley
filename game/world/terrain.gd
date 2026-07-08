@@ -6,11 +6,10 @@ extends Node
 
 # Flattened disks so authored content sits on level ground:
 # [center x, center z, flat radius, feather distance]
-const FLATTENS := [
-	[0.0, 0.0, 60.0, 70.0],  # spawn area & starter rocks
-	[120.0, -620.0, 35.0, 60.0],  # shrine
-	[70.0, -310.0, 45.0, 40.0],  # pond clearing (also keeps flora out of water)
-]
+# Cleared for the Strata world — the old hand-placed flat clearings (spawn pad,
+# shrine, pond clearing) were tied to the retired valley geography and would sit
+# below the Strata sea. Re-add per-world if a flat clearing is wanted.
+const FLATTENS := []
 
 # Water bodies come from data/water/: circular lakes as basin + surface
 # height (top-level *.json), and rivers as node polylines (rivers/*.json).

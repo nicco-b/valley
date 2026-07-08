@@ -470,7 +470,12 @@ func preview_tile(rec: Dictionary, p_sea_level: float) -> bool:
 	_tiles = swapped
 	sea_level = p_sea_level
 	if kernel:
-		_init_kernel()  # fresh instance; workers keep the old ref
+		# Re-tile the LIVE kernel — set_tiles swaps atomically inside, so
+		# worker samplers mid-call keep the old set. (Re-instantiating the
+		# kernel here was a torn-Ref crash under the auto-preview loop.)
+		kernel.set_tiles(_tiles)
+		kernel.set_home(_home_rect.position, _home_rect.end,
+			HOME_GUARD_IN, HOME_GUARD_OUT, sea_level, SEABED)
 	edited.emit(Rect2(tile.x0, tile.z0, tile.size, tile.size))
 	print("[terrain] preview tile worn (in memory): %s" % rec["heightmap"])
 	return true
@@ -500,7 +505,7 @@ func reload_tile(image_path: String) -> bool:
 		swapped[i] = fresh
 		_tiles = swapped
 		if kernel:
-			_init_kernel()  # builds a fresh, fully-configured instance
+			kernel.set_tiles(_tiles)  # atomic swap inside; workers unharmed
 		edited.emit(Rect2(t.x0, t.z0, t.size, t.size))
 		print("[terrain] tile reloaded: ", t.id)
 		return true
@@ -1205,7 +1210,7 @@ func commit_tile_override(world_rect: Rect2) -> void:
 		return
 	_tiles = swapped
 	if kernel:
-		_init_kernel()  # fresh instance; workers keep the old ref
+		kernel.set_tiles(_tiles)  # atomic swap inside; workers unharmed
 	edited.emit(world_rect)
 
 

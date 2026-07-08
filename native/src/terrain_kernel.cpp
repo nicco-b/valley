@@ -211,8 +211,9 @@ double TerrainKernel::bay_carve(double x, double z, double h,
 }
 
 void TerrainKernel::set_tiles(const Array &p_tiles) {
-	tiles.clear();
-	tiles.reserve(p_tiles.size());
+	// Build aside, swap atomically: workers mid-sample keep the old set.
+	std::vector<Tile> fresh;
+	fresh.reserve(p_tiles.size());
 	for (int i = 0; i < p_tiles.size(); i++) {
 		Dictionary d = p_tiles[i];
 		Tile t;
@@ -224,14 +225,20 @@ void TerrainKernel::set_tiles(const Array &p_tiles) {
 		t.hmax = (double)d["hmax"];
 		t.res = (int)d["res"];
 		t.data = d["data"];
-		tiles.push_back(t);
+		fresh.push_back(t);
 	}
+	std::atomic_store(&tiles,
+			std::make_shared<const std::vector<Tile>>(std::move(fresh)));
 }
 
 // Mirrors terrain.gd _tile_blend (painted heightmap replaces ground).
 double TerrainKernel::tile_blend(double x, double z, double h,
 		double guard) const {
-	for (const Tile &t : tiles) {
+	const std::shared_ptr<const std::vector<Tile>> snap = std::atomic_load(&tiles);
+	if (!snap) {
+		return h;
+	}
+	for (const Tile &t : *snap) {
 		if (x < t.x0 || z < t.z0 || x >= t.x0 + t.size ||
 				z >= t.z0 + t.size) {
 			continue;
@@ -460,7 +467,7 @@ double TerrainKernel::height(double x, double z) const {
 	// Strata is the whole world: the baked tile overrides the procedural home
 	// valley too, not just the outer ring — guard no longer gates the blend
 	// (home_guard still drives climate/hydrology elsewhere).
-	if (!tiles.empty()) {
+	if (std::atomic_load(&tiles) != nullptr) {
 		h = tile_blend(x, z, h, 1.0);
 	}
 	const double *fl = flattens.ptr();

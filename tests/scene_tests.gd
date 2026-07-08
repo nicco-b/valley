@@ -25,6 +25,7 @@ func _ready() -> void:
 	_test_nav()
 	_test_sand_sim()
 	_test_tile_override()
+	_test_kernel_retile_race()
 	_test_placement_reseat()
 	await _test_strata_link()
 	if _failures > 0:
@@ -284,6 +285,32 @@ func _test_tile_override() -> void:
 	Terrain.restore_tile_override(snap)
 	_check(Terrain.height(p.x, p.y) == before,
 		"restore returns bit-identical ground")
+
+
+## The auto-preview crash (2026-07-08): re-tiling the live kernel while
+## worker threads sample it — set_tiles now swaps atomically inside the
+## kernel, so this hammer must run clean. (Before the fix this was a
+## torn-Ref/vector race: intermittent SIGSEGV inside tile_blend.)
+func _test_kernel_retile_race() -> void:
+	if Terrain.kernel == null or not Terrain.has_world_tile():
+		print("  kernel retile race: SKIP (no kernel or tile)")
+		return
+	var snap: Image = Terrain.snapshot_tile_override()
+	var stop := [false]
+	var task := WorkerThreadPool.add_task(func () -> void:
+		while not stop[0]:
+			var block := Terrain.height_block(-2000.0, -2000.0, 40.0, 32, 32)
+			if block.size() != 1024:
+				stop[0] = true
+	)
+	# Main thread: re-tile the live kernel as fast as the pen can.
+	for i in 120:
+		Terrain.commit_tile_override(
+			Terrain.paint_tile_override(Vector2(900.0, 900.0), 150.0, 0.05))
+	stop[0] = true
+	WorkerThreadPool.wait_for_task_completion(task)
+	Terrain.restore_tile_override(snap)
+	_check(true, "kernel survives 120 live re-tiles under worker sampling")
 
 
 ## Ground-relative placement (the regeneration hazard, valley half):

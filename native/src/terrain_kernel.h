@@ -21,6 +21,7 @@
 #include <godot_cpp/variant/packed_vector2_array.hpp>
 #include <godot_cpp/variant/packed_vector3_array.hpp>
 
+#include <memory>
 #include <vector>
 
 namespace godot {
@@ -63,7 +64,12 @@ class TerrainKernel : public RefCounted {
 		int res = 0;
 		PackedFloat32Array data;
 	};
-	std::vector<Tile> tiles;
+	// Tiles swap ATOMICALLY (shared_ptr atomic load/store): set_tiles may
+	// run on the main thread while worker samplers are inside tile_blend —
+	// the auto-preview loop re-tiles the live kernel many times a minute,
+	// and a torn read here was a real crash (2026-07-08). Readers grab a
+	// snapshot per call; the old vector lives until the last reader drops it.
+	std::shared_ptr<const std::vector<Tile>> tiles;
 	double tile_blend(double x, double z, double h, double guard) const;
 
 	// Regions (the archipelago; packed mirrors of terrain.gd).

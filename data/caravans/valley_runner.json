@@ -1,8 +1,0 @@
-{
-	"id": "valley_runner",
-	"speed_mps": 1.2,
-	"stops": [
-		{"place": "spawn_camp", "x": 8, "z": 10, "depart_hour": 7},
-		{"place": "shrine", "x": 120, "z": -618, "depart_hour": 16}
-	]
-}

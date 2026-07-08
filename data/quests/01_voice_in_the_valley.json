@@ -1,8 +1,0 @@
-{
-	"id": "voice_in_the_valley",
-	"title": "A Voice in the Valley",
-	"steps": [
-		{"id": "meet", "text": "Speak with the one who walks the valley.", "done_if": {"flag": "npc.wanderer.met"}},
-		{"id": "glow", "text": "Ask them about the shrine's light.", "done_if": {"flag": "npc.wanderer.spoke_of_glow"}}
-	]
-}

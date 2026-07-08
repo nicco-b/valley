@@ -4,7 +4,7 @@ extends CanvasLayer
 ## streamer follows the map focus (with a widened radius) so terrain
 ## and content exist wherever you look.
 
-const MARKS := [["Shrine", Vector2(120, -620)], ["Pond", Vector2(70, -310)]]
+const MARKS := []  # authored place marks (old valley retired; Strata places TBD)
 const COLOR_INK := Color(0.30, 0.17, 0.16)
 const PITCH := -1.134  # ~65 degrees down
 const CAM_DISTANCE := 400.0
@@ -464,11 +464,6 @@ func _draw_markers() -> void:
 			if prev != Vector2.INF:
 				_markers.draw_line(prev, p, Color(0.30, 0.48, 0.62, 0.9), 1.5)
 			prev = p
-	for npc in get_tree().get_nodes_in_group("npc"):
-		var p := _cam.unproject_position(npc.global_position + Vector3.UP * 2.0)
-		_markers.draw_circle(p, 5.0, Color(0.13, 0.35, 0.37))
-		_markers.draw_circle(p, 5.0, Color.WHITE, false, 1.5)
-		_draw_label(font, p + Vector2(9, 4), npc.display_name)
 	var player := get_tree().get_first_node_in_group("player")
 	if player:
 		var p := _cam.unproject_position(player.global_position + Vector3.UP * 2.0)

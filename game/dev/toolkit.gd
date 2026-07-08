@@ -264,7 +264,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_river_nodes.append(Vector2(hit.x, hit.z))
 				_update_hud()
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			# Sim inspector: right-click an NPC to watch its mind.
+			# Sim inspector: right-click an agent (wildlife) to watch its mind.
 			var space := _cam.get_world_3d().direct_space_state
 			var params := PhysicsRayQueryParameters3D.create(
 				_cam.global_position, _cam.global_position - _cam.global_basis.z * 3000.0, 3
@@ -310,7 +310,6 @@ func _process(delta: float) -> void:
 				"SAND     " + SandField.summary(),
 				"WEAR     " + InteractionField.summary(),
 				"WAYS     " + Nav.summary(),
-				"CARAVANS " + Caravans.summary().replace("\n", "\n         "),
 				"LAND     " + Terrain.regions_summary().split("\n")[0],
 				"CARDS    " + Cards.summary().replace("\n", "\n         "),
 			])

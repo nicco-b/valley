@@ -29,8 +29,6 @@ FocusThrottle="*res://game/world/focus_throttle.gd"
 Terrain="*res://game/world/terrain.gd"
 Rng="*res://game/sim/rng.gd"
 Nav="*res://game/world/nav.gd"
-WaypointGraph="*res://game/world/waypoint_graph.gd"
-Caravans="*res://game/world/caravans.gd"
 Weather="*res://game/world/weather.gd"
 Climate="*res://game/world/climate.gd"
 Hydrology="*res://game/world/hydrology.gd"
@@ -51,9 +49,7 @@ MapScreen="*res://game/ui/map_screen.gd"
 SaveGame="*res://game/save/save_manager.gd"
 Settings="*res://game/ui/settings.gd"
 PauseMenu="*res://game/ui/pause_menu.gd"
-Dialogue="*res://game/dialogue/dialogue.gd"
 Skills="*res://game/skills/skills.gd"
-Journal="*res://game/quests/journal.gd"
 
 [navigation]
 
@@ -291,12 +287,6 @@ firefly_recall={
 "deadzone": 0.2,
 "events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":82,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
 , Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":14,"pressure":0.0,"pressed":true,"script":null)
-]
-}
-journal={
-"deadzone": 0.2,
-"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":74,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
-, Object(InputEventJoypadButton,"resource_local_to_scene":false,"resource_name":"","device":-1,"button_index":12,"pressure":0.0,"pressed":true,"script":null)
 ]
 }
 inventory={

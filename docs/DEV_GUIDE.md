@@ -23,12 +23,12 @@ and [FOUNDATIONS.md](FOUNDATIONS.md) (build plan).*
 | C | sit | | Tab | sculpt ↔ place |
 | E | interact / catch | | LMB / Shift+LMB | raise / carve (sculpt) |
 | I | satchel | | `[` `]` | brush size |
-| J | journal (quests + skills) | | RMB on NPC | sim inspector |
+| | | | RMB on agent | sim inspector |
 | M | map (pan/zoom, gestures) | | 1–9 | pick kit object (place) |
 | | | | N | toggle navmesh overlay |
 | | | | O | world panel (every system + HERE: t/humidity/wetness/vitality under the camera) |
 | F / R | deploy / recall fireflies | | LMB | place object |
-| Esc | menu — world keeps running (or close map/talk) | | Z | undo last placement |
+| Esc | menu — world keeps running (or close map) | | Z | undo last placement |
 | **T** | *debug:* → next sunrise/noon/sunset/midnight | | F5 | save terrain edits |
 | **Ctrl+T / Ctrl+Shift+T** | *debug:* +1 hour / +15 min | | | |
 | **Shift+T / Alt+T** | *debug:* +1 day / +1 week | | | |
@@ -72,11 +72,11 @@ Placements save instantly to `data/cells/cell_X_Y.json` (commit them).
 
 **Shape terrain** — F1, sculpt with LMB / Shift+LMB, F5 (or exit) saves.
 
-**Add an NPC** — copy `data/npcs/wanderer.json`, change id/name/home,
-tune needs weights (higher = drains faster) and activities (`at` is
-`"home"` or `{x,z}`; optional `hours: [start,end]` preferred window,
-`pose: "sit"`, `rate`, `wander`, `storm_boost`). They spawn at home on
-launch. Inspect their mind with Toolkit RMB.
+**Add an NPC** — retired with the old valley (2026-07-07 de-valley wipe;
+the record-driven NPC system comes back when inhabitants are rebuilt on
+the Strata world). Wildlife still works the same way: copy a record in
+`data/wildlife/`, tune activities. Inspect any agent's mind with
+Toolkit RMB.
 
 **Add an item** — JSON in `data/items/` (id, name, desc). To place one in
 the world: instance `game/items/pickup.tscn` in a cell scene, set

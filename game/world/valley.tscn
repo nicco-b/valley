@@ -1,15 +1,12 @@
-[gd_scene load_steps=26 format=3]
+[gd_scene load_steps=23 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
-[ext_resource type="PackedScene" path="res://game/world/landmarks/shrine.tscn" id="5_shrine"]
 [ext_resource type="Script" path="res://game/world/water_bodies.gd" id="6_water"]
 [ext_resource type="Script" path="res://game/world/day_night.gd" id="2_daynight"]
 [ext_resource type="Script" path="res://game/world/world_streamer.gd" id="3_streamer"]
 [ext_resource type="AudioStream" path="res://assets/audio/wind_loop.wav" id="4_wind"]
 [ext_resource type="AudioStream" path="res://assets/audio/night_loop.wav" id="7_night"]
 [ext_resource type="Script" path="res://game/world/ambience.gd" id="8_ambience"]
-[ext_resource type="Script" path="res://game/npc/npc_manager.gd" id="9_npcs"]
-[ext_resource type="PackedScene" path="res://game/items/pickup.tscn" id="10_pickup"]
 [ext_resource type="Script" path="res://game/world/weather_fx.gd" id="11_weatherfx"]
 [ext_resource type="Shader" path="res://game/shaders/sky.gdshader" id="12_sky"]
 [ext_resource type="Script" path="res://game/world/atmosphere.gd" id="13_atmosphere"]
@@ -105,16 +102,8 @@ script = ExtResource("14_far")
 
 [node name="Landmarks" type="Node3D" parent="."]
 
-[node name="Shrine" parent="Landmarks" instance=ExtResource("5_shrine")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 120, 0, -620)
-
 [node name="WaterBodies" type="Node3D" parent="Landmarks"]
 script = ExtResource("6_water")
-
-[node name="PondStone" type="Area3D" parent="Landmarks" instance=ExtResource("10_pickup")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 66, -0.4, -278)
-item_id = "river_stone"
-uid = "pond_stone_1"
 
 [node name="Dust" type="GPUParticles3D" parent="."]
 script = ExtResource("11_weatherfx")
@@ -130,9 +119,6 @@ script = ExtResource("13_atmosphere")
 
 [node name="FireflyField" type="Node3D" parent="."]
 script = ExtResource("15_fireflies")
-
-[node name="NPCManager" type="Node" parent="."]
-script = ExtResource("9_npcs")
 
 [node name="WildlifeManager" type="Node" parent="."]
 script = ExtResource("16_wildlife")

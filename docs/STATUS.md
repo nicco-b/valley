@@ -12,6 +12,67 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
+## ⭐ Session handoff — resume here (2026-07-07): the de-valley wipe
+
+**Strata is the world; the old hand-authored valley content is GONE.**
+The "wipe-clean cascade" the last session reverted (it broke 14 tests +
+Climate's pond thermometer) is now done properly as a scoped refactor —
+full clean slate, tests rewritten to the new world (Nicco's call this
+session). All on main, `./scripts/test.sh` green, soak green + deterministic.
+**The soak fingerprint FLOATS right now**: the old 1333567381 died with
+the NPCs leaving the digest + REFERENCE moving to world-center, and the
+new value tracks the live Strata bake (Climate's wet grid reads the
+terrain, and the terrain changes every time Nicco re-imports). The
+invariant that holds is bit-stability across soak.sh's two runs; pin a
+baseline number again when the world is blessed + committed.
+
+- **Deleted content (data):** `data/{npcs,dialogue,quests,caravans,
+  roads}` · `data/water/{pond.json, rivers/brook.json, rivers/pen_*.json}`
+  (kept `sea.json` = Strata-synced sea level, and `watersheds/home.json` =
+  Hydrology's operating frame) · all 9 authored `data/cells/*.json` · the
+  37 old hand-authored archipelago region records (kept `baked_world.json`
+  = the Strata tile).
+- **Deleted/gutted code:** `game/npc/`, `game/dialogue/`, `game/quests/`,
+  `game/world/caravans.gd` + `caravan_body.*`, `game/world/waypoint_graph.gd`;
+  autoloads `Dialogue`, `Journal`, `Caravans`, `WaypointGraph` removed from
+  project.godot; `valley.tscn` lost NPCManager + the Shrine landmark +
+  PondStone pickup (both at dead old-valley coords). `Conditions` (the
+  shared condition LANGUAGE) survives — WorldState uses it; a future
+  quest/dialogue engine will speak it again.
+- **Rewires:** `Climate.REFERENCE` (70,-310 pond clearing) → **world center
+  (0,0)** the climate thermometer; Nav dropped its road far-tier (straight-
+  line fallback only); Hydrology already tolerates empty water (all its
+  water access is `for`-over-array). map_screen MARKS emptied, NPC labels
+  dropped. Toolkit world panel lost its CARAVANS line (sim inspector kept —
+  wildlife still has `sim_debug`).
+- **Tests rewritten to the new world:** `scene_tests.gd` — `_test_dialogue`/
+  `_test_quests` → one `_test_conditions` (the surviving language);
+  `_test_water`/`_test_hydrology`/`_test_water_field` reworked to the sea +
+  guard contract (home_guard is 0 in the protected interior, 1 in the open
+  sea, so the guarded home reads dry and the outer world is sea);
+  `_test_roads`/`_test_caravans`/`_test_rumors` deleted; `_test_long_memory`
+  → `_test_wear` (kept the desire-path half). `soak.gd` drops the NPC
+  instantiation/invariants/fingerprint; `ui_probe.gd` drops the journal shot.
+  **The climate-v2 probes are now WORLD-AGNOSTIC** (they were pinned to the
+  retired Range/valley coords and started failing as Nicco's live bakes
+  reshaped that ground): the rain-shadow test finds the world's tallest
+  peak on a coarse grid, blows the wind in off the nearest cardinal sea,
+  and seats the lee at an exact ORO_UP probe distance (1300m) — skipping
+  honestly when no wall tops its lee by 400m; the maritime test finds one
+  fully-inland and one open-sea grid point and compares those. Both found
+  their marks on the live bake (no skips fired).
+- **Review-round cleanup:** orphaned `shrine.tscn` + the two old-valley
+  authored cell scenes (`game/world/cells/cell_0_0/-1.tscn` — placeholder
+  boxes at dead coords) deleted; dead `journal` input action removed from
+  project.godot; DEV_GUIDE keymap (J/journal, talk) + "Add an NPC" recipe
+  and data/README.md npcs section rewritten (also retired two stray
+  "god-mode" name usages there).
+- **NOT committed here:** `data/world/{biome_map.png,elevation_guide.exr,
+  guide.json}` are Nicco's in-flight Strata bake — left for him to tune +
+  bless. **Next:** rebuild the world's life on the Strata terrain — new
+  inhabitants/quests placed against the baked biomes, water proposed from
+  the Strata flow, not the retired hand-authored geography.
+
 ## ⭐ Session handoff — resume here (2026-07-06, later)
 
 **The placeholder drop landed + Toolkit Phase 1 (cards → palette).** Ran

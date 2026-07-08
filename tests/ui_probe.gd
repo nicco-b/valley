@@ -31,9 +31,6 @@ func _process(_d: float) -> void:
 	elif _t == 110:
 		get_viewport().get_texture().get_image().save_png("/tmp/ui_pause.png")
 		PauseMenu.toggle()
-		Journal.visible = true
-		Journal._refresh()
 	elif _t == 130:
-		get_viewport().get_texture().get_image().save_png("/tmp/ui_journal.png")
 		print("SHOTS WRITTEN")
 		get_tree().quit()

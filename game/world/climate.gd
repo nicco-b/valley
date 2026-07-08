@@ -35,7 +35,7 @@ const SNOW_MELT_BASE := 0.004
 const SNOW_MELT_WARM := 0.01  # extra melt per degree above freezing
 const MELTWATER := 0.4  # melted snow soaks the ground (spring mud, for free)
 const EASE := 0.4  # per-second visual approach for the shader params
-const REFERENCE := Vector2(70.0, -310.0)  # pond clearing: the valley's thermometer
+const REFERENCE := Vector2(0.0, 0.0)  # world center / spawn: the climate thermometer
 
 # The wetness field frame (matches the guide/biome-map framing).
 const GRID_N := 8

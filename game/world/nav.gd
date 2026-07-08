@@ -7,8 +7,6 @@ extends Node
 ## Bodies query path() and walk waypoints (PathCursor); wherever no
 ## navmesh exists — the far tier, unstreamed cells — path() falls back
 ## to the straight line, which is the data tier's honest approximation.
-## The far-tier waypoint graph (roads as records) arrives with the first
-## authored road.
 
 var _regions: Dictionary = {}  # Vector2i -> region RID
 var _map: RID
@@ -38,8 +36,7 @@ static func bake_navmesh(faces: PackedVector3Array) -> NavigationMesh:
 
 ## Toolkit: the walkable world.
 func summary() -> String:
-	return "navmesh cells=%d  road waypoints=%d" % [
-		_regions.size(), WaypointGraph.points.size()]
+	return "navmesh cells=%d" % _regions.size()
 
 
 func add_cell(c: Vector2i, navmesh: NavigationMesh, origin: Vector3) -> void:
@@ -63,16 +60,6 @@ func path(from: Vector3, to: Vector3) -> PackedVector3Array:
 	var p := NavigationServer3D.map_get_path(_map, from, to, true)
 	if p.size() >= 2:
 		return p
-	# No navmesh route. Far journeys follow the road graph (the data
-	# tier's honest approximation upgraded from one blind line); short
-	# hops keep the straight line.
-	if from.distance_to(to) > 128.0:
-		var road := WaypointGraph.route(
-			Vector2(from.x, from.z), Vector2(to.x, to.z))
-		if road.size() >= 2:
-			var out := PackedVector3Array([from])
-			for w in road:
-				out.append(Vector3(w.x, Terrain.height(w.x, w.y), w.y))
-			out.append(to)
-			return out
+	# No navmesh route — the far tier's honest approximation is the
+	# straight line (roads/waypoint graph retired with the old valley).
 	return PackedVector3Array([from, to])

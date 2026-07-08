@@ -20,10 +20,9 @@ func _ready() -> void:
 	GameClock.hours = 9.0
 	GameClock.day = 0
 
-	# The living systems under soak: inhabitants and wildlife (weather,
-	# climate, flora, rumors are autoloads already ticking on hour_tick).
-	var npcs: Node = load("res://game/npc/npc_manager.gd").new()
-	add_child(npcs)
+	# The living systems under soak: wildlife (weather, climate, flora,
+	# rumors are autoloads already ticking on hour_tick). The authored
+	# inhabitants retired with the old valley — Strata is the world now.
 	var wildlife: Node = load("res://game/wildlife/wildlife_manager.gd").new()
 	add_child(wildlife)
 
@@ -31,16 +30,15 @@ func _ready() -> void:
 	GameClock.advance_hours(24.0 * DAYS)
 	var elapsed := Time.get_ticks_msec() - t0
 
-	_invariants(npcs, wildlife)
-	var fp := _fingerprint(npcs, wildlife)
+	_invariants(wildlife)
+	var fp := _fingerprint(wildlife)
 
 	if _failures > 0:
 		print("SOAK FAIL: %d invariant(s) broken" % _failures)
 	else:
-		print("SOAK PASS: %d days in %dms, day=%d weather=%s wetness=%.3f vitality=%.3f pond=%+.3f brook=%.0fm3/h"
+		print("SOAK PASS: %d days in %dms, day=%d weather=%s wetness=%.3f vitality=%.3f"
 				% [DAYS, elapsed, GameClock.day, Weather.state,
-				Climate.wetness, FloraLife.vitality,
-				Hydrology.lake_level.get("pond", 0.0), Hydrology.discharge("brook")])
+				Climate.wetness, FloraLife.vitality])
 	print("SOAK FINGERPRINT %d" % fp)
 	get_tree().quit(1 if _failures > 0 else 0)
 
@@ -51,7 +49,7 @@ func _check(condition: bool, name: String) -> void:
 		print("  SOAK INVARIANT FAIL: ", name)
 
 
-func _invariants(npcs: Node, wildlife: Node) -> void:
+func _invariants(wildlife: Node) -> void:
 	_check(GameClock.day == DAYS, "clock advanced exactly %d days" % DAYS)
 	_check(Climate.wetness >= 0.0 and Climate.wetness <= 1.0, "wetness in [0,1]")
 	for i in Climate.wet_grid.size():
@@ -72,14 +70,6 @@ func _invariants(npcs: Node, wildlife: Node) -> void:
 		var taken := float(gathered[k])
 		_check(is_finite(taken) and taken > 0.0 and taken <= 1.0,
 			"flora cell %s wound in (0,1]" % k)
-	for npc in npcs.get_children():
-		for need in npc.needs:
-			var v: float = npc.needs[need]
-			_check(is_finite(v) and v >= 0.0 and v <= 100.0,
-				"%s need %s bounded (%.1f)" % [npc.npc_id, need, v])
-		_check(npc.global_position.is_finite(), "%s position finite" % npc.npc_id)
-		_check(npc.global_position.length() < 5000.0, "%s inside the world" % npc.npc_id)
-		_check(npc.rumors.size() <= npc.MAX_RUMORS, "%s memory capped" % npc.npc_id)
 	for herd in wildlife.herds:
 		for ind in herd.individuals:
 			var sim: AgentSim = ind.sim
@@ -104,7 +94,7 @@ func _grid_digest(grid: PackedFloat32Array) -> String:
 
 ## Stable digest of everything the sim decided — only deterministic keys
 ## (no wall-clock-derived values like moon phase or daylight span).
-func _fingerprint(npcs: Node, wildlife: Node) -> int:
+func _fingerprint(wildlife: Node) -> int:
 	var parts: Array = [
 		Weather.state,
 		"%.4f" % Climate.wetness,
@@ -119,12 +109,6 @@ func _fingerprint(npcs: Node, wildlife: Node) -> int:
 		WorldState.has_flag("valley.bloom"),
 		WorldState.has_flag("valley.parched"),
 	]
-	for npc in npcs.get_children():
-		parts.append(npc.npc_id)
-		parts.append("%.1f,%.1f" % [npc.global_position.x, npc.global_position.z])
-		parts.append(str(npc.rumors))
-		for need in npc.needs:
-			parts.append("%.2f" % npc.needs[need])
 	for herd in wildlife.herds:
 		for ind in herd.individuals:
 			var sim: AgentSim = ind.sim

@@ -1,5 +1,5 @@
 extends Node
-## Scene-context tests: anything that needs autoloads alive (Dialogue,
+## Scene-context tests: anything that needs autoloads alive (Conditions,
 ## WorldState interplay). Run by test.sh: godot --headless scene_tests.tscn
 ## — exits 0/1.
 
@@ -7,8 +7,7 @@ var _failures := 0
 
 
 func _ready() -> void:
-	_test_dialogue()
-	_test_quests()
+	_test_conditions()
 	_test_skills()
 	_test_clock()
 	_test_seasons()
@@ -19,12 +18,9 @@ func _ready() -> void:
 	_test_water_field()
 	_test_flora()
 	_test_moon()
-	_test_rumors()
 	_test_wildlife()
-	_test_long_memory()
+	_test_wear()
 	_test_nav()
-	_test_roads()
-	_test_caravans()
 	_test_sand_sim()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
@@ -39,50 +35,23 @@ func _check(condition: bool, name: String) -> void:
 		print("  FAIL: ", name)
 
 
-func _test_dialogue() -> void:
-	_check(Dialogue._eval({}), "empty condition passes")
+## The shared condition language (Conditions) — the gate every future
+## quest/dialogue will evaluate. The dialogue/quest ENGINES retired with
+## the old valley; the language they spoke lives on and stays tested.
+func _test_conditions() -> void:
+	_check(Conditions.eval({}), "empty condition passes")
 	WorldState.set_flag("test.flag")
-	_check(Dialogue._eval({"flag": "test.flag"}), "flag condition")
-	_check(not Dialogue._eval({"not_flag": "test.flag"}), "not_flag condition")
-	_check(Dialogue._eval({"not_flag": "test.other"}), "not_flag on unset")
+	_check(Conditions.eval({"flag": "test.flag"}), "flag condition")
+	_check(not Conditions.eval({"flag": "test.unset"}), "flag on unset fails")
+	_check(not Conditions.eval({"not_flag": "test.flag"}), "not_flag condition")
+	_check(Conditions.eval({"not_flag": "test.other"}), "not_flag on unset")
 	WorldState.set_value("test.count", 3)
-	_check(Dialogue._eval({"gte": ["test.count", 3]}), "gte pass")
-	_check(not Dialogue._eval({"gte": ["test.count", 4]}), "gte fail")
-	Dialogue._apply([{"set": "test.applied"}, {"inc": "test.count"}])
-	_check(WorldState.has_flag("test.applied"), "effect set")
-	_check(WorldState.get_value("test.count") == 4, "effect inc")
-	Dialogue._current = {"start": [
-		{"if": {"gte": ["test.count", 10]}, "node": "a"},
-		{"if": {"flag": "test.flag"}, "node": "b"},
-		{"node": "c"},
-	]}
-	_check(Dialogue._pick_start() == "b", "start selection honors conditions")
-	_check(Dialogue.has_dialogue("wanderer"), "wanderer dialogue record loads")
-
-
-func _test_quests() -> void:
-	_check(Journal._quests.size() >= 2, "quest records load")
-	var q: Dictionary = {"id": "t", "title": "T", "steps": [
-		{"id": "a", "text": "a", "done_if": {"flag": "test.q.a"}},
-		{"id": "b", "text": "b", "done_if": {"gte": ["test.q.n", 2]}},
-	]}
-	_check(Journal.quest_active(q), "quest starts active")
-	_check(not Journal.quest_done(q), "quest not done initially")
-	WorldState.set_flag("test.q.a")
-	_check(Journal.step_done(q.steps[0]), "step completes via flag")
-	_check(not Journal.quest_done(q), "quest still open")
-	WorldState.set_value("test.q.n", 2)
-	_check(Journal.quest_done(q), "quest completes when all steps pass")
-	_check(not Journal.quest_active(q), "complete quest no longer active")
-	var seed: Dictionary = {"id": "t_seed", "title": "S",
-		"start_if": {"flag": "test.seed.on"},
-		"steps": [{"id": "x", "text": "x", "done_if": {"flag": "test.seed.done"}}]}
-	_check(not Journal.quest_active(seed), "seed dormant before its state")
-	WorldState.set_flag("test.seed.on")
-	_check(Journal.quest_active(seed), "seed activates on sim state")
-	WorldState.set_value("test.seed.on", false)
-	_check(Journal.quest_active(seed), "seed stays latched when the state passes")
-	_check(Conditions.eval({"item": ["nonexistent_item", 1]}) == false, "item condition")
+	_check(Conditions.eval({"gte": ["test.count", 3]}), "gte pass")
+	_check(not Conditions.eval({"gte": ["test.count", 4]}), "gte fail")
+	_check(not Conditions.eval({"item": ["nonexistent_item", 1]}), "item condition")
+	# All keys AND together: one failing clause fails the whole gate.
+	_check(not Conditions.eval({"flag": "test.flag", "gte": ["test.count", 4]}),
+		"clauses AND — one failure fails the gate")
 
 
 func _test_skills() -> void:
@@ -155,30 +124,25 @@ func _test_seasons() -> void:
 	_check(absf(GameClock.solar_hours() - 12.0) < 0.01, "solar noon maps to 12:00")
 
 
-## Climate: the temperature/moisture substrate other systems read.
+## Water contract on the Strata world: authored lakes/rivers retired, so
+## the water language must hold with only the world sea present.
 func _test_water() -> void:
-	# Records load: the pond as a lake, the brook as a river.
-	_check(Terrain.water_bodies.size() >= 1, "lake records load")
-	_check(Terrain.rivers.size() >= 1, "river records load")
-	# The pond surface answers within its radius, -INF outside. (The live
-	# surface rides Hydrology's level, so the authored check reads base.)
-	_check(is_equal_approx(Terrain.water_surface_base(70.0, -310.0), -0.9),
-		"pond base surface reads from the record")
-	_check(Terrain.water_surface(70.0, -120.0) < -1e6, "no water on dry ground")
-	# The brook: surface on the centerline, and the bed carved below it.
-	var mid := Vector2(63.0, -256.0)
-	var surf: float = Terrain.water_surface(mid.x, mid.y)
-	_check(surf > -1e6, "brook has a surface on its centerline")
-	_check(Terrain.height(mid.x, mid.y) < surf - 0.5,
-		"the channel bed is carved below the brook surface")
-	# A few metres off the bank there's neither water nor a channel.
-	_check(Terrain.water_surface(30.0, -228.0) < -1e6, "brook is dry off to the side")
-	# Moisture is lifted along the river, like a lake's banks.
-	var was_wet: float = Climate.wetness
-	Climate.wetness = 0.0
-	_check(Climate.moisture(mid.x, mid.y) > Climate.moisture(30.0, -228.0),
-		"river banks stay damp through a dry spell")
-	Climate.wetness = was_wet
+	# The authored-body arrays are valid (possibly empty) — no crash on
+	# a world Strata dressed without hand-placed lakes/rivers.
+	_check(Terrain.water_bodies is Array, "water_bodies is a valid (maybe empty) list")
+	_check(Terrain.rivers is Array, "rivers is a valid (maybe empty) list")
+	# The world sea level loads from the record.
+	_check(Terrain.sea_level > -1e11, "the world sea level loads from the record")
+	# The home valley is guarded OUT of the open sea (home_guard is 0 in the
+	# protected interior). With the authored pond retired, its center is dry.
+	var wc := Vector2(65.0, -285.0)  # the watershed center — inside the guard
+	_check(Terrain.home_guard(wc.x, wc.y) == 0.0, "home valley sits inside the guard")
+	_check(Terrain.water_surface(wc.x, wc.y) < -1e6,
+		"no water in the guarded home interior once the pond is retired")
+	# Everything beyond the guard is the open world sea.
+	_check(Terrain.home_guard(9000.0, 9000.0) > 0.0, "the open world lies outside the guard")
+	_check(is_equal_approx(Terrain.water_surface(9000.0, 9000.0), Terrain.sea_surface()),
+		"the world sea fills everything outside the home guard")
 
 
 func _test_hydrology() -> void:
@@ -191,43 +155,17 @@ func _test_hydrology() -> void:
 	# replaceable; the system isn't).
 	_check(Hydrology.center == Vector2(65.0, -285.0) and Hydrology.domain == 2048.0,
 		"watershed domain loads from data/water/watersheds/home.json")
-	_check(String(Terrain.water_bodies[0].outlet) == "aquifer",
-		"pond outlet defaults to the aquifer (chain-ready)")
-	Hydrology._hourly(0)
-	_check(Hydrology.catchment_area.get("brook", 0.0) > 10_000.0,
-		"the brook drains a real catchment (routed, not authored)")
-	_check(Hydrology._river_feeds_lake(Terrain.rivers[0], Terrain.water_bodies[0]),
-		"the brook's mouth feeds the pond")
-	# Storm hours must raise the brook; calm hours must recede it.
-	var calm_q: float = Hydrology.discharge("brook")
-	Weather.force_kind("storm")
-	Climate.wetness = 0.8
+	# With the authored pond/brook retired, the watershed routes and runs
+	# its hourly balance over empty water — it must not crash, and its
+	# level dicts stay valid (empty is fine until Strata proposes rivers).
 	for i in 6:
 		Hydrology._hourly(0)
-	var storm_q: float = Hydrology.discharge("brook")
-	_check(storm_q > calm_q * 1.25 and storm_q - calm_q > 12.0,
-		"storm hours swell the brook (%.0f -> %.0f m3/h)" % [calm_q, storm_q])
-	var flood_level: float = Terrain.river_levels[0]
-	_check(flood_level > Hydrology.RIVER_LEVEL_MIN, "flood raises the river surface")
-	Weather.force_kind("calm")
-	Climate.wetness = 0.1
-	for i in 48:
-		Hydrology._hourly(0)
-	_check(Hydrology.discharge("brook") < storm_q * 0.5,
-		"dry days recede the brook")
-	# The live surface follows the level; the authored base never moves.
-	var w: Dictionary = Terrain.water_bodies[0]
-	var c: Vector2 = w.center
-	var lv := Terrain.lake_levels[0]
-	_check(is_equal_approx(Terrain.water_surface(c.x, c.y), float(w.surface) + lv),
-		"live water surface = authored + hydrology level")
-	_check(is_equal_approx(Terrain.water_surface_base(c.x, c.y), float(w.surface)),
-		"base water surface ignores the level")
-	# Levels stay on their rails and round-trip through WorldState.
-	_check(lv >= Hydrology.LAKE_LEVEL_MIN and lv <= Hydrology.LAKE_LEVEL_MAX,
-		"pond level on rails")
-	_check(is_equal_approx(float(WorldState.get_value("water.pond.level")), lv),
-		"pond level mirrored to WorldState")
+	_check(Hydrology.lake_level is Dictionary and Hydrology.river_storage is Dictionary,
+		"hydrology runs clean with no authored water bodies")
+	for id in Hydrology.lake_level:
+		var lv: float = Hydrology.lake_level[id]
+		_check(lv >= Hydrology.LAKE_LEVEL_MIN and lv <= Hydrology.LAKE_LEVEL_MAX,
+			"any lake level stays on its rails")
 	# Snowmelt catch-up (audit finding): _last_snow must resume from the
 	# SAVED snow, not boot's 0.0 — else the first replayed hour after a
 	# snowy reload drops that hour's meltwater and rivers/lakes diverge
@@ -253,13 +191,9 @@ func _test_water_field() -> void:
 	_check(not WaterField.enabled, "tier-2 field disabled without a GPU (headless)")
 	_check(WaterField.depth_at(Vector3(70, 0, -310)) == 0.0,
 		"field depth reads 0 when disabled")
-	# The current fallback is the real gameplay path when the field is off
-	# (and everywhere the field has no water): a river pushes downstream at
-	# its real discharge. The brook flows toward the pond (-z), so the
-	# push on its centerline points down-valley.
-	var on_river := WaterField.current_at(Vector3(63, 0, -256))
-	_check(on_river.length() > 0.1, "current pushes a body standing in the brook")
-	_check(on_river.y < 0.0, "the brook's current runs downstream toward the pond")
+	# The current fallback is the real gameplay path when the field is off.
+	# With the authored rivers retired there is no discharge to push, so
+	# dry ground reads zero current everywhere — and nothing crashes.
 	_check(WaterField.current_at(Vector3(200, 0, -100)) == Vector2.ZERO,
 		"no current on dry ground")
 	_check(not WaterWaves.enabled, "tier-2.5 wave field disabled without a GPU")
@@ -340,9 +274,6 @@ func _test_climate() -> void:
 	_check(Climate.wetness < wet, "calm hours dry the ground")
 	_check(float(WorldState.get_value("climate.wetness")) == Climate.wetness,
 		"wetness mirrored to WorldState")
-	Climate.wetness = 0.0
-	_check(Climate.moisture(72.0, -280.0) > Climate.moisture(400.0, -100.0),
-		"pond banks stay damp through a dry spell")
 	_check(Climate.snow_line_for(20.0) > Climate.snow_line_for(2.0),
 		"warm air lifts the snowline")
 	_check(Climate.snow_line_for(-3.0) < 0.0,
@@ -362,19 +293,41 @@ func _test_climate() -> void:
 
 ## Climate v2 phase 1: the rain shadow and the wetness field.
 func _test_climate_v2() -> void:
-	# Wet air crossing the Range (950m ridge SW of the valley) must
-	# leave its lee dry. Guard first: the wall has to actually stand
-	# there (painted bake and procedural records both raise it, but a
-	# repainted world may not — then this test steps aside).
-	var wall := Vector2(-2700.0, -3200.0)  # a Range node
-	var along := Vector2(0.93, 0.36)  # the ridge's own direction
-	var d := Vector2(along.y, -along.x)  # travel dir, square across it
-	var barrier := 0.0
-	for t in range(-600, 601, 200):
-		barrier = maxf(barrier,
-			Terrain.height(wall.x + along.x * t, wall.y + along.y * t))
-	if barrier < 250.0:
-		print("  (skip rain shadow: no tall range at the probe point)")
+	# Wet air crossing a big wall must leave its lee dry. The test FINDS
+	# its wall on whatever world is loaded (the old version was pinned to
+	# the retired Range's coordinates): the tallest point on a coarse
+	# grid, wind blown in off the nearest sea. It steps aside when the
+	# world has no wall worth the name — matching the physics, where only
+	# a big sustained barrier wrings the air dry (ORO_CLEAR/ORO_DEEP).
+	var peak := Vector2.ZERO
+	var peak_h := -1e12
+	for gx in range(-14, 15):
+		for gz in range(-14, 15):
+			var pp := Vector2(gx * 512.0, gz * 512.0)
+			var ph := Terrain.height(pp.x, pp.y)
+			if ph > peak_h:
+				peak_h = ph
+				peak = pp
+	# Wind travel direction: in off the nearest cardinal sea, over the
+	# peak, into the lee (axis-aligned keeps the probe points in separate
+	# 2048m wetness cells).
+	var d := Vector2.ZERO
+	var sea_dist := 1e12
+	for card: Vector2 in [Vector2.RIGHT, Vector2.LEFT, Vector2(0, 1), Vector2(0, -1)]:
+		for step in range(1, 26):
+			var sp := peak + card * (step * 400.0)
+			if Terrain.height(sp.x, sp.y) < Terrain.sea_level:
+				if step * 400.0 < sea_dist:
+					sea_dist = step * 400.0
+					d = -card  # air arrives FROM the sea side
+				break
+	# The peak sits at a probe distance the lee's upwind scan samples
+	# exactly (ORO_UP includes 1300m).
+	var lee_probe := peak + d * 1300.0
+	var excess := peak_h - maxf(Terrain.height(lee_probe.x, lee_probe.y), 0.0)
+	if d == Vector2.ZERO or excess < 400.0:
+		print("  (skip rain shadow: no wall tall enough on this world — peak %.0fm, excess %.0fm)"
+				% [peak_h, excess])
 	else:
 		var was_angle: float = Weather._wind_angle
 		var was_wet: float = Climate.wetness
@@ -382,8 +335,8 @@ func _test_climate_v2() -> void:
 		Weather._wind_angle = d.angle()
 		Weather.wind_dir = d
 		Weather.force_kind("storm")
-		var wind_pt := wall - d * 2600.0
-		var lee_pt := wall + d * 1600.0
+		var wind_pt := peak - d * 1300.0
+		var lee_pt := lee_probe
 		var rain_wind: float = Weather.rain_at(wind_pt.x, wind_pt.y)
 		var rain_lee: float = Weather.rain_at(lee_pt.x, lee_pt.y)
 		_check(rain_wind > rain_lee * 1.5,
@@ -424,23 +377,30 @@ func _test_climate_v2() -> void:
 	_check(Climate.aspect_term(-0.5, 0.0) == 0.0, "no aspect at night")
 	_check(absf(Climate.aspect_term(0.5, 9.0) + Climate.aspect_term(-0.5, 9.0)) < 0.001,
 		"mirrored slopes mirror")
-	# Maritime: the swing damps with sea proximity. The home valley is
-	# itself ~1.4km from the east shore (it IS an island), so it reads
-	# mildly maritime — the shore must read MORE so, and both bounded.
-	var valley_swing: float = Climate._swing(Climate.REFERENCE.x, Climate.REFERENCE.y)
-	_check(valley_swing > Climate.MARITIME_SWING and valley_swing <= 1.0,
-		"valley swing bounded (%.2f)" % valley_swing)
-	var open_sea := Vector2.INF
-	for step in range(1, 30):
-		var px := Climate.REFERENCE.x + step * 400.0
-		if Terrain.height(px, Climate.REFERENCE.y) < Terrain.sea_level:
-			open_sea = Vector2(px + 2400.0, Climate.REFERENCE.y)
-			break
-	if open_sea.x == INF or Terrain.height(open_sea.x, open_sea.y) >= Terrain.sea_level:
-		print("  (skip maritime: no open sea east of the valley)")
+	# Maritime: the swing damps with sea proximity. World-agnostic: find
+	# one fully-inland land point (no sea in its 1.8km cross → swing 1.0)
+	# and one open-sea point on the same coarse grid, and the sea point
+	# must read more maritime. Skips only when the world lacks one side.
+	var ref_swing: float = Climate._swing(Climate.REFERENCE.x, Climate.REFERENCE.y)
+	_check(ref_swing >= Climate.MARITIME_SWING and ref_swing <= 1.0,
+		"reference swing bounded (%.2f)" % ref_swing)
+	var inland := Vector2.INF
+	var offshore := Vector2.INF
+	for gx in range(-14, 15):
+		for gz in range(-14, 15):
+			var mp := Vector2(gx * 512.0, gz * 512.0)
+			var mh := Terrain.height(mp.x, mp.y)
+			if inland.x == INF and mh > Terrain.sea_level + 5.0 \
+					and Climate._swing(mp.x, mp.y) >= 0.999:
+				inland = mp
+			elif offshore.x == INF and mh < Terrain.sea_level \
+					and Climate._swing(mp.x, mp.y) <= Climate.MARITIME_SWING + 0.1:
+				offshore = mp
+	if inland.x == INF or offshore.x == INF:
+		print("  (skip maritime: world lacks a deep-inland or open-sea point)")
 	else:
-		_check(Climate._swing(open_sea.x, open_sea.y) < valley_swing,
-			"open water reads more maritime than the valley")
+		_check(Climate._swing(offshore.x, offshore.y) < Climate._swing(inland.x, inland.y),
+			"open water reads more maritime than deep inland")
 	# The reference reads base temperature minus its own altitude lapse (not
 	# pinned to a flat valley floor any more — the reference sits on real terrain).
 	var ref_h := maxf(Terrain.height(Climate.REFERENCE.x, Climate.REFERENCE.y), 0.0)
@@ -531,11 +491,15 @@ func _test_flora() -> void:
 	_check(FloraLife.species_weight(tuft, "oasis_green", 0.8)
 			> FloraLife.species_weight(tuft, "oasis_green", 0.0),
 		"drought gates the thirsty species down")
-	# Spatial vitality is stateless: wet banks read greener than dry flats.
-	Climate.wetness = 0.0
+	# Spatial vitality is stateless: it tracks the live moisture field, so
+	# the same point reads greener when the ground is wet than when it's dry.
 	FloraLife.vitality = 0.5
-	_check(FloraLife.vitality_at(70.0, -310.0) > FloraLife.vitality_at(0.0, -150.0),
-		"pond banks stay greener through a dry spell")
+	Climate.wetness = 0.1
+	var dry_v: float = FloraLife.vitality_at(0.0, 0.0)
+	Climate.wetness = 0.9
+	var wet_v: float = FloraLife.vitality_at(0.0, 0.0)
+	_check(wet_v >= dry_v and is_finite(wet_v) and wet_v > 0.0 and wet_v <= 1.0,
+		"spatial vitality tracks local moisture (%.3f dry -> %.3f wet)" % [dry_v, wet_v])
 	# Honest harvest: gathering wounds the cell, hours heal it, and a
 	# healed cell is forgotten (the save only remembers open wounds).
 	var cell := Vector2i(0, -3)  # floor((70,-310)/128)
@@ -575,34 +539,6 @@ func _test_moon() -> void:
 	_check(absf(full_light - 1.0) < 0.001, "full moon is fully lit")
 	var phase: float = GameClock.moon_phase()
 	_check(phase >= 0.0 and phase < 1.0, "live phase in range")
-
-
-## Rumors: learn, mirror to flags, forget at capacity, pass between minds.
-func _test_rumors() -> void:
-	var npc_script := load("res://game/npc/npc.gd")
-	var a: CharacterBody3D = npc_script.new()
-	a.npc_id = "test_a"
-	var b: CharacterBody3D = npc_script.new()
-	b.npc_id = "test_b"
-	a.learn("valley_parched")
-	_check(a.knows("valley_parched"), "npc learns a fact")
-	_check(WorldState.has_flag("npc.test_a.knows.valley_parched"),
-		"fact mirrored as a dialogue-readable flag")
-	for i in 15:
-		a.learn("filler_%d" % i)
-	_check(not a.knows("valley_parched"), "oldest rumor forgotten at capacity")
-	_check(not WorldState.has_flag("npc.test_a.knows.valley_parched"),
-		"forgotten rumor's flag clears")
-	b.learn("weathered_storm")
-	b.learn("met_player")
-	var mgr: Node = load("res://game/npc/npc_manager.gd").new()
-	mgr._tell_one(b, a)
-	_check(a.knows("weathered_storm"), "rumor passes between npcs")
-	mgr._tell_one(b, a)
-	_check(not a.knows("met_player"), "meeting someone is not a catchable rumor")
-	a.free()
-	b.free()
-	mgr.free()
 
 
 ## Wildlife tier-3: pure-data animals live full days without a body.
@@ -652,24 +588,10 @@ func _test_wildlife() -> void:
 	_check(noon > moonlit, "but never as much as the sun")
 
 
-## Long memory: pantry stocks accrue from work; desire paths persist.
-func _test_long_memory() -> void:
-	var npc_script := load("res://game/npc/npc.gd")
-	var n: CharacterBody3D = npc_script.new()
-	n.npc_id = "test_worker"
-	n.sim.needs = {"purpose": 50.0}
-	n.sim.current = {"id": "tend", "satisfies": "purpose", "rate": 8.0,
-		"produces": {"offerings": 0.25}}
-	n.sim.satisfy(2.0)  # two hours at the shrine
-	n._save_state()
-	var stock: float = float(WorldState.get_value("npc.test_worker.stock.offerings", 0.0))
-	_check(absf(stock - 0.5) < 0.01, "work accrues stock at the record's rate")
-	n.sim.satisfy(1.0)
-	n._save_state()
-	_check(float(WorldState.get_value("npc.test_worker.stock.offerings", 0.0)) > stock,
-		"stock accumulates across flushes")
-	n.free()
-
+## Desire paths persist: footsteps wear permanent cells that fade over
+## hours and survive a save/load. (The pantry/rumor long-memory retired
+## with the authored inhabitants — it lived on the NPC bodies.)
+func _test_wear() -> void:
 	var spot := Vector2(4321.5, -4321.5)  # far from any real trail
 	for i in 5:
 		InteractionField.stamp(spot)
@@ -718,37 +640,6 @@ func _test_nav() -> void:
 
 ## The granular kernel: sand is conserved, spikes slump to repose, flows
 ## spread — pure math, no thread, no rendering.
-func _test_roads() -> void:
-	_check(WaypointGraph.points.size() >= 10, "road records load into the graph")
-	# Spawn -> shrine rides the valley road and passes the pond turn.
-	var r := WaypointGraph.route(Vector2(0, 0), Vector2(120, -620))
-	_check(r.size() >= 8, "route spans the road (%d waypoints)" % r.size())
-	_check(r[0].distance_to(Vector2(8, 10)) < 7.0, "route starts at the near end")
-	var near_pond := false
-	for w in r:
-		if w.distance_to(Vector2(88, -300)) < 7.0:
-			near_pond = true
-	_check(near_pond, "route passes the pond junction")
-	# Nav far tier: no navmesh in headless scene tests -> far journeys
-	# follow the road, not one blind line.
-	var p := Nav.path(Vector3(0, 0, 0), Vector3(120, 0, -620))
-	_check(p.size() > 4, "far Nav.path rides the road graph (%d pts)" % p.size())
-
-
-func _test_caravans() -> void:
-	_check(Caravans.routes.size() >= 1, "caravan records load")
-	var r: Dictionary = Caravans.routes[0]
-	var at_dawn := Caravans.locate(r, 6.5)
-	_check(String(at_dawn.place) == "spawn_camp", "before depart: at the camp")
-	var walking := Caravans.locate(r, 7.05)
-	_check(bool(walking.en_route), "after depart: on the road")
-	var mid: Vector2 = walking.pos
-	_check(mid.distance_to(Vector2(8, 10)) > 50.0, "actually made distance")
-	var arrived := Caravans.locate(r, 9.0)
-	_check(String(arrived.place) == "shrine", "long after depart: arrived")
-	_check(Caravans.summary().length() > 10, "Toolkit summary answers")
-
-
 func _test_sand_sim() -> void:
 	var g := 16
 	var delta_field := PackedFloat32Array()

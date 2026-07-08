@@ -91,6 +91,13 @@ func _test_strata_link() -> void:
 		"time <hour> answers ok")
 	_check(absf(GameClock.hours - target) < 0.05,
 		"time <hour> lands on the hour (at %.2f, wanted %.2f)" % [GameClock.hours, target])
+	# The view verb (P8 viewer): toolkit isn't active in the test scene,
+	# so the honest error answers; bad args err with the contract line.
+	var vreplies := await _link_send(peer, ["view orbit", "view bogus"])
+	_check(vreplies.size() == 2, "view replies land (got %d)" % vreplies.size())
+	if vreplies.size() == 2:
+		_check(vreplies[0] == "err toolkit not active", "view orbit errs without toolkit")
+		_check(vreplies[1] == "err view needs orbit|fly", "view arg errs with the contract line")
 	await _test_preview_world(peer)
 	peer.disconnect_from_host()
 

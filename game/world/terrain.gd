@@ -1065,6 +1065,12 @@ func has_world_tile() -> bool:
 	return not _tiles.is_empty()
 
 
+## The world tile's edge length in meters (0 when no tile) — viewers
+## frame the world with it.
+func world_tile_size() -> float:
+	return float(_tiles[0].size) if not _tiles.is_empty() else 0.0
+
+
 # Load the pen override layer from disk (no-op when absent). The sidecar
 # meta carries the frame it was painted in plus the dirty rect, so boot
 # only composites where strokes actually exist.

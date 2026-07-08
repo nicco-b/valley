@@ -144,6 +144,13 @@ func _execute(line: String) -> String:
 				return "err preview_world needs a dir"
 			# Paths may carry spaces: everything after the verb is the dir.
 			return _preview_world(line.substr(len("preview_world")).strip_edges())
+		"view":
+			if parts.size() < 2 or not (parts[1] in ["orbit", "fly"]):
+				return "err view needs orbit|fly"
+			if not Toolkit.active:
+				return "err toolkit not active"
+			Toolkit.set_view_mode(parts[1] == "orbit")
+			return "ok view %s" % parts[1]
 		_:
 			return "err unknown verb '%s'" % parts[0]
 

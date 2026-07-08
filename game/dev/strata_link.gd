@@ -28,6 +28,21 @@ extends Node
 ##                               export's height.exr + bake_manifest.json;
 ##                               NOTHING under res://data is written — the
 ##                               checkout stays pristine until a real Send)
+##   toolkit status           -> the hand's state in one line (Strata's
+##                               toolbar mirror polls this on pane focus):
+##                               "ok tool=sculpt view=fly brush=12.0m
+##                                biome=5:<id> place=3/100:<slot> hud=on"
+##   toolkit tool <name>      -> switch the active tool
+##                               (sculpt|place|terrain|biome|river)
+##   toolkit brush <m>        -> set the active tool's brush radius in
+##                               meters (clamped to its keyboard range;
+##                               the reply carries what landed)
+##   toolkit biome <1-9>      -> pick the biome (the 1-9 keys)
+##   toolkit place <slot>     -> select the PLACE palette slot (1-based
+##                               index or card slot name)
+##   hud <on|off>             -> hide/show the in-game text HUD (the
+##                               embedded pane goes chrome-less when
+##                               Strata's toolbar is driving)
 ##
 ## summary() feeds the Toolkit world panel (systems it can't see are debt).
 
@@ -151,8 +166,66 @@ func _execute(line: String) -> String:
 				return "err toolkit not active"
 			Toolkit.set_view_mode(parts[1] == "orbit")
 			return "ok view %s" % parts[1]
+		"toolkit":
+			return _toolkit(parts)
+		"hud":
+			if parts.size() < 2 or not (parts[1] in ["on", "off"]):
+				return "err hud needs on|off"
+			var on := parts[1] == "on"
+			Toolkit.set_hud_visible(on)
+			HUD.visible = on  # gameplay text (prompt/say/notify) rides along
+			return "ok hud %s" % parts[1]
 		_:
 			return "err unknown verb '%s'" % parts[0]
+
+
+## The Toolkit verbs (ONE_APP P9·C): Strata's native toolbar drives the
+## in-game hand. Every subverb routes through the Toolkit's OWN state
+## (never a parallel store — the mirror and the keyboard cannot drift);
+## without the hand (play posture, title screen) they err honestly
+## instead of half-acting. Meaningful in --toolkit AND --viewer (the
+## viewer's Toolkit is active in orbit; status says view=orbit).
+func _toolkit(parts: PackedStringArray) -> String:
+	if parts.size() < 2:
+		return "err toolkit needs status|tool|brush|biome|place"
+	if not Toolkit.active:
+		return "err toolkit not active"
+	match parts[1]:
+		"status":
+			var s: Dictionary = Toolkit.link_state()
+			var place := "-"
+			if int(s["place_count"]) > 0:
+				place = "%d/%d:%s" % [int(s["place"]),
+					int(s["place_count"]), s["place_slot"]]
+			return "ok tool=%s view=%s brush=%.1fm biome=%d:%s place=%s hud=%s" % [
+				s["tool"], s["view"], float(s["brush_m"]),
+				int(s["biome"]), s["biome_id"], place,
+				"on" if s["hud"] else "off"]
+		"tool":
+			if parts.size() < 3 or not Toolkit.set_tool(parts[2]):
+				return "err toolkit tool needs sculpt|place|terrain|biome|river"
+			return "ok tool %s" % parts[2]
+		"brush":
+			if parts.size() < 3 or not parts[2].is_valid_float() \
+					or float(parts[2]) <= 0.0:
+				return "err toolkit brush needs meters > 0"
+			return "ok brush %.1fm" % Toolkit.set_brush_m(float(parts[2]))
+		"biome":
+			if parts.size() < 3 or not parts[2].is_valid_int() \
+					or not Toolkit.set_biome(int(parts[2])):
+				return "err toolkit biome needs 1..%d" % mini(9, Terrain.biomes.size())
+			return "ok biome %d:%s" % [int(parts[2]),
+				String(Terrain.biomes[int(parts[2]) - 1].id)]
+		"place":
+			if parts.size() < 3:
+				return "err toolkit place needs a slot (1-based index or card slot)"
+			var landed: int = Toolkit.set_place_slot(parts[2])
+			if landed == 0:
+				return "err no such place slot '%s'" % parts[2]
+			var s: Dictionary = Toolkit.link_state()
+			return "ok place %d/%d:%s" % [landed, int(s["place_count"]), s["place_slot"]]
+		_:
+			return "err toolkit needs status|tool|brush|biome|place"
 
 
 ## Advance the clock for the hub — always FORWARD, always through

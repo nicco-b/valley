@@ -25,10 +25,14 @@ const PEN_RATE_M := 90.0  # meters of override per second at brush center
 const PEN_QUIET_COMMIT := 0.25  # seconds of stroke-quiet before commit
 const MACRO_MIN := 24.0
 const MACRO_MAX := 1200.0
+const BRUSH_MIN := 3.0  # sculpt brush range (the [ ] keys and the link)
+const BRUSH_MAX := 64.0
 
 enum Tool { SCULPT, PLACE, TERRAIN, BIOME, RIVER }
+const TOOL_NAMES: Array[String] = ["sculpt", "place", "terrain", "biome", "river"]
 
 var active := false
+var hud_on := true  # the text-overlay switch (StrataLink `hud`; the viewer boots dark)
 
 var _cam: Camera3D
 var _cursor: MeshInstance3D
@@ -102,6 +106,7 @@ static func viewer_requested() -> bool:
 
 func _ready() -> void:
 	_palette = Cards.placeable()  # card-driven PLACE palette (the Kit from cards)
+	hud_on = not viewer_requested()  # the viewer posture boots dark (P8)
 	if launch_requested():
 		get_tree().node_added.connect(_boot_watch)
 
@@ -287,14 +292,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif _tool == Tool.TERRAIN or _tool == Tool.BIOME:
 			_macro_radius = minf(_macro_radius * 1.3, MACRO_MAX)
 		else:
-			_brush_radius = minf(_brush_radius * 1.3, 64.0)
+			_brush_radius = minf(_brush_radius * 1.3, BRUSH_MAX)
 	elif event.is_action_pressed("brush_smaller"):
 		if _tool == Tool.PLACE:
 			_step_palette(-1)
 		elif _tool == Tool.TERRAIN or _tool == Tool.BIOME:
 			_macro_radius = maxf(_macro_radius / 1.3, MACRO_MIN)
 		else:
-			_brush_radius = maxf(_brush_radius / 1.3, 3.0)
+			_brush_radius = maxf(_brush_radius / 1.3, BRUSH_MIN)
 	elif event is InputEventKey and event.pressed and not event.echo \
 			and event.physical_keycode == KEY_O:
 		# The world panel: every system's Toolkit summary, live.
@@ -566,16 +571,16 @@ func _enter() -> void:
 	_pitch = -1.1
 	_cam.current = true
 	_cursor.visible = true
-	_hud.visible = true
+	_hud.visible = hud_on
 	_update_hud()
 	player.set_physics_process(false)
 	player.set_process_unhandled_input(false)
 	set_process(true)
-	# The VIEWER posture: land in orbit framing the whole tile, HUD dark —
-	# the generator's viewport, engine-rendered (Strata boots the pane so).
+	# The VIEWER posture: land in orbit framing the whole tile, HUD dark
+	# (hud_on defaulted false in _ready) — the generator's viewport,
+	# engine-rendered (Strata boots the pane so).
 	if Toolkit.viewer_requested():
 		set_view_mode(true)
-		_hud.visible = false
 
 
 func _exit() -> void:
@@ -716,3 +721,101 @@ func _jump_category(n: int) -> void:
 			_place_index = i
 			_update_hud()
 			return
+
+
+# --- StrataLink hooks (ONE_APP P9·C: the Toolkit in Strata's toolbar).
+# Strata's native chrome drives the hand through these — they read and
+# write the SAME state the keyboard uses (never a parallel store), so
+# the toolbar mirror and the keys cannot drift. The link gates them on
+# `active` (no hand, honest error), so _update_hud always has its label.
+
+
+## Everything Strata's toolbar mirror needs in one read (the link's
+## `toolkit status`, polled on pane focus so the mirror never lies).
+func link_state() -> Dictionary:
+	var count := _palette.size()
+	var idx := (_place_index % count) + 1 if count > 0 else 0
+	var biome := ""
+	if _biome_index >= 0 and _biome_index < Terrain.biomes.size():
+		biome = String(Terrain.biomes[_biome_index].id)
+	return {
+		"tool": TOOL_NAMES[_tool],
+		"view": "orbit" if orbit else "fly",
+		"brush_m": brush_m(),
+		"biome": _biome_index + 1, "biome_id": biome,
+		"place": idx, "place_count": count,
+		"place_slot": String(_palette[idx - 1]["slot"]) if count > 0 else "",
+		"hud": hud_on,
+	}
+
+
+## Switch the active tool by name; false on an unknown name.
+func set_tool(p_tool: String) -> bool:
+	var i := TOOL_NAMES.find(p_tool)
+	if i < 0:
+		return false
+	_tool = i as Tool
+	if _tool == Tool.TERRAIN and not Terrain.has_world_tile():
+		HUD.notify("no baked tile — import a Strata world first")
+	_update_hud()
+	return true
+
+
+## The active tool's brush radius in meters (TERRAIN/BIOME ride the
+## macro brush, everything else the sculpt brush — the same split as [ ]).
+func brush_m() -> float:
+	if _tool == Tool.TERRAIN or _tool == Tool.BIOME:
+		return _macro_radius
+	return _brush_radius
+
+
+## Set the active tool's brush, clamped to its keyboard range; returns
+## the radius that actually landed (the link replies with it).
+func set_brush_m(m: float) -> float:
+	if _tool == Tool.TERRAIN or _tool == Tool.BIOME:
+		_macro_radius = clampf(m, MACRO_MIN, MACRO_MAX)
+		return _macro_radius
+	_brush_radius = clampf(m, BRUSH_MIN, BRUSH_MAX)
+	return _brush_radius
+
+
+## Pick the biome by its 1-9 key number; false when out of range.
+func set_biome(n: int) -> bool:
+	if n < 1 or n > mini(9, Terrain.biomes.size()):
+		return false
+	_biome_index = n - 1
+	_update_hud()
+	return true
+
+
+## Select the PLACE palette slot by 1-based index or card slot name;
+## returns the landed 1-based index, 0 when not found / no cards.
+func set_place_slot(arg: String) -> int:
+	if _palette.is_empty():
+		return 0
+	if arg.is_valid_int():
+		var n := int(arg)
+		if n < 1 or n > _palette.size():
+			return 0
+		_place_index = n - 1
+	else:
+		var found := -1
+		for i in _palette.size():
+			if _palette[i]["slot"] == arg:
+				found = i
+				break
+		if found < 0:
+			return 0
+		_place_index = found
+	_update_hud()
+	return _place_index + 1
+
+
+## Hide/show the Toolkit's text overlay (the link's `hud` verb — the
+## embedded pane goes chrome-less when Strata's toolbar is driving).
+## The switch persists across enter/exit; the HUD autoload rides along
+## in strata_link so ALL on-screen text goes dark together.
+func set_hud_visible(on: bool) -> void:
+	hud_on = on
+	if _hud:
+		_hud.visible = on and active

@@ -99,7 +99,100 @@ func _test_strata_link() -> void:
 		_check(vreplies[0] == "err toolkit not active", "view orbit errs without toolkit")
 		_check(vreplies[1] == "err view needs orbit|fly", "view arg errs with the contract line")
 	await _test_preview_world(peer)
+	await _test_toolkit_verbs(peer)
 	peer.disconnect_from_host()
+
+
+## The toolkit verbs (ONE_APP P9·C): Strata's native toolbar drives the
+## in-game hand over the link. Status mirrors the REAL Toolkit state,
+## the setters route through it (tool/brush/biome/place — never a
+## parallel store), hud darkens the overlays, and without the hand every
+## subverb errs honestly. A disposable player body lets the Toolkit
+## enter headless — the same shape the --toolkit posture boots into.
+func _test_toolkit_verbs(peer: StreamPeerTCP) -> void:
+	# No hand yet (the play posture / title screen): the honest error.
+	var replies := await _link_send(peer, ["toolkit status", "toolkit tool sculpt"])
+	_check(replies.size() == 2, "toolkit replies land (got %d)" % replies.size())
+	for r in replies:
+		_check(r == "err toolkit not active", "toolkit errs without the hand")
+	# Give the Toolkit its hand: a disposable player, then enter.
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	Toolkit._enter()
+	_check(Toolkit.active, "toolkit enters over the test player")
+	replies = await _link_send(peer, [
+		"toolkit status",       # 0: the boot state
+		"toolkit tool biome",   # 1
+		"toolkit brush 300",    # 2: biome rides the macro brush (24..1200)
+		"toolkit biome 3",      # 3
+		"toolkit tool sculpt",  # 4
+		"toolkit brush 22.5",   # 5: sculpt brush
+		"toolkit brush 9999",   # 6: clamped to the keyboard range
+		"toolkit status",       # 7: mirrors everything set above
+		"toolkit tool bogus",   # 8
+		"toolkit brush nope",   # 9
+		"toolkit biome 0",      # 10
+		"toolkit bogus",        # 11
+		"hud off",              # 12
+		"hud sideways",         # 13
+	])
+	_check(replies.size() == 14, "toolkit verb replies land (got %d)" % replies.size())
+	if replies.size() == 14:
+		_check(replies[0].begins_with("ok tool=sculpt view=fly brush=12.0m biome=5:")
+			and replies[0].ends_with("hud=on"),
+			"toolkit status reports the boot state (got %s)" % replies[0])
+		_check(replies[1] == "ok tool biome", "toolkit tool switches")
+		_check(replies[2] == "ok brush 300.0m", "biome brush is the macro brush")
+		_check(replies[3].begins_with("ok biome 3:"), "toolkit biome picks")
+		_check(replies[4] == "ok tool sculpt", "toolkit tool switches back")
+		_check(replies[5] == "ok brush 22.5m", "sculpt brush sets in meters")
+		_check(replies[6] == "ok brush 64.0m", "brush clamps to the keyboard range")
+		_check(replies[7].begins_with("ok tool=sculpt view=fly brush=64.0m biome=3:"),
+			"toolkit status mirrors the link's own writes (got %s)" % replies[7])
+		_check(replies[8] == "err toolkit tool needs sculpt|place|terrain|biome|river",
+			"unknown tool errs with the contract line")
+		_check(replies[9] == "err toolkit brush needs meters > 0",
+			"bad brush errs with the contract line")
+		_check(replies[10].begins_with("err toolkit biome needs 1.."),
+			"biome 0 errs with the contract line")
+		_check(replies[11] == "err toolkit needs status|tool|brush|biome|place",
+			"unknown subverb errs with the contract line")
+		# hud off is the batch's LAST state change: the darkness is
+		# assertable here (hud on rides its own batch below).
+		_check(replies[12] == "ok hud off" and not HUD.visible
+			and not Toolkit._hud.visible, "hud off darkens both overlays")
+		_check(replies[13] == "err hud needs on|off", "bad hud arg errs")
+	var hreplies := await _link_send(peer, ["hud on"])
+	_check(hreplies.size() == 1 and hreplies[0] == "ok hud on" and HUD.visible
+		and Toolkit._hud.visible, "hud on relights both overlays")
+	# The place slot rides the Cards palette (skip empty: fresh clone
+	# without the placeholder drop still has the tracked cards, but honest).
+	var count := int(Toolkit.link_state()["place_count"])
+	if count > 0:
+		var pre := await _link_send(peer,
+			["toolkit place 1", "toolkit place 0", "toolkit place no_such/slot"])
+		_check(pre.size() == 3, "place replies land (got %d)" % pre.size())
+		if pre.size() == 3:
+			_check(pre[0].begins_with("ok place 1/%d:" % count),
+				"place by index answers the landed slot (got %s)" % pre[0])
+			_check(pre[1].begins_with("err no such place slot"), "place 0 errs")
+			_check(pre[2].begins_with("err no such place slot"), "unknown slot errs")
+			# Round-trip by NAME: select the slot status just reported.
+			var slot := String(Toolkit.link_state()["place_slot"])
+			var by_name := await _link_send(peer, ["toolkit place " + slot])
+			_check(by_name.size() == 1 and by_name[0] == "ok place 1/%d:%s" % [count, slot],
+				"place by slot name round-trips (got %s)" % str(by_name))
+	else:
+		print("  toolkit place: SKIP (no cards in this checkout)")
+	# Teardown by hand (Toolkit._exit wants the real player rig): restore
+	# the defaults the keyboard expects, release the hand, drop the player.
+	Toolkit.set_tool("sculpt")
+	Toolkit.set_brush_m(12.0)
+	Toolkit.set_biome(5)
+	Toolkit.active = false
+	Toolkit.set_hud_visible(true)  # hud_on stays true; overlay dark (inactive)
+	player.queue_free()
 
 
 ## preview_world (ONE_APP P8, the viewer): the game wears a Strata export

@@ -102,6 +102,7 @@ func _test_strata_link() -> void:
 		_check(vreplies[0] == "err toolkit not active", "view orbit errs without toolkit")
 		_check(vreplies[1] == "err view needs orbit|fly", "view arg errs with the contract line")
 	await _test_preview_world(peer)
+	await _test_preview_mesh(peer)
 	await _test_toolkit_verbs(peer)
 	peer.disconnect_from_host()
 
@@ -243,6 +244,136 @@ func _test_preview_world(peer: StreamPeerTCP) -> void:
 	DirAccess.remove_absolute(dir.path_join("height.exr"))
 	DirAccess.remove_absolute(dir.path_join("bake_manifest.json"))
 	DirAccess.remove_absolute(dir)
+
+
+## preview_mesh + view_layer (engine-viewport M2, the fast path): the GPU
+## preview grid wears an export as a texture swap — Terrain is NEVER
+## touched (the deliberate opposite of preview_world), the streamed
+## world's dress steps aside by group with its visibility recorded, and
+## leaving preview restores it exactly. The verb matrix errs with its
+## contract lines: bad args, missing manifest/height, missing layer
+## files, view_layer before a wear.
+func _test_preview_mesh(peer: StreamPeerTCP) -> void:
+	# Stage hands for the lifecycle: two dress nodes in the steps-aside
+	# group — one visible (the normal world), one ALREADY hidden (restore
+	# must return recorded visibility, not blanket-show).
+	var ground := Node3D.new()
+	ground.add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)
+	add_child(ground)
+	var cellar := Node3D.new()
+	cellar.add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)
+	cellar.visible = false
+	add_child(cellar)
+	var sea_before: float = Terrain.sea_level
+	var height_before: float = Terrain.height(3000.0, 3000.0)
+	# A synthetic export, built in two acts so the missing-height error
+	# answers first: manifest (flat 42m world, sea at 5m), then height.exr,
+	# moisture.png and colormap.png — temperature.png deliberately absent.
+	var dir := ProjectSettings.globalize_path("user://preview_mesh_world")
+	DirAccess.make_dir_recursive_absolute(dir)
+	var mf := FileAccess.open(dir.path_join("bake_manifest.json"), FileAccess.WRITE)
+	mf.store_string(JSON.stringify({"world": {
+		"size_m": [16384.0, 16384.0], "sea_level_m": 5.0}}))
+	mf.close()
+	var pre := await _link_send(peer, [
+		"preview_mesh",              # 0: bare verb errs
+		"view_layer moisture",       # 1: no preview worn yet
+		"view_layer",                # 2: bare verb errs with the layer list
+		"preview_mesh /no/such/dir", # 3: honest missing-manifest error
+		"preview_mesh " + dir,       # 4: manifest yes, height not yet
+	])
+	_check(pre.size() == 5, "preview_mesh pre-wear replies land (got %d)" % pre.size())
+	if pre.size() == 5:
+		_check(pre[0] == "err preview_mesh needs a dir (or off)", "bare preview_mesh errs")
+		_check(pre[1] == "err no preview mesh worn (preview_mesh <dir> first)",
+			"view_layer before a wear errs honestly")
+		_check(pre[2] == "err view_layer needs shaded|moisture|temperature|slope|biome",
+			"bare view_layer errs with the layer list")
+		_check(pre[3].begins_with("err no bake_manifest.json"), "missing manifest errs")
+		_check(pre[4].begins_with("err no height.exr"), "missing height.exr errs")
+	var img := Image.create(64, 64, false, Image.FORMAT_RF)
+	img.fill(Color(42.0, 0.0, 0.0))
+	img.save_exr(dir.path_join("height.exr"))
+	var gray := Image.create(64, 64, false, Image.FORMAT_L8)
+	gray.fill(Color(0.5, 0.5, 0.5))
+	gray.save_png(dir.path_join("moisture.png"))
+	var rgba := Image.create(64, 64, false, Image.FORMAT_RGBA8)
+	rgba.fill(Color(0.2, 0.6, 0.3, 1.0))
+	rgba.save_png(dir.path_join("colormap.png"))
+	# The wear: ok reply carries the world frame, the sea, and the swap
+	# time; the dress hides; Terrain never hears about any of it.
+	var worn := await _link_send(peer, ["preview_mesh " + dir])
+	_check(worn.size() == 1 and worn[0].begins_with("ok preview_mesh 16384m sea=5.0m wear="),
+		"preview_mesh answers the contract shape (got %s)" % str(worn))
+	_check(StrataLink._preview != null and StrataLink._preview.worn,
+		"the preview grid is worn")
+	_check(not ground.visible, "the streamed dress steps aside")
+	_check(not cellar.visible, "an already-hidden dress node stays hidden")
+	_check(Terrain.sea_level == sea_before,
+		"preview_mesh never touches Terrain's sea level")
+	_check(Terrain.height(3000.0, 3000.0) == height_before,
+		"preview_mesh never touches the height function (the kernel is not re-tiled)")
+	# The layer matrix: present files drape, the absent one errs by name,
+	# computed layers (slope) and file-less modes (shaded) always answer.
+	var layers := await _link_send(peer, [
+		"view_layer moisture",     # 0
+		"view_layer temperature",  # 1: file absent from this export
+		"view_layer bogus",        # 2
+		"view_layer slope",        # 3
+		"view_layer biome",        # 4
+		"view_layer shaded",       # 5
+		"view_layer moisture",     # 6: back on, to ride through the re-wear
+	])
+	_check(layers.size() == 7, "view_layer replies land (got %d)" % layers.size())
+	if layers.size() == 7:
+		_check(layers[0].begins_with("ok layer moisture"), "moisture drapes")
+		_check(layers[1] == "err layer file missing: temperature.png (re-export from Strata)",
+			"a layer the export lacks errs by filename")
+		_check(layers[2] == "err view_layer needs shaded|moisture|temperature|slope|biome",
+			"unknown layer errs with the layer list")
+		_check(layers[3].begins_with("ok layer slope"), "slope computes in-shader")
+		_check(layers[4].begins_with("ok layer biome"), "biome drapes the colormap")
+		_check(layers[5].begins_with("ok layer shaded"), "shaded always answers")
+		_check(layers[6].begins_with("ok layer moisture"), "moisture re-drapes")
+	# Warm re-wear (the slider loop): still ok, the dress stays aside
+	# WITHOUT re-recording (restore must remember the original state),
+	# and the active drape survives the push.
+	var rewear := await _link_send(peer, ["preview_mesh " + dir])
+	_check(rewear.size() == 1 and rewear[0].begins_with("ok preview_mesh"),
+		"warm re-wear answers ok")
+	_check(not ground.visible, "re-wear keeps the dress aside")
+	_check(String(StrataLink._preview._layer) == "moisture",
+		"the drape survives a re-wear")
+	# A re-wear whose export DROPPED the draped layer falls back to
+	# shaded honestly instead of draping stale bytes.
+	DirAccess.remove_absolute(dir.path_join("moisture.png"))
+	var dropped := await _link_send(peer, ["preview_mesh " + dir])
+	_check(dropped.size() == 1 and dropped[0].begins_with("ok preview_mesh"),
+		"re-wear without the draped layer still wears")
+	_check(String(StrataLink._preview._layer) == "shaded",
+		"a dropped layer falls back to shaded")
+	# Leave: the dress returns EXACTLY as recorded (visible stays visible,
+	# hidden stays hidden), the grid hides, and off is idempotent.
+	var off := await _link_send(peer, [
+		"preview_mesh off", "preview_mesh off", "view_layer shaded"])
+	_check(off.size() == 3, "off replies land (got %d)" % off.size())
+	if off.size() == 3:
+		_check(off[0] == "ok preview_mesh off (streamed world restored)", "off restores")
+		_check(off[1] == "ok preview_mesh off (streamed world restored)", "off is idempotent")
+		_check(off[2] == "err no preview mesh worn (preview_mesh <dir> first)",
+			"view_layer after off errs honestly")
+	_check(ground.visible, "the visible dress node returns visible")
+	_check(not cellar.visible, "the hidden dress node returns hidden")
+	_check(not StrataLink._preview.worn and not StrataLink._preview.visible,
+		"the grid steps back after off")
+	# Leave no trace: the export files, the stage hands, the grid.
+	for f in ["height.exr", "colormap.png", "bake_manifest.json"]:
+		DirAccess.remove_absolute(dir.path_join(f))
+	DirAccess.remove_absolute(dir)
+	ground.queue_free()
+	cellar.queue_free()
+	StrataLink._preview.queue_free()
+	StrataLink._preview = null
 
 
 ## Send commands one per line, then pump frames until every reply lands.

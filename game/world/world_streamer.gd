@@ -75,6 +75,7 @@ var _visual_results: Array = []  # [cell, mesh] guarded by _results_mutex
 
 func _ready() -> void:
 	add_to_group("world_streamer")
+	add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)  # cells hide while a preview grid is worn
 	_scan_authored()
 	Terrain.edited.connect(_on_terrain_edited)
 	CellRecords.changed.connect(_on_records_changed)

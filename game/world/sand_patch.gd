@@ -21,6 +21,7 @@ var _mi: MeshInstance3D
 
 
 func _ready() -> void:
+	add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)  # steps aside during preview
 	_mi = MeshInstance3D.new()
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:

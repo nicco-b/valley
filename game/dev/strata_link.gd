@@ -28,6 +28,18 @@ extends Node
 ##                               export's height.exr + bake_manifest.json;
 ##                               NOTHING under res://data is written — the
 ##                               checkout stays pristine until a real Send)
+##   preview_mesh <dir>       -> the M2 fast path: wear the export on the
+##                               GPU preview grid (PreviewTerrain) — a
+##                               texture upload, ground next frame, no
+##                               cell/collision/far rebuild; the streamed
+##                               world steps aside (visibility only, sims
+##                               untouched). "preview_mesh off" restores
+##                               the streamed world exactly. Reply:
+##                               "ok preview_mesh <size>m sea=<m> wear=<ms>ms"
+##   view_layer <name>        -> false-color drape on the preview grid:
+##                               shaded|moisture|temperature|slope|biome
+##                               (errs when no preview is worn, or when
+##                               the export lacks that layer's file)
 ##   toolkit status           -> the hand's state in one line (Strata's
 ##                               toolbar mirror polls this on pane focus):
 ##                               "ok tool=sculpt view=fly brush=12.0m
@@ -159,6 +171,17 @@ func _execute(line: String) -> String:
 				return "err preview_world needs a dir"
 			# Paths may carry spaces: everything after the verb is the dir.
 			return _preview_world(line.substr(len("preview_world")).strip_edges())
+		"preview_mesh":
+			# The M2 fast path: the GPU shaping viewport (PreviewTerrain).
+			if parts.size() < 2:
+				return "err preview_mesh needs a dir (or off)"
+			return _preview_mesh(line.substr(len("preview_mesh")).strip_edges())
+		"view_layer":
+			if parts.size() < 2:
+				return "err view_layer needs %s" % "|".join(PreviewTerrain.LAYERS.keys())
+			if _preview == null or not _preview.worn:
+				return "err no preview mesh worn (preview_mesh <dir> first)"
+			return _preview.set_layer(parts[1])
 		"view":
 			if parts.size() < 2 or not (parts[1] in ["orbit", "fly"]):
 				return "err view needs orbit|fly"
@@ -270,6 +293,29 @@ func _preview_world(dir: String) -> String:
 		return "err could not load %s" % rec["heightmap"]
 	return "ok preview %.0fm sea=%.1fm (in memory — Send persists)" % [
 		size, Terrain.sea_level]
+
+
+## The M2 fast path: one PreviewTerrain grid, created on demand under the
+## current scene, wears the export as a texture swap — the SHAPING loop's
+## viewport (preview_world stays the walk-it viewer: it re-tiles the live
+## kernel so collision and sims feel the new ground). "off" leaves
+## preview and the streamed world returns exactly as recorded. In memory
+## only, like preview_world — the checkout never changes.
+var _preview: PreviewTerrain = null
+
+
+func _preview_mesh(dir: String) -> String:
+	if dir == "off":
+		if _preview != null:
+			_preview.leave()
+		return "ok preview_mesh off (streamed world restored)"
+	if _preview == null:
+		_preview = PreviewTerrain.new()
+		get_tree().current_scene.add_child(_preview)
+	var line := _preview.wear(dir)
+	if line.begins_with("err"):
+		return line
+	return "ok preview_mesh %s (in memory — off restores)" % line
 
 
 ## Drop the view at a world XZ: the Toolkit fly cam when it's open (the

@@ -55,6 +55,7 @@ var _bathy: Dictionary = {}  # tier -> bake state (see _bathy_register)
 
 
 func _ready() -> void:
+	add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)  # sea + lakes step aside during preview
 	if Terrain.sea_level > -1e11:
 		_sea_near = MeshInstance3D.new()
 		_sea_near.name = "sea_near"

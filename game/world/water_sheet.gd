@@ -17,6 +17,7 @@ var _built_size := 0.0
 
 
 func _ready() -> void:
+	add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)  # steps aside during preview
 	if not WaterField.enabled:
 		set_process(false)
 		return

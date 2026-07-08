@@ -37,6 +37,7 @@ var _edit_cooldown := 0.0
 
 
 func _ready() -> void:
+	add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)  # the horizon steps aside during preview
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:
 		_material = streamer._ground_material.duplicate()

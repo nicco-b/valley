@@ -23,6 +23,12 @@ const MOUSE_SENSITIVITY := 0.003
 # the same shared cores (Terrain.paint_tile_override, RiverPen).
 const PEN_RATE_M := 90.0  # meters of override per second at brush center
 const PEN_QUIET_COMMIT := 0.25  # seconds of stroke-quiet before commit
+# Crash-safety flush (audit 2026-07-08): hand edits used to live only in
+# memory until F5/exit — a crash lost the session. A few seconds after
+# the last stroke the dirty layers write through the SAME F5 path,
+# automatically. Long enough after PEN_QUIET_COMMIT that the recomposite
+# has already landed; never while the button is down.
+const FLUSH_QUIET := 3.0  # seconds of hand-quiet before the disk flush
 const MACRO_MIN := 24.0
 const MACRO_MAX := 1200.0
 const BRUSH_MIN := 3.0  # sculpt brush range (the [ ] keys and the link)
@@ -52,6 +58,8 @@ var _place_index := 0     # flat index into _palette
 var _world_panel: Label
 var _panel_accum := 0.0
 var _sculpt_undo: Image = null
+var _sculpt_unsaved := false  # sculpt strokes newer than the disk layer
+var _flush_quiet := 0.0  # seconds since the last hand edit (the flush clock)
 var _flatten_target := 0.0
 var _flattening := false
 var _stroke_live := false
@@ -68,6 +76,8 @@ var _biome_index := 4
 var _biome_dirty := Rect2()
 var _biome_stroke := false
 var _biome_unsaved := false
+var _biome_undo: Image = null  # one-deep pre-stroke memento (Z)
+var _biome_undo_rect := Rect2()  # region painted since that memento
 
 # RIVER pen state.
 var _river_nodes: Array[Vector2] = []
@@ -218,6 +228,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pitch = clampf(_pitch - event.relative.y * MOUSE_SENSITIVITY, -1.55, 1.55)
 	elif event.is_action_pressed("toolkit_save"):
 		Terrain.save_edits()
+		_sculpt_unsaved = false
 		_save_pens()
 	elif event.is_action_pressed("toolkit_tool"):
 		_tool = ((_tool as int) + 1) % Tool.size() as Tool
@@ -225,27 +236,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			HUD.notify("no baked tile — import a Strata world first")
 		_update_hud()
 	elif event.is_action_pressed("toolkit_undo"):
-		match _tool:
-			Tool.SCULPT:
-				# One-deep sculpt undo: revert to the pre-stroke snapshot.
-				Terrain.restore_edits(_sculpt_undo)
-				_sculpt_undo = null
-			Tool.TERRAIN:
-				if _pen_undo != null:
-					# One-deep stroke undo: restore the pre-stroke override
-					# (recomposites + reshapes immediately).
-					Terrain.restore_tile_override(_pen_undo.duplicate())
-					_pen_dirty = false
-					_pen_bbox = Rect2()
-					_terrain_unsaved = true
-			Tool.RIVER:
-				if not _river_nodes.is_empty():
-					_river_nodes.pop_back()
-					_update_hud()
-			_:
-				var hit := _ray_to_ground()
-				if hit != Vector3.INF:
-					CellRecords.remove_last(CellRecords.cell_of(hit))
+		_undo()
 	elif event is InputEventKey and event.pressed and not event.echo \
 			and _tool == Tool.RIVER \
 			and (event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER):
@@ -323,6 +314,56 @@ func _unhandled_input(event: InputEvent) -> void:
 			_inspected = result.collider if result and result.collider.has_method("sim_debug") \
 					else null
 			_inspector.visible = _inspected != null
+
+
+## Z — the one-deep per-tool memento. Every tool answers for ITSELF, by
+## name: a mode with nothing to undo is a no-op with a HUD notice, NEVER
+## a cross-tool action (the audit's Z footgun: the old default branch
+## fell through to CellRecords.remove_last, so Z in biome mode silently
+## deleted a placed object).
+func _undo() -> void:
+	match _tool:
+		Tool.SCULPT:
+			if _sculpt_undo != null:
+				# Revert to the pre-stroke snapshot of the edit layer.
+				Terrain.restore_edits(_sculpt_undo)
+				_sculpt_undo = null
+				_sculpt_unsaved = true  # the revert itself needs the flush
+			else:
+				HUD.notify("sculpt: nothing to undo")
+		Tool.TERRAIN:
+			if _pen_undo != null:
+				# Restore the pre-stroke override (recomposites + reshapes
+				# immediately).
+				Terrain.restore_tile_override(_pen_undo.duplicate())
+				_pen_dirty = false
+				_pen_bbox = Rect2()
+				_terrain_unsaved = true
+			else:
+				HUD.notify("terrain: nothing to undo")
+		Tool.BIOME:
+			if _biome_undo != null:
+				# The pre-stroke index map returns: tint instantly, flora
+				# re-composed over the undone region only.
+				Terrain.restore_biome_map(_biome_undo, _biome_undo_rect)
+				_biome_undo = null
+				_biome_undo_rect = Rect2()
+				_biome_dirty = Rect2()
+				_biome_stroke = false
+				_biome_unsaved = true  # the revert itself needs the flush
+			else:
+				HUD.notify("biome: nothing to undo")
+		Tool.RIVER:
+			if not _river_nodes.is_empty():
+				_river_nodes.pop_back()
+				_update_hud()
+			else:
+				HUD.notify("river: nothing to undo")
+		Tool.PLACE:
+			var hit := _ray_to_ground()
+			if hit == Vector3.INF \
+					or not CellRecords.remove_last(CellRecords.cell_of(hit)):
+				HUD.notify("place: nothing to undo here")
 
 
 func _process(delta: float) -> void:
@@ -405,17 +446,13 @@ func _process(delta: float) -> void:
 						else _pen_bbox.merge(pr)
 		# BIOME pen: instant tint; flora re-composes on stroke release.
 		elif _tool == Tool.BIOME and painting:
-			_biome_stroke = true
-			var painted: Rect2 = Terrain.paint_biome_index(
-				hit.x, hit.z, _macro_radius, _biome_index)
-			_biome_dirty = painted if _biome_dirty.size == Vector2.ZERO \
-					else _biome_dirty.merge(painted)
-			_biome_unsaved = true
+			_biome_paint_at(hit)
 		if _tool == Tool.SCULPT and painting:
 			if not _stroke_live:
 				# Stroke begins: snapshot for Z-undo.
 				_stroke_live = true
 				_sculpt_undo = Terrain.snapshot_edits()
+				_sculpt_unsaved = true
 				_flattening = Input.is_key_pressed(KEY_CTRL)
 				_flatten_target = hit.y  # flatten to first-touched height
 			# Fixed brush cadence, dt-scaled strength: the pixel loop is
@@ -455,6 +492,20 @@ func _process(delta: float) -> void:
 			Terrain.commit_biome_paint(_biome_dirty)
 			_biome_dirty = Rect2()
 
+	# The crash-safety flush: while any hand-edited layer is newer than
+	# disk and the hand is quiet, the clock runs; at FLUSH_QUIET the dirty
+	# layers write through the SAME path F5 uses. Editor-only by
+	# construction (_process is gated on `active`), so the sim and the
+	# soak digest never see it.
+	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) \
+			or not (_sculpt_unsaved or _terrain_unsaved
+				or _biome_unsaved or _pen_dirty):
+		_flush_quiet = 0.0
+	else:
+		_flush_quiet += delta
+		if _flush_quiet >= FLUSH_QUIET:
+			_flush_hand_edits()  # leaves every flag clean
+
 	_update_river_preview()
 
 
@@ -474,6 +525,39 @@ func _save_pens() -> void:
 		Terrain.save_tile_override()
 		_terrain_unsaved = false
 		HUD.notify("terrain override saved")
+
+
+## One biome-pen application under the cursor (the _process stroke path,
+## split out so the scene test can drive a stroke headless). The first
+## touch of a stroke takes the one-deep Z memento — the sculpt pattern.
+func _biome_paint_at(hit: Vector3) -> void:
+	if not _biome_stroke:
+		_biome_stroke = true
+		_biome_undo = Terrain.snapshot_biome_map()
+		_biome_undo_rect = Rect2()
+	var painted: Rect2 = Terrain.paint_biome_index(
+		hit.x, hit.z, _macro_radius, _biome_index)
+	if painted.size == Vector2.ZERO:
+		return
+	_biome_dirty = painted if _biome_dirty.size == Vector2.ZERO \
+			else _biome_dirty.merge(painted)
+	_biome_undo_rect = painted if _biome_undo_rect.size == Vector2.ZERO \
+			else _biome_undo_rect.merge(painted)
+	_biome_unsaved = true
+	_flush_quiet = 0.0
+
+
+## The stroke-quiet disk flush (crash-safety): exactly the writes F5
+## makes, fired automatically once the hand has been quiet FLUSH_QUIET
+## seconds with unsaved layers. Reuses the manual-save path wholesale —
+## the flush IS the save, just unprompted.
+func _flush_hand_edits() -> void:
+	if _sculpt_unsaved:
+		Terrain.save_edits()
+		_sculpt_unsaved = false
+	if _pen_dirty or _terrain_unsaved or _biome_unsaved:
+		_save_pens()
+	_flush_quiet = 0.0
 
 
 # The drawn river course: a floating line strip PLUS a filled marker
@@ -546,6 +630,7 @@ func _enter() -> void:
 func _exit() -> void:
 	active = false
 	Terrain.save_edits()
+	_sculpt_unsaved = false
 	_save_pens()
 	var player := _player()
 	var ground := Terrain.height(_cam.global_position.x, _cam.global_position.z)
@@ -657,7 +742,7 @@ func _update_hud() -> void:
 				var bid := String(Terrain.biomes[i].id)
 				bnames.append(("[%d %s]" if i == _biome_index else "%d %s") % [i + 1, bid])
 			_hud_label.text = "TOOLKIT·BIOME   " + " · ".join(bnames) \
-					+ "   |   LMB paint (re-flora on release) | [ ] brush %dm | Tab next tool" % int(_macro_radius)
+					+ "   |   LMB paint (re-flora on release) | Z undo stroke | [ ] brush %dm | Tab next tool" % int(_macro_radius)
 		Tool.RIVER:
 			_hud_label.text = "TOOLKIT·RIVER   LMB drop point (%d) | Enter carve | Z undo point | Tab next tool | F1 exit" % _river_nodes.size()
 

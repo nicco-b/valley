@@ -1055,6 +1055,24 @@ func commit_biome_paint(rect: Rect2) -> void:
 	edited.emit(rect)
 
 
+## Biome pen undo support: one-deep snapshot of the live index map (the
+## sculpt layer's snapshot_edits pattern — the Toolkit's Z restores it).
+func snapshot_biome_map() -> Image:
+	return _biome_img.duplicate() if _biome_img != null else null
+
+
+## Restore a pre-stroke index map: the tint reverts instantly (texture
+## re-upload) and flora re-composes over `rect` — the region painted
+## since the snapshot (zero rect skips the rescatter: nothing changed).
+func restore_biome_map(snap: Image, rect: Rect2) -> void:
+	if snap == null or _biome_img == null:
+		return
+	_biome_img = snap
+	_biome_idx_tex.update(_biome_img)
+	if rect.size != Vector2.ZERO:
+		edited.emit(rect)
+
+
 ## Load one painted-tile record: image → float array, once at boot
 ## (and on dev hot-reload). Cold path; any failure skips the tile.
 func _load_tile(rec: Dictionary, fallback_id: String) -> Dictionary:

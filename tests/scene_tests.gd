@@ -30,6 +30,9 @@ func _ready() -> void:
 	_test_placement_reseat()
 	_test_cell_records_armor()
 	_test_import_frame_refusal()
+	_test_biome_undo()
+	await _test_toolkit_undo()
+	_test_edit_flush()
 	_test_map()
 	await _test_strata_link()
 	if _failures > 0:
@@ -734,6 +737,170 @@ func _test_placement_reseat() -> void:
 	if CellRecords.records(cell).size() == pre_count and pre_count == 0:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(
 			"%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]))
+
+
+## The biome pen's Z (audit quick win 2): one pre-stroke memento, the
+## exact sculpt pattern — paint a stroke, tap Z, and the index map
+## returns bit-identical; the memento is one-deep and consumed.
+func _test_biome_undo() -> void:
+	if Terrain._biome_img == null:
+		print("  biome undo: SKIP (no biome map on this checkout)")
+		return
+	var p := Vector2(1200.0, 1200.0)
+	var before: int = Terrain.biome_at(p.x, p.y)
+	var before_img: PackedByteArray = Terrain._biome_img.get_data()
+	Toolkit._tool = Toolkit.Tool.BIOME
+	Toolkit._biome_index = (before + 1) % Terrain.biomes.size()
+	Toolkit._macro_radius = 120.0
+	Toolkit._biome_paint_at(Vector3(p.x, 0.0, p.y))
+	_check(Terrain.biome_at(p.x, p.y) == Toolkit._biome_index,
+		"biome pen paints the picked index")
+	_check(Toolkit._biome_undo != null, "stroke start takes the Z memento")
+	_check(Toolkit._biome_unsaved, "a stroke marks the biome map unsaved")
+	Toolkit._biome_stroke = false  # stroke released
+	Toolkit._undo()
+	_check(Terrain.biome_at(p.x, p.y) == before, "Z reverts the biome stroke")
+	_check(Terrain._biome_img.get_data() == before_img,
+		"undo returns a bit-identical index map")
+	_check(Toolkit._biome_undo == null, "the memento is one-deep (consumed)")
+	# A second Z has nothing left: a safe no-op, never a deletion.
+	Toolkit._undo()
+	_check(Terrain._biome_img.get_data() == before_img,
+		"Z on an empty biome memento changes nothing")
+	# Leave no pending flush: memory equals disk again after the revert.
+	Toolkit._biome_unsaved = false
+	Toolkit._biome_dirty = Rect2()
+	Toolkit._tool = Toolkit.Tool.SCULPT
+	Toolkit._biome_index = 4
+	Toolkit._macro_radius = 160.0
+
+
+## The Z dispatch (audit quick win 1, the footgun): every tool answers Z
+## for ITSELF — Z in biome mode must never fall through to a placement
+## delete, Z with an empty memento is a no-op, and PLACE keeps its LIFO
+## remove. A real physics floor gives the cursor ray ground to hit, so
+## the OLD fallthrough would genuinely have deleted the record.
+func _test_toolkit_undo() -> void:
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	var floor_body := StaticBody3D.new()
+	floor_body.collision_layer = 1  # world layer — what _ray_to_ground casts at
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(500.0, 1.0, 500.0)
+	shape.shape = box
+	floor_body.add_child(shape)
+	floor_body.position = Vector3(700.0, -0.5, 700.0)
+	add_child(floor_body)
+	Toolkit._enter()
+	_check(Toolkit.active, "toolkit enters for the undo test")
+	Toolkit._cam.global_position = Vector3(700.0, 40.0, 700.0)
+	Toolkit._pitch = -1.55  # straight down at the floor
+	Toolkit._yaw = 0.0
+	# Applied directly too: _process may not run between physics frames.
+	Toolkit._cam.rotation = Vector3(Toolkit._pitch, Toolkit._yaw, 0.0)
+	await get_tree().physics_frame
+	await get_tree().physics_frame
+	Toolkit._cam.rotation = Vector3(Toolkit._pitch, Toolkit._yaw, 0.0)
+	var hit: Vector3 = Toolkit._ray_to_ground()
+	_check(hit != Vector3.INF, "cursor ray hits the test floor")
+	if hit == Vector3.INF:
+		Toolkit.active = false
+		player.remove_from_group("player")
+		player.queue_free()
+		floor_body.queue_free()
+		return
+	var cell: Vector2i = CellRecords.cell_of(hit)
+	var pre: int = CellRecords.records(cell).size()
+	CellRecords.add(hit, "test_kit", 0.0, 1.0)
+	_check(CellRecords.records(cell).size() == pre + 1, "test placement lands")
+	# THE footgun: Z in biome mode with nothing painted. The old default
+	# branch reached CellRecords.remove_last and deleted the placement.
+	Toolkit._tool = Toolkit.Tool.BIOME
+	Toolkit._biome_undo = null
+	Toolkit._undo()
+	_check(CellRecords.records(cell).size() == pre + 1,
+		"Z in biome mode never deletes a placement")
+	# Empty mementos elsewhere: safe no-ops too.
+	Toolkit._tool = Toolkit.Tool.RIVER
+	Toolkit._undo()
+	Toolkit._tool = Toolkit.Tool.SCULPT
+	Toolkit._sculpt_undo = null
+	Toolkit._undo()
+	Toolkit._tool = Toolkit.Tool.TERRAIN
+	Toolkit._pen_undo = null
+	Toolkit._undo()
+	_check(CellRecords.records(cell).size() == pre + 1,
+		"Z with empty mementos deletes nothing anywhere")
+	# PLACE keeps its LIFO remove — and empties honestly (no crash, notice).
+	Toolkit._tool = Toolkit.Tool.PLACE
+	Toolkit._undo()
+	_check(CellRecords.records(cell).size() == pre, "Z in place mode removes the record")
+	if pre == 0:
+		Toolkit._undo()  # nothing left: the honest no-op path
+		_check(CellRecords.records(cell).size() == 0,
+			"Z in place mode on an empty cell is a no-op")
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(
+			"%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]))
+	# Teardown (the _test_toolkit_verbs pattern: no _exit — it wants the
+	# real player rig and would save layers to the checkout). Degrouped
+	# immediately: queue_free only lands at frame end, and a stale grouped
+	# player would shadow the next test's real rig.
+	Toolkit.set_tool("sculpt")
+	Toolkit.active = false
+	player.remove_from_group("player")
+	player.queue_free()
+	floor_body.queue_free()
+
+
+## The stroke-quiet disk flush (audit quick win 3, crash-safety): hand
+## edits write through the SAME F5 path a few seconds after the last
+## stroke — nothing lands before FLUSH_QUIET, the biome PNG lands after.
+## The original file bytes are restored so the checkout stays clean (the
+## in-memory map is already reverted via Z, so memory == disk holds).
+func _test_edit_flush() -> void:
+	if Terrain._biome_img == null:
+		print("  edit flush: SKIP (no biome map on this checkout)")
+		return
+	var png_path: String = Terrain.BIOME_MAP_PATH
+	var orig_bytes := FileAccess.get_file_as_bytes(png_path)
+	_check(not orig_bytes.is_empty(), "biome map PNG exists to flush over")
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	Toolkit._enter()
+	var p := Vector2(-1200.0, 1200.0)
+	var before: int = Terrain.biome_at(p.x, p.y)
+	Toolkit._tool = Toolkit.Tool.BIOME
+	Toolkit._biome_index = (before + 1) % Terrain.biomes.size()
+	Toolkit._macro_radius = 60.0
+	Toolkit._biome_paint_at(Vector3(p.x, 0.0, p.y))
+	_check(Toolkit._flush_quiet == 0.0, "a stroke resets the flush clock")
+	# Half the quiet window: the clock runs, nothing on disk yet.
+	Toolkit._process(Toolkit.FLUSH_QUIET * 0.5)
+	_check(Toolkit._biome_unsaved, "half the quiet window: no flush yet")
+	_check(FileAccess.get_file_as_bytes(png_path) == orig_bytes,
+		"half the quiet window: disk untouched")
+	# Past the window: the flush fires — the same write F5 makes.
+	Toolkit._process(Toolkit.FLUSH_QUIET)
+	_check(not Toolkit._biome_unsaved, "stroke-quiet flush saved the biome map")
+	_check(FileAccess.get_file_as_bytes(png_path) != orig_bytes,
+		"the flush actually wrote the painted map")
+	# Revert the stroke in memory, the file bytes on disk; leave no trace.
+	Toolkit._undo()
+	var f := FileAccess.open(png_path, FileAccess.WRITE)
+	f.store_buffer(orig_bytes)
+	f.close()
+	Toolkit._biome_unsaved = false
+	Toolkit._biome_dirty = Rect2()
+	Toolkit._flush_quiet = 0.0
+	Toolkit.set_tool("sculpt")
+	Toolkit._biome_index = 4
+	Toolkit._macro_radius = 160.0
+	Toolkit.active = false
+	player.remove_from_group("player")
+	player.queue_free()
 
 
 ## The shared condition language (Conditions) — the gate every future

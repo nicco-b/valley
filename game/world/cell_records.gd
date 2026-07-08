@@ -126,12 +126,16 @@ func add(pos: Vector3, kit_id: String, yaw: float, scale: float) -> void:
 	changed.emit(cell)
 
 
-func remove_last(cell: Vector2i) -> void:
+## Pop the newest record in a cell (the PLACE tool's LIFO Z). Answers
+## whether anything was actually removed, so the caller can be honest
+## about an empty cell instead of silently doing nothing.
+func remove_last(cell: Vector2i) -> bool:
 	if not _cells.has(cell) or _cells[cell].is_empty():
-		return
+		return false
 	_cells[cell].pop_back()
 	_save(cell)
 	changed.emit(cell)
+	return true
 
 
 ## The Y a record seats at RIGHT NOW — the streamer's one answer. snap

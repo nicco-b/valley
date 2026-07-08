@@ -1202,17 +1202,18 @@ func _test_overrides_emit() -> void:
 		_check(raw.size() == int(res[0]) * int(res[1]) * 4,
 			"the blob inflates to the declared grid")
 		var floats := raw.to_float32_array()
-		var peak := 0.0
-		for v in floats:
-			peak = maxf(peak, v)
-		_check(absf(peak - 8.0) < 0.5,
-			"the painted stroke survives the round trip (peak %.2fm)" % peak)
-		# The sampling law: the peak texel maps back inside the stroke.
+		# The sampling law: the stroke center maps to a texel that gained
+		# ~8m over WHATEVER was already painted there (a dressed checkout
+		# legitimately carries earlier pen work — measure the delta, not
+		# an absolute).
 		var mpp := float(pen["m_per_px"])
-		var ox := (pp.x - float(pen["x0"])) / mpp
-		var oz := (pp.y - float(pen["z0"])) / mpp
-		var center := floats[int(roundf(oz)) * int(res[0]) + int(roundf(ox))]
-		_check(center > 6.0, "the stroke center texel is hot (%.2fm)" % center)
+		var ox := int(roundf((pp.x - float(pen["x0"])) / mpp))
+		var oz := int(roundf((pp.y - float(pen["z0"])) / mpp))
+		var center := floats[oz * int(res[0]) + ox]
+		var was := ov_snap.get_pixel(ox, oz).r if ov_snap != null else 0.0
+		_check(center - was > 6.0 and center - was < 8.5,
+			"the painted stroke survives the round trip (%+.2fm at center)"
+				% (center - was))
 
 	# The link verb (data, not hand state — answers in any posture).
 	var status: String = StrataLink._execute("overrides status")

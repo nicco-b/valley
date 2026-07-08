@@ -251,6 +251,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_sculpt_unsaved = false
 		_save_pens()
 		CellRecords.flush()  # pending placement edits land with F5 too
+		Overrides.emit()  # the seam artifact rides every save (P4)
 	elif event.is_action_pressed("toolkit_tool"):
 		_tool = ((_tool as int) + 1) % Tool.size() as Tool
 		if _tool == Tool.TERRAIN and not Terrain.has_world_tile():
@@ -731,7 +732,8 @@ func _process(delta: float) -> void:
 	# stay write-through per click, as they always were.
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) \
 			or not (_sculpt_unsaved or _terrain_unsaved
-				or _biome_unsaved or _pen_dirty or CellRecords.has_dirty()):
+				or _biome_unsaved or _pen_dirty or CellRecords.has_dirty()
+				or Overrides.pending):
 		_flush_quiet = 0.0
 	else:
 		_flush_quiet += delta
@@ -791,6 +793,7 @@ func _flush_hand_edits() -> void:
 		_save_pens()
 	if CellRecords.has_dirty():
 		CellRecords.flush()  # deferred placement edits (move/rotate/scale)
+	Overrides.emit()  # the P4 seam artifact: overrides.json tracks the flush
 	_flush_quiet = 0.0
 
 
@@ -867,6 +870,7 @@ func _exit() -> void:
 	_sculpt_unsaved = false
 	_save_pens()
 	CellRecords.flush()
+	Overrides.emit()
 	var player := _player()
 	var ground := Terrain.height(_cam.global_position.x, _cam.global_position.z)
 	player.global_position = Vector3(_cam.global_position.x, ground + 1.5, _cam.global_position.z)

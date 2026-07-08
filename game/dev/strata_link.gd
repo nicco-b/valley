@@ -118,6 +118,16 @@ extends Node
 ##   hud <on|off>             -> hide/show the in-game text HUD (the
 ##                               embedded pane goes chrome-less when
 ##                               Strata's toolbar is driving)
+##   overrides status         -> the P4 seam artifact in one line, for
+##                               Strata's UI and probes:
+##                               "ok overrides placements=<n> layers=<n>
+##                                pending=<yes|no> last_write=<utc|never>
+##                                file=data/overrides/overrides.json".
+##                               placements counts the live Chronicle;
+##                               pending=yes means hand edits newer than
+##                               the artifact (the next stroke-quiet
+##                               flush rewrites it). Answers without the
+##                               hand — it is data, not Toolkit state.
 ##
 ## summary() feeds the Toolkit world panel (systems it can't see are debt).
 
@@ -129,7 +139,8 @@ const PROTOCOL := 1
 ## exactly, both ways: add a verb there and it MUST land here too.
 const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
 	"teleport", "screenshot", "weather", "time", "preview_world",
-	"preview_mesh", "camera", "view", "view_layer", "probe", "toolkit", "hud"]
+	"preview_mesh", "camera", "view", "view_layer", "probe", "toolkit", "hud",
+	"overrides"]
 
 ## Actual port (STRATA_LINK_PORT env overrides — a second instance, e.g.
 ## the P3.5 embedded pane or a probe, gets its own link beside the game).
@@ -279,6 +290,13 @@ func _execute(line: String) -> String:
 			return "ok view %s" % parts[1]
 		"toolkit":
 			return _toolkit(parts)
+		"overrides":
+			# The P4 seam artifact's vitals (counts + last write) — reads
+			# the Chronicle and the file, never the Toolkit's state, so it
+			# answers in every posture including headless.
+			if parts.size() < 2 or parts[1] != "status":
+				return "err overrides needs status"
+			return "ok " + Overrides.status_line()
 		"hud":
 			if parts.size() < 2 or not (parts[1] in ["on", "off"]):
 				return "err hud needs on|off"

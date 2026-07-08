@@ -126,6 +126,12 @@ func records(cell: Vector2i) -> Array:
 	return _cells.get(cell, [])
 
 
+## Every cell that currently holds records — the overrides emitter (P4)
+## walks the whole Chronicle through this; nobody else should need it.
+func all_cells() -> Array:
+	return _cells.keys()
+
+
 ## The record with this id in this cell ({} when it isn't there — the
 ## selection's liveness check reads through this every frame).
 func record(cell: Vector2i, id: String) -> Dictionary:

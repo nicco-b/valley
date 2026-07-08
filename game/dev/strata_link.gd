@@ -52,9 +52,27 @@ extends Node
 ##                               the streamed world exactly. Reply:
 ##                               "ok preview_mesh <size>m sea=<m> wear=<ms>ms"
 ##   view_layer <name>        -> false-color drape on the preview grid:
-##                               shaded|moisture|temperature|slope|biome
+##                               shaded|moisture|temperature|flow|slope|biome
 ##                               (errs when no preview is worn, or when
-##                               the export lacks that layer's file)
+##                               the export lacks that layer's file).
+##                               Colours are Strata's own: the drape
+##                               samples the export's ramps.png LUT (M3
+##                               parity — the game cannot drift from the
+##                               app); data layers wear the chart air
+##                               (fog/volumetrics off, ambient floor,
+##                               linear tonemap — rendering only, the sim
+##                               never hears about it), shaded keeps the
+##                               world's real light and weather.
+##   probe <x> <z>            -> the ACTIVE view layer's value at a world
+##                               position (value-under-cursor, M3):
+##                               "ok probe moisture 0.43 at (1024, -300)".
+##                               Physical units (temperature °C, shaded =
+##                               height m, biome = id from biome.png,
+##                               slope = 1-n.y); the grammar is pinned by
+##                               Strata's LayerProbe parser — change both
+##                               or neither. Errs: no preview worn, bad
+##                               args, outside the worn world, layer file
+##                               missing from the export.
 ##   toolkit status           -> the hand's state in one line (Strata's
 ##                               toolbar mirror polls this on pane focus):
 ##                               "ok tool=sculpt view=fly brush=12.0m
@@ -96,7 +114,7 @@ const PROTOCOL := 1
 ## exactly, both ways: add a verb there and it MUST land here too.
 const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
 	"teleport", "screenshot", "weather", "time", "preview_world",
-	"preview_mesh", "view", "view_layer", "toolkit", "hud"]
+	"preview_mesh", "view", "view_layer", "probe", "toolkit", "hud"]
 
 ## Actual port (STRATA_LINK_PORT env overrides — a second instance, e.g.
 ## the P3.5 embedded pane or a probe, gets its own link beside the game).
@@ -226,6 +244,15 @@ func _execute(line: String) -> String:
 			if _preview == null or not _preview.worn:
 				return "err no preview mesh worn (preview_mesh <dir> first)"
 			return _preview.set_layer(parts[1])
+		"probe":
+			# Value-under-cursor (M3): the active drape layer's value at a
+			# world XZ — Strata's readout is written against this grammar.
+			if parts.size() < 3 or not parts[1].is_valid_float() \
+					or not parts[2].is_valid_float():
+				return "err probe needs x z"
+			if _preview == null or not _preview.worn:
+				return "err no preview mesh worn (preview_mesh <dir> first)"
+			return _preview.probe(float(parts[1]), float(parts[2]))
 		"view":
 			if parts.size() < 2 or not (parts[1] in ["orbit", "fly"]):
 				return "err view needs orbit|fly"

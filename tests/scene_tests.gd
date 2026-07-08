@@ -110,6 +110,7 @@ func _test_strata_link() -> void:
 	await _test_reload_honesty(peer)
 	await _test_preview_world(peer)
 	await _test_preview_mesh(peer)
+	await _test_camera_verb(peer)
 	await _test_toolkit_verbs(peer)
 	peer.disconnect_from_host()
 
@@ -463,6 +464,70 @@ func _test_preview_mesh(peer: StreamPeerTCP) -> void:
 	cellar.queue_free()
 	StrataLink._preview.queue_free()
 	StrataLink._preview = null
+
+
+## The camera mirror (engine-viewport M4): `camera` answers the ACTIVE 3D
+## camera — position, forward, up, fov, viewport — precisely enough that
+## the host's unprojected cursor rays land where the engine draws. Without
+## a current camera it errs honestly (never a made-up view). The probe
+## plants a camera at a KNOWN transform and pins every reported number.
+func _test_camera_verb(peer: StreamPeerTCP) -> void:
+	var had_camera := get_viewport().get_camera_3d() != null
+	if not had_camera:
+		var bare := await _link_send(peer, ["camera"])
+		_check(bare.size() == 1 and bare[0] == "err no active 3d camera",
+			"camera errs honestly without a current camera (got %s)" % str(bare))
+	# A known view: perched at (100, 250, -300), yawed 90° left (fwd = -x,
+	# up stays +y), fov 70. looking_at keeps the math out of the probe.
+	var cam := Camera3D.new()
+	add_child(cam)
+	cam.global_position = Vector3(100.0, 250.0, -300.0)
+	cam.look_at(Vector3(50.0, 250.0, -300.0), Vector3.UP)
+	cam.fov = 70.0
+	cam.make_current()
+	await get_tree().process_frame
+	var replies := await _link_send(peer, ["camera"])
+	_check(replies.size() == 1 and String(replies[0]).begins_with("ok camera "),
+		"camera answers ok (got %s)" % str(replies))
+	if replies.size() == 1 and String(replies[0]).begins_with("ok camera "):
+		var fields := {}
+		for tok in String(replies[0]).trim_prefix("ok camera ").split(" ", false):
+			var kv := tok.split("=")
+			_check(kv.size() == 2, "camera token is key=value (got '%s')" % tok)
+			if kv.size() == 2:
+				fields[kv[0]] = kv[1]
+		for key in ["pos", "fwd", "up", "fov", "vp"]:
+			_check(fields.has(key), "camera reply carries %s=" % key)
+		var pos_p: PackedStringArray = String(fields.get("pos", "")).split(",")
+		var fwd_p: PackedStringArray = String(fields.get("fwd", "")).split(",")
+		var up_p: PackedStringArray = String(fields.get("up", "")).split(",")
+		_check(pos_p.size() == 3 and fwd_p.size() == 3 and up_p.size() == 3,
+			"camera vectors are x,y,z triples")
+		if pos_p.size() == 3 and fwd_p.size() == 3 and up_p.size() == 3:
+			var pos := Vector3(float(pos_p[0]), float(pos_p[1]), float(pos_p[2]))
+			var fwd := Vector3(float(fwd_p[0]), float(fwd_p[1]), float(fwd_p[2]))
+			var up := Vector3(float(up_p[0]), float(up_p[1]), float(up_p[2]))
+			_check(pos.distance_to(Vector3(100.0, 250.0, -300.0)) < 0.01,
+				"camera pos is the planted position (got %s)" % str(pos))
+			_check(fwd.distance_to(Vector3(-1.0, 0.0, 0.0)) < 0.001,
+				"camera fwd is -basis.z (got %s)" % str(fwd))
+			_check(up.distance_to(Vector3(0.0, 1.0, 0.0)) < 0.001,
+				"camera up is basis.y (got %s)" % str(up))
+			_check(absf(fwd.length() - 1.0) < 0.001 and absf(up.length() - 1.0) < 0.001,
+				"camera fwd/up are unit vectors")
+		_check(absf(float(fields.get("fov", "0")) - 70.0) < 0.01,
+			"camera fov is the planted 70° (got %s)" % fields.get("fov"))
+		var vp_p: PackedStringArray = String(fields.get("vp", "")).split("x")
+		_check(vp_p.size() == 2 and int(vp_p[0]) > 0 and int(vp_p[1]) > 0,
+			"camera vp is <w>x<h> in pixels (got %s)" % fields.get("vp"))
+	# Teardown: the planted camera leaves; without another current camera
+	# the verb goes back to the honest error (never a stale mirror).
+	cam.queue_free()
+	await get_tree().process_frame
+	if not had_camera:
+		var after := await _link_send(peer, ["camera"])
+		_check(after.size() == 1 and after[0] == "err no active 3d camera",
+			"camera errs again once the camera leaves (got %s)" % str(after))
 
 
 ## Send commands one per line, then pump frames until every reply lands.

@@ -55,6 +55,20 @@ extends Node
 ##                               shaded|moisture|temperature|slope|biome
 ##                               (errs when no preview is worn, or when
 ##                               the export lacks that layer's file)
+##   camera                   -> mirror the ACTIVE 3D camera in one line, so
+##                               the host can unproject its own cursor rays
+##                               (engine-viewport M4: Strata paint-picks
+##                               against ITS height mirror — the engine
+##                               supplies the view, the doc stays the truth):
+##                               "ok camera pos=<x>,<y>,<z> fwd=<x>,<y>,<z>
+##                                up=<x>,<y>,<z> fov=<deg> vp=<w>x<h>"
+##                               pos in world meters; fwd/up unit vectors
+##                               (-basis.z / basis.y); fov is the camera's
+##                               fov in degrees — VERTICAL while the camera
+##                               keeps height (Godot's default), the host
+##                               scales horizontal by vp aspect; vp is the
+##                               viewport's visible size in pixels. Errs
+##                               honestly with no active camera (headless).
 ##   toolkit status           -> the hand's state in one line (Strata's
 ##                               toolbar mirror polls this on pane focus):
 ##                               "ok tool=sculpt view=fly brush=12.0m
@@ -96,7 +110,7 @@ const PROTOCOL := 1
 ## exactly, both ways: add a verb there and it MUST land here too.
 const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
 	"teleport", "screenshot", "weather", "time", "preview_world",
-	"preview_mesh", "view", "view_layer", "toolkit", "hud"]
+	"preview_mesh", "camera", "view", "view_layer", "toolkit", "hud"]
 
 ## Actual port (STRATA_LINK_PORT env overrides — a second instance, e.g.
 ## the P3.5 embedded pane or a probe, gets its own link beside the game).
@@ -226,6 +240,8 @@ func _execute(line: String) -> String:
 			if _preview == null or not _preview.worn:
 				return "err no preview mesh worn (preview_mesh <dir> first)"
 			return _preview.set_layer(parts[1])
+		"camera":
+			return _camera()
 		"view":
 			if parts.size() < 2 or not (parts[1] in ["orbit", "fly"]):
 				return "err view needs orbit|fly"
@@ -364,6 +380,25 @@ func _preview_mesh(dir: String) -> String:
 	if line.begins_with("err"):
 		return line
 	return "ok preview_mesh %s (in memory — off restores)" % line
+
+
+## The camera mirror (engine-viewport M4): the ACTIVE 3D camera, one line,
+## machine-lean. Strata unprojects its own cursor rays through this and
+## marches them into ITS CPU height mirror — the paint funnel (DocModel.edit
+## → journal → bake) never forks, the engine only supplies the view. High
+## precision on purpose: a stroke lands where the ring showed it.
+func _camera() -> String:
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return "err no active 3d camera"
+	var p := cam.global_position
+	var b := cam.global_transform.basis
+	var fwd := -b.z.normalized()
+	var up := b.y.normalized()
+	var vp := cam.get_viewport().get_visible_rect().size
+	return "ok camera pos=%.3f,%.3f,%.3f fwd=%.5f,%.5f,%.5f up=%.5f,%.5f,%.5f fov=%.2f vp=%dx%d" % [
+		p.x, p.y, p.z, fwd.x, fwd.y, fwd.z, up.x, up.y, up.z,
+		cam.fov, int(vp.x), int(vp.y)]
 
 
 ## Drop the view at a world XZ: the Toolkit fly cam when it's open (the

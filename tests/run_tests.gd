@@ -12,6 +12,7 @@ var _failures := 0
 func _init() -> void:
 	_test_world_state()
 	_test_terrain_determinism()
+	_test_terrain_tile_frame_guard()
 	if _failures > 0:
 		print("FAIL: %d test(s) failed" % _failures)
 		quit(1)
@@ -72,3 +73,28 @@ func _test_terrain_determinism() -> void:
 	_check(t.valley_factor(0.0, -100.0) < 0.1, "valley floor factor ~0")
 	_check(t.valley_factor(900.0, -100.0) > 0.9, "far plateau factor ~1")
 	t.free()
+
+
+## DATA-ARMOR: a Strata-provenance world tile whose frame doesn't match
+## the game's WORLD_FRAME_M must refuse to load (garbage-ground defense);
+## painted region tiles without provenance keep their arbitrary frames.
+func _test_terrain_tile_frame_guard() -> void:
+	var exr := "user://frame_guard_test.exr"
+	var img := Image.create(8, 8, false, Image.FORMAT_RF)
+	if img.save_exr(ProjectSettings.globalize_path(exr)) != OK:
+		print("  tile frame guard: SKIP (no EXR saver in this binary)")
+		return
+	var t: Node = load("res://game/world/terrain.gd").new()
+	var rec := {"id": "baked_world", "origin": {"x": -1024.0, "z": -1024.0},
+		"size": 2048.0, "heightmap": exr, "strata": {"name": "guard_test"}}
+	_check(t._load_tile(rec, "baked_world").is_empty(),
+		"strata tile at 2048m refused against the %.0fm frame" % t.WORLD_FRAME_M)
+	rec.erase("strata")
+	_check(not t._load_tile(rec, "painted").is_empty(),
+		"painted tile (no provenance) keeps its own frame")
+	rec["strata"] = {"name": "guard_test"}
+	rec["size"] = t.WORLD_FRAME_M
+	_check(not t._load_tile(rec, "baked_world").is_empty(),
+		"strata tile at the world frame loads")
+	t.free()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(exr))

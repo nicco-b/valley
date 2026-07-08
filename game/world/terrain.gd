@@ -41,6 +41,12 @@ const RIVER_DIR := "res://data/water/rivers"
 # contribution is gated OUTSIDE the home watershed rect (guard below),
 # so the valley and its hydrology are untouched.
 const REGION_DIR := "res://data/regions"
+# The game's world frame: the edge length (meters, origin-centered) that
+# the biome map, the streamer budgets, and every Strata export must agree
+# on. The Strata importer (tools/strata/import_world.gd) refuses exports
+# baked at any other frame; _load_tile refuses stale records that slipped
+# past it — a mismatched tile is garbage ground, never a warning.
+const WORLD_FRAME_M := 16384.0
 # Regions only act OUTSIDE the home watershed rect (from the watershed
 # record, data/water/watersheds/home.json), so every terrain sample the
 # Hydrology grid and the soak fingerprint see stays bit-identical.
@@ -931,8 +937,8 @@ func _load_biomes() -> void:
 			"dust": float(b.get("dust", 0.3))})
 		inks.append(Color(ink[0], ink[1], ink[2]))
 	# The world rect the biome map covers (same framing as the guide).
-	_biome_origin = Vector2(-8192.0, -8192.0)
-	_biome_size = 16384.0
+	_biome_origin = Vector2(-WORLD_FRAME_M * 0.5, -WORLD_FRAME_M * 0.5)
+	_biome_size = WORLD_FRAME_M
 	# Palette texture: N×1, each texel a biome's ground albedo.
 	var pal_img := Image.create(biomes.size(), 1, false, Image.FORMAT_RGB8)
 	for i in biomes.size():
@@ -1054,6 +1060,17 @@ func commit_biome_paint(rect: Rect2) -> void:
 func _load_tile(rec: Dictionary, fallback_id: String) -> Dictionary:
 	if not (rec.has("origin") and rec.has("size") and rec.has("heightmap")):
 		push_error("[terrain] tile record needs origin/size/heightmap: " + fallback_id)
+		return {}
+	# A Strata-imported world tile must match the game's world frame — the
+	# biome map and streamer budgets are framed to WORLD_FRAME_M, so a
+	# mismatched export is garbage ground. The importer refuses these at
+	# import time; this catches a stale or hand-edited record honestly
+	# instead of loading it. (Painted region tiles without Strata
+	# provenance keep their arbitrary frames — F3 is untouched.)
+	if rec.has("strata") and absf(float(rec["size"]) - WORLD_FRAME_M) > 0.5:
+		push_error("[terrain] world tile '%s' is %.0fm but the game's world frame is %.0fm — refusing (re-import an export baked at %.0fm)" % [
+			rec.get("id", fallback_id), float(rec["size"]),
+			WORLD_FRAME_M, WORLD_FRAME_M])
 		return {}
 	var path: String = rec["heightmap"]
 	var img := Image.load_from_file(ProjectSettings.globalize_path(path))

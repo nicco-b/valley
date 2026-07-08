@@ -28,6 +28,8 @@ func _ready() -> void:
 	_test_tile_override()
 	_test_kernel_retile_race()
 	_test_placement_reseat()
+	_test_cell_records_armor()
+	_test_import_frame_refusal()
 	_test_map()
 	await _test_strata_link()
 	if _failures > 0:
@@ -325,6 +327,117 @@ func _test_kernel_retile_race() -> void:
 ## carries the chart air (fogs exempted, ambient floor for midnight) as a
 ## RENDERING override only — the weather sim never hears about it; close
 ## returns the hand. Streaming follows the map only when zoomed in close.
+## DATA-ARMOR (audit 2026-07-08): a corrupt placed-object file must not
+## crash the boot or silently vanish placements — the bad file is kept
+## aside as *.corrupt, records that parse survive, a warning is surfaced;
+## and saves are atomic (temp + rename, never truncate-in-place).
+func _test_cell_records_armor() -> void:
+	DirAccess.make_dir_recursive_absolute(
+		ProjectSettings.globalize_path(CellRecords.DIR))
+	var bad: String = CellRecords.DIR + "/cell_900_900.json"
+	var mixed: String = CellRecords.DIR + "/cell_901_900.json"
+	var good: String = CellRecords.DIR + "/cell_902_900.json"
+	_write_file(bad, "[{\"kit\": \"crate\", \"x\": 1")  # truncated mid-write
+	_write_file(mixed, JSON.stringify([
+		{"kit": "crate", "x": 1.0, "y": 2.0, "z": 3.0, "yaw": 0.0},
+		{"oops": true}]))  # one good record, one that fails validation
+	_write_file(good, JSON.stringify([
+		{"kit": "crate", "x": 115456.0, "y": 2.0, "z": 115200.0, "yaw": 0.0}]))
+
+	# A fresh CellRecords node walks the REAL boot path over the planted
+	# files (the autoload booted before they existed).
+	var cr: Node = load("res://game/world/cell_records.gd").new()
+	add_child(cr)
+	_check(cr.records(Vector2i(900, 900)).is_empty(),
+		"corrupt cell boots empty (no crash)")
+	_check(not FileAccess.file_exists(bad),
+		"corrupt file moved out of the save path")
+	_check(FileAccess.file_exists(bad + ".corrupt"),
+		"corrupt file kept aside as .corrupt")
+	_check(cr.records(Vector2i(901, 900)).size() == 1,
+		"records that parse survive a bad sibling")
+	_check(FileAccess.file_exists(mixed + ".corrupt"),
+		"lossy read preserves the original aside")
+	_check(cr.load_warnings.size() == 2,
+		"warnings surfaced for both bad files (got %d)" % cr.load_warnings.size())
+
+	# Atomic save: adding to a loaded cell rewrites via temp + rename and
+	# leaves no temp file behind.
+	cr.add(Vector3(902 * 128.0, 5.0, 900 * 128.0), "test_kit", 0.0, 1.0)
+	_check(not FileAccess.file_exists(good + ".tmp"), "no temp file left behind")
+	var reread: Variant = JSON.parse_string(FileAccess.get_file_as_string(good))
+	_check(reread is Array and (reread as Array).size() == 2,
+		"atomic save landed both records")
+
+	remove_child(cr)
+	cr.free()
+	for p: String in [bad, bad + ".corrupt", mixed, mixed + ".corrupt",
+			good, good + ".tmp"]:
+		if FileAccess.file_exists(p):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
+
+
+## DATA-ARMOR (audit 2026-07-08): the Strata importer must refuse an
+## export whose frame doesn't match the game's world frame — exit nonzero,
+## both sizes named, nothing written. A matching frame still imports.
+## Runs the real importer as a subprocess against a synthetic export.
+func _test_import_frame_refusal() -> void:
+	var world_abs: String = ProjectSettings.globalize_path("user://mismatch_world")
+	var out_abs: String = ProjectSettings.globalize_path("user://mismatch_out")
+	DirAccess.make_dir_recursive_absolute(world_abs)
+	DirAccess.make_dir_recursive_absolute(out_abs)
+	var img := Image.create(8, 8, false, Image.FORMAT_RF)
+	if img.save_exr(world_abs.path_join("height.exr")) != OK:
+		print("  import frame refusal: SKIP (no EXR saver in this binary)")
+		return
+	var sha := FileAccess.get_sha256(world_abs.path_join("height.exr"))
+	var project := ProjectSettings.globalize_path("res://")
+
+	_write_file("user://mismatch_world/bake_manifest.json", JSON.stringify({
+		"name": "mismatch_test", "files": {"height.exr": sha},
+		"world": {"size_m": [2048.0, 2048.0], "sea_level_m": 0.0}}))
+	var r := _run_importer(world_abs, out_abs, project)
+	_check(int(r.code) != 0, "mismatched import exits nonzero (got %s)" % r.code)
+	_check("2048" in String(r.out) and "16384" in String(r.out),
+		"refusal names both sizes (got: %s)" % String(r.out).substr(0, 200))
+	_check(not FileAccess.file_exists(out_abs.path_join("baked_world.exr")),
+		"refused import writes nothing")
+
+	_write_file("user://mismatch_world/bake_manifest.json", JSON.stringify({
+		"name": "mismatch_test", "files": {"height.exr": sha},
+		"world": {"size_m": [16384.0, 16384.0], "sea_level_m": 0.0}}))
+	r = _run_importer(world_abs, out_abs, project)
+	_check(int(r.code) == 0, "matching import exits 0 (got %s: %s)" % [
+		r.code, String(r.out).substr(0, 300)])
+	_check(FileAccess.file_exists(out_abs.path_join("baked_world.exr")),
+		"matching import writes the scratch tile")
+
+	for p: String in ["user://mismatch_world/height.exr",
+			"user://mismatch_world/bake_manifest.json",
+			"user://mismatch_out/baked_world.exr",
+			"user://mismatch_out/baked_world.json"]:
+		if FileAccess.file_exists(p):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
+
+
+## Run tools/strata/import_world.gd headless against an export dir, every
+## output redirected to a scratch dir (TILE_OUT) — the live tile, biome
+## map, and sea level stay untouched. Returns {code, out}.
+func _run_importer(world_abs: String, out_abs: String, project: String) -> Dictionary:
+	var output: Array = []
+	var code := OS.execute("/bin/sh", ["-c",
+		"STRATA_WORLD='%s' TILE_OUT='%s' '%s' --headless --path '%s' -s res://tools/strata/import_world.gd 2>&1" % [
+			world_abs, out_abs, OS.get_executable_path(), project]],
+		output, true)
+	return {"code": code, "out": "\n".join(PackedStringArray(output))}
+
+
+func _write_file(path: String, text: String) -> void:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	f.store_string(text)
+	f.close()
+
+
 func _test_map() -> void:
 	# A minimal player: body + the camera-rig chain _close re-seats.
 	var player := CharacterBody3D.new()

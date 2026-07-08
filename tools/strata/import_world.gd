@@ -79,6 +79,21 @@ func _init() -> void:
 	var world_size := maxf(float(size_m[0]), float(size_m[1]))
 	var sea_level := float(world.get("sea_level_m", 0.0))
 
+	# --- the frame contract: the export must match the game's world frame
+	# (Terrain.WORLD_FRAME_M — the biome map, streamer budgets, and far
+	# sheet are all framed to it). A mismatched export lands as garbage
+	# ground (misregistered biomes over a tile the frame doesn't cover) —
+	# refuse loudly BEFORE anything is written, with both sizes named.
+	var game_frame := float(load("res://game/world/terrain.gd").WORLD_FRAME_M)
+	if absf(world_size - game_frame) > 0.5:
+		push_error(("world size mismatch: export '%s' is %.0fm, the game's " +
+			"world frame is %.0fm — refusing (re-bake the Strata doc at " +
+			"%.0fm, or change Terrain.WORLD_FRAME_M if the game's frame " +
+			"really moved)") % [String(manifest.get("name", "?")), world_size,
+			game_frame, game_frame])
+		quit(1)
+		return
+
 	# --- the blessed tile: byte-identical copy, so the manifest sha keeps
 	# verifying the live cache forever ---
 	var tile_abs := ProjectSettings.globalize_path(TILE_EXR) if not scratch \
@@ -143,8 +158,6 @@ func _init() -> void:
 			hydro_counts.x, hydro_counts.y, hydro_counts.z])
 	else:
 		print("  no hydrology.json (pre-P2 export) — water records cleared, world loads as before")
-	if absf(world_size - 16384.0) > 0.5:
-		push_warning("world size %.0fm != 16384m — the biome frame in terrain.gd is hardcoded to 16384m" % world_size)
 	print("  the world is live (running game hot-reloads the tile). Walk it: ./scripts/run.sh")
 	quit()
 

@@ -19,6 +19,12 @@ const CELL_SIZE := 128.0
 
 var _cells: Dictionary = {}  # Vector2i -> Array[Dictionary]
 
+## Boot-time corruption reports (one line per bad file) — the Toolkit and
+## tests read these; each is also push_warning'd and HUD-notified. A
+## truncated cell file must never crash the boot or silently vanish:
+## the bad file is kept aside as *.corrupt, everything that parses lives.
+var load_warnings: Array[String] = []
+
 
 func _ready() -> void:
 	var dir := DirAccess.open(DIR)
@@ -29,16 +35,74 @@ func _ready() -> void:
 			var parts := f.trim_suffix(".json").split("_")
 			if parts.size() != 3:
 				continue
-			var parsed = Records.load_json(DIR + "/" + f)
-			if parsed is Array:
-				var valid: Array = []
-				for rec in parsed:
-					if rec is Dictionary and Records.validate(rec, {
-						"kit": TYPE_STRING, "x": TYPE_FLOAT, "y": TYPE_FLOAT,
-						"z": TYPE_FLOAT, "yaw": TYPE_FLOAT,
-					}, DIR + "/" + f):
-						valid.append(rec)
-				_cells[Vector2i(parts[1].to_int(), parts[2].to_int())] = valid
+			var path := DIR + "/" + f
+			var parsed: Variant = Records.load_json(path)
+			if not (parsed is Array):
+				# Truncated / malformed file (a crash mid-write, a bad merge):
+				# move it aside so no later save can overwrite the evidence,
+				# boot with the cell empty, and say so where it can be seen.
+				_warn("%s is unreadable — kept aside as %s, cell boots empty"
+					% [f, _quarantine(path).get_file()])
+				continue
+			var valid: Array = []
+			var dropped := 0
+			for rec in parsed:
+				if rec is Dictionary and Records.validate(rec, {
+					"kit": TYPE_STRING, "x": TYPE_FLOAT, "y": TYPE_FLOAT,
+					"z": TYPE_FLOAT, "yaw": TYPE_FLOAT,
+				}, path):
+					valid.append(rec)
+				else:
+					dropped += 1
+			if dropped > 0:
+				# Partially bad: the survivors load, but the next save would
+				# rewrite the file without the bad rows — copy the original
+				# aside FIRST so nothing is silently lost.
+				_warn("%s: %d bad record(s) dropped (%d survive) — original kept as %s"
+					% [f, dropped, valid.size(), _preserve(path).get_file()])
+			_cells[Vector2i(parts[1].to_int(), parts[2].to_int())] = valid
+
+
+## Surface a placed-records problem everywhere it can be seen: the log,
+## the load_warnings ledger, and the HUD (deferred — _ready runs before
+## the first frame; long timeout because boot notices are easy to miss).
+func _warn(msg: String) -> void:
+	push_warning("[cells] " + msg)
+	load_warnings.append(msg)
+	HUD.notify.call_deferred("Placed objects: " + msg, 10.0)
+
+
+## Move a bad cell file aside as *.corrupt (never delete, never leave it
+## where the next save would overwrite it). Returns the path it landed on.
+func _quarantine(path: String) -> String:
+	var aside := _corrupt_name(path)
+	var err := DirAccess.rename_absolute(ProjectSettings.globalize_path(path),
+		ProjectSettings.globalize_path(aside))
+	if err != OK:
+		push_error("[cells] could not quarantine %s: %s" % [path, error_string(err)])
+	return aside
+
+
+## Copy a partially-bad cell file aside as *.corrupt, leaving the live
+## file in place (its parsed records are still in play).
+func _preserve(path: String) -> String:
+	var aside := _corrupt_name(path)
+	var err := DirAccess.copy_absolute(ProjectSettings.globalize_path(path),
+		ProjectSettings.globalize_path(aside))
+	if err != OK:
+		push_error("[cells] could not preserve %s: %s" % [path, error_string(err)])
+	return aside
+
+
+## First free *.corrupt name beside the file (an older quarantine is
+## evidence too — never overwrite it).
+func _corrupt_name(path: String) -> String:
+	var aside := path + ".corrupt"
+	var n := 1
+	while FileAccess.file_exists(aside):
+		aside = "%s.%d.corrupt" % [path, n]
+		n += 1
+	return aside
 
 
 func cell_of(pos: Vector3) -> Vector2i:
@@ -95,5 +159,21 @@ func _save(cell: Vector2i) -> void:
 			rec["ground_dy"] = float(rec.y) - Terrain.height(x, z)
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(DIR))
 	var path := "%s/cell_%d_%d.json" % [DIR, cell.x, cell.y]
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	file.store_string(JSON.stringify(_cells[cell], "\t"))
+	# Atomic write: temp + rename. A crash mid-write can only ever truncate
+	# the temp file — the records themselves are never open for truncation.
+	var tmp := path + ".tmp"
+	var file := FileAccess.open(tmp, FileAccess.WRITE)
+	if file == null:
+		push_error("[cells] cannot write %s: %s" % [tmp,
+			error_string(FileAccess.get_open_error())])
+		return
+	var wrote := file.store_string(JSON.stringify(_cells[cell], "\t"))
+	file.close()
+	if not wrote:
+		push_error("[cells] short write to %s — records on disk untouched" % tmp)
+		return
+	var err := DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp),
+		ProjectSettings.globalize_path(path))
+	if err != OK:
+		push_error("[cells] could not commit %s: %s (records on disk untouched)"
+			% [path, error_string(err)])

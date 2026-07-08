@@ -1207,6 +1207,15 @@ Q1–Q6.
 
 ## 15 · Kitchen-table decisions (★)
 
+**RULED (2026-07-08, Nicco, away-mode): "let's just go with defaults
+for now. i may change later. scene initiation will probably be both a
+and b."** — ★1–★6 and ★9 are BLESSED as proposed below, with ★4
+amended: scenes support BOTH initiation modes, chosen per-scene in the
+record (leave the field, not a global). ★7 (direction vocabulary), ★8
+(deadline tone), and ★10 (the Main thread) stay OPEN — they come due
+at Q7/Q8/Q10. "May change later" stands: these are working defaults,
+not vows.
+
 New stars raised by this document (STORY.md's eight all still stand;
 its ★3/★4/★8 are restated below with sharper gates):
 

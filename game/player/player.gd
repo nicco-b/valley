@@ -62,6 +62,9 @@ func _ready() -> void:
 	if idle != "":
 		_anim.play(idle)
 	CharacterPaint.apply($Body/Model)
+	# F2 fabric: the fox's ears answer the wind and lag a sprint turn —
+	# spring bones, headless-gated (PLAN_FABRIC determinism stance).
+	FabricSpring.adopt($Body/Model)
 	_sand_puff = _make_sand_puff()
 	_scuff = _make_scuff()
 	_steps = _make_footsteps()

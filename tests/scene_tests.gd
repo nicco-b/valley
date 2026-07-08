@@ -22,6 +22,7 @@ func _ready() -> void:
 	_test_flora()
 	_test_moon()
 	_test_wildlife()
+	_test_fabric_spring()
 	_test_wear()
 	_test_nav()
 	_test_sand_sim()
@@ -2009,6 +2010,49 @@ func _test_wildlife() -> void:
 	_check(noon > dark, "creatures see farther by day than by night")
 	_check(moonlit > dark, "a full moon lends the night some sight")
 	_check(noon > moonlit, "but never as much as the sun")
+
+
+## F2 fabric: spring bones are presentation-tier. Headless, the gate
+## must refuse — a creature body boots with NO simulator under it, so
+## the soak digest can never meet spring state — while the gate-free
+## builder must still assemble the windowed path's chains correctly
+## (right bones, right joint counts, gouache damping) on both shipped
+## rigs. Both halves proved here, meaningfully, under the dummy display.
+func _test_fabric_spring() -> void:
+	var hound: Node = load("res://game/wildlife/hound_body.tscn").instantiate()
+	add_child(hound)
+	var model: Node = hound.get_node("Body/Model")
+	_check(FabricSpring.adopt(model) == null, "headless adopt refuses")
+	_check(hound.find_children("*", "SpringBoneSimulator3D", true, false).is_empty(),
+		"headless hound body carries no simulator")
+	var skel: Skeleton3D = model.find_children("*", "Skeleton3D", true, false)[0]
+	var fs: FabricSpring = FabricSpring.build(skel)
+	_check(fs != null, "builder assembles the windowed node")
+	if fs != null:
+		_check(fs.setting_count == 1, "hound adopts one chain (the tail)")
+		_check(fs.get_root_bone_name(0) == "tail.1"
+			and fs.get_end_bone_name(0) == "tail_star",
+			"tail chain spans tail.1..tail_star")
+		_check(fs.get_joint_count(0) == 5, "five tail joints ride the chain (got %d)"
+			% fs.get_joint_count(0))
+		_check(fs.get_drag(0) >= 0.5, "gouache tuning: heavily damped, never jiggly")
+		_check(fs.wind_scale > 0.0, "the tail hears the wind at all")
+	hound.queue_free()
+	# The fox: ears are LEAF bones — each one-bone chain must grow a
+	# virtual tip or there is no lever for the wind to push.
+	var fox: Node = load("res://assets/models/creatures/biped_fox.glb").instantiate()
+	add_child(fox)
+	var fskel: Skeleton3D = fox.find_children("*", "Skeleton3D", true, false)[0]
+	var ff: FabricSpring = FabricSpring.build(fskel)
+	_check(ff != null and ff.setting_count == 2, "fox adopts both ears")
+	if ff != null and ff.setting_count == 2:
+		_check(ff.is_end_bone_extended(0) and ff.is_end_bone_extended(1),
+			"leaf ears grow virtual tips")
+		# The virtual tip is a lever on the last joint, not a joint of its
+		# own: a one-bone ear stays one joint.
+		_check(ff.get_joint_count(0) == 1, "one-bone ear stays one joint (got %d)"
+			% ff.get_joint_count(0))
+	fox.queue_free()
 
 
 ## Desire paths persist: footsteps wear permanent cells that fade over

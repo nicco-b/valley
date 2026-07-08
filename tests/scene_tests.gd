@@ -28,6 +28,7 @@ func _ready() -> void:
 	_test_tile_override()
 	_test_kernel_retile_race()
 	_test_placement_reseat()
+	_test_map()
 	await _test_strata_link()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
@@ -319,6 +320,51 @@ func _test_kernel_retile_race() -> void:
 ## seat_y rides the CURRENT ground + dy after the terrain regenerates, and
 ## legacy absolute-Y records migrate opportunistically on their next save.
 ## Skips honestly where the baked tile cache doesn't exist (fresh clone/CI).
+## The map (the orbit map, 2026-07-08): M borrows the view — open frames
+## the tile on the shared OrbitRig and freezes the player; the camera
+## carries the chart air (fogs exempted, ambient floor for midnight) as a
+## RENDERING override only — the weather sim never hears about it; close
+## returns the hand. Streaming follows the map only when zoomed in close.
+func _test_map() -> void:
+	# A minimal player: body + the camera-rig chain _close re-seats.
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	var cam_rig := Node3D.new()
+	cam_rig.name = "CameraRig"
+	var arm := SpringArm3D.new()
+	arm.name = "SpringArm3D"
+	var pcam := Camera3D.new()
+	pcam.name = "Camera3D"
+	arm.add_child(pcam)
+	cam_rig.add_child(arm)
+	player.add_child(cam_rig)
+	add_child(player)
+	var wx_before: String = Weather.state
+	var fog_before: float = Weather.fog_amount()
+	MapScreen._open()
+	_check(MapScreen.active, "map opens")
+	_check(not player.is_physics_processing(), "map freezes the player")
+	_check(MapScreen._rig.distance > 0.0, "map frames at a real distance")
+	var env: Environment = MapScreen._cam.environment
+	_check(env != null, "map camera carries its own air")
+	if env != null:
+		_check(not env.volumetric_fog_enabled, "chart air: no volumetric murk")
+		_check(env.fog_density < 0.0002, "chart air: fog thinned to a long fade")
+		_check(env.ambient_light_source == Environment.AMBIENT_SOURCE_COLOR,
+			"chart air: ambient floor set")
+	_check(Weather.state == wx_before, "weather sim untouched by the map")
+	_check(is_equal_approx(Weather.fog_amount(), fog_before),
+		"fog sim untouched by the map (exemption is rendering-only)")
+	_check(not MapScreen.wants_streaming(),
+		"tile framing: the quadtree carries the view")
+	MapScreen._rig.distance = 300.0
+	_check(MapScreen.wants_streaming(), "zoomed close: cells stream at the focus")
+	MapScreen._close()
+	_check(not MapScreen.active, "map closes")
+	_check(player.is_physics_processing(), "close returns the hand")
+	player.queue_free()
+
+
 func _test_placement_reseat() -> void:
 	if not Terrain.has_world_tile():
 		print("  placement reseat: SKIP (no baked tile cache)")

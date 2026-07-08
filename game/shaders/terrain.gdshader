@@ -22,7 +22,6 @@ global uniform float deform_size;
 global uniform vec2 patch_center; // where the dense patch covers the hole
 global uniform float sea_level; // LIVE sea surface (tide included)
 global uniform vec4 home_rect; // home island rect (xy=min, zw=max)
-global uniform float map_view; // MapScreen: 0 world, 1 flat map palette
 global uniform bool biome_present; // a painted biome map is loaded
 global uniform sampler2D biome_index_map; // R8 index/255 over the world
 global uniform vec4 biome_index_rect; // xy=origin, zw=size
@@ -104,9 +103,8 @@ void fragment() {
 
 	// Biome ground (Stage B): tint toward the painted biome's albedo.
 	// A tint, not a replace, so the painterly bands/grain/relief survive
-	// — the biome recolors the wash, it doesn't flatten it. Skipped in
-	// map view (that has its own elevation palette).
-	if (biome_present && map_view < 0.5) {
+	// — the biome recolors the wash, it doesn't flatten it.
+	if (biome_present) {
 		vec2 buv = (wpos.xz - biome_index_rect.xy) / biome_index_rect.zw;
 		if (all(greaterThanEqual(buv, vec2(0.0))) && all(lessThan(buv, vec2(1.0)))) {
 			float bidx = floor(texture(biome_index_map, buv).r * 255.0 + 0.5);
@@ -207,27 +205,8 @@ void fragment() {
 			* (1.0 - smoothstep(0.5, 0.8, wslope));
 	col = mix(col, vec3(0.93, 0.94, 0.97), snowiness * 0.85);
 
-	// Map view: recolor by elevation so land/sea read at any zoom — the
-	// water mesh doesn't reach the horizon, but the map must. Deep sea
-	// -> teal, shallows -> pale, land -> tan banded by height.
-	if (map_view > 0.001) {
-		float d = wpos.y - sea_level;
-		vec3 mcol;
-		if (d < 0.0) {
-			mcol = mix(vec3(0.28, 0.42, 0.55), vec3(0.55, 0.68, 0.72),
-				clamp(d / 30.0 + 1.0, 0.0, 1.0));
-		} else {
-			vec3 low = vec3(0.86, 0.80, 0.66);
-			vec3 high = vec3(0.66, 0.52, 0.40);
-			mcol = mix(low, high, clamp(d / 200.0, 0.0, 1.0));
-			mcol *= 1.0 - 0.12 * wslope; // faint relief: faces read darker
-		}
-		col = mix(col, mcol, map_view);
-	}
-
 	ALBEDO = col;
 	ROUGHNESS = mix(mix(1.0, 0.25, glint), 0.55, ground_wetness * sandiness * 0.6);
 	ROUGHNESS = mix(ROUGHNESS, 0.4, strand * 0.7); // wet strand sheen
-	ROUGHNESS = mix(ROUGHNESS, 1.0, map_view);
 	SPECULAR = mix(0.08, 0.6, glint);
 }

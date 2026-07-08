@@ -142,15 +142,10 @@ func _build_river_mesh(r: Dictionary) -> void:
 
 
 func _process(_delta: float) -> void:
-	# In map view the terrain's elevation palette IS the water (teal
-	# seabed) — hide the pink surface meshes so it reads consistently
-	# at every zoom (the near sea disc doesn't reach the region rim).
-	if MapScreen.active:
-		if visible:
-			hide()
-		return
-	if not visible:
-		show()
+	# The map keeps the real water in view (2026-07-08, the orbit map):
+	# sea, lakes, and rivers ARE chart information — the surfaces follow
+	# the map focus below, and the chart palette that used to stand in
+	# for them is retired with the flat map.
 	# Fill-channels experiment (debug K): the sim fills the carved beds,
 	# so hide the sculpted ribbons — the two shouldn't stack.
 	var hide_rivers: bool = WaterField.enabled and WaterField.fill_channels
@@ -168,11 +163,13 @@ func _process(_delta: float) -> void:
 		return
 	var focus := Vector2.ZERO
 	var player := get_tree().get_first_node_in_group("player")
-	if Toolkit.active:
-		var p := Toolkit.cam_position()
-		focus = Vector2(p.x, p.z)
-	elif MapScreen.active:
+	# An open map drives the view even in the Toolkit (same rule as the
+	# streamer): the sea reaches wherever the map is looking.
+	if MapScreen.active:
 		var p := MapScreen.focus_position()
+		focus = Vector2(p.x, p.z)
+	elif Toolkit.active:
+		var p := Toolkit.cam_position()
 		focus = Vector2(p.x, p.z)
 	elif player:
 		focus = Vector2(player.global_position.x, player.global_position.z)

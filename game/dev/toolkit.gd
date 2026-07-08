@@ -76,12 +76,10 @@ var _river_preview: MeshInstance3D
 # ORBIT view (the generator's viewport, P8): the camera rides spherical
 # coords around a target instead of flying — drag orbits, wheel zooms,
 # visible cursor (no capture), tools inert. Mirrors Strata's Metal-view
-# feel so swapping the renderer doesn't change the hand.
+# feel so swapping the renderer doesn't change the hand. The math and
+# input live in OrbitRig — the map screen rides the same rig.
 var orbit := false
-var _orbit_target := Vector3.ZERO
-var _orbit_azimuth := 0.7
-var _orbit_elevation := 0.55
-var _orbit_distance := 19000.0
+var _orbit := OrbitRig.new()
 
 
 ## Boot posture (DECISIONS 2026-07-05, build-out item 1): launched with
@@ -143,7 +141,7 @@ func move_to(xz: Vector2) -> void:
 		_cam.global_position = Vector3(xz.x,
 			Terrain.height(xz.x, xz.y) + 80.0, xz.y)
 		if orbit:  # orbit view: the target moves, the orbit follows
-			_orbit_target = Vector3(xz.x, 0.0, xz.y)
+			_orbit.target = Vector3(xz.x, 0.0, xz.y)
 
 
 ## Switch between the fly camera and the ORBIT view (the generator's
@@ -152,32 +150,14 @@ func move_to(xz: Vector2) -> void:
 func set_view_mode(p_orbit: bool) -> void:
 	orbit = p_orbit
 	if orbit:
-		var size := Terrain.world_tile_size()
-		if size <= 0.0:
-			size = 16384.0
-		_orbit_target = Vector3.ZERO
-		_orbit_azimuth = 0.7
-		_orbit_elevation = 0.85  # steep chart angle: the tile fills the frame
-		_orbit_distance = size * 1.05
+		_orbit.frame_tile()
 		if _cam:
-			_cam.far = maxf(8000.0, _orbit_distance * 4.0)
 			# The generator view is a CHART with weather (the map-screen
-			# lesson): the world's own environment minus the fogs — at 19km
-			# the honest haze whites out the whole tile. Sky, sun, tonemap
-			# survive, so time-of-day and weather still read.
+			# lesson): the world's air minus the fogs (OrbitRig has the
+			# recipe) so time-of-day and weather read without obscuring.
 			var world_env := get_viewport().world_3d.environment
 			if world_env and _cam.environment == null:
-				var chart: Environment = world_env.duplicate()
-				# Faint LONG-range fog only: the tile stays crisp, while the
-				# raw beyond-the-world (far-LOD seabed past the sea disc)
-				# fades out instead of reading as beige slabs.
-				chart.fog_enabled = true
-				chart.fog_density = 0.000025
-				chart.fog_height_density = 0.0
-				chart.fog_aerial_perspective = 0.0
-				chart.fog_sky_affect = 0.0
-				chart.volumetric_fog_enabled = false
-				_cam.environment = chart
+				_cam.environment = OrbitRig.chart_environment(world_env)
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif active:
 		if _cam:
@@ -231,18 +211,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	# ORBIT view: visible cursor, LMB-drag orbits, wheel zooms — the
 	# generator-viewport hand. Tools are inert here (fly mode paints).
 	if orbit:
-		if event is InputEventMouseMotion \
-				and event.button_mask & MOUSE_BUTTON_MASK_LEFT:
-			_orbit_azimuth -= event.relative.x * 0.008
-			_orbit_elevation = clampf(_orbit_elevation + event.relative.y * 0.008,
-				0.05, 1.5)
-		elif event is InputEventMouseButton and event.pressed:
-			if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-				_orbit_distance = maxf(_orbit_distance * 0.85, 60.0)
-			elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-				_orbit_distance = minf(_orbit_distance / 0.85, 40000.0)
-		elif event is InputEventMagnifyGesture:
-			_orbit_distance = clampf(_orbit_distance / event.factor, 60.0, 40000.0)
+		_orbit.handle_input(event)
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		_yaw -= event.relative.x * MOUSE_SENSITIVITY
@@ -362,18 +331,9 @@ func _process(delta: float) -> void:
 	if orbit:
 		# Spherical ride around the target; WASD pans the target in the
 		# camera's ground plane (the Strata-viewport hand, in-engine).
-		var pan := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-		if pan != Vector2.ZERO:
-			var fwd := Vector3(-sin(_orbit_azimuth), 0.0, -cos(_orbit_azimuth))
-			var right := Vector3(-fwd.z, 0.0, fwd.x)
-			_orbit_target += (right * pan.x + fwd * -pan.y) \
-				* _orbit_distance * 0.4 * delta
-		var off := Vector3(
-			_orbit_distance * cos(_orbit_elevation) * sin(_orbit_azimuth),
-			_orbit_distance * sin(_orbit_elevation),
-			_orbit_distance * cos(_orbit_elevation) * cos(_orbit_azimuth))
-		_cam.global_position = _orbit_target + off
-		_cam.look_at(_orbit_target, Vector3.UP)
+		_orbit.pan(Input.get_vector(
+			"move_left", "move_right", "move_forward", "move_back"), delta)
+		_orbit.apply(_cam)
 		_cursor.visible = false
 		return
 	_cam.rotation = Vector3(_pitch, _yaw, 0.0)

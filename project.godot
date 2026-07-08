@@ -103,10 +103,6 @@ lightning_flash={
 "type": "float",
 "value": 0.0
 }
-map_view={
-"type": "float",
-"value": 0.0
-}
 biome_present={
 "type": "bool",
 "value": false

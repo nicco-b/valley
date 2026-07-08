@@ -1,31 +1,37 @@
 extends CanvasLayer
-## The map (autoload). Skyrim-style: M opens a live orthographic camera
-## over the actual world. Drag or WASD to pan, wheel to zoom. The
-## streamer follows the map focus (with a widened radius) so terrain
-## and content exist wherever you look.
+## The map (autoload). A REAL 3D view of the world, the orbit rig's hand
+## (2026-07-08, Nicco: "a real 3d view of the map, sort of like the
+## orbit"): M borrows the view — a perspective camera framing the whole
+## world tile, LMB-drag orbits, wheel zooms, WASD pans the target — over
+## the ACTUAL terrain, water, and placed things. The chart air (OrbitRig
+## recipe) exempts the view from fog/murk so weather never obscures it
+## (rendering only — the sim's weather is untouched; the sky still says
+## storm), and a solar-scaled ambient floor keeps midnight readable.
+## Esc/M closes; the player's body holds still underneath. The streamer
+## follows the map focus (widened radius) only when zoomed in close
+## enough for full-res cells to matter — zoomed out, the far-terrain
+## quadtree IS the renderer.
 
 const MARKS := []  # authored place marks (old valley retired; Strata places TBD)
 const COLOR_INK := Color(0.30, 0.17, 0.16)
-const PITCH := -1.134  # ~65 degrees down
-const CAM_DISTANCE := 400.0
-# Past this zoom the map stops driving the cell streamer entirely —
-# the far-terrain quadtree (which follows the map focus and caches
-# its tiles) IS the renderer at region scale. Panning a zoomed-out
-# map costs one cheap cached tile at a time instead of 81 full cells
-# with collision and navmesh (the old map hitching).
-const STREAM_ZOOM := 900.0
-const ZOOM_MIN := 130.0
-const ZOOM_MAX := 13000.0  # the Big Island + the whole chain in one view
+# Past this orbit distance the map stops driving the cell streamer —
+# the far-terrain quadtree (which follows the map focus and caches its
+# tiles) carries the view at region scale. Panning a zoomed-out map
+# costs one cheap cached tile at a time instead of 81 full cells with
+# collision and navmesh (the old map hitching).
+const STREAM_DIST := 900.0
+const DIST_MIN := 120.0
+const DIST_MAX := 40000.0
 const PAINT_RATE_M := 150.0  # meters of override/sec at the brush center
 
 var active := false
 
 var _from_toolkit := false  # opened from the free-fly cam, not the player
 var _cam: Camera3D
+var _env: Environment
+var _rig := OrbitRig.new()  # the same rig the Toolkit's viewer rides
 var _markers: Control
 var _hint: Label
-var _focus := Vector3.ZERO
-var _ortho := 420.0
 
 # Elevation painting (Toolkit build-out item 2; re-scoped by the P0 seam
 # fix, ONE_APP.md 2026-07-07): brush the whole-world OVERRIDE layer on the
@@ -43,12 +49,6 @@ var _mouse := Vector2.ZERO
 # clamped monotonically downhill, then Terrain.add_river writes it into
 # the height function live: the basin carves, the ribbon renders, the
 # region hydrology breathes it — all from one record, no restart.
-const RIVER_NODE_SPACING := 50.0   # densify the clicked course to this
-const RIVER_SURFACE_DIP := 0.3     # waterline sits this far below ground
-const RIVER_WIDTH_HEAD := 3.0
-const RIVER_WIDTH_MOUTH := 11.0
-const RIVER_DEPTH := 1.6
-const RIVER_FEATHER := 8.0
 var _river_mode := false
 var _river_nodes: Array[Vector2] = []  # clicked course, world XZ
 
@@ -65,6 +65,8 @@ var _biome_dirty := Rect2()  # painted region awaiting a flora rescatter
 func _ready() -> void:
 	layer = 10
 	visible = false
+	_rig.min_distance = DIST_MIN
+	_rig.max_distance = DIST_MAX
 	_markers = Control.new()
 	_markers.set_anchors_preset(Control.PRESET_FULL_RECT)
 	# Control's default filter is STOP: full-rect, it silently ate every
@@ -89,13 +91,13 @@ func _ready() -> void:
 
 
 func focus_position() -> Vector3:
-	return _focus
+	return _rig.target
 
 
 ## The streamer only follows the map while zoomed in close enough for
 ## full-res cells to matter; zoomed out, the quadtree carries the view.
 func wants_streaming() -> bool:
-	return active and _ortho < STREAM_ZOOM
+	return active and _rig.distance < STREAM_DIST
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -110,8 +112,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		_mouse = event.position
 	# Elevation painting (Toolkit-gated): P toggles, [ ] size the brush,
-	# B commits the strokes into the world. Handled before pan/zoom so the
-	# brush owns LMB while painting.
+	# B commits the strokes into the world. Handled before orbit/zoom so
+	# the brush owns LMB while painting.
 	if _from_toolkit:
 		if event is InputEventKey and event.pressed and not event.echo \
 				and event.physical_keycode == KEY_P:
@@ -173,47 +175,41 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 		if event.button_index == MOUSE_BUTTON_RIGHT and _from_toolkit:
-			# Right-click: drop the fly cam there (the 38km2 commute fix).
+			# Right-click: drop the fly cam there (the 38km2 commute fix);
+			# the orbit recenters with it so the view follows the hand.
 			var org := _cam.project_ray_origin(event.position)
 			var dir := _cam.project_ray_normal(event.position)
 			if absf(dir.y) > 0.001:
 				var t := -org.y / dir.y
 				var hit := org + dir * t
 				Toolkit.move_to(Vector2(hit.x, hit.z))
-				_focus = Vector3(hit.x, 0.0, hit.z)
+				_rig.target = Vector3(hit.x, 0.0, hit.z)
 				HUD.notify("toolkit cam moved")
 			get_viewport().set_input_as_handled()
 			return
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_ortho = clampf(_ortho * 0.85, ZOOM_MIN, ZOOM_MAX)
-		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_ortho = clampf(_ortho / 0.85, ZOOM_MIN, ZOOM_MAX)
-	elif event is InputEventMagnifyGesture:
-		# Trackpad pinch.
-		_ortho = clampf(_ortho / event.factor, ZOOM_MIN, ZOOM_MAX)
-	elif event is InputEventPanGesture:
-		# Trackpad two-finger pan.
-		var scale := _ortho / get_viewport().get_visible_rect().size.y
-		_focus.x += event.delta.x * scale * 2.2
-		_focus.z += event.delta.y * scale * 2.2
-	elif event is InputEventMouseMotion and event.button_mask & MOUSE_BUTTON_MASK_LEFT \
-			and not _paint and not _river_mode and not _biome_paint:
-		var scale := _ortho / get_viewport().get_visible_rect().size.y
-		_focus.x -= event.relative.x * scale
-		_focus.z -= event.relative.y * scale
+	if event is InputEventPanGesture:
+		# Trackpad two-finger pan slides the target in the ground plane.
+		var scale := _m_per_px()
+		_rig.target.x += event.delta.x * scale * 2.2
+		_rig.target.z += event.delta.y * scale * 2.2
+		return
+	# The orbit hand (shared rig): LMB-drag orbits — unless a pen owns
+	# the mouse — wheel and pinch zoom toward the target.
+	_rig.handle_input(event, not (_paint or _river_mode or _biome_paint))
 
 
 func _process(delta: float) -> void:
 	if not active:
 		return
-	var pan := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
-	_focus.x += pan.x * _ortho * 0.9 * delta
-	_focus.z += pan.y * _ortho * 0.9 * delta
-	_cam.size = lerpf(_cam.size, _ortho, 1.0 - exp(-10.0 * delta))
-	# Rig scales with zoom so tall islands never clip the frustum.
-	var dist := maxf(CAM_DISTANCE, _ortho * 0.55)
-	_cam.far = dist * 8.0
-	_cam.global_position = _focus + Vector3(0.0, 0.906, 0.423) * dist
+	_rig.pan(Input.get_vector(
+		"move_left", "move_right", "move_forward", "move_back"), delta)
+	_rig.apply(_cam)
+	# Midnight readability: a solar-scaled ambient floor — full lantern
+	# at night, a whisper by day (rendering only; the world outside the
+	# map keeps its honest dark).
+	var sun_up := clampf(
+		sin((GameClock.solar_hours() - 6.0) / 24.0 * TAU) * 1.6, 0.0, 1.0)
+	_env.ambient_light_energy = lerpf(1.05, 0.25, sun_up)
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:
 		streamer.load_radius = 4 if wants_streaming() else 2
@@ -246,33 +242,29 @@ func _open() -> void:
 		return  # not in the world (title screen)
 	_from_toolkit = Toolkit.active and Toolkit.has_camera()
 	_update_hint()
-	# Center on whatever the map is opened over — the fly cam in toolkit
-	# mode, the player otherwise.
-	var here: Vector3 = Toolkit.cam_position() if _from_toolkit else player.global_position
 	active = true
 	visible = true
-	_focus = Vector3(here.x, 0.0, here.z)
 	if _cam == null:
 		_cam = Camera3D.new()
-		_cam.projection = Camera3D.PROJECTION_ORTHOGONAL
-		_cam.rotation.x = PITCH
-		_cam.size = _ortho
-		_cam.far = 2500.0
-		# The map is a CHART, not a window: its own fog-free environment
-		# so weather never obscures it. Strong flat ambient keeps the
-		# terrain readable even when a storm has dimmed the real sun;
-		# background is sea-toned so unbuilt distance reads as ocean.
-		var env := Environment.new()
-		env.background_mode = Environment.BG_COLOR
-		env.background_color = Color(0.32, 0.47, 0.60)
-		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-		env.ambient_light_color = Color(1.0, 0.98, 0.94)
-		env.ambient_light_energy = 1.15
-		env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-		_cam.environment = env
 		add_child(_cam)
+	if _env == null:
+		# The chart air (OrbitRig recipe, shared with the viewer): the
+		# world's environment minus the fogs — the weather EXEMPTION.
+		# Rendering only: Weather/Climate never hear about it, and the
+		# surviving sky/sun still hint the hour and the storm.
+		_env = OrbitRig.chart_environment(get_viewport().world_3d.environment)
+		# The exemption's second half: a flat ambient floor (solar-scaled
+		# each frame in _process) so a storm-dimmed sun or plain midnight
+		# never turns the chart illegible.
+		_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+		_env.ambient_light_color = Color(1.0, 0.98, 0.94)
+		_env.ambient_light_energy = 0.6
+		_cam.environment = _env
+	# Open framing the whole tile — the orbit's opening look. The player
+	# marker (and WASD/zoom) take it from there.
+	_rig.frame_tile()
+	_rig.apply(_cam)
 	_cam.current = true
-	RenderingServer.global_shader_parameter_set("map_view", 1.0)
 	if not _from_toolkit:
 		player.set_physics_process(false)
 		player.set_process_unhandled_input(false)
@@ -286,7 +278,6 @@ func _close() -> void:
 	_river_mode = false
 	_river_nodes.clear()
 	_biome_paint = false
-	RenderingServer.global_shader_parameter_set("map_view", 0.0)
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:
 		streamer.load_radius = 2
@@ -378,6 +369,13 @@ func _mouse_world() -> Vector2:
 	return Vector2(hit.x, hit.z)
 
 
+## Meters per screen pixel at the orbit target — the perspective cousin
+## of the old ortho size/viewport ratio, for brush circles + scale bar.
+func _m_per_px() -> float:
+	var vp_h := maxf(_markers.size.y, 1.0)
+	return 2.0 * _rig.distance * tan(deg_to_rad(_cam.fov) * 0.5) / vp_h
+
+
 ## Commit the painted override: recomposite the strokes over the blessed
 ## tile (scoped — only the painted cells rebuild) and persist the override
 ## EXR. The tile itself is never written; Strata owns it (P0 seam fix).
@@ -403,22 +401,32 @@ func _update_hint() -> void:
 	elif _paint:
 		_hint.text = "PAINT override  ·  LMB raise · Shift lower  ·  [ ] brush %dm  ·  B commit  ·  P exit" % int(_brush_m)
 	elif _from_toolkit:
-		_hint.text = "drag / WASD pan  ·  wheel zoom  ·  P elevation · R river · G biome  ·  RMB teleport  ·  M close"
+		_hint.text = "drag orbit / WASD pan  ·  wheel zoom  ·  P elevation · R river · G biome  ·  RMB teleport  ·  M close"
 	else:
-		_hint.text = "drag / WASD pan  ·  wheel zoom  ·  M close"
+		_hint.text = "drag orbit / WASD pan  ·  wheel zoom  ·  M or Esc close"
+
+
+## World point → screen, or Vector2.INF when it's behind the camera (an
+## orbit view can turn markers around behind you; the old top-down ortho
+## never could).
+func _screen_point(world: Vector3) -> Vector2:
+	if _cam.is_position_behind(world):
+		return Vector2.INF
+	return _cam.unproject_position(world)
 
 
 func _draw_markers() -> void:
 	if _cam == null:
 		return
-	# The paint brush footprint (world-meters → screen px via the ortho scale).
+	var m_per_px := _m_per_px()
+	# The paint brush footprint (world-meters → screen px at the target).
 	if _paint:
-		var r_px := _brush_m * _markers.size.y / _cam.size
+		var r_px := _brush_m / m_per_px
 		_markers.draw_circle(_mouse, r_px, Color(0.95, 0.55, 0.25, 0.12))
 		_markers.draw_arc(_mouse, r_px, 0.0, TAU, 48, Color(1, 0.6, 0.25, 0.9), 1.5)
 	# The biome brush footprint, filled with the selected biome's ink.
 	if _biome_paint:
-		var r_px := _brush_m * _markers.size.y / _cam.size
+		var r_px := _brush_m / m_per_px
 		var ink := Color(0.9, 0.6, 0.3)
 		if _biome_index < Terrain.biomes.size():
 			ink = Terrain.biomes[_biome_index].ink
@@ -428,8 +436,10 @@ func _draw_markers() -> void:
 	if _river_mode:
 		var rprev := Vector2.INF
 		for wp in _river_nodes:
-			var sp := _cam.unproject_position(
+			var sp := _screen_point(
 				Vector3(wp.x, Terrain.height(wp.x, wp.y) + 1.0, wp.y))
+			if sp == Vector2.INF:
+				continue
 			if rprev != Vector2.INF:
 				_markers.draw_line(rprev, sp, Color(0.30, 0.80, 0.95, 0.95), 2.0)
 			_markers.draw_circle(sp, 4.0, Color(0.30, 0.80, 0.95))
@@ -456,26 +466,66 @@ func _draw_markers() -> void:
 		var prev := Vector2.INF
 		for n in nodes:
 			var wp: Vector2 = n.pos
-			var p := _cam.unproject_position(
+			var p := _screen_point(
 				Vector3(wp.x, Terrain.height(wp.x, wp.y) + 1.0, wp.y))
+			if p == Vector2.INF:
+				prev = Vector2.INF
+				continue
 			if prev != Vector2.INF:
 				_markers.draw_line(prev, p, Color(0.30, 0.48, 0.62, 0.9), 1.5)
 			prev = p
-	var player := get_tree().get_first_node_in_group("player")
-	if player:
-		var p := _cam.unproject_position(player.global_position + Vector3.UP * 2.0)
-		_markers.draw_circle(p, 6.0, Color.WHITE)
-		_markers.draw_circle(p, 6.0, COLOR_INK, false, 1.5)
+	_draw_player(m_per_px)
+	_draw_compass(font)
+	_draw_scale_bar(font, m_per_px)
 
-	# Compass north + scale bar.
-	var vp := _markers.size
-	_markers.draw_string(font, Vector2(vp.x * 0.5 - 5, 34), "N",
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 18, Color(1, 0.95, 0.9))
-	_markers.draw_line(Vector2(vp.x * 0.5, 44), Vector2(vp.x * 0.5, 58),
+
+## The player: a dot with a HEADING wedge (what makes a map a map — you,
+## and which way you're facing). The body child carries the yaw; the
+## characters-face-+Z convention gives the forward vector.
+func _draw_player(m_per_px: float) -> void:
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null:
+		return
+	var pos: Vector3 = player.global_position + Vector3.UP * 2.0
+	var p := _screen_point(pos)
+	if p == Vector2.INF:
+		return
+	var body := player.get_node_or_null("Body") as Node3D
+	var yaw: float = body.rotation.y if body else 0.0
+	var ahead := pos + Vector3(sin(yaw), 0.0, cos(yaw)) * maxf(m_per_px * 20.0, 4.0)
+	var pa := _screen_point(ahead)
+	if pa != Vector2.INF and pa != p:
+		# A filled wedge pointing where the player faces.
+		var dir := (pa - p).normalized()
+		var side := Vector2(-dir.y, dir.x)
+		_markers.draw_colored_polygon(PackedVector2Array([
+			p + dir * 16.0, p + side * 6.0 - dir * 2.0, p - side * 6.0 - dir * 2.0,
+		]), Color(1.0, 0.35, 0.45, 0.9))
+	_markers.draw_circle(p, 6.0, Color.WHITE)
+	_markers.draw_circle(p, 6.0, COLOR_INK, false, 1.5)
+
+
+## Compass north: the orbit rotates the world under you, so N is a
+## needle now, not a fixed top-of-screen letter. North is -Z (the old
+## top-down map looked down -Z with north up).
+func _draw_compass(font: Font) -> void:
+	var anchor := Vector2(_markers.size.x - 46.0, 46.0)
+	var pt := _screen_point(_rig.target)
+	var pn := _screen_point(_rig.target + Vector3(0.0, 0.0, -_rig.distance * 0.02))
+	var dir := Vector2(0, -1)
+	if pt != Vector2.INF and pn != Vector2.INF and pn != pt:
+		dir = (pn - pt).normalized()
+	_markers.draw_circle(anchor, 17.0, Color(0, 0, 0, 0.25))
+	_markers.draw_line(anchor - dir * 12.0, anchor + dir * 12.0,
 			Color(1, 0.95, 0.9), 1.5)
-	# Adaptive scale: pick the nicest round distance that draws ~120px
-	# wide (a fixed 100m bar vanishes at 9km zoom).
-	var m_per_px := _cam.size / vp.y
+	_markers.draw_string(font, anchor + dir * 15.0 + Vector2(-5, 5), "N",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 0.95, 0.9))
+
+
+## Adaptive scale bar: the nicest round distance that draws ~120px wide
+## (a fixed 100m bar vanishes at 13km zoom).
+func _draw_scale_bar(font: Font, m_per_px: float) -> void:
+	var vp := _markers.size
 	var target_m := 120.0 * m_per_px
 	var nice := 100.0
 	for step in [50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0]:
@@ -496,12 +546,14 @@ func _draw_markers() -> void:
 ## the map is zoomed in enough that they won't pile up.
 func _draw_place(font: Font, xz: Vector2, text: String, col: Color) -> void:
 	var world := Vector3(xz.x, Terrain.height(xz.x, xz.y) + 2.0, xz.y)
-	var p := _cam.unproject_position(world)
+	var p := _screen_point(world)
+	if p == Vector2.INF:
+		return
 	if p.x < -40 or p.y < -40 or p.x > _markers.size.x + 40 or p.y > _markers.size.y + 40:
 		return
 	_markers.draw_circle(p, 5.0, col)
 	_markers.draw_circle(p, 5.0, Color.WHITE, false, 1.5)
-	if _ortho < 4000.0:
+	if _rig.distance < 6000.0:
 		_draw_label(font, p + Vector2(10, 5), text)
 
 

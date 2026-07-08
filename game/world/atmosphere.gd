@@ -162,9 +162,16 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	# The map is a chart: hide the weather FX (rain, curtains, fog bank,
-	# bolts) so nothing floats over it.
+	# bolts) so nothing floats over it. A flash caught mid-pulse is cut
+	# short too — the lightning_flash global tints every surface, and a
+	# stuck value would storm-wash the chart it was hidden from.
 	visible = not MapScreen.active
 	if MapScreen.active:
+		if _bolt_t > 0.0:
+			_bolt_t = 0.0
+			_bolt.light_energy = 0.0
+			_bolt_mesh.visible = false
+			RenderingServer.global_shader_parameter_set("lightning_flash", 0.0)
 		return
 	var player := get_tree().get_first_node_in_group("player")
 	if player:

@@ -6,5 +6,8 @@ func _process(_delta: float) -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	if player:
 		global_position = player.global_position + Vector3(0.0, 4.0, 0.0)
-	emitting = Weather.dust > 0.25 or Weather.storminess > 0.35
+	# The map is weather-exempt (a chart, not a window) — a gale's dust
+	# column at the player marker would be the one FX left floating on it.
+	emitting = (Weather.dust > 0.25 or Weather.storminess > 0.35) \
+			and not MapScreen.active
 	speed_scale = 0.5 + Weather.wind

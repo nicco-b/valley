@@ -140,8 +140,11 @@ void fragment() {
 		}
 		vec3 chart = dc * (0.55 + 0.45 * lambert);
 		// Emit unlit: the chart owes nothing to the sun or the hour.
+		// Forward+ works in linear (decode; the linear tonemap re-encodes
+		// on output); the Compatibility renderer is already sRGB end-to-end
+		// (OUTPUT_IS_SRGB) — feed the display values straight through.
 		ALBEDO = vec3(0.0);
-		EMISSION = srgb_to_linear(chart);
+		EMISSION = OUTPUT_IS_SRGB ? chart : srgb_to_linear(chart);
 	}
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.0;

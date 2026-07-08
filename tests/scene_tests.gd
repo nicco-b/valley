@@ -101,10 +101,94 @@ func _test_strata_link() -> void:
 	if vreplies.size() == 2:
 		_check(vreplies[0] == "err toolkit not active", "view orbit errs without toolkit")
 		_check(vreplies[1] == "err view needs orbit|fly", "view arg errs with the contract line")
+	await _test_link_discovery(peer)
+	await _test_reload_honesty(peer)
 	await _test_preview_world(peer)
 	await _test_preview_mesh(peer)
 	await _test_toolkit_verbs(peer)
 	peer.disconnect_from_host()
+
+
+## Discovery verbs (audit QW7): `verbs` answers every verb the link
+## speaks — pinned BOTH WAYS against the dispatcher's own match arms
+## (parsed from source), so a new verb cannot ship unlisted and the list
+## cannot advertise a verb nobody answers. `toolkit keys` answers the
+## hand's bindings with or without the hand, every token machine-readable.
+func _test_link_discovery(peer: StreamPeerTCP) -> void:
+	var replies := await _link_send(peer, ["verbs", "toolkit keys"])
+	_check(replies.size() == 2, "discovery replies land (got %d)" % replies.size())
+	if replies.size() != 2:
+		return
+	# -- verbs: shape, then completeness against the dispatcher source.
+	var vr := String(replies[0])
+	_check(vr.begins_with("ok verbs "), "verbs answers ok (got %s)" % vr)
+	var listed := vr.trim_prefix("ok verbs ").split(" ", false)
+	var src := FileAccess.get_file_as_string("res://game/dev/strata_link.gd")
+	var body := src.substr(src.find("func _execute"))
+	body = body.substr(0, body.find("\nfunc ", 1))
+	var arms: Array[String] = []
+	var re := RegEx.create_from_string("(?m)^\\t\\t\"([a-z_]+)\":")
+	for m in re.search_all(body):
+		arms.append(m.get_string(1))
+	_check(arms.size() >= 12, "dispatcher arms found in source (got %d)" % arms.size())
+	for a in arms:
+		_check(a in listed, "verbs reply lists the dispatcher's '%s' (rot check)" % a)
+	for v in listed:
+		_check(v in arms, "advertised verb '%s' exists in the dispatcher" % v)
+	# Every advertised verb ANSWERS over the wire (bare verbs may err on
+	# missing args, but never "unknown verb" — list and dispatcher agree
+	# live, not just in source).
+	var live := await _link_send(peer, Array(listed))
+	_check(live.size() == listed.size(),
+		"every advertised verb answers (got %d/%d)" % [live.size(), listed.size()])
+	for i in mini(live.size(), listed.size()):
+		_check(not String(live[i]).begins_with("err unknown verb"),
+			"advertised verb '%s' is spoken (got %s)" % [listed[i], live[i]])
+	# -- toolkit keys: answers WITHOUT the hand (static help, not state);
+	# every token one <binding>=<meaning> pair; the load-bearing bindings
+	# ride the live InputMap (F1 here == the InputMap's toolkit_toggle).
+	_check(not Toolkit.active, "keys probe runs without the hand")
+	var kr := String(replies[1])
+	_check(kr.begins_with("ok keys "), "toolkit keys answers ok (got %s)" % kr)
+	var toks := kr.trim_prefix("ok keys ").split(" ", false)
+	_check(toks.size() >= 15, "keys reply carries the bindings (got %d)" % toks.size())
+	for t in toks:
+		_check(t.count("=") == 1 and t.split("=", false).size() == 2,
+			"keys token is <binding>=<meaning> (got '%s')" % t)
+	for want in ["F1=toolkit", "Tab=tool", "Z=undo", "F5=save",
+			"BracketLeft=smaller", "BracketRight=bigger", "1-9=pick",
+			"O=panel", "M=map", "WASD=fly", "Escape=release"]:
+		_check(want in toks, "keys reply carries %s" % want)
+
+
+## reload_world honesty (audit QW3): a failed tile re-read answers err —
+## never "ok reloaded" over a world that didn't change — and the old
+## tile stays live. The failure is real: the exr is hidden on disk, the
+## verb sent, the file restored, recovery asserted.
+func _test_reload_honesty(peer: StreamPeerTCP) -> void:
+	if not Terrain.has_world_tile():
+		print("  reload honesty: SKIP (no baked tile cache)")
+		return
+	var h0: float = Terrain.height(3000.0, 3000.0)
+	var healthy := await _link_send(peer, ["reload_world"])
+	_check(healthy.size() == 1 and String(healthy[0]) == "ok reloaded tile=yes biomes",
+		"reload_world with a healthy tile answers ok (got %s)" % str(healthy))
+	var tile_abs := ProjectSettings.globalize_path(
+		"res://data/terrain/tiles/baked_world.exr")
+	var hidden := tile_abs + ".qw3hidden"
+	_check(DirAccess.rename_absolute(tile_abs, hidden) == OK, "probe hides the tile")
+	var broken := await _link_send(peer, ["reload_world"])
+	_check(broken.size() == 1
+			and String(broken[0]) == "err reload failed: tile did not reload (old tile stays live)",
+		"reload_world with an unreadable tile answers err (got %s)" % str(broken))
+	_check(Terrain.height(3000.0, 3000.0) == h0,
+		"the old tile stays live after a failed reload")
+	_check(DirAccess.rename_absolute(hidden, tile_abs) == OK, "probe restores the tile")
+	var back := await _link_send(peer, ["reload_world"])
+	_check(back.size() == 1 and String(back[0]) == "ok reloaded tile=yes biomes",
+		"reload_world recovers once the tile returns (got %s)" % str(back))
+	_check(Terrain.height(3000.0, 3000.0) == h0,
+		"recovered reload reads bit-identical ground")
 
 
 ## The toolkit verbs (ONE_APP P9·C): Strata's native toolbar drives the
@@ -160,7 +244,7 @@ func _test_toolkit_verbs(peer: StreamPeerTCP) -> void:
 			"bad brush errs with the contract line")
 		_check(replies[10].begins_with("err toolkit biome needs 1.."),
 			"biome 0 errs with the contract line")
-		_check(replies[11] == "err toolkit needs status|tool|brush|biome|place",
+		_check(replies[11] == "err toolkit needs status|tool|brush|biome|place|keys",
 			"unknown subverb errs with the contract line")
 		# hud off is the batch's LAST state change: the darkness is
 		# assertable here (hud on rides its own batch below).

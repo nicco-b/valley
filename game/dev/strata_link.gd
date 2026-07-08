@@ -10,9 +10,24 @@ extends Node
 ## per command ("ok ..." / "err ...").
 ##   ping                     -> ok pong <protocol>
 ##   status                   -> ok <hours>h focus=(x,z) fps=<n>
+##   verbs                    -> every verb this link speaks, one line,
+##                               space-separated, machine-readable:
+##                               "ok verbs ping status reload_world ..."
+##                               Strata gates its UI on THIS, never a
+##                               hardcoded list; the scene tests pin it to
+##                               the dispatcher's own arms so a new verb
+##                               cannot ship unlisted.
 ##   reload_world             -> re-reads the baked tile + biome map NOW
 ##                               (HotReload would catch it within 1s; this
-##                               makes Send-to-Game synchronous)
+##                               makes Send-to-Game synchronous). Replies
+##                               "ok reloaded tile=<yes|no-tile> biomes"
+##                               (no-tile: no baked tile is loaded, nothing
+##                               to reload). A tile that IS loaded but will
+##                               not re-read (missing/unreadable/non-square
+##                               exr) answers "err reload failed: tile did
+##                               not reload (old tile stays live)" — never
+##                               "ok" over a world that didn't change
+##                               (audit QW3).
 ##   teleport <x> <z>         -> fly cam if the Toolkit is open, else player
 ##   screenshot <path>        -> saves the viewport to an absolute png path
 ##   weather <kind>           -> Weather.force_kind (calm/storm/... )
@@ -52,6 +67,21 @@ extends Node
 ##   toolkit biome <1-9>      -> pick the biome (the 1-9 keys)
 ##   toolkit place <slot>     -> select the PLACE palette slot (1-based
 ##                               index or card slot name)
+##   toolkit keys             -> the hand's key bindings, one line of
+##                               space-separated <binding>=<meaning>
+##                               tokens (Strata renders honest help from
+##                               this instead of hardcoding F1/Tab/Z):
+##                               "ok keys F1=toolkit Tab=tool Z=undo
+##                                F5=save BracketLeft=smaller
+##                                BracketRight=bigger 1-9=pick O=panel
+##                                N=navmesh M=map Enter=carve
+##                                Escape=release WASD=fly E=up Q=down
+##                                Shift=fast Ctrl=flatten LMB=apply
+##                                RMB=inspect Wheel=speed"
+##                               Binding names are Godot key names read
+##                               from the live InputMap (a rebind changes
+##                               the reply); answers with or without the
+##                               hand — it is static help, not state.
 ##   hud <on|off>             -> hide/show the in-game text HUD (the
 ##                               embedded pane goes chrome-less when
 ##                               Strata's toolbar is driving)
@@ -60,6 +90,13 @@ extends Node
 
 const PORT := 46464
 const PROTOCOL := 1
+
+## Every verb _execute answers — the `verbs` discovery reply (audit QW7).
+## The scene tests assert this list matches the dispatcher's match arms
+## exactly, both ways: add a verb there and it MUST land here too.
+const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
+	"teleport", "screenshot", "weather", "time", "preview_world", "view",
+	"toolkit", "hud"]
 
 ## Actual port (STRATA_LINK_PORT env overrides — a second instance, e.g.
 ## the P3.5 embedded pane or a probe, gets its own link beside the game).
@@ -141,10 +178,17 @@ func _execute(line: String) -> String:
 			return "ok %.2fh focus=(%.0f, %.0f) fps=%d served=%d" % [
 				GameClock.hours, focus.x, focus.y,
 				Engine.get_frames_per_second(), _served]
+		"verbs":
+			return "ok verbs " + " ".join(VERBS)
 		"reload_world":
-			var did := Terrain.reload_tile("res://data/terrain/tiles/baked_world.exr")
+			# Honest reload (audit QW3): the re-read can FAIL — say so
+			# instead of "ok" over a world that didn't change. The old
+			# tile stays live either way (Terrain never tears it down).
+			var tile := Terrain.reload_tile("res://data/terrain/tiles/baked_world.exr")
+			if tile == "failed":
+				return "err reload failed: tile did not reload (old tile stays live)"
 			Terrain.reload_biomes()
-			return "ok reloaded tile=%s biomes" % ("yes" if did else "no-tile")
+			return "ok reloaded tile=%s biomes" % ("yes" if tile == "reloaded" else "no-tile")
 		"teleport":
 			if parts.size() < 3:
 				return "err teleport needs x z"
@@ -210,7 +254,11 @@ func _execute(line: String) -> String:
 ## viewer's Toolkit is active in orbit; status says view=orbit).
 func _toolkit(parts: PackedStringArray) -> String:
 	if parts.size() < 2:
-		return "err toolkit needs status|tool|brush|biome|place"
+		return "err toolkit needs status|tool|brush|biome|place|keys"
+	if parts[1] == "keys":
+		# Static data (the bindings, not the hand's state): answers even
+		# without the hand, so Strata can render help before F1 is pressed.
+		return "ok keys " + Toolkit.link_keys()
 	if not Toolkit.active:
 		return "err toolkit not active"
 	match parts[1]:
@@ -248,7 +296,7 @@ func _toolkit(parts: PackedStringArray) -> String:
 			var s: Dictionary = Toolkit.link_state()
 			return "ok place %d/%d:%s" % [landed, int(s["place_count"]), s["place_slot"]]
 		_:
-			return "err toolkit needs status|tool|brush|biome|place"
+			return "err toolkit needs status|tool|brush|biome|place|keys"
 
 
 ## Advance the clock for the hub — always FORWARD, always through

@@ -484,8 +484,13 @@ func preview_tile(rec: Dictionary, p_sea_level: float) -> bool:
 ## Dev hot-reload of one painted tile: reload the image, swap the tile
 ## array and a FRESH kernel wholesale (workers mid-build keep a ref to
 ## the old one — never a torn mix), then invalidate the tile's rect so
-## cells and the far quadtree rebuild. Returns true if a tile matched.
-func reload_tile(image_path: String) -> bool:
+## cells and the far quadtree rebuild. Returns "reloaded" when the swap
+## landed, "no-tile" when no loaded tile carries that path (nothing to
+## reload), and "failed" when the tile matched but its image would not
+## re-read (missing/unreadable/non-square — audit QW3: this used to
+## report success). On failure the OLD tile stays live — a failed reload
+## never tears down a working world.
+func reload_tile(image_path: String) -> String:
 	for i in _tiles.size():
 		var t: Dictionary = _tiles[i]
 		if t.path != image_path:
@@ -495,7 +500,7 @@ func reload_tile(image_path: String) -> bool:
 			"height_min": t.hmin, "height_max": t.hmax}
 		var fresh := _load_tile(rec, t.id)
 		if fresh.is_empty():
-			return true
+			return "failed"
 		# Re-seat the live override on the fresh blessed tile (unsaved pen
 		# strokes survive a re-import landing underneath them).
 		var composited := _composited_tile(fresh, _override_rect)
@@ -508,8 +513,8 @@ func reload_tile(image_path: String) -> bool:
 			kernel.set_tiles(_tiles)  # atomic swap inside; workers unharmed
 		edited.emit(Rect2(t.x0, t.z0, t.size, t.size))
 		print("[terrain] tile reloaded: ", t.id)
-		return true
-	return false
+		return "reloaded"
+	return "no-tile"
 
 
 ## Bulk height samples, row-major nz rows of nx — THE call worker-thread

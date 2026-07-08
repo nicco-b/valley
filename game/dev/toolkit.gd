@@ -709,6 +709,53 @@ func link_state() -> Dictionary:
 	}
 
 
+## The hand's key bindings in one machine-readable line (the link's
+## `toolkit keys` — Strata renders honest help from THIS instead of
+## hardcoding a copy). Space-separated `<binding>=<meaning>` tokens;
+## action-backed bindings read the live InputMap, so a project.godot
+## rebind changes the reply, not just the behavior. Binding names are
+## Godot key names (OS.get_keycode_string: BracketLeft is the [ key),
+## spaces stripped; LMB/RMB/Wheel name the mouse. Static data, not
+## state — answers with or without the hand.
+func link_keys() -> String:
+	var fly := _key_of("move_forward") + _key_of("move_left") \
+			+ _key_of("move_back") + _key_of("move_right")
+	var pairs: Array[String] = [
+		_key_of("toolkit_toggle") + "=toolkit",
+		_key_of("toolkit_tool") + "=tool",
+		_key_of("toolkit_undo") + "=undo",
+		_key_of("toolkit_save") + "=save",
+		_key_of("brush_smaller") + "=smaller",
+		_key_of("brush_bigger") + "=bigger",
+		"1-9=pick",
+		"O=panel",
+		"N=navmesh",
+		_key_of("map") + "=map",
+		"Enter=carve",
+		_key_of("ui_cancel") + "=release",
+		fly + "=fly",
+		_key_of("toolkit_up") + "=up",
+		_key_of("toolkit_down") + "=down",
+		_key_of("sprint") + "=fast",
+		"Ctrl=flatten",
+		"LMB=apply",
+		"RMB=inspect",
+		"Wheel=speed",
+	]
+	return " ".join(pairs)
+
+
+## The first keyboard key bound to an action, as a spaceless token
+## ("?" when the action has no key — the reply stays parseable).
+func _key_of(action: String) -> String:
+	for ev in InputMap.action_get_events(action):
+		var k := ev as InputEventKey
+		if k != null:
+			var code := k.physical_keycode if k.physical_keycode != 0 else k.keycode
+			return OS.get_keycode_string(code).replace(" ", "")
+	return "?"
+
+
 ## Switch the active tool by name; false on an unknown name.
 func set_tool(p_tool: String) -> bool:
 	var i := TOOL_NAMES.find(p_tool)

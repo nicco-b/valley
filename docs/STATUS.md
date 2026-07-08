@@ -12,6 +12,21 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
+## ⭐ Session handoff — resume here (2026-07-07, later): the two plans
+
+**Nicco's direction (this session): Strata becomes THE ONE APP** — the
+game builder (worlds + assets + projects + bake/bless + launching the
+game as its live view; places/moments stay in-engine via the Toolkit,
+which reorients to "Strata's hand inside the live sim"). The full
+decision + phased plan: **`~/code/strata/docs/ONE_APP.md`** (P0 = the
+seam fix — Strata height.exr → the baked tile DIRECTLY, killing the
+double-erosion that currently re-droplets every Strata export through
+the old guide path; do P0 before anything else). Second track, this
+repo: **[PLAN_PHYSICS.md](PLAN_PHYSICS.md)** — sand/water realism
+(ocean swell → breakers → swash/wet strand → tier-3 sediment coupling
+that erases beach footprints; sand response/wind/mud). The
+next-session prompt to paste is at the bottom of ONE_APP.md.
+
 ## ⭐ Session handoff — resume here (2026-07-07): the de-valley wipe
 
 **Strata is the world; the old hand-authored valley content is GONE.**

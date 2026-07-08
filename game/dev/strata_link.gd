@@ -16,6 +16,13 @@ extends Node
 ##   teleport <x> <z>         -> fly cam if the Toolkit is open, else player
 ##   screenshot <path>        -> saves the viewport to an absolute png path
 ##   weather <kind>           -> Weather.force_kind (calm/storm/... )
+##   time +<hours>            -> advance the clock by float hours
+##   time <0..24>             -> advance FORWARD to the next occurrence of
+##                               that clock hour (today if still ahead,
+##                               else tomorrow). Both route through
+##                               GameClock.advance_hours — the sim contract's
+##                               one door (never a dial-set); replies
+##                               "ok <hours 2dp>h day=<day>"
 ##
 ## summary() feeds the Toolkit world panel (systems it can't see are debt).
 
@@ -123,8 +130,34 @@ func _execute(line: String) -> String:
 				return "err weather needs a kind"
 			Weather.force_kind(parts[1])
 			return "ok weather %s" % parts[1]
+		"time":
+			if parts.size() < 2:
+				return "err time needs +<h> or <0..24>"
+			return _time(parts[1])
 		_:
 			return "err unknown verb '%s'" % parts[0]
+
+
+## Advance the clock for the hub — always FORWARD, always through
+## GameClock.advance_hours (the sim contract's one door: weather rolls,
+## NPCs and climate LIVE the skipped hours — exactly the dev T-key path).
+## "+2.5" adds hours; a bare "18" travels to the next 18:00 (today if
+## still ahead, else tomorrow — the sim can't unlive hours).
+func _time(arg: String) -> String:
+	var delta: float
+	if arg.begins_with("+"):
+		var h := arg.substr(1)
+		if not h.is_valid_float() or float(h) < 0.0:
+			return "err time needs +<h> or <0..24>"
+		delta = float(h)
+	elif arg.is_valid_float() and float(arg) >= 0.0 and float(arg) <= 24.0:
+		delta = fposmod(float(arg) - GameClock.hours, 24.0)
+		if delta < 0.02:  # already standing on it: its next occurrence
+			delta += 24.0
+	else:
+		return "err time needs +<h> or <0..24>"
+	GameClock.advance_hours(delta)
+	return "ok %.2fh day=%d" % [GameClock.hours, GameClock.day]
 
 
 ## Drop the view at a world XZ: the Toolkit fly cam when it's open (the

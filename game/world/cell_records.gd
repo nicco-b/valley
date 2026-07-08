@@ -1,8 +1,16 @@
 extends Node
-## Placed-object records (autoload). One JSON file per cell in data/cells;
-## each record: {kit, x, y, z, yaw, scale}. Place mode writes these, the
-## streamer instantiates them. This is the seed of the data-driven content
-## layer (and, later, of save-game world mutation).
+## The Chronicle — placed-object records (autoload). One JSON file per cell
+## in data/cells; each record: {kit, x, y, z, yaw, scale, ground_dy}. Place
+## mode writes these, the streamer instantiates them (through seat_y). This
+## is the seed of the data-driven content layer (and, later, of save-game
+## world mutation).
+##
+## ground_dy is the record's height ABOVE THE GROUND at placement time —
+## the regeneration-hazard defense (ONE_APP): when Strata regenerates the
+## terrain under a placement, seat_y() rides the CURRENT ground plus that
+## offset instead of a stale absolute Y, so nothing floats or buries.
+## Legacy records (absolute-Y only) keep their stored Y and gain a
+## ground_dy opportunistically the next time their cell saves anyway.
 
 signal changed(cell: Vector2i)
 
@@ -47,6 +55,7 @@ func add(pos: Vector3, kit_id: String, yaw: float, scale: float) -> void:
 		_cells[cell] = []
 	_cells[cell].append({
 		"kit": kit_id, "x": pos.x, "y": pos.y, "z": pos.z, "yaw": yaw, "scale": scale,
+		"ground_dy": pos.y - Terrain.height(pos.x, pos.z),  # ground-relative anchor
 		"day": GameClock.day,  # age of the placement — weathering reads this later
 	})
 	_save(cell)
@@ -61,7 +70,29 @@ func remove_last(cell: Vector2i) -> void:
 	changed.emit(cell)
 
 
+## The Y a record seats at RIGHT NOW — the streamer's one answer. snap
+## rides the ground exactly; ground_dy rides the CURRENT ground plus the
+## authored offset (the terrain may have regenerated since placement);
+## legacy records hold their stored absolute Y until a save migrates them.
+func seat_y(rec: Dictionary) -> float:
+	var x: float = rec.x
+	var z: float = rec.z
+	if bool(rec.get("snap", false)):
+		return Terrain.height(x, z)
+	if rec.has("ground_dy"):
+		return Terrain.height(x, z) + float(rec.ground_dy)
+	return float(rec.y)
+
+
 func _save(cell: Vector2i) -> void:
+	# Opportunistic migration: legacy records gain their ground-relative
+	# anchor whenever their cell is saved anyway — no forced rewrite of
+	# every file at load (the ground under them is the best truth we have).
+	for rec: Dictionary in _cells[cell]:
+		if not rec.has("ground_dy"):
+			var x: float = rec.x
+			var z: float = rec.z
+			rec["ground_dy"] = float(rec.y) - Terrain.height(x, z)
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(DIR))
 	var path := "%s/cell_%d_%d.json" % [DIR, cell.x, cell.y]
 	var file := FileAccess.open(path, FileAccess.WRITE)

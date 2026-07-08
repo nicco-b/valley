@@ -24,6 +24,7 @@ func _ready() -> void:
 	_test_nav()
 	_test_sand_sim()
 	_test_tile_override()
+	_test_placement_reseat()
 	await _test_strata_link()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
@@ -64,6 +65,31 @@ func _test_strata_link() -> void:
 		# No player node in the test scene: the honest error path.
 		_check(replies[2] == "err no player in tree", "teleport without player errs")
 		_check(replies[3].begins_with("ok") and "focus=" in replies[3], "status reports focus")
+	# The time verb (ONE_APP P8): +<h> advances THROUGH advance_hours (the
+	# sim lives the stretch), the reply carries the new clock; bad args err
+	# with the contract line the Strata client matches on.
+	var h0 := fmod(GameClock.hours + 2.0, 24.0)
+	var treplies := await _link_send(peer, ["time +2", "time", "time 25", "time -3"])
+	_check(treplies.size() == 4, "time replies land (got %d)" % treplies.size())
+	if treplies.size() == 4:
+		var rep: String = treplies[0]
+		_check(rep.begins_with("ok ") and rep.contains("h day="), "time +2 reply shape")
+		var rep_h := float(rep.trim_prefix("ok ").split("h")[0])
+		_check(absf(rep_h - GameClock.hours) < 0.05, "time reply carries the new clock")
+		_check(absf(fposmod(GameClock.hours - h0, 24.0)) < 0.05
+			or absf(fposmod(GameClock.hours - h0, 24.0) - 24.0) < 0.05,
+			"time +2 advanced the clock ~2h (at %.2f, wanted %.2f)" % [GameClock.hours, h0])
+		for i in [1, 2, 3]:
+			_check(treplies[i] == "err time needs +<h> or <0..24>",
+				"time arg %d errs with the contract line" % i)
+	# The absolute form: travel FORWARD to a clock hour (here: now+1h,
+	# so it stays a same-day hop and never crosses midnight mid-assert).
+	var target := snappedf(fmod(GameClock.hours + 1.0, 24.0), 0.01)
+	var areplies := await _link_send(peer, ["time %.2f" % target])
+	_check(areplies.size() == 1 and areplies[0].begins_with("ok "),
+		"time <hour> answers ok")
+	_check(absf(GameClock.hours - target) < 0.05,
+		"time <hour> lands on the hour (at %.2f, wanted %.2f)" % [GameClock.hours, target])
 	peer.disconnect_from_host()
 
 
@@ -109,6 +135,54 @@ func _test_tile_override() -> void:
 	Terrain.restore_tile_override(snap)
 	_check(Terrain.height(p.x, p.y) == before,
 		"restore returns bit-identical ground")
+
+
+## Ground-relative placement (the regeneration hazard, valley half):
+## CellRecords.add stores ground_dy (height above the ground at placement),
+## seat_y rides the CURRENT ground + dy after the terrain regenerates, and
+## legacy absolute-Y records migrate opportunistically on their next save.
+## Skips honestly where the baked tile cache doesn't exist (fresh clone/CI).
+func _test_placement_reseat() -> void:
+	if not Terrain.has_world_tile():
+		print("  placement reseat: SKIP (no baked tile cache)")
+		return
+	var x := 900.0
+	var z := -900.0
+	var cell: Vector2i = CellRecords.cell_of(Vector3(x, 0.0, z))
+	var pre_count: int = CellRecords.records(cell).size()
+	var h0: float = Terrain.height(x, z)
+	CellRecords.add(Vector3(x, h0 + 0.25, z), "test_kit", 0.0, 1.0)
+	var rec: Dictionary = CellRecords.records(cell).back()
+	_check(rec.has("ground_dy"), "placed record carries ground_dy")
+	_check(absf(float(rec.get("ground_dy", -99.0)) - 0.25) < 0.001,
+		"ground_dy is the height above the ground at placement")
+	# A legacy record (absolute Y only, pre-ground_dy) rides its stored Y...
+	var legacy := {"kit": "test_kit", "x": x + 3.0, "y": h0 + 1.0, "z": z + 3.0,
+		"yaw": 0.0, "scale": 1.0}
+	_check(CellRecords.seat_y(legacy) == h0 + 1.0, "legacy record seats at stored Y")
+	# ...and gains its anchor the next time the cell saves anyway.
+	CellRecords.records(cell).append(legacy)
+	CellRecords.add(Vector3(x, h0, z), "test_kit", 0.0, 1.0)  # any save-through
+	_check(legacy.has("ground_dy") and \
+		absf(float(legacy.get("ground_dy", -99.0)) \
+			- (h0 + 1.0 - Terrain.height(x + 3.0, z + 3.0))) < 0.001,
+		"legacy record migrates ground_dy on its cell's next save")
+	# Regenerate the ground: raise it ~5m under the placement and re-seat.
+	var snap: Image = Terrain.snapshot_tile_override()
+	Terrain.commit_tile_override(Terrain.paint_tile_override(Vector2(x, z), 200.0, 5.0))
+	var h1: float = Terrain.height(x, z)
+	_check(absf((h1 - h0) - 5.0) < 0.8, "ground rose ~5m (got %.2fm)" % (h1 - h0))
+	_check(absf(CellRecords.seat_y(rec) - (h1 + 0.25)) < 0.001,
+		"record seats on the NEW ground + dy (%.2f vs %.2f)"
+			% [CellRecords.seat_y(rec), h1 + 0.25])
+	Terrain.restore_tile_override(snap)
+	# Leave no trace: pop the test records and the cell file they created.
+	CellRecords.remove_last(cell)
+	CellRecords.remove_last(cell)
+	CellRecords.remove_last(cell)
+	if CellRecords.records(cell).size() == pre_count and pre_count == 0:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(
+			"%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]))
 
 
 ## The shared condition language (Conditions) — the gate every future

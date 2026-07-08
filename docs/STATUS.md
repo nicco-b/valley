@@ -52,6 +52,13 @@ the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 - Soak green + bit-stable (fingerprint 3649289887 — still floats with
   his live bake until the world is blessed; the invariant that holds is
   two-run stability). All tests green.
+- **Then, same session: ONE_APP P1 (Nicco's pick) landed in the strata
+  repo** — one ⌘Z stream for params + strokes (slider sprees coalesce),
+  A/B compare (⇧⌘B hold / ⌘B toggle), **Bless** (⇧⌘E or `strata-cli
+  bless`: full-res bake → `worlds/world_vN/` beside the doc +
+  `registry.json` blessed pointer + frozen.landform locks), and
+  `scripts/make_app.sh` → `dist/Strata.app` (.strata double-click).
+  Blessing his real world now gives the soak its pinnable baseline.
 
 ## ⭐ Session handoff — resume here (2026-07-07, later): the two plans
 

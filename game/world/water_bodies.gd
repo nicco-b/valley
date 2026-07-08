@@ -14,6 +14,11 @@ const STEP_SPLIT := 1.1  # a POOL LIP (flat above, cliff below) this tall
 	# gets a vertical fall face; sustained steep runs stay continuous —
 	# splitting every steep row turned cascades into shingles.
 const STEP_FLAT := 0.35  # "flat above" threshold for lip detection
+const FALL_FOAM_R := 10.0  # ribbon foams full within this of a waterfall lip
+# W2 on lakes (ONE_APP P2): a lake with real fetch rides a scaled share
+# of the swell and carries baked bathymetry, so storm chop shoals and
+# dies at its shore exactly like the sea's. Ponds stay glassy.
+const LAKE_SWELL_MIN_R := 40.0
 
 var _lake_meshes: Dictionary = {}
 var _river_meshes: Dictionary = {}
@@ -73,19 +78,40 @@ func _ready() -> void:
 		_sea_far.position.y = Terrain.sea_level - 0.15
 		add_child(_sea_far)
 		# W2: the shoaling tiers get their bathymetry channel.
-		_bathy_register("near", _sea_near, SEA_NEAR_RADIUS, SEA_NEAR_STEP)
-		_bathy_register("mid", _sea_mid, SEA_MID_RADIUS, SEA_MID_STEP)
+		_bathy_register("near", _sea_near, SEA_NEAR_RADIUS, SEA_NEAR_STEP,
+				Terrain.sea_level)
+		_bathy_register("mid", _sea_mid, SEA_MID_RADIUS, SEA_MID_STEP,
+				Terrain.sea_level)
 	for w in Terrain.water_bodies:
 		var center: Vector2 = w.center
 		var mi := MeshInstance3D.new()
 		mi.name = String(w.id)
-		mi.mesh = _disc(float(w.radius))
-		mi.mesh.surface_set_material(0, _material(Vector2.ZERO))
+		# Big imported lakes coarsen their grid so vert counts stay sane —
+		# a 2km "lake" is an inland sea and carries swell like the sea's
+		# mid disc, not pond ripples (the wave window's ±12cm would be
+		# invisible on its step anyway).
+		var radius := float(w.radius)
+		var lake_step := maxf(DISC_STEP, radius / 128.0)
+		mi.mesh = _disc(radius, lake_step)
+		var lake_mat := _material(Vector2.ZERO)
+		if radius >= LAKE_SWELL_MIN_R:
+			# Fetch-scaled swell + real bathymetry (CUSTOM0): the shader's
+			# W2 path shoals, steepens, and breaks the chop on the lake's
+			# own shallows — and the surf criterion kills it at the shore.
+			lake_mat.set_shader_parameter("swell_boost",
+					clampf(radius / 600.0, 0.1, 0.5))
+			lake_mat.set_shader_parameter("swell_step", lake_step)
+			lake_mat.set_shader_parameter("swell_fade_radius", radius)
+			lake_mat.set_shader_parameter("bathy_boost", 1.0)
+		mi.mesh.surface_set_material(0, lake_mat)
 		mi.extra_cull_margin = 2.0  # waves leave the flat AABB
 		mi.position = Vector3(center.x,
 				float(w.surface) + Terrain.lake_levels[w.idx], center.y)
 		add_child(mi)
 		_lake_meshes[w.id] = mi
+		if radius >= LAKE_SWELL_MIN_R:
+			_bathy_register("lake:" + String(w.id), mi, radius, lake_step,
+					float(w.surface))
 	for r in Terrain.rivers:
 		_build_river_mesh(r)
 	Hydrology.levels_changed.connect(_on_levels_changed)
@@ -108,7 +134,8 @@ func _build_river_mesh(r: Dictionary) -> void:
 	var mat := _material(Vector2.ZERO)
 	mat.set_shader_parameter("rapids_boost", 1.0)
 	mat.set_shader_parameter("flow_scale", _flow_speed(r.id))
-	mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx], float(r.depth))
+	mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx], float(r.depth),
+			r.get("falls", []))
 	_river_built_level[r.id] = Terrain.river_levels[r.idx]
 	mi.mesh.surface_set_material(0, mat)
 	_river_mats[r.id] = mat
@@ -131,6 +158,12 @@ func _process(_delta: float) -> void:
 		var mi: MeshInstance3D = _river_meshes[id]
 		if mi.visible == hide_rivers:
 			mi.visible = not hide_rivers
+	# Lake bathymetry is a ONE-SHOT bake (the disc never moves): the
+	# follow kicks it, polls the worker, and no-ops once it has landed.
+	for tier in _bathy:
+		if String(tier).begins_with("lake:"):
+			var mi: MeshInstance3D = _bathy[tier].mi
+			_bathy_follow(tier, Vector2(mi.position.x, mi.position.z))
 	if _sea_near == null:
 		return
 	var focus := Vector2.ZERO
@@ -206,10 +239,14 @@ func _sea_material(step: float, fade_radius: float) -> ShaderMaterial:
 	return mat
 
 
-## W2: give one sea tier its bathymetry channel — rebuild the disc's
+## W2: give one water surface its bathymetry channel — rebuild the disc's
 ## surface with a CUSTOM0 slot (depth + ∇depth per vertex, RGB float),
 ## deep-defaulted so the swell stays pure W1 until the first bake lands.
-func _bathy_register(tier: String, mi: MeshInstance3D, radius: float, step: float) -> void:
+## `level` is the surface the depth is measured from: sea level for the
+## sea tiers, the authored surface for a lake (ONE_APP P2 — imported
+## lakes shoal their own chop).
+func _bathy_register(tier: String, mi: MeshInstance3D, radius: float, step: float,
+		level: float) -> void:
 	var mesh: ArrayMesh = mi.mesh
 	var arrays: Array = mesh.surface_get_arrays(0)
 	var mat: Material = mesh.surface_get_material(0)
@@ -228,8 +265,8 @@ func _bathy_register(tier: String, mi: MeshInstance3D, radius: float, step: floa
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, BATHY_FMT)
 	mesh.surface_set_material(0, mat)
 	_bathy[tier] = {"mi": mi, "radius": radius, "step": step, "n": n,
-		"arrays": arrays, "anchor": Vector2.INF, "goal": Vector2.INF,
-		"task": -1, "out": PackedFloat32Array()}
+		"level": level, "arrays": arrays, "anchor": Vector2.INF,
+		"goal": Vector2.INF, "task": -1, "out": PackedFloat32Array()}
 
 
 ## W2: move one sea tier to `goal`, rebaking its seabed for the new
@@ -242,9 +279,12 @@ func _bathy_follow(tier: String, goal: Vector2) -> void:
 	var st: Dictionary = _bathy.get(tier, {})
 	if st.is_empty() or Terrain.kernel == null \
 			or DisplayServer.get_name() == "headless":
-		var direct: MeshInstance3D = _sea_near if tier == "near" else _sea_mid
-		direct.position.x = goal.x
-		direct.position.z = goal.y
+		# Unregistered/kernel-less tiers still follow (deep default = W1).
+		var direct: MeshInstance3D = st.get("mi",
+				_sea_near if tier == "near" else _sea_mid)
+		if direct:
+			direct.position.x = goal.x
+			direct.position.z = goal.y
 		return
 	var task: int = st.task
 	if task >= 0:
@@ -267,7 +307,7 @@ func _bathy_bake(st: Dictionary, anchor: Vector2) -> void:
 	var step: float = st.step
 	var radius: float = st.radius
 	var h := Terrain.height_block(anchor.x - radius, anchor.y - radius, step, n, n)
-	var level: float = Terrain.sea_level
+	var level: float = st.level
 	var custom := PackedFloat32Array()
 	custom.resize(n * n * 3)
 	var inv2 := 1.0 / (2.0 * step)
@@ -308,7 +348,7 @@ func _bathy_apply(st: Dictionary) -> void:
 		for i in range(0, out.size(), 3):
 			dmin = minf(dmin, out[i])
 			dmax = maxf(dmax, out[i])
-		print("[water] sea bathymetry %s live: depth %.1f..%.1fm at (%.0f, %.0f)" % [
+		print("[water] bathymetry %s live: depth %.1f..%.1fm at (%.0f, %.0f)" % [
 			mi.name, dmin, dmax, goal.x, goal.y])
 	st.anchor = goal
 
@@ -368,7 +408,8 @@ func _disc(radius: float, step: float = DISC_STEP) -> ArrayMesh:
 # then a backward max-scan from the mouth makes the surface monotone
 # downstream, pooling flat behind lips instead of running uphill.
 # Steep row-to-row drops are written into COLOR.r → shader rapids foam.
-func _ribbon(nodes: Array, level: float, depth: float) -> ArrayMesh:
+func _ribbon(nodes: Array, level: float, depth: float,
+		falls: Array = []) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	# Resample the polyline.
@@ -428,13 +469,21 @@ func _ribbon(nodes: Array, level: float, depth: float) -> ArrayMesh:
 			# stretched quad the terrain pokes through.
 			final_rows.append([rows[i + 1][0], rows[i + 1][1] + EDGE_TUCK,
 				surf[i], tans[i + 1]])
-	# Rapids strength from the local grade (COLOR.r → shader foam).
+	# Rapids strength from the local grade (COLOR.r → shader foam). A
+	# Strata waterfall (knickpoint record, ONE_APP P2) foams FULL around
+	# its lip — the carve already made the drop; the record guarantees
+	# the white water, whatever the drape's local row grade says.
 	var rapids := PackedFloat32Array(); rapids.resize(final_rows.size())
 	for i in final_rows.size():
 		var drop := 0.0
 		if i < final_rows.size() - 1:
 			drop = float(final_rows[i][2]) - float(final_rows[i + 1][2])
 		rapids[i] = smoothstep(0.06, 0.30, drop / RIBBON_STEP)
+		for fl in falls:
+			if Vector2(final_rows[i][0]).distance_to(fl.pos) \
+					< FALL_FOAM_R + float(fl.drop):
+				rapids[i] = 1.0
+				break
 	# Emit rows of verts, stitch quads. UV2 is the FLOW MAP: downstream
 	# direction × a local pace (rapids race, pools laze) — the shader
 	# advects ripples and foam along it, scaled by the live discharge.

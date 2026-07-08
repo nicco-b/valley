@@ -24,6 +24,13 @@ const BIOME_RES := 1024
 ## 5 wetland 6 volcanic_rock 7 bare_peak.
 const STRATA_TO_VALLEY := [0, 1, 5, 2, 4, 4, 3, 3, 7, 6]
 
+## Largest-first lake cap: Strata's solver reports EVERY filled depression
+## over its min_lake_area_m2 (an eroded 16km world holds hundreds), but
+## every water body sits in Terrain's per-sample loops (height carve,
+## water_surface) — records are a budget, not a survey. Rivers arrive
+## pre-capped by the doc's max_rivers.
+const LAKE_MAX := 24
+
 
 func _init() -> void:
 	var world_dir: String = OS.get_environment("STRATA_WORLD")
@@ -78,6 +85,10 @@ func _init() -> void:
 			else out_dir.path_join("baked_world.exr")
 	var rec_path := TILE_REC if not scratch else out_dir.path_join("baked_world.json")
 	DirAccess.make_dir_recursive_absolute(tile_abs.get_base_dir())
+	# data/regions/ can be absent on a fresh clone (every record in it is
+	# gitignored cache) — FileAccess.open(WRITE) never creates directories.
+	DirAccess.make_dir_recursive_absolute(
+		ProjectSettings.globalize_path(rec_path.get_base_dir()))
 	var err := DirAccess.copy_absolute(exr_path, tile_abs)
 	if err != OK:
 		push_error("copy height.exr -> %s failed: %s" % [tile_abs, err])
@@ -109,6 +120,12 @@ func _init() -> void:
 			else out_dir
 	var biome_ok := _import_biomes(world_dir, biome_out, manifest)
 
+	# --- hydrology (ONE_APP P2): Strata's water analysis becomes real
+	# water records — rivers, lakes, waterfalls ---
+	var water_out := ProjectSettings.globalize_path("res://data/water") if not scratch \
+			else out_dir
+	var hydro_counts := _import_hydrology(world_dir, water_out, manifest)
+
 	# Sync the game sea to the manifest's sea level (the ONE sea-level
 	# source) so the shallows read as water, not land.
 	if not scratch:
@@ -121,6 +138,11 @@ func _init() -> void:
 		sea_level, got_sha.substr(0, 12)])
 	if biome_ok:
 		print("  biome_map %dx%d painted from Strata biomes" % [BIOME_RES, BIOME_RES])
+	if hydro_counts.x >= 0:
+		print("  hydrology: %d rivers, %d lakes, %d waterfalls as water records" % [
+			hydro_counts.x, hydro_counts.y, hydro_counts.z])
+	else:
+		print("  no hydrology.json (pre-P2 export) — water records cleared, world loads as before")
 	if absf(world_size - 16384.0) > 0.5:
 		push_warning("world size %.0fm != 16384m — the biome frame in terrain.gd is hardcoded to 16384m" % world_size)
 	print("  the world is live (running game hot-reloads the tile). Walk it: ./scripts/run.sh")
@@ -142,6 +164,106 @@ func _sync_sea_level(sea_level: float) -> void:
 	f.store_string(JSON.stringify(rec, "\t", true) + "\n")
 	f.close()
 	print("  sea level synced to %.1fm" % sea_level)
+
+
+## Strata's hydrology stage (ONE_APP P2) → real water records. The export's
+## hydrology.json carries priority-flood lakes, D8 rivers (width∝discharge,
+## nodes already in the height.exr frame = game world meters), and
+## hardness-biased knickpoint waterfalls. Rivers land as no_sim records in
+## rivers/hyd_*.json (Hydrology's REGION tier breathes them off the real
+## catchment, exactly like the retired propose_rivers gen_*.json cache);
+## lakes as hyd_*.json lake records at their fill elevation — basin depth 0
+## because the depression is already IN the tile (the solver found it, it
+## never carved it). Waterfalls ride the river record; water_bodies foams
+## them. Stale hyd_* records from a previous import are cleared first so
+## the water always matches the tile beside it — a pre-P2 export (no
+## hydrology.json) just clears and returns (-1,-1,-1): the world loads
+## exactly as today. Returns (rivers, lakes, waterfalls) written.
+func _import_hydrology(world_dir: String, out_dir: String, manifest: Dictionary) -> Vector3i:
+	# Records match the tile, or they don't exist.
+	_clear_hyd_records(out_dir)
+	_clear_hyd_records(out_dir.path_join("rivers"))
+	var hydro_path := world_dir.path_join("hydrology.json")
+	if not FileAccess.file_exists(hydro_path):
+		return Vector3i(-1, -1, -1)
+	var want: String = manifest.get("files", {}).get("hydrology.json", "")
+	if not want.is_empty() and FileAccess.get_sha256(hydro_path) != want:
+		push_error("hydrology.json sha256 mismatch — refusing")
+		return Vector3i(-1, -1, -1)
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(hydro_path))
+	if not (parsed is Dictionary and parsed.has("rivers")):
+		push_error("bad hydrology.json (needs rivers)")
+		return Vector3i(-1, -1, -1)
+	var hydro: Dictionary = parsed
+
+	DirAccess.make_dir_recursive_absolute(out_dir.path_join("rivers"))
+	var falls_total := 0
+	var rivers: Array = hydro.get("rivers", [])
+	for r: Dictionary in rivers:
+		var nodes: Array = r.get("nodes", [])
+		if nodes.size() < 2:
+			continue
+		# Channel depth/feather from the river's size (the solver emits
+		# width∝√discharge; surface == ground, so the carve makes the bed).
+		var mean_w := 0.0
+		for n: Dictionary in nodes:
+			mean_w += float(n["width"])
+		mean_w /= nodes.size()
+		var falls: Array = r.get("waterfalls", [])
+		falls_total += falls.size()
+		var rec := {
+			"id": "hyd_%s" % String(r.get("id", "r")),
+			"no_sim": true,  # the REGION tier breathes it, off the soak digest
+			"depth": snappedf(clampf(0.5 + 0.12 * mean_w, 1.0, 3.0), 0.01),
+			"feather": snappedf(clampf(mean_w * 0.5, 4.0, 12.0), 0.1),
+			"catchment_m2": float(r.get("catchment_m2", 0.0)),
+			"nodes": nodes,
+			"waterfalls": falls,
+			"source": "strata_hydrology",
+		}
+		_write_json(out_dir.path_join("rivers/%s.json" % rec["id"]), rec)
+
+	# Lakes come sorted by descending area — keep the LAKE_MAX biggest.
+	var lakes: Array = hydro.get("lakes", [])
+	var skipped := lakes.size() - mini(lakes.size(), LAKE_MAX)
+	lakes = lakes.slice(0, LAKE_MAX)
+	if skipped > 0:
+		print("  hydrology: kept the %d largest lakes (%d puddles skipped)" % [
+			lakes.size(), skipped])
+	for l: Dictionary in lakes:
+		var rec := {
+			"id": "hyd_%s" % String(l.get("id", "l")),
+			"no_sim": true,  # region lake: its level stays off the soak digest
+			"center": {"x": float(l["x"]), "z": float(l["z"])},
+			"radius": float(l["radius"]),
+			"surface": float(l["surface"]),
+			"depth": float(l.get("depth", 0.0)),  # real max depth (W2 bathymetry)
+			# basin depth 0: the tile already holds the depression.
+			"basin": {"radius": float(l["radius"]), "depth": 0.0},
+			"outlet": "aquifer",
+			"source": "strata_hydrology",
+		}
+		_write_json(out_dir.path_join("%s.json" % rec["id"]), rec)
+	return Vector3i(rivers.size(), lakes.size(), falls_total)
+
+
+## Delete hyd_*.json from one directory (imported-water cache invalidation).
+func _clear_hyd_records(dir_path: String) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	for f in dir.get_files():
+		if f.begins_with("hyd_") and f.ends_with(".json"):
+			dir.remove(f)
+
+
+func _write_json(path: String, rec: Dictionary) -> void:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		push_error("cannot write %s" % path)
+		return
+	f.store_string(JSON.stringify(rec, "\t", true) + "\n")
+	f.close()
 
 
 ## Paint biome_map.png from Strata's biome.png, remapping Strata biome ids

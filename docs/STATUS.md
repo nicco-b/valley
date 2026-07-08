@@ -30,7 +30,20 @@ the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
   override layer, guide path deleted), StrataLink autoload (the live
   link; STRATA_LINK_PORT env), W1 ocean swell (SeaSwell + Gerstner —
   storms send rollers ahead of their rain), paper boot splash (engine
-  logo retired).
+  logo retired), **P2 valley half (2026-07-08)**: the export's
+  `hydrology.json` lands as real water at import — rivers as no_sim
+  records (`data/water/rivers/hyd_*.json`, real catchment_m2; the
+  region tier breathes each against its OWN baseflow, idle ~0.35),
+  the LAKE_MAX(24) largest lakes at their fill elevation (basin depth
+  0 — the depression is already in the tile; levels ride a new region
+  LAKE tier, off the soak digest), knickpoint waterfalls foaming the
+  ribbons full, and W2 bathymetry (CUSTOM0, per-surface level) +
+  fetch-scaled swell on lakes with real fetch so storm chop shoals
+  and dies at their shores. hyd_* records are gitignored cache,
+  cleared each import; pre-P2 exports load exactly as before. The
+  committed `valley.strata` gained the hydrology stage (old docs
+  never migrate it in — flag for the Strata side). New probes:
+  `RIVER_SHOT=fall|hydlake` in river_probe.
 - **Next (Nicco's want): P8 the live viewport** — the Strata preview
   BECOMES the game view (auto-send bakes into the pane, time-of-day +
   weather controls in Strata; new `time` StrataLink verb must route

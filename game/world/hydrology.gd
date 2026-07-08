@@ -52,17 +52,31 @@ var lake_level: Dictionary = {}
 
 # The REGION tier (2026-07-05): generated (no_sim) rivers breathe too —
 # same linear-reservoir balance, rained on through Weather.rain_at at
-# their own midpoint (fronts are spatial), catchment measured by the
-# erosion bake (record catchment_m2). Kept in a SEPARATE dict that the
-# soak fingerprint never digests: gen records are a regenerable local
-# cache, and the fingerprint must not depend on what's in it. Saved via
-# WorldState water.<id>.* like everything else; deterministic all the
-# same (advanced only on hour_tick from Weather's Rng-streamed fronts).
+# their own midpoint (fronts are spatial), catchment measured upstream
+# (record catchment_m2 — today that is Strata's D8 flow accumulation,
+# hyd_* records via the P2 import; the map pen estimates its own). Kept
+# in a SEPARATE dict that the soak fingerprint never digests: imported
+# records are a regenerable local cache, and the fingerprint must not
+# depend on what's in it. Saved via WorldState water.<id>.* like
+# everything else; deterministic all the same (advanced only on
+# hour_tick from Weather's Rng-streamed fronts).
 const REGION_SPRING_M3H := 25.0  # flat spring floor: idle flow_norm ~0.35,
 	# a visibly alive river between rains (mood physics, like SPRING_M3H)
 const REGION_BASEFLOW_M := 1e-4  # + m³/h per m² catchment on top
 const REGION_CATCHMENT_FALLBACK := 4e4  # old records without catchment_m2
 var region_storage: Dictionary = {}
+# Per-river flow reference (id -> m³/h), derived from each region river's
+# own baseflow at seeding. Strata catchments span 0.04..130 km², so the
+# brook-tuned global Q_REF would peg every big river's flow_norm at 1.0
+# forever — against its OWN baseflow, idle sits at the tier's design line
+# (~0.35, the REGION_SPRING_M3H note) and storms still climb toward 1.
+var region_qref: Dictionary = {}
+# Region LAKES (ONE_APP P2): Strata-imported lakes (no_sim records, the
+# hyd_* cache) breathe on the same hourly balance as authored lakes but
+# under their OWN sky (rain_at their center), and their levels live here —
+# off the soak digest, same law as region_storage: the fingerprint must
+# not depend on what's in a regenerable import cache.
+var region_lake_level: Dictionary = {}
 
 # Boot-derived (deterministic function of terrain + records, not saved):
 # basin id -> catchment area m^2. Built lazily on the first hour tick so
@@ -86,8 +100,12 @@ func _ready() -> void:
 	for r in Terrain.rivers:
 		if r.get("no_sim", false):
 			region_storage[r.id] = _region_baseflow(r) / RIVER_K
+			region_qref[r.id] = _region_qref(r)
 	for w in Terrain.water_bodies:
-		lake_level[w.id] = 0.0
+		if w.get("no_sim", false):
+			region_lake_level[w.id] = 0.0
+		else:
+			lake_level[w.id] = 0.0
 	load_state()
 	# The routing pass costs ~1s of pure Terrain reads — start it on a
 	# worker at boot so the first hour tick never hitches the frame.
@@ -97,7 +115,8 @@ func _ready() -> void:
 	# reservoir at baseflow so its ribbon flows from the first frame.
 	Terrain.river_added.connect(func(r: Dictionary) -> void:
 		if r.get("no_sim", false):
-			region_storage[r.id] = _region_baseflow(r) / RIVER_K)
+			region_storage[r.id] = _region_baseflow(r) / RIVER_K
+			region_qref[r.id] = _region_qref(r))
 
 
 func _ensure_catchments() -> void:
@@ -120,6 +139,9 @@ func load_state() -> void:
 	for id in lake_level:
 		lake_level[id] = float(WorldState.get_value(
 			"water.%s.level" % id, lake_level[id]))
+	for id in region_lake_level:
+		region_lake_level[id] = float(WorldState.get_value(
+			"water.%s.level" % id, region_lake_level[id]))
 	# Snowmelt is a per-hour delta (last hour's cover minus this hour's), so
 	# _last_snow must resume from the SAVED snow, not boot's 0.0 — otherwise
 	# the first replayed catch-up hour drops that hour's meltwater runoff and
@@ -170,11 +192,19 @@ func _region_baseflow(r: Dictionary) -> float:
 		REGION_CATCHMENT_FALLBACK) * REGION_BASEFLOW_M
 
 
-## Discharge normalized 0..1 against the authored-surface reference —
-## shader flow speed, waterfall loudness, and story seeds read this.
+# Flow reference for a region river: its own baseflow, weighted so the
+# idle norm lands on the tier's design line (~0.35).
+func _region_qref(r: Dictionary) -> float:
+	return _region_baseflow(r) * (1.0 - 0.35) / 0.35
+
+
+## Discharge normalized 0..1 against the flow reference — shader flow
+## speed, waterfall loudness, and story seeds read this. Watershed rivers
+## reference the authored-surface Q_REF; region rivers reference their
+## own baseflow (their real catchments span four orders of magnitude).
 func flow_norm(river_id: String) -> float:
 	var q := discharge(river_id)
-	return q / (q + Q_REF)
+	return q / (q + float(region_qref.get(river_id, Q_REF)))
 
 
 ## Toolkit: every basin, right now.
@@ -184,7 +214,11 @@ func summary() -> String:
 		lines.append("%s: %.0f m3/h (norm %.2f, level %+.2fm)" % [
 			r.id, discharge(r.id), flow_norm(r.id), Terrain.river_levels[r.idx]])
 	for w in Terrain.water_bodies:
-		lines.append("%s: level %+.2fm" % [w.id, float(lake_level.get(w.id, 0.0))])
+		if w.get("no_sim", false):
+			lines.append("%s (region): level %+.2fm" % [
+				w.id, float(region_lake_level.get(w.id, 0.0))])
+		else:
+			lines.append("%s: level %+.2fm" % [w.id, float(lake_level.get(w.id, 0.0))])
 	for r in Terrain.rivers:
 		if r.get("no_sim", false):
 			lines.append("%s (region): %.0f m3/h (norm %.2f, catchment %.1f km2)" % [
@@ -243,18 +277,24 @@ func _hourly(_h: int) -> void:
 
 	# Lakes: river discharge + own catchment + direct rain in; evaporation
 	# and level-driven outflow/seepage out. Level is depth offset from the
-	# authored surface.
+	# authored surface. Region lakes (Strata-imported, no_sim) run the
+	# same balance under their own sky — local rain and temperature, fed
+	# by the region rivers whose mouths sit on them.
 	for w in Terrain.water_bodies:
 		var id: String = w.id
+		var is_region: bool = w.get("no_sim", false)
+		var c: Vector2 = w.center
+		var lake_rain := STORM_RAIN_M * Weather.rain_at(c.x, c.y) if is_region else rain
+		var lake_t := Climate.temperature(c.x, c.y) if is_region else t
 		var lake_area := PI * float(w.radius) * float(w.radius)
 		var inflow := 0.0
-		for r in Terrain.sim_rivers():
-			if _river_feeds_lake(r, w):
+		for r in (Terrain.rivers if is_region else Terrain.sim_rivers()):
+			if r.get("no_sim", false) == is_region and _river_feeds_lake(r, w):
 				inflow += discharge(r.id)
-		inflow += catchment_area.get(id, 0.0) * (rain * runoff + melt_m)
-		inflow += lake_area * rain  # rain falls on the water too
-		var level: float = lake_level[id]
-		var evap := EVAP_M_PER_DEG * maxf(t, 0.0)
+		inflow += catchment_area.get(id, 0.0) * (lake_rain * runoff + melt_m)
+		inflow += lake_area * lake_rain  # rain falls on the water too
+		var level: float = region_lake_level[id] if is_region else lake_level[id]
+		var evap := EVAP_M_PER_DEG * maxf(lake_t, 0.0)
 		var outflow := LAKE_OUT_K * maxf(level - LAKE_LEVEL_MIN, 0.0)
 		# The outflow goes where the record says: into a downstream
 		# river's storage (chained water bodies), or "aquifer" — the
@@ -264,7 +304,10 @@ func _hourly(_h: int) -> void:
 			river_storage[outlet] = float(river_storage[outlet]) + outflow * lake_area
 		level += inflow / lake_area - evap - outflow
 		level = snappedf(clampf(level, LAKE_LEVEL_MIN, LAKE_LEVEL_MAX), 0.001)
-		lake_level[id] = level
+		if is_region:
+			region_lake_level[id] = level
+		else:
+			lake_level[id] = level
 		Terrain.lake_levels[w.idx] = level
 		WorldState.set_value("water.%s.level" % id, level)
 	levels_changed.emit()
@@ -283,7 +326,8 @@ func _push_levels() -> void:
 		Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
 				RIVER_LEVEL_MAX, flow_norm(r.id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
 	for w in Terrain.water_bodies:
-		Terrain.lake_levels[w.idx] = float(lake_level.get(w.id, 0.0))
+		Terrain.lake_levels[w.idx] = float(region_lake_level.get(w.id,
+				lake_level.get(w.id, 0.0)))
 	levels_changed.emit()
 
 

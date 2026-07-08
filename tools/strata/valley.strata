@@ -120,16 +120,26 @@
       "enabled": true,
       "id": "biome",
       "params": {}
+    },
+    {
+      "enabled": true,
+      "id": "hydrology",
+      "params": {
+        "knickpoint_grade": 0.35,
+        "max_rivers": 12,
+        "min_catchment_m2": 250000,
+        "min_lake_area_m2": 4000
+      }
     }
   ],
   "strokes": [],
   "world": {
+    "height_scale_m": 700.0,
+    "m_per_px": 8.0,
+    "sea_level_m": 20.0,
     "size_m": [
       16384.0,
       16384.0
-    ],
-    "m_per_px": 8.0,
-    "height_scale_m": 700.0,
-    "sea_level_m": 20.0
+    ]
   }
 }

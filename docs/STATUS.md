@@ -12,6 +12,47 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
+## ⭐ Session handoff — resume here (2026-07-07, night): ONE_APP P0 landed
+
+**The seam fix is in — Strata exports walk in-game with ZERO re-erosion.**
+(`strata/docs/ONE_APP.md` P0, now marked done there.)
+- **Direct import:** `tools/strata/import_world.gd` copies the export's
+  `height.exr` BYTE-IDENTICAL into `data/terrain/tiles/baked_world.exr`
+  (manifest sha verified at import AND re-verifiable against the live
+  cache forever; the region record carries source/sha/seed/sea_level
+  provenance). No guide roundtrip, no droplet re-erosion, no ±12m
+  detail noise. Probed bit-exact: in-game `height()` == the export's
+  meters at every sample. Sea level + biome map ride the same manifest
+  (one sea-level source). `import_and_bake.sh` is now a single import
+  call (name kept for muscle memory); `bake_and_walk.sh` unchanged in
+  use.
+- **Pens re-scoped onto an override layer:** the blessed tile is
+  READ-ONLY — the TERRAIN pen (flyover) and the map's P pen now paint
+  `data/terrain/tile_override.exr` (additive METERS, 16m/px, the
+  sculpt-EXR pattern at macro scale), composited over the tile at boot
+  and on stroke-quiet commit (scoped recomposite — no kernel change,
+  the kernel keeps sampling composited tile data; pens no longer need
+  the kernel at all). F5/exit saves the override + sidecar meta only.
+  Z restores the pre-stroke override bit-identically (scene-tested,
+  skips honestly on checkouts without the tile cache).
+- **The guide path is DELETED:** `WorldBake`, `tests/bake_world.gd`,
+  `tests/propose_rivers.gd` (it re-eroded a stale guide for its flow
+  map — river proposal returns in ONE_APP P2 as Strata's
+  `hydrology.json`). `data/world/elevation_guide.exr` + `guide.json`
+  are dormant on disk (Nicco's in-flight copies left untouched) —
+  nothing reads them; delete when convenient. The Blender terrain trip
+  (`assets/blender/terrain/`) rode the guide and is dead with it
+  (DEV_GUIDE updated).
+- **Not run for him:** the LIVE import of `~/Desktop/world_v2` (he was
+  actively re-exporting at 20:16 — and his `data/world/biome_map.png`
+  differs from a fresh remap of that export, so it may carry hand
+  strokes a re-import would overwrite). **To land his world seam-free:
+  `tools/strata/import_and_bake.sh ~/Desktop/world_v2`** — one command,
+  sub-second, hot-reloads if the game is running.
+- Soak green + bit-stable (fingerprint 3649289887 — still floats with
+  his live bake until the world is blessed; the invariant that holds is
+  two-run stability). All tests green.
+
 ## ⭐ Session handoff — resume here (2026-07-07, later): the two plans
 
 **Nicco's direction (this session): Strata becomes THE ONE APP** — the

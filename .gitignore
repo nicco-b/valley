@@ -8,8 +8,11 @@
 # macOS
 .DS_Store
 
-# Map-pipeline bake output: local cache, regenerate with
-# tests/bake_world.gd (the guide in data/world/ is the source of truth).
+# The baked world tile: local cache of a Strata world_vN/ export —
+# re-import with tools/strata/import_and_bake.sh <export dir> (the record
+# under data/regions/ carries the source path + sha; P0 seam fix imports
+# height.exr byte-identical, no re-erosion). P1's Bless/registry gives
+# blessed worlds a committed home.
 data/terrain/tiles/baked_*.exr
 data/regions/baked_*.json
 data/water/rivers/gen_*.json

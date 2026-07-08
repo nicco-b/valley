@@ -92,12 +92,18 @@ to any scene; set `prompt`, `text`, optional WorldState `flag`.
 `game/world/weather.gd`. World metabolism (need drain, hysteresis):
 constants atop `game/npc/npc.gd`.
 
-**Edit the world in Blender** — `blender -b --python
-assets/blender/terrain/valley_terrain.py -- import` builds
-`valley_map.blend` from the elevation guide + placed records; sculpt
-the landform and set-dress with kit objects, export back with the same
-script (`-- export`), then rebake (`tests/bake_world.gd`). Full
-conventions in `assets/blender/terrain/README.md`.
+**Reshape the world** — the landform is authored in **Strata**
+(`~/code/strata`); import an export with
+`tools/strata/import_and_bake.sh <world_vN dir>` — its `height.exr`
+becomes the live tile directly (sha-verified, full res, zero
+re-erosion; biome map + sea level ride the same manifest). Local
+touch-ups in-game: Toolkit sculpt (fine, 2m/px near the origin) or the
+TERRAIN/map pens, which paint an **override layer**
+(`data/terrain/tile_override.exr`, additive meters) composited over
+the read-only blessed tile. The old elevation-guide pipeline
+(guide EXR → erosion rebake) and its Blender trip
+(`assets/blender/terrain/valley_terrain.py`) are retired — P0 seam
+fix, `strata/docs/ONE_APP.md`.
 
 **Swap placeholder audio** — replace `assets/audio/wind_loop.wav` /
 `night_loop.wav` with real recordings (seamless loops), then

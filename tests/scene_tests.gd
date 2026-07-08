@@ -22,6 +22,7 @@ func _ready() -> void:
 	_test_wear()
 	_test_nav()
 	_test_sand_sim()
+	_test_tile_override()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -33,6 +34,32 @@ func _check(condition: bool, name: String) -> void:
 	if not condition:
 		_failures += 1
 		print("  FAIL: ", name)
+
+
+## The pen override layer (P0 seam fix): pens add meters OVER the blessed
+## tile — commit reshapes, restore returns the ground bit-identical, and
+## the tile on disk is never written. In-memory only (no save here, so a
+## dev checkout's data stays untouched). Skips honestly where the baked
+## tile cache doesn't exist (fresh clone / CI).
+func _test_tile_override() -> void:
+	if not Terrain.has_world_tile():
+		print("  tile override: SKIP (no baked tile cache)")
+		return
+	var p := Vector2(1500.0, -1500.0)
+	var before: float = Terrain.height(p.x, p.y)
+	var snap: Image = Terrain.snapshot_tile_override()
+	_check(snap != null, "override snapshot exists once a tile is loaded")
+	var painted: Rect2 = Terrain.paint_tile_override(p, 200.0, 5.0)
+	_check(painted.size != Vector2.ZERO, "override paint returns its rect")
+	_check(Terrain.height(p.x, p.y) == before,
+		"paint alone does not reshape (commit does)")
+	Terrain.commit_tile_override(painted)
+	var lifted: float = Terrain.height(p.x, p.y) - before
+	_check(absf(lifted - 5.0) < 0.8,
+		"commit raises the ground ~5m (got %.2fm)" % lifted)
+	Terrain.restore_tile_override(snap)
+	_check(Terrain.height(p.x, p.y) == before,
+		"restore returns bit-identical ground")
 
 
 ## The shared condition language (Conditions) — the gate every future

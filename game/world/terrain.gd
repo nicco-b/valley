@@ -100,10 +100,35 @@ var _bay_amp := PackedFloat32Array()
 var _bay_freq := PackedFloat32Array()
 
 # Painted tiles, normalized: {id, path, x0, z0, size, feather, hmin,
-# hmax, res, data: PackedFloat32Array}. Read-only after boot; a dev
-# hot-reload swaps the ARRAY (and the kernel instance) wholesale —
-# workers keep sampling the old one mid-build, never a torn mix.
+# hmax, res, base: PackedFloat32Array, data: PackedFloat32Array}.
+# `base` is the tile exactly as loaded from disk (the BLESSED heightfield
+# — Strata bakes it, the game never rewrites it); `data` is what the hot
+# path samples: base + the pen override layer, composited below. The two
+# share one COW array until an override actually lands. Read-only after
+# boot; a dev hot-reload swaps the ARRAY (and the kernel instance)
+# wholesale — workers keep sampling the old one mid-build, never a torn mix.
 var _tiles: Array[Dictionary] = []
+
+# The pen override layer (P0 seam fix, ONE_APP.md 2026-07-07): the in-game
+# TERRAIN pens no longer repaint + re-erode the world — the blessed tile is
+# read-only. Pens paint an ADDITIVE meters layer (the sculpt-EXR pattern at
+# macro scale, 16m/px over the world tile's frame) that is composited into
+# each tile's `data` at load and on commit_tile_override(). Saved beside the
+# sculpt layer; the blessed tile survives every pen stroke untouched.
+const TILE_OVERRIDE_EXR := "res://data/terrain/tile_override.exr"
+const TILE_OVERRIDE_META := "res://data/terrain/tile_override.json"
+const TILE_OVERRIDE_RES := 1024
+var _tile_override: Image = null
+# The override's world frame (defaults to the first tile's rect when the
+# first stroke lands; persisted in the sidecar meta so a re-imported world
+# of a different size can't silently reframe old strokes).
+var _ov_x0 := 0.0
+var _ov_z0 := 0.0
+var _ov_size := 0.0
+# World rect known to hold nonzero override texels — the composite (boot
+# and commit) only walks this, so an empty or small override costs nothing.
+# Conservative: only ever grows within a session.
+var _override_rect := Rect2()
 
 # Loaded lake records, normalized: {id, idx, center: Vector2, radius,
 # surface, basin_radius, basin_depth}. Strictly read-only after _ready —
@@ -427,29 +452,6 @@ func _init_kernel() -> void:
 	print("[terrain] native kernel live: worker sampling runs in C++")
 
 
-## Toolkit live terrain paint: swap a tile's heightfield from an
-## in-memory baked Image (no disk round-trip) and invalidate ONLY the
-## painted world rect — so painting rebuilds a few nearby cells, not the
-## whole 16km tile (the HotReload path). Persisting to the EXR is the
-## Toolkit's job on save. Returns true if the tile id matched.
-func apply_baked_tile(tile_id: String, baked: Image, world_rect: Rect2) -> bool:
-	for i in _tiles.size():
-		var t: Dictionary = _tiles[i]
-		if t.id != tile_id:
-			continue
-		var fresh := t.duplicate()
-		fresh.data = baked.get_data().to_float32_array()
-		fresh.res = baked.get_width()
-		var swapped := _tiles.duplicate()
-		swapped[i] = fresh
-		_tiles = swapped
-		if kernel:
-			_init_kernel()  # fresh instance; workers keep the old ref
-		edited.emit(world_rect)  # scoped — only painted cells rebuild
-		return true
-	return false
-
-
 ## Dev hot-reload of one painted tile: reload the image, swap the tile
 ## array and a FRESH kernel wholesale (workers mid-build keep a ref to
 ## the old one — never a torn mix), then invalidate the tile's rect so
@@ -465,6 +467,11 @@ func reload_tile(image_path: String) -> bool:
 		var fresh := _load_tile(rec, t.id)
 		if fresh.is_empty():
 			return true
+		# Re-seat the live override on the fresh blessed tile (unsaved pen
+		# strokes survive a re-import landing underneath them).
+		var composited := _composited_tile(fresh, _override_rect)
+		if not composited.is_empty():
+			fresh = composited
 		var swapped := _tiles.duplicate()
 		swapped[i] = fresh
 		_tiles = swapped
@@ -845,6 +852,13 @@ func _load_regions() -> void:
 		_reg_bbox.append(bbox.position.y)
 		_reg_bbox.append(bbox.end.x)
 		_reg_bbox.append(bbox.end.y)
+	# Pen override layer: load once the tiles exist (its default frame is
+	# the world tile's rect), then composite it into every tile's data.
+	_load_tile_override()
+	for i in _tiles.size():
+		var composited := _composited_tile(_tiles[i], _override_rect)
+		if not composited.is_empty():
+			_tiles[i] = composited
 
 
 # Load the biome palette + painted map. The colored paint image is
@@ -1016,8 +1030,190 @@ func _load_tile(rec: Dictionary, fallback_id: String) -> Dictionary:
 		"hmin": float(rec.get("height_min", 0.0)),
 		"hmax": float(rec.get("height_max", 1.0)),
 		"res": res,
-		"data": data,
+		"base": data,  # the blessed heightfield, exactly as on disk
+		"data": data,  # what samplers read (base + override once composited)
 	}
+
+
+## True when a painted world tile is loaded (the pens' precondition —
+## the override layer rides the tile's frame).
+func has_world_tile() -> bool:
+	return not _tiles.is_empty()
+
+
+# Load the pen override layer from disk (no-op when absent). The sidecar
+# meta carries the frame it was painted in plus the dirty rect, so boot
+# only composites where strokes actually exist.
+func _load_tile_override() -> void:
+	if _tiles.is_empty() or not FileAccess.file_exists(TILE_OVERRIDE_EXR):
+		return
+	var img := Image.load_from_file(ProjectSettings.globalize_path(TILE_OVERRIDE_EXR))
+	if img == null or img.is_empty():
+		push_error("[terrain] tile override unreadable: " + TILE_OVERRIDE_EXR)
+		return
+	img.convert(Image.FORMAT_RF)
+	_tile_override = img
+	var t := _tiles[0]
+	_ov_x0 = t.x0
+	_ov_z0 = t.z0
+	_ov_size = t.size
+	_override_rect = Rect2(_ov_x0, _ov_z0, _ov_size, _ov_size)
+	var meta: Variant = JSON.parse_string(
+		FileAccess.get_file_as_string(TILE_OVERRIDE_META))
+	if meta is Dictionary:
+		_ov_x0 = float(meta.get("x0", _ov_x0))
+		_ov_z0 = float(meta.get("z0", _ov_z0))
+		_ov_size = float(meta.get("size", _ov_size))
+		var r: Variant = meta.get("rect", null)
+		if r is Dictionary:
+			_override_rect = Rect2(float(r["x"]), float(r["z"]),
+				float(r["w"]), float(r["h"]))
+
+
+# Create an empty override on the world tile's frame (first pen stroke).
+func _ensure_override() -> void:
+	if _tile_override != null or _tiles.is_empty():
+		return
+	var t := _tiles[0]
+	_ov_x0 = t.x0
+	_ov_z0 = t.z0
+	_ov_size = t.size
+	_override_rect = Rect2()
+	_tile_override = Image.create(TILE_OVERRIDE_RES, TILE_OVERRIDE_RES,
+		false, Image.FORMAT_RF)
+
+
+# A fresh tile dict whose `data` is base + override, recomposited inside
+# `world_rect` only (everything outside keeps its current values). Returns
+# {} when there is nothing to do. Never mutates `t` — callers swap the
+# result in wholesale so workers mid-build keep a coherent old tile.
+func _composited_tile(t: Dictionary, world_rect: Rect2) -> Dictionary:
+	if _tile_override == null or world_rect.size == Vector2.ZERO:
+		return {}
+	var tile_rect := Rect2(t.x0, t.z0, t.size, t.size)
+	var rect := world_rect.intersection(tile_rect)
+	if rect.size == Vector2.ZERO:
+		return {}
+	var res: int = t.res
+	var tx0: float = t.x0
+	var tz0: float = t.z0
+	var base: PackedFloat32Array = t.base
+	var data: PackedFloat32Array = (t.data as PackedFloat32Array).duplicate()
+	var ov := _tile_override.get_data().to_float32_array()
+	var ores := _tile_override.get_width()
+	var scale := (res - 1) / float(t.size)
+	var px0 := maxi(int(floorf((rect.position.x - tx0) * scale)), 0)
+	var pz0 := maxi(int(floorf((rect.position.y - tz0) * scale)), 0)
+	var px1 := mini(int(ceilf((rect.end.x - tx0) * scale)), res - 1)
+	var pz1 := mini(int(ceilf((rect.end.y - tz0) * scale)), res - 1)
+	var oscale := (ores - 1) / _ov_size
+	for pz in range(pz0, pz1 + 1):
+		var wz := tz0 + pz / scale
+		var oz := clampf((wz - _ov_z0) * oscale, 0.0, ores - 1.001)
+		var iz := int(oz)
+		var fz := oz - iz
+		var row := pz * res
+		for px in range(px0, px1 + 1):
+			var wx := tx0 + px / scale
+			var ox := clampf((wx - _ov_x0) * oscale, 0.0, ores - 1.001)
+			var ix := int(ox)
+			var fx := ox - ix
+			var add := lerpf(
+				lerpf(ov[iz * ores + ix], ov[iz * ores + ix + 1], fx),
+				lerpf(ov[(iz + 1) * ores + ix], ov[(iz + 1) * ores + ix + 1], fx),
+				fz)
+			data[row + px] = base[row + px] + add
+	var fresh := t.duplicate()
+	fresh.data = data
+	return fresh
+
+
+## Pen brush: add meters into the override layer within a world-space
+## disc, linear falloff to the rim. Cheap (override texels only) — the
+## world reshapes on commit_tile_override(), not per stroke sample.
+## Returns the painted world rect (empty when there is no tile to ride).
+func paint_tile_override(world_xz: Vector2, radius_m: float, amount_m: float) -> Rect2:
+	if _tiles.is_empty():
+		return Rect2()
+	_ensure_override()
+	var ores := _tile_override.get_width()
+	var oscale := (ores - 1) / _ov_size
+	var cx := (world_xz.x - _ov_x0) * oscale
+	var cz := (world_xz.y - _ov_z0) * oscale
+	var rad := radius_m * oscale
+	if rad < 0.5:
+		return Rect2()
+	for pz in range(maxi(0, int(cz - rad)), mini(ores, int(cz + rad) + 1)):
+		for px in range(maxi(0, int(cx - rad)), mini(ores, int(cx + rad) + 1)):
+			var d := Vector2(px - cx, pz - cz).length()
+			if d > rad:
+				continue
+			var v := _tile_override.get_pixel(px, pz).r \
+				+ amount_m * (1.0 - d / rad)
+			_tile_override.set_pixel(px, pz, Color(v, 0.0, 0.0))
+	var painted := Rect2(world_xz.x - radius_m, world_xz.y - radius_m,
+		radius_m * 2.0, radius_m * 2.0)
+	_override_rect = painted if _override_rect.size == Vector2.ZERO \
+			else _override_rect.merge(painted)
+	return painted
+
+
+## Commit pen strokes: recomposite base + override inside `world_rect`,
+## swap the tile array and a fresh kernel wholesale (the apply pattern),
+## and invalidate the rect so cells and the far quadtree rebuild.
+func commit_tile_override(world_rect: Rect2) -> void:
+	if _tile_override == null or world_rect.size == Vector2.ZERO:
+		return
+	var swapped := _tiles.duplicate()
+	var changed := false
+	for i in swapped.size():
+		var fresh := _composited_tile(swapped[i], world_rect)
+		if not fresh.is_empty():
+			swapped[i] = fresh
+			changed = true
+	if not changed:
+		return
+	_tiles = swapped
+	if kernel:
+		_init_kernel()  # fresh instance; workers keep the old ref
+	edited.emit(world_rect)
+
+
+## Pen undo support: one-deep snapshot of the override layer (creates an
+## empty one first so a pre-stroke snapshot always exists to restore to).
+func snapshot_tile_override() -> Image:
+	if _tiles.is_empty():
+		return null
+	_ensure_override()
+	return _tile_override.duplicate()
+
+
+func restore_tile_override(snap: Image) -> void:
+	if snap == null or _tile_override == null:
+		return
+	_tile_override = snap
+	# _override_rect stays conservatively large — everything painted since
+	# the snapshot lies inside it, so one recomposite reverts the world.
+	commit_tile_override(_override_rect)
+
+
+## Persist the override layer beside the sculpt layer (F5 / Toolkit exit).
+## The blessed tile itself is NEVER written here — Strata owns it.
+func save_tile_override() -> void:
+	if _tile_override == null:
+		return
+	var dir := ProjectSettings.globalize_path("res://data/terrain")
+	DirAccess.make_dir_recursive_absolute(dir)
+	_tile_override.save_exr(ProjectSettings.globalize_path(TILE_OVERRIDE_EXR))
+	var meta := {
+		"x0": _ov_x0, "z0": _ov_z0, "size": _ov_size,
+		"rect": {"x": _override_rect.position.x, "z": _override_rect.position.y,
+			"w": _override_rect.size.x, "h": _override_rect.size.y},
+	}
+	var f := FileAccess.open(TILE_OVERRIDE_META, FileAccess.WRITE)
+	f.store_string(JSON.stringify(meta, "\t", true) + "\n")
+	f.close()
+	print("[terrain] tile override saved")
 
 
 ## Painted-tile blend at (x,z): replaces `h` inside any tile's rect,
@@ -1175,6 +1371,10 @@ func regions_summary() -> String:
 	for t in _tiles:
 		lines.append("  %s [tile %dpx] %s %.0fm at (%.0f, %.0f) h=%.0f..%.0fm" % [
 			t.id, t.res, t.path.get_file(), t.size, t.x0, t.z0, t.hmin, t.hmax])
+	if _tile_override != null:
+		lines.append("  pen override [%dpx, %.0fm/px] dirty %s" % [
+			_tile_override.get_width(),
+			_ov_size / float(_tile_override.get_width()), _override_rect])
 	return "\n".join(lines)
 
 

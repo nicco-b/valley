@@ -1,19 +1,21 @@
 extends SceneTree
-## The Loom / Strata importer — consumes a Strata `world_vN/` export
-## (height.exr float32 meters + bake_manifest.json) and writes Valley's
-## elevation guide (data/world/elevation_guide.exr + guide.json), the
-## stage-A source of truth. Then `tests/bake_world.gd` erodes it into the
-## live painted tile like any painted guide. Artifacts flow one way:
-## Strata bakes, the game dresses (docs in the strata repo, docs/PLAN.md).
+## The Loom / Strata importer — the P0 seam fix (strata ONE_APP.md,
+## 2026-07-07): a Strata `world_vN/` export IS the world. height.exr
+## (float32 meters, sha256-verified against bake_manifest.json) is copied
+## BYTE-IDENTICAL to the baked-tile cache — no guide roundtrip, no droplet
+## re-erosion, no detail noise on top. What Strata bakes is what you walk:
+## mesa rims, terraces, and stylize survive. Also imports Strata's biome
+## map and syncs the game's sea level from the manifest (the single
+## sea-level source). Artifacts still flow one way: Strata bakes, the game
+## dresses; in-game pens land on Terrain's OVERRIDE layer, never the tile.
 ##
 ##   STRATA_WORLD=/path/to/world_v1 godot --headless --path . -s res://tools/strata/import_world.gd
 ##
-## GUIDE_OUT (optional) redirects output — verify into a scratch dir
-## without touching the real guide. Integrity: height.exr must match the
-## manifest's sha256 or the import refuses.
+## TILE_OUT (optional) redirects every output into a scratch dir — verify
+## an export without touching the live tile, biome map, or sea level.
 
-const GUIDE_RES := 1024
-const GUIDE_GAMMA := 0.5
+const TILE_EXR := "res://data/terrain/tiles/baked_world.exr"
+const TILE_REC := "res://data/regions/baked_world.json"
 const BIOME_RES := 1024
 
 ## Strata biome id → Valley palette index (biomes.json order). Strata:
@@ -29,9 +31,8 @@ func _init() -> void:
 		push_error("STRATA_WORLD not set (path to a Strata world_vN/ export)")
 		quit(1)
 		return
-	var out_dir: String = OS.get_environment("GUIDE_OUT")
-	if out_dir.is_empty():
-		out_dir = ProjectSettings.globalize_path("res://data/world")
+	var out_dir: String = OS.get_environment("TILE_OUT")
+	var scratch := not out_dir.is_empty()
 
 	# --- manifest + integrity ---
 	var manifest_text := FileAccess.get_file_as_string(world_dir.path_join("bake_manifest.json"))
@@ -48,88 +49,87 @@ func _init() -> void:
 		quit(1)
 		return
 
-	# --- load meters ---
+	# --- validate the heightfield (and report its range) ---
 	var img := Image.load_from_file(exr_path)
-	if img == null:
+	if img == null or img.is_empty():
 		push_error("could not load %s" % exr_path)
 		quit(1)
 		return
+	if img.get_width() != img.get_height():
+		push_error("height.exr must be square (got %dx%d)" % [img.get_width(), img.get_height()])
+		quit(1)
+		return
 	img.convert(Image.FORMAT_RF)
+	var data := img.get_data().to_float32_array()
+	var hmin := INF
+	var hmax := -INF
+	for h in data:
+		hmin = minf(hmin, h)
+		hmax = maxf(hmax, h)
+
 	var world: Dictionary = manifest.get("world", {})
 	var size_m: Array = world.get("size_m", [2048.0, 2048.0])
 	var world_size := maxf(float(size_m[0]), float(size_m[1]))
 	var sea_level := float(world.get("sea_level_m", 0.0))
 
-	# --- meter range for the guide's gamma encoding (small margin so the
-	# curve never clips the extremes) ---
-	var data := img.get_data().to_float32_array()
-	var gmin := INF
-	var gmax := -INF
-	for h in data:
-		gmin = minf(gmin, h)
-		gmax = maxf(gmax, h)
-	var margin := maxf((gmax - gmin) * 0.02, 1.0)
-	gmin -= margin
-	gmax += margin
-
-	# --- meters -> normalized guide (inverse of WorldBake.bake's mapping) ---
-	var gspan := gmax - gmin
-	for i in data.size():
-		data[i] = pow(clampf((data[i] - gmin) / gspan, 0.0, 1.0), GUIDE_GAMMA)
-	var guide := Image.create_from_data(img.get_width(), img.get_height(),
-		false, Image.FORMAT_RF, PackedFloat32Array(data).to_byte_array())
-	guide.resize(GUIDE_RES, GUIDE_RES, Image.INTERPOLATE_LANCZOS)
-
-	# --- write guide EXR + companion JSON ---
-	DirAccess.make_dir_recursive_absolute(out_dir)
-	var exr_out := out_dir.path_join("elevation_guide.exr")
-	var err := guide.save_exr(exr_out, true)
+	# --- the blessed tile: byte-identical copy, so the manifest sha keeps
+	# verifying the live cache forever ---
+	var tile_abs := ProjectSettings.globalize_path(TILE_EXR) if not scratch \
+			else out_dir.path_join("baked_world.exr")
+	var rec_path := TILE_REC if not scratch else out_dir.path_join("baked_world.json")
+	DirAccess.make_dir_recursive_absolute(tile_abs.get_base_dir())
+	var err := DirAccess.copy_absolute(exr_path, tile_abs)
 	if err != OK:
-		push_error("save_exr failed: %s" % err)
+		push_error("copy height.exr -> %s failed: %s" % [tile_abs, err])
 		quit(1)
 		return
-	var meta := {
-		"guide_gamma": GUIDE_GAMMA,
-		"guide_min": gmin,
-		"guide_max": gmax,
+
+	# --- the F3 region record (heightmap already in meters: hmin 0, hmax 1
+	# keep the pixel = the height) + provenance for the Toolkit/registry ---
+	var rec := {"id": "baked_world", "layer": "surface", "kind": "tile",
 		"origin": {"x": -world_size * 0.5, "z": -world_size * 0.5},
-		"out_res": 2048,
-		"params": WorldBake.meta().get("params", {}),
-		"sea_level_hint": sea_level,
-		"seed": int(manifest.get("seed", 7)),
+		"size": world_size, "feather": 600,
+		"heightmap": TILE_EXR if not scratch else tile_abs,
+		"height_min": 0.0, "height_max": 1.0,
+		"sea_level": sea_level,
 		"strata": {
 			"name": manifest.get("name", ""),
 			"param_hash": manifest.get("param_hash", ""),
 			"source": world_dir,
-		},
-		"world_size": world_size,
-	}
-	# --- dressed layers: Strata's climate-driven biome map + layer index ---
-	var biome_ok := _import_biomes(world_dir, out_dir, manifest)
-	meta["biomes"] = {"imported": biome_ok, "res": BIOME_RES,
-		"origin": {"x": -world_size * 0.5, "z": -world_size * 0.5}, "world_size": world_size}
-	meta["strata_layers"] = _layer_index(world_dir, manifest)
+			"date": manifest.get("date", ""),
+			"seed": int(manifest.get("seed", 0)),
+			"height_sha256": got_sha,
+		}}
+	var f := FileAccess.open(rec_path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(rec, "\t", true) + "\n")
+	f.close()
 
-	# Sync the game sea to Strata's sea level so the shallows read as water, not
-	# land (skipped when importing to a scratch GUIDE_OUT).
-	if OS.get_environment("GUIDE_OUT").is_empty():
+	# --- dressed layers: Strata's climate-driven biome map ---
+	var biome_out := ProjectSettings.globalize_path("res://data/world") if not scratch \
+			else out_dir
+	var biome_ok := _import_biomes(world_dir, biome_out, manifest)
+
+	# Sync the game sea to the manifest's sea level (the ONE sea-level
+	# source) so the shallows read as water, not land.
+	if not scratch:
 		_sync_sea_level(sea_level)
 
-	var f := FileAccess.open(out_dir.path_join("guide.json"), FileAccess.WRITE)
-	f.store_string(JSON.stringify(meta, "\t", true) + "\n")
-	f.close()
-	print("IMPORTED %s -> %s" % [manifest.get("name", "?"), out_dir])
-	print("  guide %dx%d, %.1f..%.1fm over %.0fm world, seed %d" % [
-		GUIDE_RES, GUIDE_RES, gmin, gmax, world_size, int(manifest.get("seed", 7))])
+	print("IMPORTED %s -> %s (direct, no re-erosion)" % [
+		manifest.get("name", "?"), tile_abs])
+	print("  tile %dx%d, %.1f..%.1fm over %.0fm world, sea %.1fm, sha %s…" % [
+		img.get_width(), img.get_height(), hmin, hmax, world_size,
+		sea_level, got_sha.substr(0, 12)])
 	if biome_ok:
 		print("  biome_map %dx%d painted from Strata biomes" % [BIOME_RES, BIOME_RES])
-	print("  next: godot --headless --path . -s res://tests/bake_world.gd")
+	if absf(world_size - 16384.0) > 0.5:
+		push_warning("world size %.0fm != 16384m — the biome frame in terrain.gd is hardcoded to 16384m" % world_size)
+	print("  the world is live (running game hot-reloads the tile). Walk it: ./scripts/run.sh")
 	quit()
 
 
-## Set the game's sea surface (data/water/sea.json) to Strata's sea level, so a
-## point below it reads as sea. Without this the shallows sit above the old sea
-## height and render as land.
+## Set the game's sea surface (data/water/sea.json) to the manifest's sea
+## level, so a point below it reads as sea. Without this the shallows sit
+## above the old sea height and render as land.
 func _sync_sea_level(sea_level: float) -> void:
 	var path := "res://data/water/sea.json"
 	var rec := {"id": "sea", "sea": true, "surface": sea_level}
@@ -144,8 +144,8 @@ func _sync_sea_level(sea_level: float) -> void:
 	print("  sea level synced to %.1fm" % sea_level)
 
 
-## Paint data/world/biome_map.png from Strata's biome.png, remapping Strata
-## biome ids to Valley palette inks (biomes.json). Returns false (and leaves any
+## Paint biome_map.png from Strata's biome.png, remapping Strata biome ids
+## to Valley palette inks (biomes.json). Returns false (and leaves any
 ## existing map untouched) when the export carries no biome layer.
 func _import_biomes(world_dir: String, out_dir: String, manifest: Dictionary) -> bool:
 	var biome_path := world_dir.path_join("biome.png")
@@ -189,12 +189,3 @@ func _import_biomes(world_dir: String, out_dir: String, manifest: Dictionary) ->
 		push_error("save biome_map.png failed: %s" % err)
 		return false
 	return true
-
-
-## Record which dressed layers this export carries, so game systems (and future
-## importers) can discover them without re-reading the manifest.
-func _layer_index(world_dir: String, manifest: Dictionary) -> Dictionary:
-	var out := {}
-	for file: String in (manifest.get("files", {}) as Dictionary).keys():
-		out[file] = world_dir.path_join(file)
-	return out

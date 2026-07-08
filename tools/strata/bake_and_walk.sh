@@ -5,7 +5,8 @@
 #
 # Builds the Strata CLI, bakes a .strata doc (default tools/strata/valley.strata,
 # a 16384m world matched to the game frame) into a world_vN/ export, then imports
-# it and bakes the live terrain (via import_and_bake.sh). Walk it: ./scripts/run.sh
+# it DIRECTLY as the live tile (via import_and_bake.sh — P0 seam fix: what
+# Strata bakes is what you walk, no re-erosion). Walk it: ./scripts/run.sh
 #
 # To bake what you've tuned in the Strata APP instead, use its Export World (⌘E)
 # and run:  tools/strata/import_and_bake.sh <exported world_vN dir>

@@ -16,7 +16,7 @@ const CAM_DISTANCE := 400.0
 const STREAM_ZOOM := 900.0
 const ZOOM_MIN := 130.0
 const ZOOM_MAX := 13000.0  # the Big Island + the whole chain in one view
-const PAINT_RATE := 0.5  # normalized guide units/sec at the brush center
+const PAINT_RATE_M := 150.0  # meters of override/sec at the brush center
 
 var active := false
 
@@ -27,12 +27,13 @@ var _hint: Label
 var _focus := Vector3.ZERO
 var _ortho := 420.0
 
-# Elevation painting (Toolkit build-out item 2): brush the whole-world
-# elevation guide on the live map, bake through WorldBake, let HotReload
-# reshape the ground under you — no Blender terrain trip. Toolkit-gated.
+# Elevation painting (Toolkit build-out item 2; re-scoped by the P0 seam
+# fix, ONE_APP.md 2026-07-07): brush the whole-world OVERRIDE layer on the
+# live map — the blessed Strata tile underneath is read-only and never
+# re-eroded. B commits (scoped recomposite reshapes the ground) and
+# persists the override EXR. Toolkit-gated.
 var _paint := false
-var _guide: Image = null
-var _guide_meta: Dictionary
+var _paint_bbox := Rect2()  # strokes awaiting commit (scoped rebuild)
 var _brush_m := 300.0  # brush radius in world meters (the map scale is huge)
 var _mouse := Vector2.ZERO
 
@@ -109,7 +110,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		_mouse = event.position
 	# Elevation painting (Toolkit-gated): P toggles, [ ] size the brush,
-	# B bakes the strokes into the world. Handled before pan/zoom so the
+	# B commits the strokes into the world. Handled before pan/zoom so the
 	# brush owns LMB while painting.
 	if _from_toolkit:
 		if event is InputEventKey and event.pressed and not event.echo \
@@ -216,14 +217,17 @@ func _process(delta: float) -> void:
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:
 		streamer.load_radius = 4 if wants_streaming() else 2
-	# Paint stroke: LMB held over the map raises the guide, Shift lowers —
-	# dt-scaled so the rate is frame-independent (the Toolkit sculpt idiom).
-	if _paint and _guide != null \
-			and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+	# Paint stroke: LMB held over the map raises the override, Shift lowers
+	# — dt-scaled so the rate is frame-independent (the Toolkit sculpt idiom).
+	if _paint and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		var w := _mouse_world()
 		if w != Vector2.INF:
 			var dir := -1.0 if Input.is_key_pressed(KEY_SHIFT) else 1.0
-			_paint_guide(w, dir * PAINT_RATE * delta)
+			var painted: Rect2 = Terrain.paint_tile_override(
+				w, _brush_m, dir * PAINT_RATE_M * delta)
+			if painted.size != Vector2.ZERO:
+				_paint_bbox = painted if _paint_bbox.size == Vector2.ZERO \
+						else _paint_bbox.merge(painted)
 	# Biome stroke: LMB stamps the selected biome into the live index map
 	# (ground tint updates instantly); the painted region accumulates for
 	# the flora rescatter on commit.
@@ -297,17 +301,17 @@ func _close() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
-## Enter/leave elevation paint mode. The guide loads lazily on first use;
-## it stays cached across opens so long paint sessions don't re-read disk.
+## Enter/leave elevation paint mode (the override pen rides the world
+## tile's frame, so it needs a baked tile to exist).
 func _toggle_paint() -> void:
 	_paint = not _paint
 	if _paint:
 		_river_mode = false  # tools are exclusive
 		_river_nodes.clear()
 		_biome_paint = false
-		if _guide == null:
-			_guide = WorldBake.load_guide()
-			_guide_meta = WorldBake.meta()
+		if not Terrain.has_world_tile():
+			HUD.notify("no baked tile — import a Strata world first")
+			_paint = false
 	_update_hint()
 
 
@@ -374,24 +378,17 @@ func _mouse_world() -> Vector2:
 	return Vector2(hit.x, hit.z)
 
 
-## One shared brush (WorldBake.paint_disc) with the flyover pen.
-func _paint_guide(world_xz: Vector2, amount: float) -> void:
-	WorldBake.paint_disc(_guide, _guide_meta, world_xz, _brush_m, amount)
-
-
-## Commit the painted guide: persist it, bake through the kernel (the same
-## WorldBake the headless CLI runs), write the tile cache. HotReload sees
-## the fresh EXR within a second and reshapes the ground under you. The
-## bake is sub-second but synchronous — the static map holds one beat.
+## Commit the painted override: recomposite the strokes over the blessed
+## tile (scoped — only the painted cells rebuild) and persist the override
+## EXR. The tile itself is never written; Strata owns it (P0 seam fix).
 func _bake() -> void:
-	if _guide == null or Terrain.kernel == null:
-		HUD.notify("bake needs the native kernel")
+	if _paint_bbox.size == Vector2.ZERO:
+		HUD.notify("paint some elevation first")
 		return
-	HUD.notify("baking terrain…")
-	WorldBake.save_guide(_guide)
-	var baked := WorldBake.bake(_guide, _guide_meta, Terrain.kernel)
-	WorldBake.write_tile(baked, _guide_meta)
-	HUD.notify("terrain baked — reshaping")
+	Terrain.commit_tile_override(_paint_bbox.grow(128.0))
+	Terrain.save_tile_override()
+	_paint_bbox = Rect2()
+	HUD.notify("override committed — reshaping")
 
 
 func _update_hint() -> void:
@@ -404,7 +401,7 @@ func _update_hint() -> void:
 	elif _river_mode:
 		_hint.text = "RIVER pen  ·  LMB add point (%d)  ·  Enter carve  ·  Backspace undo  ·  R exit" % _river_nodes.size()
 	elif _paint:
-		_hint.text = "PAINT elevation  ·  LMB raise · Shift lower  ·  [ ] brush %dm  ·  B bake  ·  P exit" % int(_brush_m)
+		_hint.text = "PAINT override  ·  LMB raise · Shift lower  ·  [ ] brush %dm  ·  B commit  ·  P exit" % int(_brush_m)
 	elif _from_toolkit:
 		_hint.text = "drag / WASD pan  ·  wheel zoom  ·  P elevation · R river · G biome  ·  RMB teleport  ·  M close"
 	else:

@@ -14,14 +14,15 @@ const MOUSE_SENSITIVITY := 0.003
 
 # The world pens live HERE in the flyover (2026-07-06, Nicco's call —
 # in map mode you couldn't watch the ground change): TERRAIN paints the
-# elevation guide on the ground you're looking at and AUTO-BAKES on
-# stroke-quiet (~0.4s kernel bake on a worker; HotReload reshapes the
-# world under the camera), BIOME retints instantly and re-floras on
+# OVERRIDE layer over the blessed Strata tile (P0 seam fix, ONE_APP.md
+# 2026-07-07 — the tile is read-only, no erosion rebake ever) and
+# commits on stroke-quiet (a cheap region recomposite reshapes the
+# ground under the camera), BIOME retints instantly and re-floras on
 # stroke release, RIVER drops points on the terrain and carves on
 # Enter. The map keeps its pens for whole-world strokes — both ride
-# the same shared cores (WorldBake.paint_disc, RiverPen).
-const GUIDE_PAINT_RATE := 0.35  # normalized guide units/sec at brush center
-const GUIDE_QUIET_BAKE := 0.25  # seconds of stroke-quiet before auto-bake
+# the same shared cores (Terrain.paint_tile_override, RiverPen).
+const PEN_RATE_M := 90.0  # meters of override per second at brush center
+const PEN_QUIET_COMMIT := 0.25  # seconds of stroke-quiet before commit
 const MACRO_MIN := 24.0
 const MACRO_MAX := 1200.0
 
@@ -51,16 +52,11 @@ var _flatten_target := 0.0
 var _flattening := false
 var _stroke_live := false
 
-# TERRAIN pen state.
-var _guide: Image = null
-var _guide_meta: Dictionary
-var _guide_undo: Image = null
-var _guide_dirty := false
-var _guide_quiet := 0.0
-var _guide_bbox := Rect2()  # painted world region (scoped rebuild)
-var _baked_img: Image = null  # last bake result (applied live, saved on F5)
-var _bake_task := -1
-var _bake_pending := false
+# TERRAIN pen state (paints Terrain's tile override layer).
+var _pen_undo: Image = null
+var _pen_dirty := false
+var _pen_quiet := 0.0
+var _pen_bbox := Rect2()  # painted world region (scoped rebuild on commit)
 var _terrain_unsaved := false
 
 # BIOME pen state.
@@ -173,9 +169,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		_save_pens()
 	elif event.is_action_pressed("toolkit_tool"):
 		_tool = ((_tool as int) + 1) % Tool.size() as Tool
-		if _tool == Tool.TERRAIN and _guide == null:
-			_guide = WorldBake.load_guide()
-			_guide_meta = WorldBake.meta()
+		if _tool == Tool.TERRAIN and not Terrain.has_world_tile():
+			HUD.notify("no baked tile — import a Strata world first")
 		_update_hud()
 	elif event.is_action_pressed("toolkit_undo"):
 		match _tool:
@@ -184,10 +179,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				Terrain.restore_edits(_sculpt_undo)
 				_sculpt_undo = null
 			Tool.TERRAIN:
-				if _guide_undo != null:
-					_guide = _guide_undo.duplicate()
-					_guide_dirty = true
-					_guide_quiet = 0.0  # rebake shortly
+				if _pen_undo != null:
+					# One-deep stroke undo: restore the pre-stroke override
+					# (recomposites + reshapes immediately).
+					Terrain.restore_tile_override(_pen_undo.duplicate())
+					_pen_dirty = false
+					_pen_bbox = Rect2()
+					_terrain_unsaved = true
 			Tool.RIVER:
 				if not _river_nodes.is_empty():
 					_river_nodes.pop_back()
@@ -326,21 +324,23 @@ func _process(delta: float) -> void:
 		_cursor.scale = Vector3(r, 1.0, r)
 		var painting := Input.mouse_mode == Input.MOUSE_MODE_CAPTURED \
 				and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
-		# TERRAIN pen: paint the guide on the ground; auto-bake on quiet.
-		if _tool == Tool.TERRAIN and painting and _guide != null:
+		# TERRAIN pen: paint the override on the ground; commit on quiet.
+		if _tool == Tool.TERRAIN and painting and Terrain.has_world_tile():
 			if not _stroke_live:
 				_stroke_live = true
-				_guide_undo = _guide.duplicate()  # Z reverts the stroke
+				_pen_undo = Terrain.snapshot_tile_override()  # Z reverts
 			var dir_g := -1.0 if Input.is_action_pressed("sprint") else 1.0
-			WorldBake.paint_disc(_guide, _guide_meta, Vector2(hit.x, hit.z),
-				_macro_radius, dir_g * GUIDE_PAINT_RATE * delta)
-			_guide_dirty = true
-			_guide_quiet = 0.0
-			# Accumulate the painted world region so the bake rebuilds only
-			# these cells (grown a cell so the feathered edge lands too).
-			var pr := Rect2(hit.x, hit.z, 0, 0).grow(_macro_radius + 128.0)
-			_guide_bbox = pr if _guide_bbox.size == Vector2.ZERO \
-					else _guide_bbox.merge(pr)
+			var painted: Rect2 = Terrain.paint_tile_override(
+				Vector2(hit.x, hit.z), _macro_radius,
+				dir_g * PEN_RATE_M * delta)
+			if painted.size != Vector2.ZERO:
+				_pen_dirty = true
+				_pen_quiet = 0.0
+				# Accumulate the painted world region so the commit rebuilds
+				# only these cells (grown so the bilinear skirt lands too).
+				var pr := painted.grow(128.0)
+				_pen_bbox = pr if _pen_bbox.size == Vector2.ZERO \
+						else _pen_bbox.merge(pr)
 		# BIOME pen: instant tint; flora re-composes on stroke release.
 		elif _tool == Tool.BIOME and painting:
 			_biome_stroke = true
@@ -373,24 +373,16 @@ func _process(delta: float) -> void:
 		elif not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			_stroke_live = false  # stroke ended; snapshot stays for Z
 
-	# TERRAIN pen: auto-bake on stroke-quiet — the guide bakes on a
-	# worker (~0.4s) and HotReload reshapes the ground you're watching.
-	if _guide_dirty and not _bake_pending:
-		_guide_quiet += delta
-		if _guide_quiet >= GUIDE_QUIET_BAKE and Terrain.kernel != null \
+	# TERRAIN pen: commit on stroke-quiet — a scoped recomposite (blessed
+	# tile + override, painted rect only) reshapes the ground you're
+	# watching. No erosion, no disk write; persistence waits for F5/exit.
+	if _pen_dirty:
+		_pen_quiet += delta
+		if _pen_quiet >= PEN_QUIET_COMMIT \
 				and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-			_guide_dirty = false
-			_bake_pending = true
-			_bake_task = WorkerThreadPool.add_task(
-				_bake_guide_task.bind(_guide.duplicate(), _guide_meta))
-	if _bake_pending and WorkerThreadPool.is_task_completed(_bake_task):
-		WorkerThreadPool.wait_for_task_completion(_bake_task)
-		_bake_pending = false
-		# Swap the baked heightfield in-memory and rebuild ONLY the
-		# painted cells (no disk write, no whole-tile HotReload churn).
-		if _baked_img != null:
-			Terrain.apply_baked_tile("baked_world", _baked_img, _guide_bbox)
-			_guide_bbox = Rect2()
+			_pen_dirty = false
+			Terrain.commit_tile_override(_pen_bbox)
+			_pen_bbox = Rect2()
 			_terrain_unsaved = true
 
 	# BIOME pen: the tint was live per-stroke; flora re-composes once,
@@ -404,23 +396,22 @@ func _process(delta: float) -> void:
 	_update_river_preview()
 
 
-# Just the erosion bake, off the main thread (the image is a duplicate —
-# the live one keeps painting while this runs). Result applied in-memory
-# by _process; disk persistence waits for save.
-func _bake_guide_task(guide: Image, _meta: Dictionary) -> void:
-	_baked_img = WorldBake.bake(guide, _meta, Terrain.kernel)
-
-
 # Persist what the pens changed (F5 and exit, beside the sculpt layer).
+# Only the OVERRIDE layer is written — the blessed tile never is.
 func _save_pens() -> void:
 	if _biome_unsaved:
 		Terrain.save_biome_map()
 		_biome_unsaved = false
-	if _terrain_unsaved and _baked_img != null:
-		WorldBake.save_guide(_guide)       # the source of truth
-		WorldBake.write_tile(_baked_img, _guide_meta)  # the cache
+	if _pen_dirty:
+		# A stroke still waiting on quiet: commit before persisting.
+		_pen_dirty = false
+		Terrain.commit_tile_override(_pen_bbox)
+		_pen_bbox = Rect2()
+		_terrain_unsaved = true
+	if _terrain_unsaved:
+		Terrain.save_tile_override()
 		_terrain_unsaved = false
-		HUD.notify("terrain saved")
+		HUD.notify("terrain override saved")
 
 
 # The drawn river course: a floating line strip PLUS a filled marker
@@ -592,7 +583,7 @@ func _update_hud() -> void:
 					slot["category"], nm, int(slot["variants"]), syn,
 					_place_index + 1, _palette.size(), " ".join(tabs)]
 		Tool.TERRAIN:
-			_hud_label.text = "TOOLKIT·TERRAIN   LMB raise · Shift lower — bakes when you pause | [ ] brush %dm | Z undo stroke | Tab next tool | F1 exit" % int(_macro_radius)
+			_hud_label.text = "TOOLKIT·TERRAIN (override)   LMB raise · Shift lower — lands when you pause | [ ] brush %dm | Z undo stroke | Tab next tool | F1 exit" % int(_macro_radius)
 		Tool.BIOME:
 			var bnames: Array[String] = []
 			for i in mini(Terrain.biomes.size(), 9):

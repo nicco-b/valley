@@ -12,7 +12,36 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
-## ⭐ Session handoff — resume here (2026-07-07, night): ONE_APP P0 landed
+## ⭐ Session handoff — resume here (2026-07-08): STRATA IS THE ONE APP
+
+**The full state + progress log + next steps live in
+`strata/docs/ONE_APP.md`** (progress log section) — the short version:
+- **The game runs INSIDE Strata** (the Game pane) on **our engine
+  fork** github.com/nicco-b/godot (`swiftgodotkit-4.7` = official
+  4.7-stable + embed patches; fork law v2: patch-carrying, one-day
+  rebase budget, Tier 2 lets the game ship on fork builds when the
+  first real engine want lands — the GDScript worker-thread VM fix and
+  precision=double are the queued candidates).
+- **Valley is a Strata document**: `valley.strataproj` (committed
+  here) — Strata opens it, restores the session, scans the asset cards
+  into its Assets tab (real/synth ledger). New Game in Strata
+  scaffolds a fresh game folder — "many games" is structurally real.
+- Valley-side landings this arc: P0 direct tile import (pens →
+  override layer, guide path deleted), StrataLink autoload (the live
+  link; STRATA_LINK_PORT env), W1 ocean swell (SeaSwell + Gerstner —
+  storms send rollers ahead of their rain), paper boot splash (engine
+  logo retired).
+- **Next (Nicco's want): P8 the live viewport** — the Strata preview
+  BECOMES the game view (auto-send bakes into the pane, time-of-day +
+  weather controls in Strata; new `time` StrataLink verb must route
+  through GameClock.advance_hours — the sim contract's one door). Then
+  the **regeneration-hazard defenses** (ONE_APP has the full writeup:
+  geology-then-dress law, bless-time diff report, ground-relative
+  placement re-seating here in valley, P4 overrides round trip).
+- Soak stays bit-stable-across-runs; the fingerprint floats with
+  Nicco's live re-imports until he blesses a world (then pin).
+
+## ⭐ Session handoff — (2026-07-07, night): ONE_APP P0 landed
 
 **The seam fix is in — Strata exports walk in-game with ZERO re-erosion.**
 (`strata/docs/ONE_APP.md` P0, now marked done there.)

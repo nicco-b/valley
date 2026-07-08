@@ -23,6 +23,7 @@ func _ready() -> void:
 	_test_nav()
 	_test_sand_sim()
 	_test_tile_override()
+	await _test_strata_link()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -34,6 +35,53 @@ func _check(condition: bool, name: String) -> void:
 	if not condition:
 		_failures += 1
 		print("  FAIL: ", name)
+
+
+## StrataLink (ONE_APP P3): the live-link verbs answer over a real local
+## socket — ping round-trips, teleport without a player errs honestly,
+## unknown verbs never hang the hub. Skips when the link isn't listening
+## (release build or the port taken by a running game).
+func _test_strata_link() -> void:
+	if not StrataLink.summary().begins_with("listening"):
+		print("  strata link: SKIP (not listening — port busy or release build)")
+		return
+	var peer := StreamPeerTCP.new()
+	if peer.connect_to_host("127.0.0.1", StrataLink.PORT) != OK:
+		_check(false, "link connect")
+		return
+	for i in 100:
+		peer.poll()
+		if peer.get_status() == StreamPeerTCP.STATUS_CONNECTED:
+			break
+		await get_tree().process_frame
+	_check(peer.get_status() == StreamPeerTCP.STATUS_CONNECTED, "link connects")
+	var replies := await _link_send(peer, ["ping", "bogus_verb", "teleport 1 2", "status"])
+	_check(replies.size() == 4, "one reply per command (got %d)" % replies.size())
+	if replies.size() == 4:
+		_check(replies[0].begins_with("ok pong"), "ping -> pong")
+		_check(replies[1].begins_with("err"), "unknown verb errs, never hangs")
+		# No player node in the test scene: the honest error path.
+		_check(replies[2] == "err no player in tree", "teleport without player errs")
+		_check(replies[3].begins_with("ok") and "focus=" in replies[3], "status reports focus")
+	peer.disconnect_from_host()
+
+
+## Send commands one per line, then pump frames until every reply lands.
+func _link_send(peer: StreamPeerTCP, commands: Array) -> Array:
+	for c in commands:
+		peer.put_data((str(c) + "\n").to_utf8_buffer())
+	var buffer := ""
+	for i in 300:
+		await get_tree().process_frame
+		peer.poll()
+		while peer.get_available_bytes() > 0:
+			buffer += peer.get_string(peer.get_available_bytes())
+		if buffer.count("\n") >= commands.size():
+			break
+	var out: Array = []
+	for line in buffer.split("\n", false):
+		out.append(line)
+	return out
 
 
 ## The pen override layer (P0 seam fix): pens add meters OVER the blessed

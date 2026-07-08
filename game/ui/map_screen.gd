@@ -204,11 +204,14 @@ func _process(delta: float) -> void:
 	_rig.pan(Input.get_vector(
 		"move_left", "move_right", "move_forward", "move_back"), delta)
 	_rig.apply(_cam)
-	# Midnight readability: a solar-scaled ambient floor — full lantern
-	# at night, a whisper by day (rendering only; the world outside the
-	# map keeps its honest dark).
+	# Readability floor: solar- AND weather-scaled ambient — full lantern
+	# at midnight, a whisper at clear noon, and most of a lantern when a
+	# storm has dimmed the sun (the dimming stays as the subtle weather
+	# hint; the whiteout doesn't). Rendering only — the world outside the
+	# map keeps its honest dark.
 	var sun_up := clampf(
 		sin((GameClock.solar_hours() - 6.0) / 24.0 * TAU) * 1.6, 0.0, 1.0)
+	sun_up *= clampf(1.0 - 0.4 * Weather.storminess - 0.3 * Weather.cloud, 0.0, 1.0)
 	_env.ambient_light_energy = lerpf(1.05, 0.25, sun_up)
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:
@@ -253,9 +256,15 @@ func _open() -> void:
 		# Rendering only: Weather/Climate never hear about it, and the
 		# surviving sky/sun still hint the hour and the storm.
 		_env = OrbitRig.chart_environment(get_viewport().world_3d.environment)
-		# The exemption's second half: a flat ambient floor (solar-scaled
-		# each frame in _process) so a storm-dimmed sun or plain midnight
-		# never turns the chart illegible.
+		# No haze at all on the map (the viewer keeps a faint one): from
+		# an orbit camera EVERYTHING is >12km out, so even whisper fog is
+		# a full-frame veil in whatever color the weather painted at open
+		# — and the stretched far sea disc (water_bodies) now covers the
+		# beyond-the-tile seabed the viewer's haze was hired to hide.
+		_env.fog_enabled = false
+		# The exemption's second half: a flat ambient floor (solar- and
+		# weather-scaled each frame in _process) so a storm-dimmed sun or
+		# plain midnight never turns the chart illegible.
 		_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 		_env.ambient_light_color = Color(1.0, 0.98, 0.94)
 		_env.ambient_light_energy = 0.6

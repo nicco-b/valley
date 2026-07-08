@@ -38,12 +38,15 @@ func _process(_d: float) -> void:
 			pl.global_position = Vector3(600, 4, -1600)
 		MapScreen._open()
 	if _t > 20:
-		# Hold the framing (stray input drift would wander it) so the
-		# shot lands at the intended scale; MAP_DIST recenters on the
-		# player for the close-up marker check.
+		# PIN the framing every frame: an unfocused Movie Maker window
+		# still receives real trackpad scroll (found the hard way — the
+		# shots landed at whatever zoom the operator's fingers were at).
+		# MAP_DIST recenters on the player for the close-up marker check.
 		if OS.get_environment("MAP_DIST") != "":
 			MapScreen._rig.distance = float(OS.get_environment("MAP_DIST"))
 			MapScreen._rig.target = Vector3(600, 0, -1600)
+		else:
+			MapScreen._rig.frame_tile()
 		MapScreen._rig.apply(MapScreen._cam)
 	if _t == 900:
 		var shot := OS.get_environment("MAP_SHOT")

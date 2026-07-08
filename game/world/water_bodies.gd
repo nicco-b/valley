@@ -184,6 +184,14 @@ func _process(_delta: float) -> void:
 	var far_focus := focus.snappedf(SEA_FAR_STEP * 2.0)
 	_sea_far.position.x = far_focus.x
 	_sea_far.position.z = far_focus.y
+	# The orbit map sees to the world's rim and past it: stretch the far
+	# disc so beyond-the-tile reads as OCEAN, not the far-LOD's bare
+	# seabed squares (the flat map's palette used to paper over those;
+	# the real 3D map needs the real sea to do it). Distant + flat, so
+	# the coarse verts stretch invisibly; back to 1x when the map closes.
+	var reach := 5.0 if MapScreen.active else 1.0
+	if _sea_far.scale.x != reach:
+		_sea_far.scale = Vector3(reach, 1.0, reach)
 	# The tide: all sheets ride the live surface, and the strand
 	# shader's dark band follows it via the sea_level global.
 	var live: float = Terrain.sea_surface()

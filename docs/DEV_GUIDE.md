@@ -24,7 +24,7 @@ and [FOUNDATIONS.md](FOUNDATIONS.md) (build plan).*
 | E | interact / catch | | LMB / Shift+LMB | raise / carve (sculpt) |
 | I | satchel | | `[` `]` | brush size |
 | | | | RMB on agent | sim inspector |
-| M | map (pan/zoom, gestures) | | 1–9 | pick kit object (place) |
+| M | map — a real 3D orbit view: drag orbit, wheel zoom, WASD pan; weather-exempt, midnight-readable | | 1–9 | pick kit object (place) |
 | | | | N | toggle navmesh overlay |
 | | | | O | world panel (every system + HERE: t/humidity/wetness/vitality under the camera) |
 | F / R | deploy / recall fireflies | | LMB | place object |

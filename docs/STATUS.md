@@ -12,6 +12,29 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
+## ⭐ Session handoff (2026-07-08, worktree agent): THE MAP IS THE ORBIT
+
+**M is a real 3D view now** (Nicco: "a real 3d view of the map, sort of
+like the orbit; weather must not obstruct it"). The flat pitched-ortho
+chart + its terrain-shader elevation palette (`map_view` global) are
+RETIRED. The orbit machinery is one shared class (`game/world/
+orbit_rig.gd`) ridden by BOTH the Toolkit's viewer posture and the map
+— open frames the whole tile, LMB-drag orbits, wheel/pinch zooms, WASD
+pans, Esc/M closes, player frozen (a camera swap, no second viewport).
+Weather exemption is RENDERING-ONLY: the map camera wears the chart air
+(world env minus fog/volumetrics + a solar-and-weather-scaled ambient
+floor, so midnight and storm noon stay readable; the dimmed sun stays
+as the honest hint), Atmosphere hides its FX + cuts stuck lightning,
+weather_fx dust gated. Water stays visible (the far sea disc stretches
+5x under the map so beyond-tile reads as ocean, not far-LOD slabs).
+Player marker grew a heading wedge; compass N is a needle (the view
+rotates). Scene test `_test_map`; probe `tests/map_probe.gd`
+(MAP_WX/MAP_HOUR/MAP_DIST/MAP_SHOT; map_fog_probe folded in). NOTE:
+the spawn-on-land unit test now SKIPS when a live tile is cached —
+world_v1 floods (0,0) to -123m, so a fresh New Game would spawn in
+deep sea; spawn wants to ride the import (bless-time item). Soak
+bit-stable throughout.
+
 ## ⭐ Session handoff — resume here (2026-07-08): STRATA IS THE ONE APP
 
 **The full state + progress log + next steps live in

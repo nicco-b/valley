@@ -13,8 +13,10 @@ var _confirm_armed := false
 func _ready() -> void:
 	# Boot posture: `--toolkit` skips the campfire and lands in the editor
 	# over the live world (Continue semantics — an existing save restores).
+	# Deferred: changing scene inside _ready would remove_child() while the
+	# tree is busy setting up children (engine error on every --viewer boot).
 	if Toolkit.launch_requested():
-		get_tree().change_scene_to_file(WORLD_SCENE)
+		get_tree().change_scene_to_file.call_deferred(WORLD_SCENE)
 		return
 
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE

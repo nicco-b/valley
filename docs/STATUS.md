@@ -59,6 +59,24 @@ the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
   `registry.json` blessed pointer + frozen.landform locks), and
   `scripts/make_app.sh` → `dist/Strata.app` (.strata double-click).
   Blessing his real world now gives the soak its pinnable baseline.
+- **Then P3, the live link (both repos):** `StrataLink` autoload —
+  localhost line protocol, debug builds (ping/status/reload_world/
+  teleport/screenshot/weather; `STRATA_LINK_PORT` env for a second
+  instance); Strata gained Play / ⌥-click Walk Here / **Send** (bake →
+  P0 direct import → live reload). Cross-process verified; the GUI
+  loop needs Nicco's eyes (⌥-click mirror gotcha noted in ONE_APP P3).
+- **Then PLAN_PHYSICS W1, ocean swell (worktree agent, landed
+  49714dc):** SeaSwell + 4 Gerstner components — storms send rollers
+  hours ahead of their rain (see PLAN_PHYSICS W1 done-note). Soak
+  bit-stable; the fingerprint now floats with Nicco's live re-imports
+  by design.
+- **Then the P3.5 embed spike (strata `spike/EmbedSpike/`): mechanism
+  proven, gate FAILED on 4.6-vs-4.7** — Valley boots inside a SwiftUI
+  pane (Forward+, 120fps, StrataLink answers from inside the pane!)
+  but the 4.7 kernel refuses on 4.6, the 4.7 script-class cache won't
+  load (parse cascade), CoreAudio hangs at embedded start. Live view
+  v1 (child process) stands until a 4.7-matched libgodot exists —
+  findings + rerun instructions in `strata/docs/ONE_APP.md` P3.5.
 
 ## ⭐ Session handoff — resume here (2026-07-07, later): the two plans
 

@@ -54,6 +54,22 @@ Stateless in time+wind ⇒ no sim contract, off headless.
 ✓ From the strand, the horizon visibly rolls; storm swell reads bigger
 than calm; probe renders A/B calm/storm shots headless.
 
+**✅ DONE 2026-07-07 (commit 49714dc, the Watershed/the Elements).**
+`SeaSwell` autoload: stateless energy function of (time, wind, fronts)
+— each traveling front radiates swell scaled by its kind's wind²,
+e-folding **5200m ahead of its leading edge** (vs the 800m rain edge:
+rollers arrive hours before the rain — the herald, built). 4 Gerstner
+components in the water shader's vertex stage, sea meshes only
+(`swell_boost`), crests join the posterized foam + water_gold; new
+1600m mid-detail sea disc; far disc now follows the focus. Physics
+untouched: `sea_surface()` stays flat+tide (buoyancy mismatch accepted
+at W1). Toolkit `SWELL` line + `force_amp` knob; `tests/sea_probe.tscn`
+(SEA_WX=calm|storm) — A/B verified by eye; scene test pins herald
+monotonicity + storm>calm. Soak untouched (bit-identical on fixed
+data). W2 note: `swell_dir` + per-component rotations are the
+direction field shoaling/breakers need; bathymetry must reach the
+fragment/vertex stage for depth attenuation.
+
 **W2 · Shoaling + breakers.** Depth-aware modulation near shore using
 the real bathymetry (Strata bakes it): waves slow and steepen as depth
 shrinks, break past a steepness threshold, and the breaker line follows

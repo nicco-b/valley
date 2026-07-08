@@ -34,6 +34,16 @@ const MACRO_MAX := 1200.0
 const BRUSH_MIN := 3.0  # sculpt brush range (the [ ] keys and the link)
 const BRUSH_MAX := 64.0
 
+# PLACE selection (placement v2, audit #1): the hand can pick what it
+# placed and edit IT — move, rotate, scale, targeted delete. RMB picks
+# the nearest record within reach of the ground hit; the edit keys ride
+# the InputMap (place_* actions) so `toolkit keys` reports them live.
+const SEL_PICK_M := 4.0  # pick radius around the RMB ground hit
+const SEL_YAW_STEP := TAU / 24.0  # 15 degrees per rotate tap
+const SEL_SCALE_STEP := 1.08  # per scale tap ( , shrinks · . grows )
+const SEL_SCALE_MIN := 0.25
+const SEL_SCALE_MAX := 4.0
+
 enum Tool { SCULPT, PLACE, TERRAIN, BIOME, RIVER }
 const TOOL_NAMES: Array[String] = ["sculpt", "place", "terrain", "biome", "river"]
 
@@ -63,6 +73,16 @@ var _flush_quiet := 0.0  # seconds since the last hand edit (the flush clock)
 var _flatten_target := 0.0
 var _flattening := false
 var _stroke_live := false
+
+# PLACE selection state: identity is the record's stable id plus the
+# cell it lives in (the Chronicle is the truth — the marker and HUD read
+# the record back every frame, so a deletion under us deselects instead
+# of showing a ghost). _place_undo is the one-deep memento, shaped
+# {op, cell, id, before} so undo v2 can deepen it into a stack later.
+var _sel_cell := Vector2i.ZERO
+var _sel_id := ""
+var _sel_marker: MeshInstance3D
+var _place_undo: Dictionary = {}
 
 # TERRAIN pen state (paints Terrain's tile override layer).
 var _pen_undo: Image = null
@@ -230,6 +250,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		Terrain.save_edits()
 		_sculpt_unsaved = false
 		_save_pens()
+		CellRecords.flush()  # pending placement edits land with F5 too
 	elif event.is_action_pressed("toolkit_tool"):
 		_tool = ((_tool as int) + 1) % Tool.size() as Tool
 		if _tool == Tool.TERRAIN and not Terrain.has_world_tile():
@@ -237,6 +258,19 @@ func _unhandled_input(event: InputEvent) -> void:
 		_update_hud()
 	elif event.is_action_pressed("toolkit_undo"):
 		_undo()
+	# The selection's edit keys (placement v2) — PLACE mode only, so G/R
+	# stay free for future tools elsewhere. Each tap is its own stroke:
+	# one memento, one Z.
+	elif _tool == Tool.PLACE and event.is_action_pressed("place_move"):
+		_sel_move_to(_ray_to_ground())
+	elif _tool == Tool.PLACE and event.is_action_pressed("place_rotate"):
+		_sel_rotate(-1.0 if Input.is_action_pressed("sprint") else 1.0)
+	elif _tool == Tool.PLACE and event.is_action_pressed("place_grow"):
+		_sel_scale(1)
+	elif _tool == Tool.PLACE and event.is_action_pressed("place_shrink"):
+		_sel_scale(-1)
+	elif _tool == Tool.PLACE and event.is_action_pressed("place_delete"):
+		_sel_delete()
 	elif event is InputEventKey and event.pressed and not event.echo \
 			and _tool == Tool.RIVER \
 			and (event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER):
@@ -269,7 +303,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		# Navmesh overlay: see what the world thinks is walkable.
 		NavigationServer3D.set_debug_enabled(not NavigationServer3D.get_debug_enabled())
 	elif event.is_action_pressed("ui_cancel"):
-		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		# Esc deselects first; a second Esc releases the mouse as before.
+		if _tool == Tool.PLACE and _sel_id != "":
+			_deselect()
+		else:
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif event is InputEventKey and event.pressed and not event.echo \
 			and event.physical_keycode >= KEY_1 and event.physical_keycode <= KEY_9:
 		# Number keys pick within the active tool's palette.
@@ -290,20 +328,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			_speed_mult = maxf(_speed_mult / 1.2, 0.2)
 		elif event.button_index == MOUSE_BUTTON_LEFT and _tool == Tool.PLACE:
 			var hit := _ray_to_ground()
-			if hit != Vector3.INF and not _palette.is_empty():
-				var slot: Dictionary = _palette[_place_index % _palette.size()]
-				# Store the RESOLVED file (deterministic variant by position),
-				# never the slot — retiring a placeholder can't move it.
-				var file: String = Cards.resolve(slot["slot"],
-						Cards.variant_for(slot["slot"], hit))
-				if file != "":
-					CellRecords.add(hit, file,
-							randf() * TAU, randf_range(0.85, 1.15))
+			if hit != Vector3.INF:
+				_place_at(hit)
 		elif event.button_index == MOUSE_BUTTON_LEFT and _tool == Tool.RIVER:
 			var hit := _ray_to_ground()
 			if hit != Vector3.INF:
 				_river_nodes.append(Vector2(hit.x, hit.z))
 				_update_hud()
+		elif event.button_index == MOUSE_BUTTON_RIGHT and _tool == Tool.PLACE:
+			# Pick (placement v2): RMB on a placed thing selects it, on
+			# empty ground deselects — the click-away idiom. The sim
+			# inspector keeps RMB in every other tool.
+			_pick_at(_ray_to_ground())
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			# Sim inspector: right-click an agent (wildlife) to watch its mind.
 			var space := _cam.get_world_3d().direct_space_state
@@ -320,7 +356,10 @@ func _unhandled_input(event: InputEvent) -> void:
 ## name: a mode with nothing to undo is a no-op with a HUD notice, NEVER
 ## a cross-tool action (the audit's Z footgun: the old default branch
 ## fell through to CellRecords.remove_last, so Z in biome mode silently
-## deleted a placed object).
+## deleted a placed object). PLACE rides its {op, cell, id, before}
+## memento (placement v2): place/edit/delete each revert targeted, by
+## record id; the LIFO remove_last survives only as the no-memento
+## fallback over placements from an earlier session.
 func _undo() -> void:
 	match _tool:
 		Tool.SCULPT:
@@ -360,10 +399,183 @@ func _undo() -> void:
 			else:
 				HUD.notify("river: nothing to undo")
 		Tool.PLACE:
-			var hit := _ray_to_ground()
-			if hit == Vector3.INF \
-					or not CellRecords.remove_last(CellRecords.cell_of(hit)):
-				HUD.notify("place: nothing to undo here")
+			if not _place_undo.is_empty():
+				_undo_place_op()
+			else:
+				# No memento this session: the old LIFO fallback under
+				# the cursor keeps Z useful over yesterday's placements.
+				var hit := _ray_to_ground()
+				if hit == Vector3.INF \
+						or not CellRecords.remove_last(CellRecords.cell_of(hit)):
+					HUD.notify("place: nothing to undo here")
+
+
+# --- PLACE selection (placement v2, audit #1): the Creation Kit edits
+# what it placed. RMB picks a record, G moves it to the cursor, R turns
+# it (Shift reverses), , . scale it, X deletes THAT one, Z reverts the
+# last of any of these through the one-deep memento. Yaw/scale stay
+# randomized at placement — but as DATA in the record, editable after.
+
+
+## Place the palette's current slot at a ground hit — the LMB path,
+## split out so the scene tests can drive it headless (the
+## _biome_paint_at pattern). Records the {op place} memento: Z removes
+## THIS record by id, never someone else's LIFO tail.
+func _place_at(hit: Vector3) -> void:
+	if _palette.is_empty():
+		return
+	var slot: Dictionary = _palette[_place_index % _palette.size()]
+	# Store the RESOLVED file (deterministic variant by position),
+	# never the slot — retiring a placeholder can't move it.
+	var file: String = Cards.resolve(slot["slot"],
+			Cards.variant_for(slot["slot"], hit))
+	if file == "":
+		return
+	var rec: Dictionary = CellRecords.add(hit, file,
+			randf() * TAU, randf_range(0.85, 1.15))
+	_place_undo = {"op": "place", "cell": CellRecords.cell_of(hit),
+			"id": String(rec["id"]), "before": {}}
+
+
+## The selected record, straight from the Chronicle ({} when nothing is
+## selected or the record has since been removed — the marker and HUD
+## read through this so they can never show a ghost).
+func _selected() -> Dictionary:
+	if _sel_id == "":
+		return {}
+	return CellRecords.record(_sel_cell, _sel_id)
+
+
+## RMB in PLACE mode: nearest placed record within reach of the ground
+## hit selects it; empty ground deselects. A legacy record (pre-id row)
+## is named on the spot — selection needs identity.
+func _pick_at(hit: Vector3) -> void:
+	if hit == Vector3.INF:
+		return
+	var found: Dictionary = CellRecords.find_at(hit, SEL_PICK_M)
+	if found.is_empty():
+		_deselect()
+		return
+	_sel_cell = found["cell"]
+	_sel_id = CellRecords.ensure_id(_sel_cell, found["rec"])
+	_update_hud()
+
+
+func _deselect() -> void:
+	_sel_id = ""
+	if _sel_marker:
+		_sel_marker.visible = false
+	_update_hud()
+
+
+## G — move the selection to the cursor's ground hit: grab-and-place-
+## again as one keystroke. The ground-relative law holds: the record
+## keeps its height offset, so it seats at the NEW ground plus the same
+## dy (a bench moved uphill stays ON the hill, not at its old altitude).
+func _sel_move_to(hit: Vector3) -> void:
+	var rec := _selected()
+	if rec.is_empty():
+		HUD.notify("place: nothing selected (RMB picks)")
+		return
+	if hit == Vector3.INF:
+		return
+	_memento_edit(rec)
+	# The effective offset covers every record vintage — snap (0),
+	# ground_dy, legacy absolute-Y: seat_y is the one truth for where
+	# it rides today.
+	var dy: float = CellRecords.seat_y(rec) \
+			- Terrain.height(float(rec.x), float(rec.z))
+	_sel_cell = CellRecords.update(_sel_cell, _sel_id, {
+		"x": hit.x, "z": hit.z,
+		"y": Terrain.height(hit.x, hit.z) + dy,
+		"ground_dy": dy,
+	})
+	_place_undo["cell"] = _sel_cell  # revert must find it where it lives NOW
+	_flush_quiet = 0.0
+	_update_hud()
+
+
+## R — turn the selection one yaw step (Shift reverses, the carve idiom).
+func _sel_rotate(dir: float) -> void:
+	var rec := _selected()
+	if rec.is_empty():
+		HUD.notify("place: nothing selected (RMB picks)")
+		return
+	_memento_edit(rec)
+	_sel_cell = CellRecords.update(_sel_cell, _sel_id, {
+		"yaw": wrapf(float(rec.yaw) + dir * SEL_YAW_STEP, 0.0, TAU)})
+	_flush_quiet = 0.0
+	_update_hud()
+
+
+## , . — scale the selection one step, clamped sane.
+func _sel_scale(dir: int) -> void:
+	var rec := _selected()
+	if rec.is_empty():
+		HUD.notify("place: nothing selected (RMB picks)")
+		return
+	_memento_edit(rec)
+	var s: float = float(rec.get("scale", 1.0))
+	s = clampf((s * SEL_SCALE_STEP) if dir > 0 else (s / SEL_SCALE_STEP),
+			SEL_SCALE_MIN, SEL_SCALE_MAX)
+	_sel_cell = CellRecords.update(_sel_cell, _sel_id, {"scale": s})
+	_flush_quiet = 0.0
+	_update_hud()
+
+
+## X — delete the SELECTED object. With nothing selected, the old LIFO
+## remove_last under the cursor survives as the fallback.
+func _sel_delete() -> void:
+	var rec := _selected()
+	if rec.is_empty():
+		var hit := _ray_to_ground()
+		if hit == Vector3.INF \
+				or not CellRecords.remove_last(CellRecords.cell_of(hit)):
+			HUD.notify("place: nothing selected, nothing here to remove")
+		return
+	var gone: Dictionary = CellRecords.remove(_sel_cell, _sel_id)
+	_place_undo = {"op": "delete", "cell": _sel_cell, "id": _sel_id,
+			"before": gone}
+	_deselect()
+	HUD.notify("deleted — Z brings it back")
+
+
+## Take the one-deep edit memento BEFORE a field lands: the whole record
+## as it stood, so Z restores it bit-exact (unknown keys included) even
+## across a cell migration. {record-id, before-state} — undo v2 stacks
+## these without reshaping them.
+func _memento_edit(rec: Dictionary) -> void:
+	_place_undo = {"op": "edit", "cell": _sel_cell, "id": _sel_id,
+			"before": rec.duplicate()}
+
+
+## Revert the one-deep placement memento: a place comes OUT (targeted,
+## by id), a delete comes BACK bit-exact and selected again, an edit
+## returns to its before-state (cell migration and all). Consumed on use.
+func _undo_place_op() -> void:
+	var m: Dictionary = _place_undo
+	_place_undo = {}
+	var cell: Vector2i = m["cell"]
+	var id := String(m["id"])
+	match String(m["op"]):
+		"place":
+			CellRecords.remove(cell, id)
+			if _sel_id == id:
+				_deselect()
+			HUD.notify("place undone")
+		"delete":
+			_sel_cell = CellRecords.insert(m["before"])
+			_sel_id = id  # the returned object is the selection again
+			HUD.notify("delete undone")
+		"edit":
+			if CellRecords.remove(cell, id).is_empty():
+				HUD.notify("place: that object is gone — nothing to undo")
+				return
+			var back: Vector2i = CellRecords.insert(m["before"])
+			if _sel_id == id:
+				_sel_cell = back
+			HUD.notify("edit undone")
+	_update_hud()
 
 
 func _process(delta: float) -> void:
@@ -376,6 +588,7 @@ func _process(delta: float) -> void:
 			"move_left", "move_right", "move_forward", "move_back"), delta)
 		_orbit.apply(_cam)
 		_cursor.visible = false
+		_sel_marker.visible = false  # tools are inert here; so is the pick
 		return
 	_cam.rotation = Vector3(_pitch, _yaw, 0.0)
 
@@ -492,14 +705,33 @@ func _process(delta: float) -> void:
 			Terrain.commit_biome_paint(_biome_dirty)
 			_biome_dirty = Rect2()
 
+	# The selection ring rides its record every frame — records re-seat
+	# when the ground changes, and a marker that lagged that would lie.
+	# A record removed out from under us (remove_last, another Z)
+	# deselects instead of haunting.
+	if _tool == Tool.PLACE and _sel_id != "":
+		var sel := _selected()
+		if sel.is_empty():
+			_deselect()
+		else:
+			var sc: float = float(sel.get("scale", 1.0))
+			_sel_marker.visible = true
+			_sel_marker.scale = Vector3.ONE * (2.0 * sc)
+			_sel_marker.global_position = Vector3(float(sel.x),
+				CellRecords.seat_y(sel) + 0.4, float(sel.z))
+	elif _sel_marker.visible:
+		_sel_marker.visible = false
+
 	# The crash-safety flush: while any hand-edited layer is newer than
 	# disk and the hand is quiet, the clock runs; at FLUSH_QUIET the dirty
 	# layers write through the SAME path F5 uses. Editor-only by
 	# construction (_process is gated on `active`), so the sim and the
-	# soak digest never see it.
+	# soak digest never see it. Placement EDITS ride the same clock
+	# (CellRecords.update defers its disk write to flush); place/delete
+	# stay write-through per click, as they always were.
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) \
 			or not (_sculpt_unsaved or _terrain_unsaved
-				or _biome_unsaved or _pen_dirty):
+				or _biome_unsaved or _pen_dirty or CellRecords.has_dirty()):
 		_flush_quiet = 0.0
 	else:
 		_flush_quiet += delta
@@ -557,6 +789,8 @@ func _flush_hand_edits() -> void:
 		_sculpt_unsaved = false
 	if _pen_dirty or _terrain_unsaved or _biome_unsaved:
 		_save_pens()
+	if CellRecords.has_dirty():
+		CellRecords.flush()  # deferred placement edits (move/rotate/scale)
 	_flush_quiet = 0.0
 
 
@@ -632,6 +866,7 @@ func _exit() -> void:
 	Terrain.save_edits()
 	_sculpt_unsaved = false
 	_save_pens()
+	CellRecords.flush()
 	var player := _player()
 	var ground := Terrain.height(_cam.global_position.x, _cam.global_position.z)
 	player.global_position = Vector3(_cam.global_position.x, ground + 1.5, _cam.global_position.z)
@@ -668,6 +903,25 @@ func _build_nodes() -> void:
 	_cursor.mesh = disc
 	_cursor.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_cursor)
+
+	# The selection ring (placement v2): an unshaded cyan torus seated on
+	# the picked record — cheap, readable from the air, no per-mesh
+	# outline machinery. Scales with the record so a grown crate keeps
+	# its halo.
+	var sel_mat := StandardMaterial3D.new()
+	sel_mat.albedo_color = Color(0.25, 0.95, 1.0)
+	sel_mat.emission_enabled = true
+	sel_mat.emission = Color(0.25, 0.95, 1.0)
+	sel_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var ring := TorusMesh.new()
+	ring.inner_radius = 0.85
+	ring.outer_radius = 1.0
+	ring.material = sel_mat
+	_sel_marker = MeshInstance3D.new()
+	_sel_marker.mesh = ring
+	_sel_marker.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_sel_marker.visible = false
+	add_child(_sel_marker)
 
 	# The river pen's course preview (line strip, rebuilt per frame).
 	var line_mat := StandardMaterial3D.new()
@@ -731,9 +985,17 @@ func _update_hud() -> void:
 				for i in mini(cats.size(), 9):
 					var mark := "[%d %s]" if cats[i] == slot["category"] else "%d %s"
 					tabs.append(mark % [i + 1, cats[i]])
-				_hud_label.text = "TOOLKIT·PLACE   %s › %s (%dv%s) %d/%d   %s   |   LMB place · [ ] item · 1-9 category · Z undo · Tab tool · F1 exit" % [
+				_hud_label.text = "TOOLKIT·PLACE   %s › %s (%dv%s) %d/%d   %s   |   LMB place · RMB pick · [ ] item · 1-9 category · Z undo · X remove · Tab tool · F1 exit" % [
 					slot["category"], nm, int(slot["variants"]), syn,
 					_place_index + 1, _palette.size(), " ".join(tabs)]
+			# The selection's own line: what is picked, exactly as data
+			# (id, yaw, scale), and the keys that edit it.
+			var sel := _selected()
+			if not sel.is_empty():
+				_hud_label.text += "\nSEL %s #%s  yaw %.0f°  ×%.2f   |   G move here · R rotate (Shift back) · , . scale · X delete · Z undo · Esc deselect" % [
+					String(sel.kit).get_file().get_basename(),
+					String(sel.get("id", "?")), rad_to_deg(float(sel.yaw)),
+					float(sel.get("scale", 1.0))]
 		Tool.TERRAIN:
 			_hud_label.text = "TOOLKIT·TERRAIN (override)   LMB raise · Shift lower — lands when you pause | [ ] brush %dm | Z undo stroke | Tab next tool | F1 exit" % int(_macro_radius)
 		Tool.BIOME:
@@ -783,6 +1045,9 @@ func link_state() -> Dictionary:
 	var biome := ""
 	if _biome_index >= 0 and _biome_index < Terrain.biomes.size():
 		biome = String(Terrain.biomes[_biome_index].id)
+	# The selection rides along (placement v2) so Strata's mirror can
+	# grow an inspector without a new verb — empty strings mean none.
+	var sel := _selected()
 	return {
 		"tool": TOOL_NAMES[_tool],
 		"view": "orbit" if orbit else "fly",
@@ -791,6 +1056,10 @@ func link_state() -> Dictionary:
 		"place": idx, "place_count": count,
 		"place_slot": String(_palette[idx - 1]["slot"]) if count > 0 else "",
 		"hud": hud_on,
+		"sel_id": String(sel.get("id", "")),
+		"sel_kit": String(sel.get("kit", "")),
+		"sel_yaw": float(sel.get("yaw", 0.0)),
+		"sel_scale": float(sel.get("scale", 1.0)),
 	}
 
 
@@ -813,6 +1082,12 @@ func link_keys() -> String:
 		_key_of("brush_smaller") + "=smaller",
 		_key_of("brush_bigger") + "=bigger",
 		"1-9=pick",
+		# The selection's edit keys (placement v2, PLACE mode).
+		_key_of("place_move") + "=move",
+		_key_of("place_rotate") + "=rotate",
+		_key_of("place_shrink") + "=shrink",
+		_key_of("place_grow") + "=grow",
+		_key_of("place_delete") + "=delete",
 		"O=panel",
 		"N=navmesh",
 		_key_of("map") + "=map",
@@ -824,7 +1099,7 @@ func link_keys() -> String:
 		_key_of("sprint") + "=fast",
 		"Ctrl=flatten",
 		"LMB=apply",
-		"RMB=inspect",
+		"RMB=pick/inspect",
 		"Wheel=speed",
 	]
 	return " ".join(pairs)

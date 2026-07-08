@@ -105,11 +105,12 @@ extends Node
 ##                               this instead of hardcoding F1/Tab/Z):
 ##                               "ok keys F1=toolkit Tab=tool Z=undo
 ##                                F5=save BracketLeft=smaller
-##                                BracketRight=bigger 1-9=pick O=panel
-##                                N=navmesh M=map Enter=carve
-##                                Escape=release WASD=fly E=up Q=down
-##                                Shift=fast Ctrl=flatten LMB=apply
-##                                RMB=inspect Wheel=speed"
+##                                BracketRight=bigger 1-9=pick G=move
+##                                R=rotate Comma=shrink Period=grow
+##                                X=delete O=panel N=navmesh M=map
+##                                Enter=carve Escape=release WASD=fly
+##                                E=up Q=down Shift=fast Ctrl=flatten
+##                                LMB=apply RMB=pick/inspect Wheel=speed"
 ##                               Binding names are Godot key names read
 ##                               from the live InputMap (a rebind changes
 ##                               the reply); answers with or without the

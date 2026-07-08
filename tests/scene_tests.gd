@@ -32,6 +32,7 @@ func _ready() -> void:
 	_test_import_frame_refusal()
 	_test_biome_undo()
 	await _test_toolkit_undo()
+	_test_placement_edit()
 	_test_edit_flush()
 	_test_map()
 	await _test_strata_link()
@@ -969,6 +970,151 @@ func _test_toolkit_undo() -> void:
 	player.remove_from_group("player")
 	player.queue_free()
 	floor_body.queue_free()
+
+
+## Placement editing v2 (audit #1): the hand edits what it placed.
+## Pick = nearest record within reach; move keeps the ground offset
+## (the ground-relative law) and migrates cell files across a boundary;
+## rotate/scale are data edits; delete is TARGETED (never LIFO); Z
+## reverts each through the one-deep {record-id, before-state} memento;
+## yaw/scale/id survive a save/load round trip; legacy rows are named
+## the moment they're picked. Synthetic far-off cells, no files left.
+func _test_placement_edit() -> void:
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	Toolkit._enter()
+	_check(Toolkit.active, "toolkit enters for the placement-edit test")
+	Toolkit._tool = Toolkit.Tool.PLACE
+	var x := 903.0 * 128.0
+	var z := 900.0 * 128.0
+	var cell: Vector2i = CellRecords.cell_of(Vector3(x, 0.0, z))
+	_check(CellRecords.records(cell).is_empty(), "test cell starts empty")
+
+	# ids: minted at add, unique — the stable name every later layer
+	# (selection, undo, the P4 overrides diff) hangs on to.
+	var h0: float = Terrain.height(x, z)
+	var r1: Dictionary = CellRecords.add(Vector3(x, h0 + 0.5, z), "kit_a", 1.0, 1.0)
+	var r2: Dictionary = CellRecords.add(
+		Vector3(x + 2.0, Terrain.height(x + 2.0, z), z), "kit_b", 2.0, 1.2)
+	var id1 := String(r1["id"])
+	var id2 := String(r2["id"])
+	_check(id1 != "" and id2 != "" and id1 != id2, "adds mint unique ids")
+
+	# Pick: nearest record within reach; empty ground deselects.
+	Toolkit._pick_at(Vector3(x + 0.4, 0.0, z))
+	_check(Toolkit._sel_id == id1, "pick selects the nearest record")
+	Toolkit._pick_at(Vector3(x + 1.8, 0.0, z))
+	_check(Toolkit._sel_id == id2, "pick prefers the closer record")
+	Toolkit._pick_at(Vector3(x + 60.0, 0.0, z))
+	_check(Toolkit._sel_id == "", "empty ground deselects")
+
+	# Move (G): the ground offset rides — the ground-relative law — and
+	# the record migrates cell files when x/z cross a boundary.
+	Toolkit._pick_at(Vector3(x, 0.0, z))
+	_check(Toolkit._sel_id == id1, "re-pick lands the first record")
+	var nx := x + 300.0
+	var nz := z - 40.0
+	Toolkit._sel_move_to(Vector3(nx, Terrain.height(nx, nz), nz))
+	var ncell: Vector2i = CellRecords.cell_of(Vector3(nx, 0.0, nz))
+	_check(ncell != cell, "the test move crosses a cell boundary")
+	var moved: Dictionary = CellRecords.record(ncell, id1)
+	_check(not moved.is_empty(), "moved record lives in its new cell")
+	_check(CellRecords.record(cell, id1).is_empty(), "moved record left the old cell")
+	_check(absf(float(moved.get("ground_dy", -9.0)) - 0.5) < 0.001,
+		"the ground offset rides the move (ground-relative law)")
+	_check(absf(CellRecords.seat_y(moved) - (Terrain.height(nx, nz) + 0.5)) < 0.001,
+		"moved record seats on the NEW ground + dy")
+	_check(CellRecords.has_dirty(), "an edit waits on the stroke-quiet flush")
+	# Z: the move reverts to its before-state — position, offset, cell.
+	Toolkit._undo()
+	var back: Dictionary = CellRecords.record(cell, id1)
+	_check(not back.is_empty() and float(back.x) == x and float(back.z) == z,
+		"Z returns the move to its before-state")
+	_check(CellRecords.record(ncell, id1).is_empty(), "undo empties the new cell")
+	_check(Toolkit._sel_cell == cell and Toolkit._sel_id == id1,
+		"the selection follows the undo home")
+
+	# Rotate and scale: plain data edits, one memento per tap.
+	var yaw0 := float(back["yaw"])
+	Toolkit._sel_rotate(1.0)
+	back = CellRecords.record(cell, id1)
+	_check(absf(float(back["yaw"]) - wrapf(yaw0 + Toolkit.SEL_YAW_STEP, 0.0, TAU)) < 0.001,
+		"R steps the yaw")
+	Toolkit._sel_scale(1)
+	back = CellRecords.record(cell, id1)
+	_check(absf(float(back["scale"]) - 1.08) < 0.001, "scale steps up")
+	Toolkit._undo()
+	back = CellRecords.record(cell, id1)
+	_check(absf(float(back["scale"]) - 1.0) < 0.001, "Z reverts the scale step")
+
+	# Persistence: a fresh Chronicle reads the same id/yaw/scale back.
+	CellRecords.flush()
+	_check(not CellRecords.has_dirty(), "flush clears the dirty ledger")
+	var cr: Node = load("res://game/world/cell_records.gd").new()
+	add_child(cr)
+	var loaded: Dictionary = cr.record(cell, id1)
+	_check(not loaded.is_empty(), "the id survives a save/load round trip")
+	_check(absf(float(loaded.get("yaw", -9.0)) - float(back["yaw"])) < 0.000001
+		and absf(float(loaded.get("scale", -9.0)) - float(back["scale"])) < 0.000001,
+		"yaw/scale persist through save/load")
+	remove_child(cr)
+	cr.free()
+
+	# Targeted delete: the selected record is the OLDER one — LIFO would
+	# have taken the other. X takes THIS one; Z brings it back, selected.
+	Toolkit._sel_delete()
+	_check(CellRecords.record(cell, id1).is_empty(), "X deletes THE selected record")
+	_check(not CellRecords.record(cell, id2).is_empty(),
+		"the newer record survives (targeted, not LIFO)")
+	_check(Toolkit._sel_id == "", "delete deselects")
+	Toolkit._undo()
+	_check(not CellRecords.record(cell, id1).is_empty(), "Z returns the deleted record")
+	_check(Toolkit._sel_id == id1, "the returned record is the selection again")
+
+	# Place memento: _place_at records {op place}; Z removes THAT record
+	# by id even under a newer sibling — never the LIFO tail. Needs the
+	# palette (cards are tracked; resolve can still miss binaries — skip
+	# honestly, the targeted machinery is covered above either way).
+	if not Toolkit._palette.is_empty():
+		var pre: int = CellRecords.records(cell).size()
+		Toolkit._place_at(Vector3(x + 5.0, Terrain.height(x + 5.0, z), z))
+		if CellRecords.records(cell).size() == pre + 1:
+			var placed_id := String(Toolkit._place_undo["id"])
+			var r3: Dictionary = CellRecords.add(
+				Vector3(x + 7.0, Terrain.height(x + 7.0, z), z), "kit_c", 0.0, 1.0)
+			Toolkit._undo()
+			_check(CellRecords.record(cell, placed_id).is_empty(),
+				"Z removes the PLACED record by id")
+			_check(not CellRecords.record(cell, String(r3["id"])).is_empty(),
+				"Z after place spares the newer LIFO tail")
+		else:
+			print("  placement edit: place memento sub-check skipped (unresolvable slot)")
+	else:
+		print("  placement edit: place memento sub-check skipped (no cards)")
+
+	# Legacy rows (no id): picking one names it on the spot.
+	var legacy := {"kit": "legacy_kit", "x": x + 40.0, "y": 5.0, "z": z,
+		"yaw": 0.0, "scale": 1.0}
+	CellRecords.records(cell).append(legacy)
+	Toolkit._pick_at(Vector3(x + 40.0, 0.0, z))
+	_check(legacy.has("id"), "picking a legacy record mints its id")
+	_check(Toolkit._sel_id == String(legacy.get("id", "")), "the named legacy row is selected")
+
+	# Leave no trace: pop everything, remove the files the test created.
+	Toolkit._deselect()
+	Toolkit._place_undo = {}
+	CellRecords.flush()
+	for c: Vector2i in [cell, ncell]:
+		while CellRecords.remove_last(c):
+			pass
+		var path := "%s/cell_%d_%d.json" % [CellRecords.DIR, c.x, c.y]
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Toolkit.set_tool("sculpt")
+	Toolkit.active = false
+	player.remove_from_group("player")
+	player.queue_free()
 
 
 ## The stroke-quiet disk flush (audit quick win 3, crash-safety): hand

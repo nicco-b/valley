@@ -11,6 +11,17 @@ extends Node
 ## offset instead of a stale absolute Y, so nothing floats or buries.
 ## Legacy records (absolute-Y only) keep their stored Y and gain a
 ## ground_dy opportunistically the next time their cell saves anyway.
+##
+## Placement editing v2 (audit #1): every record carries a stable `id`,
+## minted at add — the Toolkit's selection, the {record-id, before-state}
+## undo memento, and the coming overrides emitter (P4) all name THIS
+## object by it, across edits, saves, and cell migrations. Legacy rows
+## gain an id the same way they gain ground_dy: on their cell's next
+## save (or the moment the hand picks them). Edits go through update():
+## memory and visuals change NOW, the record migrates cell files when
+## x/z cross a boundary, and the DISK write waits for flush() — the
+## Toolkit's stroke-quiet clock fires it, so a nudge stream is one
+## write, not thirty. add/remove stay write-through (one click, one save).
 
 signal changed(cell: Vector2i)
 
@@ -18,6 +29,8 @@ const DIR := "res://data/cells"
 const CELL_SIZE := 128.0
 
 var _cells: Dictionary = {}  # Vector2i -> Array[Dictionary]
+var _dirty: Dictionary = {}  # Vector2i -> true: edited cells awaiting flush()
+var _id_serial := 0  # per-session tiebreak inside one millisecond
 
 ## Boot-time corruption reports (one line per bad file) — the Toolkit and
 ## tests read these; each is also push_warning'd and HUD-notified. A
@@ -113,17 +126,67 @@ func records(cell: Vector2i) -> Array:
 	return _cells.get(cell, [])
 
 
-func add(pos: Vector3, kit_id: String, yaw: float, scale: float) -> void:
+## The record with this id in this cell ({} when it isn't there — the
+## selection's liveness check reads through this every frame).
+func record(cell: Vector2i, id: String) -> Dictionary:
+	for rec: Dictionary in _cells.get(cell, []):
+		if String(rec.get("id", "")) == id:
+			return rec
+	return {}
+
+
+## Nearest record within `radius` meters (XZ) of a world position — the
+## Toolkit's pick. The audit's fork survey verified editor-grade picking
+## needs no engine work: the records already know where they stand.
+## Searches the 3x3 cells around the point so a pick near a cell seam
+## still finds its neighbor. {} or {"cell": Vector2i, "rec": Dictionary}.
+func find_at(pos: Vector3, radius: float) -> Dictionary:
+	var center := cell_of(pos)
+	var best_d := radius
+	var best: Dictionary = {}
+	for dz in range(-1, 2):
+		for dx in range(-1, 2):
+			var cell := center + Vector2i(dx, dz)
+			for rec: Dictionary in _cells.get(cell, []):
+				var d := Vector2(float(rec.x) - pos.x, float(rec.z) - pos.z).length()
+				if d <= best_d:
+					best_d = d
+					best = {"cell": cell, "rec": rec}
+	return best
+
+
+## Mint a record id: unique across sessions (millisecond clock) and
+## within one (serial) — and short enough to sit on a HUD line.
+func _new_id() -> String:
+	_id_serial += 1
+	return "p%x_%x" % [int(Time.get_unix_time_from_system() * 1000.0), _id_serial]
+
+
+## Name a legacy record NOW (the hand just picked it — selection needs
+## identity before the cell's next save would mint one anyway). The
+## dirty mark makes sure the name reaches disk even if nothing else
+## changes. Returns the id either way.
+func ensure_id(cell: Vector2i, rec: Dictionary) -> String:
+	if not rec.has("id"):
+		rec["id"] = _new_id()
+		_dirty[cell] = true
+	return String(rec["id"])
+
+
+func add(pos: Vector3, kit_id: String, yaw: float, scale: float) -> Dictionary:
 	var cell := cell_of(pos)
 	if not _cells.has(cell):
 		_cells[cell] = []
-	_cells[cell].append({
+	var rec := {
+		"id": _new_id(),  # stable identity (selection, undo, P4 diffs)
 		"kit": kit_id, "x": pos.x, "y": pos.y, "z": pos.z, "yaw": yaw, "scale": scale,
 		"ground_dy": pos.y - Terrain.height(pos.x, pos.z),  # ground-relative anchor
 		"day": GameClock.day,  # age of the placement — weathering reads this later
-	})
+	}
+	_cells[cell].append(rec)
 	_save(cell)
 	changed.emit(cell)
+	return rec
 
 
 ## Pop the newest record in a cell (the PLACE tool's LIFO Z). Answers
@@ -136,6 +199,72 @@ func remove_last(cell: Vector2i) -> bool:
 	_save(cell)
 	changed.emit(cell)
 	return true
+
+
+## Remove THE record (targeted delete, placement v2 — never LIFO).
+## Returns the removed record ({} when it wasn't there) so the undo
+## memento can bring it back bit-exact.
+func remove(cell: Vector2i, id: String) -> Dictionary:
+	var arr: Array = _cells.get(cell, [])
+	for i in arr.size():
+		if String((arr[i] as Dictionary).get("id", "")) == id:
+			var rec: Dictionary = arr[i]
+			arr.remove_at(i)
+			_save(cell)
+			changed.emit(cell)
+			return rec
+	return {}
+
+
+## Re-insert a record exactly as given — the undo of a delete or an
+## edit (unknown keys ride along untouched; the id comes back with it).
+## Returns the cell it landed in.
+func insert(rec: Dictionary) -> Vector2i:
+	var cell := cell_of(Vector3(float(rec.x), 0.0, float(rec.z)))
+	if not _cells.has(cell):
+		_cells[cell] = []
+	_cells[cell].append(rec)
+	_save(cell)
+	changed.emit(cell)
+	return cell
+
+
+## Patch a record's fields in place (move/rotate/scale). Memory and
+## visuals change NOW (`changed` rebuilds the cell); the record migrates
+## between cell files when x/z cross a boundary; the disk write waits
+## for flush(). Returns the cell the record lives in afterwards (the
+## caller's selection follows it), unchanged when the id isn't there.
+func update(cell: Vector2i, id: String, fields: Dictionary) -> Vector2i:
+	var rec := record(cell, id)
+	if rec.is_empty():
+		return cell
+	for k: String in fields:
+		rec[k] = fields[k]
+	var now := cell_of(Vector3(float(rec.x), 0.0, float(rec.z)))
+	if now != cell:
+		_cells[cell].erase(rec)
+		if not _cells.has(now):
+			_cells[now] = []
+		_cells[now].append(rec)
+		_dirty[cell] = true
+		changed.emit(cell)
+	_dirty[now] = true
+	changed.emit(now)
+	return now
+
+
+## Any edited cells still waiting on their disk write? (The Toolkit's
+## stroke-quiet flush clock reads this.)
+func has_dirty() -> bool:
+	return not _dirty.is_empty()
+
+
+## Write every edited cell through the same guarded save adds use — the
+## Toolkit's F5 / stroke-quiet flush / exit all land here.
+func flush() -> void:
+	for cell: Vector2i in _dirty.keys():
+		_save(cell)
+	_dirty.clear()
 
 
 ## The Y a record seats at RIGHT NOW — the streamer's one answer. snap
@@ -154,13 +283,17 @@ func seat_y(rec: Dictionary) -> float:
 
 func _save(cell: Vector2i) -> void:
 	# Opportunistic migration: legacy records gain their ground-relative
-	# anchor whenever their cell is saved anyway — no forced rewrite of
-	# every file at load (the ground under them is the best truth we have).
+	# anchor — and their stable id — whenever their cell is saved anyway;
+	# no forced rewrite of every file at load (the ground under them is
+	# the best truth we have).
 	for rec: Dictionary in _cells[cell]:
 		if not rec.has("ground_dy"):
 			var x: float = rec.x
 			var z: float = rec.z
 			rec["ground_dy"] = float(rec.y) - Terrain.height(x, z)
+		if not rec.has("id"):
+			rec["id"] = _new_id()
+	_dirty.erase(cell)  # this write IS the flush for this cell
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(DIR))
 	var path := "%s/cell_%d_%d.json" % [DIR, cell.x, cell.y]
 	# Atomic write: temp + rename. A crash mid-write can only ever truncate

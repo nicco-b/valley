@@ -12,6 +12,32 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
+## ⭐ Session handoff (2026-07-08, worktree agent): PLACEMENT EDITING V2
+
+**The hand edits what it placed** (Creation Kit audit #1). In PLACE
+mode RMB picks the nearest record within 4m of the ground hit (cyan
+ring marker + a HUD SEL line: kit · id · yaw° · ×scale); RMB on empty
+ground / Esc deselects. G moves the selection to the cursor — the
+ground-relative law holds (ground_dy rides, so it seats on the NEW
+ground + the same offset, and the record migrates cell files across a
+boundary). R rotates 15° (Shift reverses), , . scale ×1.08 steps
+(clamped 0.25–4), X deletes THE selected record (no selection: the old
+LIFO remove_last under the cursor survives as fallback). Every record
+now carries a stable `id` (minted at add; legacy rows are named on
+their next save or the moment they're picked) — selection, the
+one-deep PLACE memento `{op, cell, id, before}` (place/edit/delete all
+Z-revert targeted, by id, bit-exact), and P4's overrides emitter all
+hang on it. Placement-time yaw/scale randomization stays as the
+default dressing — but it's data now, editable after. Edits
+(CellRecords.update) defer their disk write to the stroke-quiet flush
+/ F5 / exit (place/delete stay write-through per click); new InputMap
+actions (place_move/rotate/grow/shrink/delete) surface in `toolkit
+keys` automatically; link_state carries sel_* for a future Strata
+inspector (no new link verbs). Scene test `_test_placement_edit`;
+probe `tests/placement_probe.gd` (needs `--rendering-method
+gl_compatibility` on this box — stock Metal Forward+ crashes at boot).
+Soak untouched and bit-stable (4027936959 twice).
+
 ## ⭐ Session handoff (2026-07-08, worktree agent): THE MAP IS THE ORBIT
 
 **M is a real 3D view now** (Nicco: "a real 3d view of the map, sort of

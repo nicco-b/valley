@@ -12,6 +12,41 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
+## ⭐ Session handoff (2026-07-08, worktree agent): THE BANNERS FEEL THE WIND
+
+**PLAN_FABRIC F1 landed** (shader tier — the cheapest visible win).
+`fabric_wind.gdshader`: vertex-displaced world cloth reading the one
+wind truth (`wind_strength`/`wind_dir` globals; fabric never invents
+wind) — pin weights painted in vertex COLOR alpha (a=1 rigid, freedom =
+1−a doubles as distance-along-cloth), an arc lean whose w² curve keeps
+calm barely breathing and lets a gale slam the top end, two sine
+octaves max, flap fading with camera distance INTO the leaned pose (a
+far banner still points with the weather), and the `flap_posterize`
+knob (held poses per wave cycle; **shipped at 4** from the probe A/B —
+the quantized phase also chunks the fold into a painted kink; 0 =
+smooth sine). Fragment = the character_paint gouache treatment over
+vertex-color paint. Cards grew optional `"wind": "fabric"` +
+`"wind_hang"` (meters at freedom 1); the Kit applies the override at
+placement (`_dress_placeable`, both scatter and records paths, one
+shared material per slot). Slots wearing it: `props/textile`,
+`props/camp/tent` (regenerating also RIGHTED the old cone — it was
+apex-down underground), `props/nautical/net`, and the new
+`props/textile/banner` (3 variants, pole + crossarm + hung pennant —
+the first placeholder that visibly hangs). `gen_meshes.py` is now
+repo-relative, grew `paint_pinned` + `--only <slot>` partial refresh —
+**regenerate the untracked GLBs** (`python3
+tools/placeholders/gen_meshes.py --only props/textile --only
+props/textile/banner --only props/camp/tent --only
+props/nautical/net`) or old flat binaries stay wind-still (alpha 255 =
+pinned; graceful, not broken). Toolkit world panel grew the FABRIC
+line (flagged slots · dressed count · wind echo); scene test
+`_test_fabric`; probe `tests/fabric_probe.gd` (FAB_WX=calm|windy|storm,
+FAB_POST=n, opengl3 + Movie Maker like sea_probe) — shots at
+/tmp/fabric_*.png. Presentation tier: no state, no WorldState keys,
+soak untouched and bit-stable (4027936959 twice, same digest as before
+F1). Next rungs: F2 tail/ears spring bones; F4 applies this shader to
+the village kit by card flag alone when it lands.
+
 ## ⭐ Session handoff (2026-07-08, worktree agent): PLACEMENT EDITING V2
 
 **The hand edits what it placed** (Creation Kit audit #1). In PLACE

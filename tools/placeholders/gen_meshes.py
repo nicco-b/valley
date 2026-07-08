@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Valley placeholder meshes — low-poly glTF in the palette, with -col hull nodes.
 +Y up, 1u=1m. Static only: no rigs, no clips (honest limit of synthesis)."""
-import os, json, math, random
+import os, json, math, random, sys
 import numpy as np
 import trimesh
 from trimesh.creation import icosphere, cylinder, box, cone
 
-ROOT = "/home/claude/valley-placeholders/assets/models"
+# Repo-relative by default (the original drop ran in a container at
+# /home/claude); VALLEY_MODELS overrides for out-of-tree experiments.
+ROOT = os.environ.get("VALLEY_MODELS", os.path.normpath(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "assets", "models")))
 PAL = {
  'teal':(46,96,90),'teal_d':(29,70,66),'pine':(120,190,148),'olive':(122,124,62),
  'gold':(168,144,64),'pink':(224,85,154),'granite':(150,158,168),'basalt':(70,68,76),
@@ -19,6 +22,18 @@ def C(name, dv=0): return tuple(max(0,min(255,c+dv)) for c in PAL[name])+(255,)
 
 def paint(m, col):
     m.visual.vertex_colors = np.tile(np.array(col, np.uint8), (len(m.vertices), 1))
+    return m
+
+def paint_pinned(m, col, pin_fn):
+    """Paint RGB + a PIN weight in vertex alpha for fabric_wind.gdshader
+    (PLAN_FABRIC F1): a=1 rigid (pole, stakes, hoist edge), a->0 free
+    cloth. The shader reads freedom = 1 - a as the normalized distance
+    from the pin, so paint it linear along the cloth. pin_fn(v) -> 0..1."""
+    n = len(m.vertices)
+    rgba = np.tile(np.array(col, np.uint8), (n, 1))
+    a = np.clip([pin_fn(v) for v in m.vertices], 0.0, 1.0)
+    rgba[:, 3] = np.round(a * 255).astype(np.uint8)
+    m.visual.vertex_colors = rgba
     return m
 
 def noise_displace(m, rng, amp=0.18, freq=2.2, flatten_floor=None):
@@ -232,6 +247,40 @@ def item(rng, kind):
     s = icosphere(1, 0.12); noise_displace(s, rng, amp=0.03); s.apply_translation([0, 0.12, 0])
     return [paint(s, C(col, rng.randint(-16, 16)))]
 
+def banner(rng):
+    """Pole + crossarm + hung pennant — the one placeholder that visibly
+    HANGS (PLAN_FABRIC F1: today's textiles lie flat, something must hang).
+    Wood is painted rigid (pin=1); the pennant frees linearly hoist->hem so
+    fabric_wind.gdshader's freedom doubles as distance-along-cloth."""
+    parts = []
+    parts.append(paint(T(yup_cyl(0.05, 2.7, 8), 0, 1.35, 0), C('wood')))
+    arm = yup_cyl(0.035, 1.1, 8)
+    arm.apply_transform(trimesh.transformations.rotation_matrix(math.pi/2, [0, 0, 1]))
+    arm.apply_translation([0.5, 2.6, 0])
+    parts.append(paint(arm, C('wood', -14)))
+    w = rng.uniform(0.7, 0.95); h = rng.uniform(1.0, 1.3); top = 2.55
+    cloth = box(extents=[w, h, 0.015]).subdivide().subdivide().subdivide()
+    cloth.apply_translation([0.5, top - h / 2, 0])
+    parts.append(paint_pinned(cloth, C(rng.choice(['red', 'teal', 'purple', 'pink', 'gold']), 10),
+        lambda v: (v[1] - (top - h)) / h))
+    return parts
+
+def tent(rng):
+    """Cone tent, walls painted breathable: base ring staked (pin=1), apex
+    pinned to the pole, mid-wall freed ~0.35. (Also rights the old recipe,
+    which left the cone apex-down underground.)"""
+    c = cone(radius=1.2, height=1.8, sections=7).subdivide().subdivide()
+    c.apply_transform(trimesh.transformations.rotation_matrix(-math.pi / 2, [1, 0, 0]))
+    return [paint_pinned(c, C('cream', -16),
+        lambda v: 1.0 - 0.35 * math.sin(math.pi * min(1.0, max(0.0, v[1] / 1.8))))]
+
+def ground_cloth(rng, w, d, col, free=0.55):
+    """A flat sheet pinned at its center, edges freed — wind strains and
+    ripples the rim while the middle stays weighted down."""
+    m = T(box(extents=[w, 0.03, d]).subdivide().subdivide(), 0, 0.03, 0)
+    return [paint_pinned(m, col,
+        lambda v: 1.0 - free * min(1.0, math.hypot(v[0] / (w / 2), v[2] / (d / 2))))]
+
 def crystal(rng, col='mint', h=1.2):
     parts = []
     for _ in range(rng.randint(3, 5)):
@@ -244,8 +293,8 @@ def crystal(rng, col='mint', h=1.2):
 
 # ---------- manifest ----------
 MESHES = []
-def M(slot, n, fn, gated=False, note=""):
-    MESHES.append((slot, n, fn, gated, note))
+def M(slot, n, fn, gated=False, note="", card_extra=None):
+    MESHES.append((slot, n, fn, gated, note, card_extra))
 
 # B1 trees/shrubs/cacti (skip ✅ low_shrub, dune_cactus)
 M("trees/arch_tree", 2, lambda r: seg_trunk(r, h=r.uniform(4.5, 6), bend=2.2, burst=True))
@@ -350,19 +399,26 @@ M("props/goods/market", 10, lambda r: [T(p, r.uniform(-0.2, 0.2), k*0.13, r.unif
 M("props/tools/hand", 8, lambda r: tool(r, 'generic'))
 M("props/signage", 5, lambda r: [paint(T(yup_cyl(0.05, 1.8), 0, 0.9, 0), C('wood')),
    paint(T(box(extents=[0.9, 0.5, 0.05]), 0, 1.6, 0.05), C('cream', -10))])
-M("props/textile", 5, lambda r: [paint(T(box(extents=[1.6, 0.03, 1.0]), 0, 0.03, 0), C(r.choice(['red', 'teal', 'purple']), 10))])
+# Fabric slots (PLAN_FABRIC F1): "wind": "fabric" flags the card for the
+# fabric_wind material override at placement; "wind_hang" = meters of
+# cloth at freedom 1. Pin weights live in vertex alpha (paint_pinned).
+M("props/textile", 5, lambda r: ground_cloth(r, 1.6, 1.0, C(r.choice(['red', 'teal', 'purple']), 10)),
+  card_extra={"wind": "fabric", "wind_hang": 0.35})
+M("props/textile/banner", 3, lambda r: banner(r),
+  card_extra={"wind": "fabric", "wind_hang": 1.2})
 M("props/lighting", 5, lambda r: [paint(T(icosphere(1, 0.16), 0, 0.2, 0), C('mint')),
    paint(T(yup_cyl(0.04, 0.3), 0, 0.42, 0), C('slate'))], gated=True, note="glow-vessel gated")
 M("props/camp/bedroll", 3, lambda r: [paint(T(yup_cyl(0.18, 1.8, 10).apply_transform(
     trimesh.transformations.rotation_matrix(math.pi/2, [1, 0, 0])) or yup_cyl(0.18, 1.8), 0, 0.18, 0), C(r.choice(['red', 'teal', 'purple']), -6))])
 M("props/camp/pack", 5, lambda r: [paint(T(icosphere(1, 0.3), 0, 0.3, 0, sy=1.2), C('hide', r.randint(-14, 14)))])
-M("props/camp/tent", 3, lambda r: [paint(cone(radius=1.2, height=1.8, sections=7).apply_transform(
-    trimesh.transformations.rotation_matrix(math.pi/2, [1, 0, 0])) or cone(radius=1.2, height=1.8), C('cream', -16))])
+M("props/camp/tent", 3, lambda r: tent(r),
+  card_extra={"wind": "fabric", "wind_hang": 0.6})
 M("props/camp/cart", 2, lambda r: [paint(T(box(extents=[1.2, 0.3, 2.0]), 0, 0.6, 0), C('wood'))] +
   [paint(T(yup_cyl(0.35, 0.08, 12).apply_transform(trimesh.transformations.rotation_matrix(math.pi/2, [0, 0, 1])) or yup_cyl(0.3, 0.1), sx*0.68, 0.35, 0.6), C('wood', -22)) for sx in (-1, 1)])
 M("props/nautical/raft", 2, lambda r: [paint(T(yup_cyl(0.14, 2.6, 8).apply_transform(
     trimesh.transformations.rotation_matrix(math.pi/2, [1, 0, 0])) or yup_cyl(0.14, 2.6), x, 0.14, 0), C('wood', r.randint(-10, 10))) for x in np.linspace(-0.7, 0.7, 5)])
-M("props/nautical/net", 4, lambda r: [paint(T(box(extents=[1.2, 0.02, 1.2]), 0, 0.02, 0), C('sand', -30))])
+M("props/nautical/net", 4, lambda r: ground_cloth(r, 1.2, 1.2, C('sand', -30), free=0.4),
+  card_extra={"wind": "fabric", "wind_hang": 0.3})
 M("props/nautical/dock", 4, lambda r: [paint(T(box(extents=[1.2, 0.14, 3.0]), 0, 0.7, 0), C('wood'))] +
   [paint(T(yup_cyl(0.09, 0.9), sx*0.5, 0.45, sz*1.3), C('wood', -20)) for sx in (-1, 1) for sz in (-1, 1)])
 # B7 items
@@ -381,8 +437,19 @@ M("arch/under/glow_pool", 2, lambda r: [paint(T(yup_cyl(1.8, 0.15, 16), 0, 0.07,
 M("arch/under/spore_stalk", 3, lambda r: seg_trunk(r, h=r.uniform(3, 5), r0=0.4, bend=0.6, col='purple', burst=False), gated=True)
 
 def main():
+    # --only <slot> (repeatable): regenerate just those slots — the drop is
+    # untracked binary cache, so partial refreshes must not churn the rest.
+    only = []
+    args = sys.argv[1:]
+    while args:
+        if args[0] == "--only" and len(args) > 1:
+            only.append(args[1]); args = args[2:]
+        else:
+            print("usage: gen_meshes.py [--only slot ...]"); return
     total = 0; cards = []
-    for (slot, n, fn, gated, note) in MESHES:
+    for (slot, n, fn, gated, note, card_extra) in MESHES:
+        if only and slot not in only:
+            continue
         files = []
         for i in range(1, n+1):
             rng = random.Random(hash(slot) % 100000 + i*31)
@@ -398,11 +465,12 @@ def main():
                 "collision": "-col convex hull node included", "clips": "none — static placeholder",
                 "gated": gated}
         if note: card["note"] = note
+        if card_extra: card.update(card_extra)
         cpath = os.path.join(ROOT, slot + ".card.json")
         os.makedirs(os.path.dirname(cpath), exist_ok=True)
         json.dump(card, open(cpath, "w"), indent=1)
         cards.append(card)
-    print(f"meshes: {total} GLBs across {len(MESHES)} slots")
+    print(f"meshes: {total} GLBs across {len(cards)} slots")
 
 if __name__ == "__main__":
     main()

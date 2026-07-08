@@ -613,6 +613,7 @@ func _process(delta: float) -> void:
 		_panel_accum += delta
 		if _panel_accum >= 0.5:
 			_panel_accum = 0.0
+			var loom := get_tree().get_first_node_in_group("world_streamer")
 			_world_panel.text = "\n".join([
 				"HERE     " + _here_summary(),
 				"AIR      " + Weather.summary(),
@@ -625,6 +626,7 @@ func _process(delta: float) -> void:
 				"WEAR     " + InteractionField.summary(),
 				"WAYS     " + Nav.summary(),
 				"LAND     " + Terrain.regions_summary().split("\n")[0],
+				"FABRIC   " + (loom.fabric_summary() if loom else "no world streaming"),
 				"CARDS    " + Cards.summary().replace("\n", "\n         "),
 				"LINK     " + StrataLink.summary(),
 			])

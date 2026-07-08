@@ -630,6 +630,7 @@ func _process(delta: float) -> void:
 				"FABRIC   " + (loom.fabric_summary() if loom else "no world streaming"),
 				"CARDS    " + Cards.summary().replace("\n", "\n         "),
 				"DOORS    " + Interiors.summary(),
+				"STORY    " + Story.summary(),
 				"LINK     " + StrataLink.summary(),
 			])
 

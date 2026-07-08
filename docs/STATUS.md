@@ -12,7 +12,58 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
-## ⭐ Session handoff (2026-07-08, worktree agent): THE BANNERS FEEL THE WIND
+## ⭐ Session handoff (2026-07-08, worktree agent): THE TELLER'S FIRST LATCH (Q1+Q2)
+
+**DESIGN_QUESTS Q1 (the monotone core) + Q2 (the robustness spine)
+landed.** The `Story` autoload (`game/story/story.gd`, the Campfire —
+★9's proposed table name is "the Teller"): loads `data/quests/*.json`
+(format 2, **stages-not-steps — ★1 blessed at the table 2026-07-08**
+("defaults for now, may change later"); the shape swap stays contained
+to records + the loader in case that changes), builds the condition index
+by mechanical key extraction, and latches `journal.<quest>.<stage>` =
+`{day, season, prose}` — append-only, sealed once, the memoir rides IN
+the save. No quest state machine, no current-stage variable; frontier
+is derived; failure/expiry are terminal stages; nothing un-happens.
+Repeatable errands cycle under `journal.<id>.<cycle_day>.*` with
+cooldown re-arm. Conditions v2 (`game/state/conditions.gd`): closed
+table (§5, all of it — flag/eq/gte/lte/item/item_tag/season/
+time_between/since/knows/weather; told/opinion_band reserved-fail-
+closed; custom fails closed until Q3's hooks door), composition
+all/any/not (bare dicts still AND), `keys_of()` extraction, and the
+schema `lint()`. Mirrors added: `time.hour` (GameClock, solar int,
+hourly — B9). **"The Dry Spell" v2** (`data/quests/dry_spell.json`) is
+the proving errand: a scene test seeds real FloraLife vitality through
+the save door, real hourly ticks mint `valley.parched`, the root
+latches off the mirror, forced storms rain it green through
+`advance_hours`, the terminal latches in catch-up, both entries read
+in the minimal J screen (`game/story/journal_ui.gd`, J toggles,
+Threads + Remembered, prose-first, zero markers). Notification
+loudness is ★3-as-ruled: root and terminal latches notify, middle
+stages fill the diary silently. Q2: the **quest
+harness** (`tests/quest_harness.gd` + `tests/quests/*.test.json`,
+tests-as-data: set/advance_hours/expect_reached/expect_not_reached/
+expect_objective/expect_cycles/expect_gap/expect_minted/
+expect_scene_requested, inline synthetic records allowed) and the
+**linter** (`game/story/quest_lint.gd`: rooted/acyclic/reachable,
+no-wedge, required-stage skip-proof, terminal prose, story-terminals-
+mint, closed-language rows, repeatable-only-errands, sibling-terminal
+disjointness, $role refs, scene/dialogue/hooks targets, spine-gating
+vs `data/story/recurrent.json`) — both a test.sh phase; nine
+deliberately-broken lint probes prove the linter bites. **Soak
+stance**: `journal.*`/`choice.*` ride the fingerprint whole plus an
+always-present section header (so silently dropping the namespace
+would move the digest) — fingerprint moved 4027936959 → 2814434129,
+twice-identical; the playerless soak also gained the invariant that
+only errand-tier quests may latch and no `choice.*` may seal. Link
+verb added: `state set <key> <value>` (B12's forcing door). Deferred
+to their rungs: hooks/QuestRun (Q3), roles (Q4), dialogue (Q5), scenes
+assembler (Q6 — stage scene ids are logged as requests so the harness
+asserts them), expire (Q8), desk verbs beyond `state set` (Q9),
+threads/world-flips (Q10 — thread lint already speaks). `mint` records
+into an in-memory log (harness-visible) until S1/B3's fact channels.
+`weather.storminess` mirror deliberately NOT added (focus-dependent
+presentation value today; needs a sim-owned menace mirror when a quest
+first wants it).
 
 **PLAN_FABRIC F1 landed** (shader tier — the cheapest visible win).
 `fabric_wind.gdshader`: vertex-displaced world cloth reading the one

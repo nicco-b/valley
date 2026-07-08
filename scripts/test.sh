@@ -17,6 +17,16 @@ echo "$SCENE_OUT" | grep -E "PASS|FAIL|SCRIPT ERROR"
 echo "$SCENE_OUT" | grep -q "SCRIPT ERROR" && exit 1
 echo "$SCENE_OUT" | grep -q "SCENE-TESTS PASS" || exit 1
 
+echo "== quest harness + lint (the Campfire) =="
+# The Q2 robustness spine (DESIGN_QUESTS §10): the quest linter over
+# data/quests + data/threads, then every tests/quests/*.test.json driven
+# through the REAL Story machinery headless. Same backstop pattern as
+# the scene tests: success is the PASS line, not the exit code.
+QUEST_OUT=$(godot --headless --quit-after 4000 res://tests/quest_harness.tscn 2>&1)
+echo "$QUEST_OUT" | grep -E "QUEST-HARNESS|LINT|FAIL|SCRIPT ERROR"
+echo "$QUEST_OUT" | grep -q "SCRIPT ERROR" && exit 1
+echo "$QUEST_OUT" | grep -q "QUEST-HARNESS PASS" || exit 1
+
 # Filter: engine banners, benign exit-time audio warnings, and our own
 # "[system]" log lines (anything bracket-prefixed is intentional logging).
 FILTER="^Godot Engine|^Dummy|^\[|leaked|still in use|object.cpp|resource.cpp"

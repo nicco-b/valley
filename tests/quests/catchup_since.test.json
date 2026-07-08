@@ -1,0 +1,24 @@
+{
+	"comment": "Catch-up correctness: a stage gated on `since` its own root latch must latch DURING advance_hours replay, stamped with the replayed day — the memoir is honest about when. The gap assert pins it: 4 blind days advanced, the latch says day+2.",
+	"record": {
+		"format": 2,
+		"id": "catchup_test",
+		"title": "Catch-up Probe",
+		"tier": "errand",
+		"start_if": { "flag": "test.catchup.heard" },
+		"stages": [
+			{ "id": "open", "start": true, "journal": "Heard it." },
+			{ "id": "waited", "terminal": true,
+				"advance_when": { "since": ["journal.catchup_test.open", 2] },
+				"journal": "Two days on, it was still true." }
+		]
+	},
+	"script": [
+		{ "set": { "test.catchup.heard": true } },
+		{ "expect_reached": "open" },
+		{ "expect_not_reached": "waited" },
+		{ "advance_hours": 96 },
+		{ "expect_reached": "waited" },
+		{ "expect_gap": ["open", "waited", 2] }
+	]
+}

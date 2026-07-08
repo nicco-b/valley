@@ -1,0 +1,10 @@
+{
+	"format": 2,
+	"comment": "The recurrent-key list (DESIGN_QUESTS §5): WorldState keys whose states the sim GUARANTEES return — seasons turn, weather passes, snow melts. Owned by the game, read by the spine lint (§3): a spine thread's path-to-terminal may gate on these or on player-writable keys, nothing else — so time and weather can never permanently close a spine door, only delay it. Grows one key at a time, with the mirror that earns it.",
+	"keys": [
+		"time.season",
+		"time.hour",
+		"weather.state",
+		"climate.snow"
+	]
+}

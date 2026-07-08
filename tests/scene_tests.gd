@@ -8,6 +8,7 @@ var _failures := 0
 
 func _ready() -> void:
 	_test_conditions()
+	_test_conditions_v2()
 	_test_skills()
 	_test_clock()
 	_test_seasons()
@@ -39,6 +40,7 @@ func _ready() -> void:
 	_test_edit_flush()
 	await _test_threshold()
 	_test_map()
+	_test_story_dry_spell_real()
 	await _test_strata_link()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
@@ -112,6 +114,7 @@ func _test_strata_link() -> void:
 		_check(vreplies[0] == "err toolkit not active", "view orbit errs without toolkit")
 		_check(vreplies[1] == "err view needs orbit|fly", "view arg errs with the contract line")
 	await _test_link_discovery(peer)
+	await _test_state_verb(peer)
 	await _test_reload_honesty(peer)
 	await _test_preview_world(peer)
 	await _test_preview_mesh(peer)
@@ -2308,3 +2311,180 @@ func _test_threshold() -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(cpath))
 	player.remove_from_group("player")
 	player.queue_free()
+## Conditions v2 (DESIGN_QUESTS §5): composition, the new predicates,
+## flag-truthiness over latch dictionaries, mechanical key extraction,
+## and the closed-table lint. The language is closed — these rows are
+## the whole vocabulary, forever.
+func _test_conditions_v2() -> void:
+	# Composition: all / any / not; bare dictionaries still AND (v1).
+	WorldState.set_flag("test.v2.a")
+	_check(Conditions.eval({"all": [{"flag": "test.v2.a"}, {"not_flag": "test.v2.b"}]}),
+		"all composes")
+	_check(Conditions.eval({"any": [{"flag": "test.v2.b"}, {"flag": "test.v2.a"}]}),
+		"any composes")
+	_check(not Conditions.eval({"any": [{"flag": "test.v2.b"}, {"flag": "test.v2.c"}]}),
+		"any fails when every arm fails")
+	_check(not Conditions.eval({"not": {"flag": "test.v2.a"}}), "not negates")
+	_check(Conditions.eval({"not": {"flag": "test.v2.b"}}), "not on unset passes")
+	# eq / lte symmetrize v1's gte; strings compare too.
+	WorldState.set_value("test.v2.n", 0.4)
+	WorldState.set_value("test.v2.s", "storm")
+	_check(Conditions.eval({"eq": ["test.v2.s", "storm"]}), "eq on strings")
+	_check(Conditions.eval({"lte": ["test.v2.n", 0.5]}), "lte pass")
+	_check(not Conditions.eval({"lte": ["test.v2.n", 0.3]}), "lte fail")
+	_check(Conditions.eval({"gte": ["test.v2.n", 0.4]}), "gte reads floats now")
+	# A latch dictionary IS a set flag (the memoir rides in the value).
+	WorldState.set_value("journal.qa.stage", {"day": 4, "season": "summer", "prose": "x"})
+	_check(Conditions.eval({"flag": "journal.qa.stage"}), "latch dict reads as a set flag")
+	_check(not Conditions.eval({"not_flag": "journal.qa.stage"}), "not_flag sees the latch")
+	# season / weather sugar, time_between (solar, inclusive, wraps),
+	# since (latches store their day). Mirrors saved and restored around.
+	var season0: Variant = WorldState.get_value("time.season")
+	var hour0: Variant = WorldState.get_value("time.hour")
+	var day0: Variant = WorldState.get_value("time.day")
+	WorldState.set_value("time.season", "autumn")
+	_check(Conditions.eval({"season": "autumn"}), "season sugar")
+	_check(Conditions.eval({"season": ["winter", "autumn"]}), "season list")
+	_check(not Conditions.eval({"season": "spring"}), "season fail")
+	WorldState.set_value("time.hour", 19)
+	_check(Conditions.eval({"time_between": [18, 20]}), "time_between inside")
+	_check(not Conditions.eval({"time_between": [21, 23]}), "time_between outside")
+	_check(not Conditions.eval({"time_between": [22, 4]}), "time_between wrap misses 19")
+	WorldState.set_value("time.hour", 23)
+	_check(Conditions.eval({"time_between": [22, 4]}), "time_between wraps midnight")
+	WorldState.set_value("time.day", 8)
+	_check(Conditions.eval({"since": ["journal.qa.stage", 3]}), "since reads the latch day")
+	_check(not Conditions.eval({"since": ["journal.qa.stage", 5]}), "since not yet")
+	_check(not Conditions.eval({"since": ["journal.qa.unset", 1]}), "since on no latch fails")
+	# knows (the S1 shape — a key read today, minds later).
+	WorldState.set_value("npc.player.knows.qa_fact", true)
+	_check(Conditions.eval({"knows": ["player", "qa_fact"]}), "knows reads the mind mirror")
+	_check(not Conditions.eval({"knows": ["keeper", "qa_fact"]}), "knows fails unheard")
+	# item_tag: the keyword law in the pack (identity-free counts).
+	Items._defs["qa_berry"] = {"id": "qa_berry", "name": "QA Berry", "tags": ["food"]}
+	Items.add("qa_berry", 2)
+	_check(Conditions.eval({"item_tag": ["food", 2]}), "item_tag counts by tag")
+	_check(not Conditions.eval({"item_tag": ["food", 3]}), "item_tag respects n")
+	_check(not Conditions.eval({"item_tag": ["tool", 1]}), "item_tag misses untagged")
+	Items.add("qa_berry", -2)
+	Items._defs.erase("qa_berry")
+	# Reserved rows fail closed; unknown predicates fail closed.
+	_check(not Conditions.eval({"opinion_band": ["keeper", "warm"]}),
+		"reserved predicate fails closed")
+	_check(not Conditions.eval({"custom": ["moody"], "watch": ["test.v2.a"]}),
+		"custom fails closed until the hooks door (Q3)")
+	# keys_of: mechanical, total (the index seed).
+	var keys := Conditions.keys_of({"all": [
+		{"flag": "a.b"}, {"since": ["journal.q.s", 2]},
+		{"season": "winter"}, {"item": ["pot", 1]},
+		{"custom": ["moody"], "watch": ["npc.keeper.mood"]}]})
+	for want in ["a.b", "journal.q.s", "time.day", "time.season",
+			"player.inventory", "npc.keeper.mood"]:
+		_check(keys.has(want), "keys_of extracts %s" % want)
+	# The closed-table lint refuses what the evaluator refuses.
+	_check(not Conditions.lint({"expr": "1 > 0"}, "qa").is_empty(),
+		"lint refuses unknown predicates")
+	_check(not Conditions.lint({"told": ["a", "b", "f"]}, "qa").is_empty(),
+		"lint refuses reserved rows")
+	_check(not Conditions.lint({"custom": ["moody"]}, "qa").is_empty(),
+		"lint refuses custom without watch")
+	_check(Conditions.lint({"any": [{"flag": "x"}, {"weather": ["storm"]}]}, "qa").is_empty(),
+		"lint passes the spoken language")
+	# Restore the mirrors the clock owns.
+	WorldState.set_value("time.season", season0)
+	WorldState.set_value("time.hour", hour0)
+	WorldState.set_value("time.day", day0)
+
+
+## The Dry Spell v2 end-to-end THROUGH THE REAL SIM (Q1's "done means"):
+## FloraLife mints valley.parched from real vitality, Story latches the
+## root off the mirror; forced storms rain the valley green through real
+## advance_hours catch-up, the terminal latches, and both memoir entries
+## read in the J screen. The only pokes are sanctioned doors: the save
+## door (flora.vitality + load_state) and the dev weather door
+## (force_kind — the Y key's path).
+func _test_story_dry_spell_real() -> void:
+	_check(Story.quests.has("dry_spell"), "the dry spell record loads")
+	# Hermetic slate: drop any journal state earlier tests minted and let
+	# Story re-derive (the save door — restore emits no signals).
+	var snap := WorldState.snapshot()
+	var clean: Dictionary = {}
+	for k: String in snap:
+		if not k.begins_with("journal.") and not k.begins_with("choice."):
+			clean[k] = snap[k]
+	clean["valley.parched"] = false
+	clean["flora.vitality"] = 0.18
+	WorldState.restore(clean)
+	FloraLife.load_state()
+	Story.load_state()
+	_check(Story.cycle_count("dry_spell") == 0, "hermetic slate (no cycles)")
+	# Drought: the REAL hourly flora path mints the flag with hysteresis.
+	var day_before := int(WorldState.get_value("time.day", 0))
+	GameClock.advance_hours(2.0)
+	_check(WorldState.has_flag("valley.parched"),
+		"FloraLife mints valley.parched from real vitality")
+	_check(Story.cycle_count("dry_spell") == 1, "the errand opens off the real mirror")
+	_check(Story.reached("dry_spell", "open"), "open latched")
+	_check(not Story.reached("dry_spell", "rains"), "rains waits for the weather")
+	var prefix: String = Story._latch_prefix(Story.quests["dry_spell"])
+	var latch: Variant = WorldState.get_value(prefix + "open")
+	_check(latch is Dictionary and String((latch as Dictionary).get("prose", ""))
+			.begins_with("The valley is parched"),
+		"the memoir prose is sealed IN the latch")
+	var latch_day := int((latch as Dictionary).get("day", -1))
+	_check(latch_day >= day_before and latch_day <= int(WorldState.get_value("time.day", 0)),
+		"the latch is sealed with the day it happened")
+	# Rain: force storm fronts (the dev door) and let the sim LIVE the
+	# days through advance_hours — vitality climbs, hysteresis clears the
+	# flag, the objective and the terminal latch during catch-up.
+	var healed := false
+	for i in 20:
+		Weather.force_kind("storm")
+		GameClock.advance_hours(24.0)
+		if not WorldState.has_flag("valley.parched"):
+			healed = true
+			break
+	_check(healed, "twenty storm days green the valley (vitality %.2f)" % FloraLife.vitality)
+	_check(Story.objective_done("dry_spell", "open", "wait"), "the wait objective latched")
+	_check(Story.reached("dry_spell", "rains"), "rains latched through real catch-up")
+	_check(Story.resolved("dry_spell"), "the errand resolved")
+	_check(Story.reached_day("dry_spell", "rains") >= Story.reached_day("dry_spell", "open"),
+		"the memoir's days run forward")
+	# The J screen: both entries render from the latch prose, under
+	# Remembered (resolved cycles fade there).
+	Story._journal_ui.refresh()
+	var page: String = Story._journal_ui._text.text
+	_check("The Dry Spell" in page, "the journal names the thread")
+	_check("The valley is parched" in page, "entry one reads in the journal")
+	_check("It rained" in page, "entry two reads in the journal")
+	_check("Remembered" in page, "a resolved errand rests under Remembered")
+
+
+## The state verb (DESIGN_QUESTS B12): the desk's mirror-law forcing
+## door — one WorldState key per command, JSON-typed, latches riding
+## `changed` exactly like a sim write. Bad args err with contract lines.
+func _test_state_verb(peer: StreamPeerTCP) -> void:
+	var replies := await _link_send(peer, [
+		"state set test.link.flag true",   # 0: JSON bool
+		"state set test.link.num 0.5",     # 1: JSON number
+		"state set test.link.word storm",  # 2: bare word -> String
+		"state",                           # 3: bare verb errs
+		"state get test.link.flag",        # 4: only set is spoken
+		"state set test.link.flag",        # 5: missing value errs
+	])
+	_check(replies.size() == 6, "state replies land (got %d)" % replies.size())
+	if replies.size() == 6:
+		_check(replies[0] == "ok state test.link.flag=true", "state set parses JSON bools")
+		_check(WorldState.get_value("test.link.flag") == true, "the bool landed typed")
+		_check(replies[1] == "ok state test.link.num=0.5", "state set parses numbers")
+		_check(is_equal_approx(float(WorldState.get_value("test.link.num")), 0.5),
+			"the number landed typed")
+		_check(replies[2] == "ok state test.link.word=\"storm\"", "a bare word lands as a String")
+		_check(WorldState.get_value("test.link.word") == "storm", "the string landed")
+		for i in [3, 4, 5]:
+			_check(replies[i] == "err state needs set <key> <value>",
+				"state arg %d errs with the contract line" % i)
+	# The forcing door drives the REAL latch path: a quest hears the key.
+	WorldState.set_value("test.link.flag", null)
+	WorldState.set_value("test.link.num", null)
+	WorldState.set_value("test.link.word", null)

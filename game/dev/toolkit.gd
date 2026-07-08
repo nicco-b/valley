@@ -620,6 +620,7 @@ func _process(delta: float) -> void:
 				"FIELD    " + WaterField.summary(),
 				"SWELL    " + SeaSwell.summary(),
 				"FLORA    " + FloraLife.summary(),
+				"SPRING   " + FabricSpring.summary(),
 				"SAND     " + SandField.summary(),
 				"WEAR     " + InteractionField.summary(),
 				"WAYS     " + Nav.summary(),

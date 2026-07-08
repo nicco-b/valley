@@ -42,6 +42,10 @@ func _ready() -> void:
 	if _anim.has_animation("Idle"):
 		_anim.play("Idle")
 	CharacterPaint.apply($Body/Model)
+	# F2 fabric: the tail is danglable — spring bones stream it in wind
+	# and lag it through turns. Presentation only; headless runs never
+	# construct the simulator (PLAN_FABRIC determinism stance).
+	FabricSpring.adopt($Body/Model)
 
 
 func set_target(t: Vector2) -> void:

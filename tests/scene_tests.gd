@@ -25,6 +25,7 @@ func _ready() -> void:
 	_test_wear()
 	_test_nav()
 	_test_sand_sim()
+	_test_fabric()
 	_test_tile_override()
 	_test_kernel_retile_race()
 	_test_placement_reseat()
@@ -1956,3 +1957,25 @@ func _test_sand_sim() -> void:
 			elif x <= 2:
 				left += slope_delta[y * g + x]
 	_check(right > 0.06 and right > left * 2.0, "piled sand avalanches downhill")
+
+
+## F1 wind fabric (PLAN_FABRIC): the cloth slots carry the "wind" flag,
+## a resolved file finds its card again (the override path's lookup), and
+## the fabric_wind shader + material wiring builds headless. Card-level
+## only — binaries are untracked cache and the loader tolerates them
+## missing, so no GLB is loaded here.
+func _test_fabric() -> void:
+	var slots: Array = Cards.fabric_slots()
+	for s in ["props/textile", "props/textile/banner", "props/camp/tent", "props/nautical/net"]:
+		_check(slots.has(s), "fabric flag on " + s)
+	var f: String = Cards.resolve("props/textile/banner", 0)
+	var e: Dictionary = Cards.entry_for_file(f)
+	_check(String(e.get("wind", "")) == "fabric", "resolved file finds its fabric card")
+	_check(float(e.get("wind_hang", 0.0)) > 0.0, "wind_hang rides the card")
+	_check(Cards.entry_for_file("res://nope.glb").is_empty(), "unknown file yields {}")
+	var sh: Shader = load("res://game/shaders/fabric_wind.gdshader")
+	_check(sh != null, "fabric_wind shader loads")
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("hang", 1.2)
+	_check(float(mat.get_shader_parameter("hang")) == 1.2, "fabric material takes its knobs")

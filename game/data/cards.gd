@@ -24,6 +24,7 @@ const ROOTS := {
 }
 
 var _slots: Dictionary = {}  # slot id -> entry
+var _by_file: Dictionary = {}  # resolved res:// file -> slot id (placement stores files)
 
 
 func _ready() -> void:
@@ -65,7 +66,14 @@ func _load_card(path: String, base: String) -> void:
 		"gated": bool(rec.get("gated", false)),
 		"collision": rec.get("collision", ""),
 		"clips": rec.get("clips", ""),
+		# PLAN_FABRIC F1: "fabric" flags the slot for the fabric_wind
+		# material override at placement; wind_hang = cloth meters at
+		# freedom 1 (the shader's `hang` uniform).
+		"wind": str(rec.get("wind", "")),
+		"wind_hang": float(rec.get("wind_hang", 1.0)),
 	}
+	for f in files:
+		_by_file[f] = slot
 
 
 ## The full entry for a slot, or {} if unknown.
@@ -75,6 +83,23 @@ func slot(id: String) -> Dictionary:
 
 func has(id: String) -> bool:
 	return _slots.has(id)
+
+
+## The entry that owns a resolved res:// file, or {}. Placement (records
+## and scatter alike) stores files, never slots — this is how a placed
+## object finds its card again (the fabric override needs its flags).
+func entry_for_file(path: String) -> Dictionary:
+	return _slots.get(_by_file.get(path, ""), {})
+
+
+## Slots whose card flags them for the wind-fabric override (F1).
+func fabric_slots() -> Array:
+	var out: Array = []
+	for e in _slots.values():
+		if e["wind"] == "fabric":
+			out.append(e["slot"])
+	out.sort()
+	return out
 
 
 func count() -> int:

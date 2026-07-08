@@ -13,5 +13,7 @@
  "generator": "gen_meshes.py",
  "collision": "-col convex hull node included",
  "clips": "none \u2014 static placeholder",
- "gated": false
+ "gated": false,
+ "wind": "fabric",
+ "wind_hang": 0.35
 }

@@ -48,6 +48,9 @@ const FORAGE_CANDIDATES := 3  # deterministic gather-spot slots per cell
 
 var _ground_material: ShaderMaterial
 var _sway: Shader
+var _fabric: Shader  # fabric_wind (PLAN_FABRIC F1): wind-driven world cloth
+var _fabric_mats: Dictionary = {}  # slot -> ShaderMaterial (shared; phase is per-instance)
+var _fabric_dressed := 0  # instances wearing the wind this session (Toolkit FABRIC line)
 var _species_meshes: Dictionary = {}  # "id/stage" -> QuadMesh
 var _scatter_groups: Array = []  # model-scatter rules (data/scatter/props.json)
 var _cat_slots: Dictionary = {}  # category -> Array[slot id] (from Cards)
@@ -110,6 +113,8 @@ func _ready() -> void:
 
 	# Billboard meshes (sway shader) are built lazily per species×stage.
 	_sway = load("res://game/shaders/flora_sway.gdshader")
+	# Fabric materials are built lazily per wind-flagged slot (Cards "wind").
+	_fabric = load("res://game/shaders/fabric_wind.gdshader")
 	# A healed flora cell rebuilds so its cover and gather spots return;
 	# wounded cells keep their gaps (the freed spot IS the change).
 	FloraLife.cell_changed.connect(_on_flora_cell_changed)
@@ -701,12 +706,12 @@ func _add_model_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 			if y < Terrain.water_surface_base(wx, wz) + 0.2:  # nothing on the water
 				continue
 			var slot: String = slots[int(pick * slots.size()) % slots.size()]
-			var scene: PackedScene = Kit.scene_for(
-					Cards.resolve(slot, Cards.variant_for(slot, Vector3(wx, 0.0, wz))))
+			var file: String = Cards.resolve(slot, Cards.variant_for(slot, Vector3(wx, 0.0, wz)))
+			var scene: PackedScene = Kit.scene_for(file)
 			if scene == null:
 				continue
 			var inst: Node3D = scene.instantiate()
-			_dress_placeable(inst)
+			_dress_placeable(inst, file)
 			inst.position = Vector3(lx, y, lz)
 			inst.rotation.y = yaw
 			inst.scale = Vector3.ONE * s
@@ -832,7 +837,12 @@ func _add_decal_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 ## ships as a visible `-col` mesh (a translucent grey blob over the real mesh);
 ## hide it, keeping its StaticBody. Materials are shared sub-resources, so the
 ## flag flips once per GLB and later instances short-circuit.
-func _dress_placeable(root: Node) -> void:
+## `kit_ref` is the resolved res:// file the placement stored (or "" for
+## legacy kit scenes): slots whose card says "wind": "fabric" trade the
+## flat placeholder material for the fabric_wind override here — the Kit
+## applies the wind at placement, per PLAN_FABRIC F1. Presentation only.
+func _dress_placeable(root: Node, kit_ref := "") -> void:
+	var fabric := _fabric_material(kit_ref)
 	for mi: MeshInstance3D in root.find_children("*", "MeshInstance3D", true, false):
 		if mi.name.ends_with("-col"):
 			mi.visible = false
@@ -840,10 +850,40 @@ func _dress_placeable(root: Node) -> void:
 		var mesh: Mesh = mi.mesh
 		if mesh == null:
 			continue
+		if fabric != null:
+			mi.material_override = fabric
+			_fabric_dressed += 1
+			continue
 		for s in mesh.get_surface_count():
 			var mat := mesh.surface_get_material(s)
 			if mat is StandardMaterial3D and not mat.vertex_color_use_as_albedo:
 				mat.vertex_color_use_as_albedo = true
+
+
+## The shared fabric_wind material for a wind-flagged slot (null when the
+## file's card doesn't wear it). One material per slot: hang length comes
+## from the card, per-instance phase from world position in the shader.
+func _fabric_material(kit_ref: String) -> ShaderMaterial:
+	if kit_ref == "":
+		return null
+	var e := Cards.entry_for_file(kit_ref)
+	if e.is_empty() or e["wind"] != "fabric":
+		return null
+	var slot: String = e["slot"]
+	if not _fabric_mats.has(slot):
+		var mat := ShaderMaterial.new()
+		mat.shader = _fabric
+		mat.set_shader_parameter("hang", e["wind_hang"])
+		_fabric_mats[slot] = mat
+	return _fabric_mats[slot]
+
+
+## Toolkit FABRIC line: the wind-fabric ledger — flagged slots, dressed
+## instances (this session), and the wind echo the shader is reading.
+func fabric_summary() -> String:
+	return "%d slots flagged · %d dressed · %d mats · wind=%.2f dir=(%.2f, %.2f)" % [
+		Cards.fabric_slots().size(), _fabric_dressed, _fabric_mats.size(),
+		Weather.wind, Weather.wind_dir.x, Weather.wind_dir.y]
 
 
 func _add_records(c: Vector2i) -> void:
@@ -853,7 +893,7 @@ func _add_records(c: Vector2i) -> void:
 		if scene == null:
 			continue
 		var node: Node3D = scene.instantiate()
-		_dress_placeable(node)
+		_dress_placeable(node, rec.kit)
 		container.add_child(node)
 		# Seat on the CURRENT ground (ground_dy re-seats across terrain
 		# regeneration — the Chronicle owns the rule, see CellRecords.seat_y).

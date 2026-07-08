@@ -1,12 +1,11 @@
 {
- "slot": "props/nautical/net",
+ "slot": "props/textile/banner",
  "class": "gltf_mesh",
- "variants": 4,
+ "variants": 3,
  "files": [
-  "props/nautical/net_01.glb",
-  "props/nautical/net_02.glb",
-  "props/nautical/net_03.glb",
-  "props/nautical/net_04.glb"
+  "props/textile/banner_01.glb",
+  "props/textile/banner_02.glb",
+  "props/textile/banner_03.glb"
  ],
  "status": "placeholder-synth",
  "generator": "gen_meshes.py",
@@ -14,5 +13,5 @@
  "clips": "none \u2014 static placeholder",
  "gated": false,
  "wind": "fabric",
- "wind_hang": 0.3
+ "wind_hang": 1.2
 }

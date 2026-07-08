@@ -900,6 +900,10 @@ func _add_records(c: Vector2i) -> void:
 		node.position = Vector3(rec.x, CellRecords.seat_y(rec), rec.z)
 		node.rotation.y = rec.yaw
 		node.scale = Vector3.ONE * rec.get("scale", 1.0)
+		# The Threshold (PLAN_INTERIORS): a record wearing a `door` key is
+		# still an ordinary placement — the key grows the Interactable.
+		if rec.has("door"):
+			Interiors.attach_door(node, rec)
 	add_child(container)
 	_records[c] = container
 

@@ -1,0 +1,434 @@
+{
+	"id": "smugglers_cellar",
+	"name": "the smugglers' cellar",
+	"light": "dark_warm",
+	"ambience": "drips",
+	"placements": [
+		{
+			"id": "sc01",
+			"kit": "res://assets/models/arch/ruins/foundation_01.glb",
+			"x": -4,
+			"y": -0.4,
+			"z": -4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc02",
+			"kit": "res://assets/models/arch/ruins/foundation_02.glb",
+			"x": -4,
+			"y": -0.4,
+			"z": 0,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc03",
+			"kit": "res://assets/models/arch/ruins/foundation_03.glb",
+			"x": -4,
+			"y": -0.4,
+			"z": 4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc04",
+			"kit": "res://assets/models/arch/ruins/foundation_01.glb",
+			"x": 0,
+			"y": -0.4,
+			"z": -4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc05",
+			"kit": "res://assets/models/arch/ruins/foundation_02.glb",
+			"x": 0,
+			"y": -0.4,
+			"z": 0,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc06",
+			"kit": "res://assets/models/arch/ruins/foundation_03.glb",
+			"x": 0,
+			"y": -0.4,
+			"z": 4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc07",
+			"kit": "res://assets/models/arch/ruins/foundation_01.glb",
+			"x": 4,
+			"y": -0.4,
+			"z": -4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc08",
+			"kit": "res://assets/models/arch/ruins/foundation_02.glb",
+			"x": 4,
+			"y": -0.4,
+			"z": 0,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc09",
+			"kit": "res://assets/models/arch/ruins/foundation_03.glb",
+			"x": 4,
+			"y": -0.4,
+			"z": 4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc10",
+			"kit": "res://assets/models/arch/ruins/foundation_01.glb",
+			"x": -4,
+			"y": 3.0,
+			"z": -4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc11",
+			"kit": "res://assets/models/arch/ruins/foundation_02.glb",
+			"x": -4,
+			"y": 3.0,
+			"z": 0,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc12",
+			"kit": "res://assets/models/arch/ruins/foundation_03.glb",
+			"x": -4,
+			"y": 3.0,
+			"z": 4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc13",
+			"kit": "res://assets/models/arch/ruins/foundation_01.glb",
+			"x": 0,
+			"y": 3.0,
+			"z": -4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc14",
+			"kit": "res://assets/models/arch/ruins/foundation_02.glb",
+			"x": 0,
+			"y": 3.0,
+			"z": 0,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc15",
+			"kit": "res://assets/models/arch/ruins/foundation_03.glb",
+			"x": 0,
+			"y": 3.0,
+			"z": 4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc16",
+			"kit": "res://assets/models/arch/ruins/foundation_01.glb",
+			"x": 4,
+			"y": 3.0,
+			"z": -4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc17",
+			"kit": "res://assets/models/arch/ruins/foundation_02.glb",
+			"x": 4,
+			"y": 3.0,
+			"z": 0,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc18",
+			"kit": "res://assets/models/arch/ruins/foundation_03.glb",
+			"x": 4,
+			"y": 3.0,
+			"z": 4,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc19",
+			"kit": "res://assets/models/arch/ruins/relief_panel_01.glb",
+			"x": -4.8,
+			"y": 0.0,
+			"z": -5.85,
+			"yaw": 0.0,
+			"scale": 1.45
+		},
+		{
+			"id": "sc20",
+			"kit": "res://assets/models/arch/ruins/relief_panel_02.glb",
+			"x": -2.4,
+			"y": 0.0,
+			"z": -5.85,
+			"yaw": 0.0,
+			"scale": 1.45
+		},
+		{
+			"id": "sc21",
+			"kit": "res://assets/models/arch/ruins/relief_panel_03.glb",
+			"x": 0.0,
+			"y": 0.0,
+			"z": -5.85,
+			"yaw": 0.0,
+			"scale": 1.45
+		},
+		{
+			"id": "sc22",
+			"kit": "res://assets/models/arch/ruins/relief_panel_01.glb",
+			"x": 2.4,
+			"y": 0.0,
+			"z": -5.85,
+			"yaw": 0.0,
+			"scale": 1.45
+		},
+		{
+			"id": "sc23",
+			"kit": "res://assets/models/arch/ruins/relief_panel_02.glb",
+			"x": 4.8,
+			"y": 0.0,
+			"z": -5.85,
+			"yaw": 0.0,
+			"scale": 1.45
+		},
+		{
+			"id": "sc24",
+			"kit": "res://assets/models/arch/ruins/relief_panel_02.glb",
+			"x": -4.8,
+			"y": 0.0,
+			"z": 5.85,
+			"yaw": 0.0,
+			"scale": 1.45
+		},
+		{
+			"id": "sc25",
+			"kit": "res://assets/models/arch/ruins/relief_panel_03.glb",
+			"x": -2.4,
+			"y": 0.0,
+			"z": 5.85,
+			"yaw": 0.0,
+			"scale": 1.45
+		},
+		{
+			"id": "sc26",
+			"kit": "res://assets/models/arch/ruins/relief_panel_01.glb",
+			"x": 2.4,
+			"y": 0.0,
+			"z": 5.85,
+			"yaw": 0.0,
+			"scale": 1.45
+		},
+		{
+			"id": "sc27",
+			"kit": "res://assets/models/arch/ruins/relief_panel_02.glb",
+			"x": 4.8,
+			"y": 0.0,
+			"z": 5.85,
+			"yaw": 0.0,
+			"scale": 1.45
+		},
+		{
+			"id": "sc28",
+			"kit": "res://assets/models/arch/ruins/relief_panel_03.glb",
+			"x": -5.85,
+			"y": 0.0,
+			"z": -4.8,
+			"yaw": 1.5708,
+			"scale": 1.45
+		},
+		{
+			"id": "sc29",
+			"kit": "res://assets/models/arch/ruins/relief_panel_01.glb",
+			"x": -5.85,
+			"y": 0.0,
+			"z": -2.4,
+			"yaw": 1.5708,
+			"scale": 1.45
+		},
+		{
+			"id": "sc30",
+			"kit": "res://assets/models/arch/ruins/relief_panel_02.glb",
+			"x": -5.85,
+			"y": 0.0,
+			"z": 0.0,
+			"yaw": 1.5708,
+			"scale": 1.45
+		},
+		{
+			"id": "sc31",
+			"kit": "res://assets/models/arch/ruins/relief_panel_03.glb",
+			"x": -5.85,
+			"y": 0.0,
+			"z": 2.4,
+			"yaw": 1.5708,
+			"scale": 1.45
+		},
+		{
+			"id": "sc32",
+			"kit": "res://assets/models/arch/ruins/relief_panel_01.glb",
+			"x": -5.85,
+			"y": 0.0,
+			"z": 4.8,
+			"yaw": 1.5708,
+			"scale": 1.45
+		},
+		{
+			"id": "sc33",
+			"kit": "res://assets/models/arch/ruins/relief_panel_01.glb",
+			"x": 5.85,
+			"y": 0.0,
+			"z": -4.8,
+			"yaw": 1.5708,
+			"scale": 1.45
+		},
+		{
+			"id": "sc34",
+			"kit": "res://assets/models/arch/ruins/relief_panel_02.glb",
+			"x": 5.85,
+			"y": 0.0,
+			"z": -2.4,
+			"yaw": 1.5708,
+			"scale": 1.45
+		},
+		{
+			"id": "sc35",
+			"kit": "res://assets/models/arch/ruins/relief_panel_03.glb",
+			"x": 5.85,
+			"y": 0.0,
+			"z": 0.0,
+			"yaw": 1.5708,
+			"scale": 1.45
+		},
+		{
+			"id": "sc36",
+			"kit": "res://assets/models/arch/ruins/relief_panel_01.glb",
+			"x": 5.85,
+			"y": 0.0,
+			"z": 2.4,
+			"yaw": 1.5708,
+			"scale": 1.45
+		},
+		{
+			"id": "sc37",
+			"kit": "res://assets/models/arch/ruins/relief_panel_02.glb",
+			"x": 5.85,
+			"y": 0.0,
+			"z": 4.8,
+			"yaw": 1.5708,
+			"scale": 1.45
+		},
+		{
+			"id": "sc38",
+			"kit": "res://assets/models/arch/village/door_01.glb",
+			"x": 0.0,
+			"y": 0.0,
+			"z": 5.85,
+			"yaw": 3.1416,
+			"scale": 1.0,
+			"door": {
+				"exit": true
+			}
+		},
+		{
+			"id": "sc39",
+			"kit": "res://assets/models/arch/under/glow_pool_01.glb",
+			"x": -2.5,
+			"y": 0.0,
+			"z": -2.0,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc40",
+			"kit": "res://assets/models/arch/under/crystal_cluster_01.glb",
+			"x": -3.8,
+			"y": 0.0,
+			"z": -4.2,
+			"yaw": 0.6,
+			"scale": 1.0
+		},
+		{
+			"id": "sc41",
+			"kit": "res://assets/models/arch/under/crystal_cluster_02.glb",
+			"x": 4.0,
+			"y": 0.0,
+			"z": -4.5,
+			"yaw": 2.1,
+			"scale": 1.0
+		},
+		{
+			"id": "sc42",
+			"kit": "res://assets/models/arch/under/stalactite_01.glb",
+			"x": 3.5,
+			"y": 0.0,
+			"z": 3.8,
+			"yaw": 0.0,
+			"scale": 1.0
+		},
+		{
+			"id": "sc43",
+			"kit": "res://assets/models/arch/under/stalactite_02.glb",
+			"x": -4.5,
+			"y": 0.0,
+			"z": 2.5,
+			"yaw": 1.9,
+			"scale": 1.0
+		},
+		{
+			"id": "sc44",
+			"kit": "res://assets/models/arch/under/stalactite_03.glb",
+			"x": 2.8,
+			"y": 0.0,
+			"z": -4.6,
+			"yaw": 0.4,
+			"scale": 1.0
+		},
+		{
+			"id": "sc45",
+			"kit": "res://assets/models/arch/ruins/toppled_column_01.glb",
+			"x": 1.5,
+			"y": 0.0,
+			"z": 0.5,
+			"yaw": 0.7,
+			"scale": 1.0
+		},
+		{
+			"id": "sc46",
+			"kit": "res://assets/models/arch/ruins/broken_wall_02.glb",
+			"x": -1.5,
+			"y": 0.0,
+			"z": 2.8,
+			"yaw": 1.1,
+			"scale": 1.0
+		},
+		{
+			"id": "sc47",
+			"kit": "res://assets/models/arch/ruins/broken_wall_03.glb",
+			"x": 2.2,
+			"y": 0.0,
+			"z": -1.8,
+			"yaw": -0.5,
+			"scale": 1.0
+		}
+	]
+}

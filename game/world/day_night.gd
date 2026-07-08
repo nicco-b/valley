@@ -90,3 +90,11 @@ func _process(_delta: float) -> void:
 	env.volumetric_fog_density = 0.001 + 0.006 * fog
 	env.volumetric_fog_albedo = env.fog_light_color
 	env.volumetric_fog_length = 320.0
+	# Inside a pocket interior (the Threshold): the air of the room, not
+	# the storm's — depth fog and volumetrics stand down so the pocket is
+	# never fog-flooded or storm-washed. Presentation only: the sun keeps
+	# its hour, Weather keeps its storm, and both are waiting outside.
+	if Interiors.inside:
+		env.fog_density = 0.0
+		env.fog_height_density = 0.0
+		env.volumetric_fog_enabled = false

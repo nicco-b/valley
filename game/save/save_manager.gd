@@ -6,6 +6,8 @@ extends Node
 ## replayed through GameClock.advance_hours), and a versioned scaffold for
 ## per-cell world state (consequences live there later). Placed records
 ## (data/cells) are authored content, not save data — they stay separate.
+## Save v2 (the Threshold): player may carry an interior id + pocket-local
+## position; restore routes through Interiors, falling back to the door.
 
 const PATH := "user://save.json"
 const AUTOSAVE_SECONDS := 30.0
@@ -39,13 +41,20 @@ func save_game() -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	if player == null:
 		return
+	# Save v2 (the Threshold, PLAN_INTERIORS §3): the player payload may
+	# carry an interior id + pocket-local position. Outside, it is v1's
+	# {x, z} exactly; inside, {x, z} anchor at the DOOR so any reader of
+	# the old shape still lands somewhere true.
+	var pdata: Dictionary = {"x": player.global_position.x, "z": player.global_position.z}
+	if Interiors.inside:
+		pdata = Interiors.save_player(player)
 	var data := {
-		"version": 1,
+		"version": 2,
 		"hours": GameClock.hours,
 		"day": GameClock.day,
 		"wall_time": Time.get_unix_time_from_system(),
 		"civil": true,  # clock anchored to real local time (1:1 era)
-		"player": {"x": player.global_position.x, "z": player.global_position.z},
+		"player": pdata,
 		"state": WorldState.snapshot(),
 		"wear": InteractionField.wear_snapshot(),  # desire paths, world-anchored
 		"cells": {},  # future: per-cell world-state mutations
@@ -90,7 +99,9 @@ func load_into_world() -> void:
 		if not FileAccess.file_exists(candidate):
 			continue
 		data = JSON.parse_string(FileAccess.get_file_as_string(candidate))
-		if data != null and data.get("version") == 1:
+		# v1 saves (pre-interiors) load unchanged — v2 only ADDS optional
+		# player.interior fields; nothing was moved or renamed.
+		if data != null and int(data.get("version", 0)) in [1, 2]:
 			if candidate != PATH:
 				push_warning("[save] live save unreadable — restored %s" % candidate)
 			break
@@ -126,6 +137,18 @@ func load_into_world() -> void:
 		player.velocity = Vector3.ZERO
 		if streamer:
 			streamer._update_cells(true)
+		# Saved inside a pocket interior (save v2): restore routes through
+		# the Threshold — rebuild the pocket over the door and stand the
+		# player where they stood. The seat above is already the DOOR (the
+		# v2 anchor), so a gone interior record falls back there, honestly.
+		var pd: Dictionary = data.player
+		if pd.has("interior"):
+			var seated: bool = Interiors.restore(String(pd.interior),
+				Vector3(x, Terrain.height(x, z), z), float(pd.get("door_yaw", 0.0)),
+				Vector3(float(pd.get("ix", 0.0)), float(pd.get("iy", 0.5)),
+					float(pd.get("iz", 0.0))), player)
+			if not seated:
+				HUD.notify("the %s is gone — you wake at its door" % String(pd.interior))
 	print("[save] loaded (%.1f hours passed while away)" % away_hours)
 	if away_hours >= 1.0:
 		HUD.notify("day %d — the valley kept its own time while you were away" % GameClock.day)

@@ -11,6 +11,16 @@ Prefer adding records over adding code.
 (Empty since the 2026-07-07 de-valley wipe — new places get composed on
 the Strata world.)
 
+## interiors/ — pocket interiors (the Threshold)
+One file per interior: `{id, name, light, ambience, placements}` —
+placements are the cells/ row shape verbatim, but coordinates are local
+to the pocket origin and `y` is absolute (no ground_dy: the interior's
+own floor pieces are the ground). A surface placement row wearing
+`"door": {"interior": "<id>"}` leads here; the row inside wearing
+`"door": {"exit": true}` leads back. Built at runtime by the Interiors
+autoload as a pocket +1500m over the door — never a scene, never baked,
+never fingerprinted (PLAN_INTERIORS).
+
 ## wildlife/ — record-driven animals
 One file per herd: needs × activities, same shape the retired NPC records
 used (`data/npcs/` comes back when inhabitants are rebuilt on the Strata

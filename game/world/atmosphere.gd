@@ -164,9 +164,12 @@ func _process(delta: float) -> void:
 	# The map is a chart: hide the weather FX (rain, curtains, fog bank,
 	# bolts) so nothing floats over it. A flash caught mid-pulse is cut
 	# short too — the lightning_flash global tints every surface, and a
-	# stuck value would storm-wash the chart it was hidden from.
-	visible = not MapScreen.active
-	if MapScreen.active:
+	# stuck value would storm-wash the chart it was hidden from. A pocket
+	# interior (the Threshold) is exempt through the same gate: the room
+	# must not be storm-lit, and the sim never hears about the walls.
+	var exempt := MapScreen.active or Interiors.inside
+	visible = not exempt
+	if exempt:
 		if _bolt_t > 0.0:
 			_bolt_t = 0.0
 			_bolt.light_energy = 0.0

@@ -37,6 +37,7 @@ func _ready() -> void:
 	_test_placement_edit()
 	_test_overrides_emit()
 	_test_edit_flush()
+	await _test_threshold()
 	_test_map()
 	await _test_strata_link()
 	if _failures > 0:
@@ -2181,3 +2182,129 @@ func _test_fabric() -> void:
 	mat.shader = sh
 	mat.set_shader_parameter("hang", 1.2)
 	_check(float(mat.get_shader_parameter("hang")) == 1.2, "fabric material takes its knobs")
+
+
+## The Threshold (PLAN_INTERIORS I1): the `door` key rides an ordinary
+## placement row to disk verbatim, enter stands the player in the pocket
+## at altitude, exit stands them back at the door, and a save made inside
+## restores inside — with the honest fallback to the door when the
+## interior record is gone. Guards the live save file (snapshot +
+## restore) and leaves no cell file behind.
+func _test_threshold() -> void:
+	# The interior record loads and carries its one way home.
+	var def: Dictionary = Interiors.definition("smugglers_cellar")
+	_check(not def.is_empty(), "smugglers_cellar record loads")
+	var exits := 0
+	for row: Dictionary in def.get("placements", []):
+		if bool((row.get("door", {}) as Dictionary).get("exit", false)):
+			exits += 1
+	_check(exits == 1, "the cellar has exactly one exit-door row")
+	_check(Interiors.definition("no_such_interior").is_empty(),
+		"a missing interior answers {} (the fallback's ground truth)")
+
+	# A door is a placement row that learned one key: disk ride-through.
+	var x := 905.0 * 128.0
+	var z := 905.0 * 128.0
+	var cell: Vector2i = CellRecords.cell_of(Vector3(x, 0.0, z))
+	_check(CellRecords.records(cell).is_empty(), "threshold test cell starts empty")
+	var h: float = Terrain.height(x, z)
+	var rec: Dictionary = CellRecords.add(Vector3(x, h, z),
+		"res://assets/models/arch/village/door_01.glb", 0.0, 1.0)
+	CellRecords.update(cell, String(rec["id"]),
+		{"door": {"interior": "smugglers_cellar"}})
+	CellRecords.flush()
+	var on_disk: Variant = Records.load_json(
+		"%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y])
+	var disk_door: Dictionary = {}
+	if on_disk is Array and (on_disk as Array).size() == 1:
+		disk_door = ((on_disk as Array)[0] as Dictionary).get("door", {})
+	_check(String(disk_door.get("interior", "")) == "smugglers_cellar",
+		"the door key rides the cell file verbatim (no migration)")
+
+	# Crossing mechanics: a bare body in the player group is enough here
+	# (physics standing is the headless probe's job, on the real world).
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	var door_pos := Vector3(x, h, z)
+	player.global_position = door_pos
+	Interiors.fade_seconds = 0.02  # frames, not wall-clock, under test
+	await Interiors.enter("smugglers_cellar", door_pos, 0.0, player)
+	_check(Interiors.inside, "enter raises the ONE presentation flag")
+	_check(player.global_position.y > Interiors.POCKET_ALT - 50.0,
+		"the player stands at pocket altitude")
+	# Binaries are untracked cache: expect exactly the resolvable rows
+	# (+1 for the light rig), so a binary-less checkout stays honest.
+	var resolvable := 0
+	for row: Dictionary in def.get("placements", []):
+		if Kit.scene_for(str(row.get("kit", ""))) != null:
+			resolvable += 1
+	_check(is_instance_valid(Interiors._pocket)
+		and Interiors._pocket.get_child_count() == resolvable + 1,
+		"the pocket holds the interior's placements (%d resolvable)" % resolvable)
+
+	# Save v2, made inside: {x,z} anchors at the DOOR (a v1-shaped reader
+	# still lands somewhere true) + the interior id and local position.
+	# Guard the live save and its backup clock — the test leaves no trace.
+	var save_guard: Dictionary = {}
+	for gp: String in [SaveGame.PATH, SaveGame.PATH + ".bak1", SaveGame.PATH + ".bak2"]:
+		save_guard[gp] = FileAccess.get_file_as_string(gp) \
+			if FileAccess.file_exists(gp) else null
+	SaveGame._last_backup_unix = Time.get_unix_time_from_system()
+	SaveGame.save_game()
+	var saved: Variant = JSON.parse_string(FileAccess.get_file_as_string(SaveGame.PATH))
+	_check(saved is Dictionary and int((saved as Dictionary).get("version", 0)) == 2,
+		"the save wears version 2")
+	var pd: Dictionary = (saved as Dictionary).get("player", {})
+	_check(String(pd.get("interior", "")) == "smugglers_cellar",
+		"the save carries the interior id")
+	_check(absf(float(pd.get("x", 1e12)) - x) < 0.01
+		and absf(float(pd.get("z", 1e12)) - z) < 0.01,
+		"the save's {x,z} is the DOOR, not the pocket")
+	_check(pd.has("ix") and pd.has("iy") and pd.has("iz"),
+		"the save carries the pocket-local position")
+
+	# Exit: pocket freed, flag down, player at the door.
+	await Interiors.exit(player)
+	_check(not Interiors.inside, "exit lowers the flag")
+	_check(Interiors._pocket == null, "the pocket frees on exit")
+	_check(Vector2(player.global_position.x - x,
+		player.global_position.z - z).length() < 3.0,
+		"exit stands the player at the door")
+
+	# Restore: the load routes back inside through the Threshold.
+	await SaveGame.load_into_world()
+	_check(Interiors.inside and Interiors.interior_id == "smugglers_cellar",
+		"a save made inside restores inside")
+	_check(player.global_position.y > Interiors.POCKET_ALT - 50.0,
+		"restore seats the player back at altitude")
+	await Interiors.exit(player)
+
+	# The honest fallback: the interior record is gone — wake at the door.
+	var gone: Dictionary = saved
+	(gone["player"] as Dictionary)["interior"] = "gone_cellar"
+	var f := FileAccess.open(SaveGame.PATH, FileAccess.WRITE)
+	f.store_string(JSON.stringify(gone))
+	f.close()
+	await SaveGame.load_into_world()
+	_check(not Interiors.inside, "a gone interior falls back outside")
+	_check(Vector2(player.global_position.x - x,
+		player.global_position.z - z).length() < 3.0,
+		"the fallback seat is the door itself")
+
+	# Leave no trace: the save files, the fade pace, the cell, the player.
+	for gp: String in save_guard:
+		if save_guard[gp] == null:
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(gp))
+		else:
+			var g := FileAccess.open(gp, FileAccess.WRITE)
+			g.store_string(save_guard[gp])
+			g.close()
+	Interiors.fade_seconds = 0.35
+	while CellRecords.remove_last(cell):
+		pass
+	var cpath := "%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]
+	if FileAccess.file_exists(cpath):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(cpath))
+	player.remove_from_group("player")
+	player.queue_free()

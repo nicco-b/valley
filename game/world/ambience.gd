@@ -13,6 +13,10 @@ func _process(_delta: float) -> void:
 	)
 	# The wind you hear is the wind the trees feel (Weather.wind).
 	var gusting := 0.35 + 1.1 * Weather.wind
-	_wind.volume_db = linear_to_db(clampf(lerpf(0.5, 0.18, nightness) * gusting, 0.0001, 1.0))
+	# Inside a pocket interior the beds duck to a murmur through the wall
+	# (the Threshold's presentation gate; the interior's OWN bed is I3's
+	# rung). You still hear the gale gated — and it is still blowing.
+	var duck := 0.08 if Interiors.inside else 1.0
+	_wind.volume_db = linear_to_db(clampf(lerpf(0.5, 0.18, nightness) * gusting * duck, 0.0001, 1.0))
 	# Kept deliberately low — night sound should be felt, not noticed.
-	_night.volume_db = linear_to_db(maxf(nightness * 0.16 * (1.0 - Weather.storminess * 0.7), 0.0001))
+	_night.volume_db = linear_to_db(maxf(nightness * 0.16 * (1.0 - Weather.storminess * 0.7) * duck, 0.0001))

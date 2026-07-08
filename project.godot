@@ -13,6 +13,11 @@ config_version=5
 config/name="Valley"
 run/main_scene="res://game/ui/title.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
+; Boot splash: no engine logo — plain gouache paper (UITheme.PAPER)
+; until the title fades in. PLACEHOLDER for her painted splash card
+; (drop an image at boot_splash/image when it exists).
+boot_splash/show_image=false
+boot_splash/bg_color=Color(0.96, 0.93, 0.865, 1)
 
 [display]
 

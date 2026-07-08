@@ -1,0 +1,28 @@
+{
+	"format": 2,
+	"id": "dry_spell",
+	"title": "The Dry Spell",
+	"tier": "errand",
+	"start_if": { "flag": "valley.parched" },
+	"repeatable": { "cooldown_days": 30 },
+	"stages": [
+		{
+			"id": "open",
+			"start": true,
+			"journal": "The valley is parched. The pools are rings of cracked clay.",
+			"objectives": [
+				{
+					"id": "wait",
+					"text": "The valley waits for the weather to turn.",
+					"done_if": { "not_flag": "valley.parched" }
+				}
+			]
+		},
+		{
+			"id": "rains",
+			"terminal": true,
+			"advance_when": { "not_flag": "valley.parched" },
+			"journal": "It rained. The pools remembered how to be pools."
+		}
+	]
+}

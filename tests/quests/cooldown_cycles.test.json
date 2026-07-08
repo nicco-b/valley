@@ -1,0 +1,34 @@
+{
+	"comment": "Repeatable errand cycles: a resolved cycle re-arms only after cooldown_days, each cycle latching under its own journal.<id>.<cycle_day>.* keys. The key is harness-owned (test.drought) so the 3-day advance can't be touched by a live sim.",
+	"record": {
+		"format": 2,
+		"id": "cd_test",
+		"title": "Cooldown Probe",
+		"tier": "errand",
+		"start_if": { "flag": "test.drought" },
+		"repeatable": { "cooldown_days": 2 },
+		"stages": [
+			{ "id": "open", "start": true, "journal": "It began." },
+			{ "id": "done", "terminal": true,
+				"advance_when": { "not_flag": "test.drought" },
+				"journal": "It passed." }
+		]
+	},
+	"script": [
+		{ "set": { "test.drought": true } },
+		{ "expect_reached": "open" },
+		{ "expect_cycles": 1 },
+		{ "set": { "test.drought": false } },
+		{ "expect_reached": "done" },
+		{ "set": { "test.drought": true } },
+		{ "expect_cycles": 1 },
+		{ "set": { "test.drought": false } },
+		{ "advance_hours": 72 },
+		{ "set": { "test.drought": true } },
+		{ "expect_cycles": 2 },
+		{ "expect_reached": "open" },
+		{ "expect_not_reached": "done" },
+		{ "set": { "test.drought": false } },
+		{ "expect_reached": "done" }
+	]
+}

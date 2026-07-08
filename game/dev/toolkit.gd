@@ -629,6 +629,7 @@ func _process(delta: float) -> void:
 				"LAND     " + Terrain.regions_summary().split("\n")[0],
 				"FABRIC   " + (loom.fabric_summary() if loom else "no world streaming"),
 				"CARDS    " + Cards.summary().replace("\n", "\n         "),
+				"STORY    " + Story.summary(),
 				"LINK     " + StrataLink.summary(),
 			])
 

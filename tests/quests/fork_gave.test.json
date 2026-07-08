@@ -1,0 +1,38 @@
+{
+	"comment": "Full arc, ending one of two: branching without a machine — sibling terminals are exclusive because their sealed-choice conditions are. Also proves the objective handoff (a stage with no advance_when is reached when a reached parent's objectives complete), scene request logging, and terminal mints.",
+	"record": {
+		"format": 2,
+		"id": "fork_test",
+		"title": "Fork Probe",
+		"tier": "story",
+		"start_if": { "flag": "test.fork.start" },
+		"scenes": [ { "id": "weigh" } ],
+		"stages": [
+			{ "id": "meet", "start": true, "journal": "Met them.",
+				"objectives": [
+					{ "id": "talk", "text": "Talk it over.",
+						"done_if": { "flag": "test.fork.talked" } }
+				] },
+			{ "id": "decide", "journal": "A choice hangs.", "scenes": ["weigh"] },
+			{ "id": "gave", "terminal": true, "after": ["decide"],
+				"advance_when": { "flag": "choice.fork.gave" },
+				"journal": "I gave it back.", "mint": { "kind": "fork_gave" } },
+			{ "id": "kept", "terminal": true, "after": ["decide"],
+				"advance_when": { "flag": "choice.fork.kept" },
+				"journal": "I kept it.", "mint": { "kind": "fork_kept" } }
+		]
+	},
+	"script": [
+		{ "set": { "test.fork.start": true } },
+		{ "expect_reached": "meet" },
+		{ "expect_not_reached": ["decide", "gave", "kept"] },
+		{ "set": { "test.fork.talked": true } },
+		{ "expect_objective": ["meet", "talk"] },
+		{ "expect_reached": "decide" },
+		{ "expect_scene_requested": "weigh" },
+		{ "set": { "choice.fork.gave": true } },
+		{ "expect_reached": "gave" },
+		{ "expect_minted": "fork_gave" },
+		{ "expect_not_reached": "kept" }
+	]
+}

@@ -128,6 +128,16 @@ extends Node
 ##                               the artifact (the next stroke-quiet
 ##                               flush rewrites it). Answers without the
 ##                               hand — it is data, not Toolkit state.
+##   state set <key> <value>  -> force a WorldState key (DESIGN_QUESTS B12:
+##                               the mirror-law harness door at the desk —
+##                               the same trial the quest harness runs,
+##                               driven from Strata; dev-gated like time/
+##                               weather because the whole link is). value
+##                               parses as JSON (true/1/0.5/"text"/null);
+##                               a bare word lands as a String. Replies
+##                               "ok state <key>=<json>". Latches ride
+##                               WorldState.changed, so a forced key
+##                               settles quests exactly like a sim write.
 ##
 ## summary() feeds the Toolkit world panel (systems it can't see are debt).
 
@@ -140,7 +150,7 @@ const PROTOCOL := 1
 const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
 	"teleport", "screenshot", "weather", "time", "preview_world",
 	"preview_mesh", "camera", "view", "view_layer", "probe", "toolkit", "hud",
-	"overrides"]
+	"overrides", "state"]
 
 ## Actual port (STRATA_LINK_PORT env overrides — a second instance, e.g.
 ## the P3.5 embedded pane or a probe, gets its own link beside the game).
@@ -297,6 +307,12 @@ func _execute(line: String) -> String:
 			if parts.size() < 2 or parts[1] != "status":
 				return "err overrides needs status"
 			return "ok " + Overrides.status_line()
+		"state":
+			# The B12 forcing door: write one WorldState key, mirror-law
+			# style — quests hear it through `changed` like any sim truth.
+			if parts.size() < 4 or parts[1] != "set":
+				return "err state needs set <key> <value>"
+			return _state_set(parts[2], line.split(" ", false, 3)[3])
 		"hud":
 			if parts.size() < 2 or not (parts[1] in ["on", "off"]):
 				return "err hud needs on|off"
@@ -359,6 +375,17 @@ func _toolkit(parts: PackedStringArray) -> String:
 			return "ok place %d/%d:%s" % [landed, int(s["place_count"]), s["place_slot"]]
 		_:
 			return "err toolkit needs status|tool|brush|biome|place|keys"
+
+
+## The state set verb's write: value parses as JSON (true/false/numbers/
+## quoted strings/null); anything that isn't JSON lands as a String, so
+## `state set weather.state storm` reads naturally at the desk.
+func _state_set(key: String, raw: String) -> String:
+	var value: Variant = JSON.parse_string(raw)
+	if value == null and raw != "null":
+		value = raw  # a bare word is a string
+	WorldState.set_value(key, value)
+	return "ok state %s=%s" % [key, JSON.stringify(value)]
 
 
 ## Advance the clock for the hub — always FORWARD, always through

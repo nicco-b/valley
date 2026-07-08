@@ -1,0 +1,33 @@
+{
+	"comment": "Full arc, ending two of two (every ending of every shipped storyline gets its own root-to-terminal run — §10). Same record as fork_gave.test.json; the other seal.",
+	"record": {
+		"format": 2,
+		"id": "fork_test",
+		"title": "Fork Probe",
+		"tier": "story",
+		"start_if": { "flag": "test.fork.start" },
+		"scenes": [ { "id": "weigh" } ],
+		"stages": [
+			{ "id": "meet", "start": true, "journal": "Met them.",
+				"objectives": [
+					{ "id": "talk", "text": "Talk it over.",
+						"done_if": { "flag": "test.fork.talked" } }
+				] },
+			{ "id": "decide", "journal": "A choice hangs.", "scenes": ["weigh"] },
+			{ "id": "gave", "terminal": true, "after": ["decide"],
+				"advance_when": { "flag": "choice.fork.gave" },
+				"journal": "I gave it back.", "mint": { "kind": "fork_gave" } },
+			{ "id": "kept", "terminal": true, "after": ["decide"],
+				"advance_when": { "flag": "choice.fork.kept" },
+				"journal": "I kept it.", "mint": { "kind": "fork_kept" } }
+		]
+	},
+	"script": [
+		{ "set": { "test.fork.start": true, "test.fork.talked": true } },
+		{ "expect_reached": "decide" },
+		{ "set": { "choice.fork.kept": true } },
+		{ "expect_reached": "kept" },
+		{ "expect_minted": "fork_kept" },
+		{ "expect_not_reached": "gave" }
+	]
+}

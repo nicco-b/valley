@@ -90,6 +90,19 @@ func _invariants(wildlife: Node) -> void:
 	var size := JSON.stringify(WorldState.snapshot()).length()
 	_check(size < SNAPSHOT_BUDGET,
 		"save under budget (%d / %d bytes)" % [size, SNAPSHOT_BUDGET])
+	# The soak stance on story (DESIGN_QUESTS §10): this run is PLAYERLESS,
+	# so only sim-born errands may latch — a journal latch from a story/arc
+	# quest is a leak of player-gated logic into sim-driven paths, and any
+	# choice.* seal here is impossible by construction (choices are player
+	# acts). Caught immediately, forever.
+	for key: String in _story_keys():
+		if key.begins_with("choice."):
+			_check(false, "playerless soak sealed a choice (%s)" % key)
+			continue
+		var qid := key.trim_prefix("journal.").split(".")[0]
+		var tier := String((Story.quests.get(qid, {}) as Dictionary).get("tier", "?"))
+		_check(tier == "errand",
+			"playerless soak latched only ambient errands (%s is %s-tier)" % [key, tier])
 
 
 func _grid_digest(grid: PackedFloat32Array) -> String:
@@ -121,4 +134,25 @@ func _fingerprint(wildlife: Node) -> int:
 			var sim: AgentSim = ind.sim
 			parts.append("%.1f,%.1f" % [sim.pos.x, sim.pos.y])
 			parts.append(str(sim.current.get("id", "")))
+	# The journal.* and choice.* namespaces ride the digest whole
+	# (DESIGN_QUESTS §10/B13): a playerless soak must latch only sim-born
+	# errands, IDENTICALLY, every run — errand determinism asserted for
+	# free, forever. Sorted, so dictionary order can never move the hash.
+	# The section header (quest count + key count) is ALWAYS digested, so
+	# a wiring regression that silently drops the namespace would move
+	# the fingerprint instead of hiding.
+	var story_keys := _story_keys()
+	parts.append("story:%d:%d" % [Story.quests.size(), story_keys.size()])
+	for key: String in story_keys:
+		parts.append("%s=%s" % [key, JSON.stringify(WorldState.get_value(key))])
 	return hash("|".join(parts.map(func(p: Variant) -> String: return str(p))))
+
+
+## Every quest-state key, sorted: latches (journal.*) and seals (choice.*).
+func _story_keys() -> Array[String]:
+	var keys: Array[String] = []
+	for key: String in WorldState.snapshot():
+		if key.begins_with("journal.") or key.begins_with("choice."):
+			keys.append(key)
+	keys.sort()
+	return keys

@@ -53,6 +53,7 @@ var _daylight := Vector2(6.0, 18.0)  # today's (sunrise, sunset), civil game-hou
 func _ready() -> void:
 	hours = civil_now()  # new world: the valley wakes at your local time
 	refresh_daylight()   # (Settings loads after us and pokes this again)
+	WorldState.set_value("time.hour", int(solar_hours()))  # B9 mirror, from boot
 
 
 func _process(_delta: float) -> void:
@@ -96,6 +97,11 @@ func _advance(dh: float) -> void:
 	var h := int(hours)
 	if h != _last_hour:
 		_last_hour = h
+		# Mirror the hour for conditions (B9: time_between/scene windows
+		# read time.hour — solar, hourly, so evaluation is event-driven
+		# and catch-up replays see the hours in order). Before hour_tick,
+		# so hourly systems read a fresh mirror.
+		WorldState.set_value("time.hour", int(solar_hours()))
 		hour_tick.emit(h)
 		refresh_daylight()
 

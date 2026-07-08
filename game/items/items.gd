@@ -32,5 +32,18 @@ func count(id: String) -> int:
 	return int(inventory().get(id, 0))
 
 
+## The keyword law in the pack (DESIGN_QUESTS B15): things held whose
+## records carry the tag — {"item_tag": ["food", 2]} is "any 2 things
+## tagged food", identity-free like every radiant gate.
+func count_tag(tag: String) -> int:
+	var total := 0
+	var inv := inventory()
+	for id: String in inv:
+		var tags: Array = (_defs.get(id, {}) as Dictionary).get("tags", [])
+		if tags.has(tag):
+			total += int(inv[id])
+	return total
+
+
 func inventory() -> Dictionary:
 	return WorldState.get_value("player.inventory", {})

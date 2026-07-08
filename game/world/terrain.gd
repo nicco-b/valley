@@ -647,6 +647,12 @@ func _load_water() -> void:
 			"basin_radius": float(basin.get("radius", rec["radius"])),
 			"basin_depth": float(basin.get("depth", 0.0)),
 			"outlet": rec.get("outlet", "aquifer"),
+			# Strata-imported lakes (hyd_*): a regenerable cache, so their
+			# levels live on Hydrology's REGION tier, off the soak digest.
+			"no_sim": bool(rec.get("no_sim", false)),
+			# Real max depth from the hydrology solve (W2 bathymetry rides
+			# it); 0.0 for authored lakes, which carve their own basin.
+			"depth": float(rec.get("depth", 0.0)),
 		})
 	lake_levels.resize(water_bodies.size())
 	_load_rivers()
@@ -690,6 +696,12 @@ func _river_from_record(rec: Dictionary, fallback_id: String) -> Dictionary:
 	# Downstream flow direction: first node to last, in the XZ plane.
 	var flow: Vector2 = (nodes[nodes.size() - 1].pos - nodes[0].pos)
 	flow = flow.normalized() if flow.length() > 1e-4 else Vector2.ZERO
+	# Waterfalls (Strata hydrology knickpoints): lip position + total drop.
+	# water_bodies foams the ribbon around each lip.
+	var falls: Array[Dictionary] = []
+	for w in rec.get("waterfalls", []) as Array:
+		falls.append({"pos": Vector2(float(w["x"]), float(w["z"])),
+			"drop": float(w.get("drop_m", 0.0))})
 	return {
 		"id": rec.get("id", fallback_id),
 		"idx": rivers.size(),
@@ -702,6 +714,7 @@ func _river_from_record(rec: Dictionary, fallback_id: String) -> Dictionary:
 		# instead, off the soak fingerprint (regenerable local cache).
 		"no_sim": bool(rec.get("no_sim", false)),
 		"catchment": float(rec.get("catchment_m2", 0.0)),
+		"falls": falls,
 	}
 
 

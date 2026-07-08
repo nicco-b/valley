@@ -60,6 +60,13 @@ func _invariants(wildlife: Node) -> void:
 		var lv: float = Hydrology.lake_level[id]
 		_check(lv >= Hydrology.LAKE_LEVEL_MIN and lv <= Hydrology.LAKE_LEVEL_MAX,
 			"lake %s level on rails (%.3f)" % [id, lv])
+	# Region lakes (the Strata hyd_* import cache) obey the same rails but
+	# stay OUT of the fingerprint, like region_storage: cache contents must
+	# never move the digest.
+	for id in Hydrology.region_lake_level:
+		var lv: float = Hydrology.region_lake_level[id]
+		_check(lv >= Hydrology.LAKE_LEVEL_MIN and lv <= Hydrology.LAKE_LEVEL_MAX,
+			"region lake %s level on rails (%.3f)" % [id, lv])
 	for id in Hydrology.river_storage:
 		var s: float = Hydrology.river_storage[id]
 		_check(is_finite(s) and s >= 0.0, "river %s storage finite and non-negative" % id)

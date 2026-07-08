@@ -17,6 +17,7 @@ func _ready() -> void:
 	_test_swell()
 	_test_shoaling()
 	_test_hydrology()
+	_test_strata_water()
 	_test_water_field()
 	_test_flora()
 	_test_moon()
@@ -460,11 +461,22 @@ func _test_water() -> void:
 	# The world sea level loads from the record.
 	_check(Terrain.sea_level > -1e11, "the world sea level loads from the record")
 	# The home valley is guarded OUT of the open sea (home_guard is 0 in the
-	# protected interior). With the authored pond retired, its center is dry.
+	# protected interior). With the authored pond retired, water here can
+	# only come from an imported hyd_* lake record (ONE_APP P2) — never a
+	# leftover of the retired pond, never the sea leaking past the guard.
 	var wc := Vector2(65.0, -285.0)  # the watershed center — inside the guard
 	_check(Terrain.home_guard(wc.x, wc.y) == 0.0, "home valley sits inside the guard")
-	_check(Terrain.water_surface(wc.x, wc.y) < -1e6,
-		"no water in the guarded home interior once the pond is retired")
+	var covered := false
+	for w in Terrain.water_bodies:
+		if String(w.id).begins_with("hyd_") \
+				and Vector2(w.center).distance_to(wc) < float(w.radius):
+			covered = true
+	if covered:
+		_check(Terrain.water_surface(wc.x, wc.y) > -1e6,
+			"an imported lake over the home interior answers water")
+	else:
+		_check(Terrain.water_surface(wc.x, wc.y) < -1e6,
+			"no water in the guarded home interior once the pond is retired")
 	# Everything beyond the guard is the open world sea.
 	_check(Terrain.home_guard(9000.0, 9000.0) > 0.0, "the open world lies outside the guard")
 	_check(is_equal_approx(Terrain.water_surface(9000.0, 9000.0), Terrain.sea_surface()),
@@ -566,6 +578,57 @@ func _test_hydrology() -> void:
 	Climate.wetness = was_wet
 
 
+## ONE_APP P2: Strata's hydrology.json lands as hyd_* water records —
+## rivers on the region tier (real catchment, breathing discharge), lakes
+## at their fill elevation on the region lake tier, waterfalls riding the
+## river dicts. The cache half skips honestly on checkouts that never
+## imported a P2 export; the record normalization half always runs.
+func _test_strata_water() -> void:
+	# Normalization is a pure function — pin the waterfall carry-through
+	# without needing any imported cache on disk.
+	var rec := {"id": "t", "no_sim": true, "catchment_m2": 5e5,
+		"waterfalls": [{"x": 10.0, "z": -4.0, "drop_m": 3.5}],
+		"nodes": [
+			{"x": 0.0, "z": 0.0, "width": 4.0, "surface": 10.0},
+			{"x": 50.0, "z": 0.0, "width": 6.0, "surface": 8.0}]}
+	var river := Terrain._river_from_record(rec, "t")
+	var falls: Array = river.falls
+	_check(falls.size() == 1 and Vector2(falls[0].pos) == Vector2(10.0, -4.0)
+			and is_equal_approx(float(falls[0].drop), 3.5),
+		"waterfall records normalize onto the river dict")
+	# The soak digest law: imported (regenerable) water never reaches the
+	# fingerprinted dicts, whatever is on disk.
+	_check(not str(Hydrology.lake_level).contains("hyd_")
+			and not str(Hydrology.river_storage).contains("hyd_"),
+		"hyd_* records stay out of the fingerprinted dicts")
+
+	var hyd_rivers: Array = []
+	for r in Terrain.rivers:
+		if String(r.id).begins_with("hyd_"):
+			hyd_rivers.append(r)
+	var hyd_lakes: Array = []
+	for w in Terrain.water_bodies:
+		if String(w.id).begins_with("hyd_"):
+			hyd_lakes.append(w)
+	if hyd_rivers.is_empty() and hyd_lakes.is_empty():
+		print("  strata water: SKIP (no hyd_* cache — import a P2 export to exercise it)")
+		return
+	for r in hyd_rivers:
+		_check(Hydrology.region_storage.has(r.id),
+			"%s breathes on the region tier" % r.id)
+		_check(Hydrology.flow_norm(r.id) > 0.0, "%s flows at baseflow" % r.id)
+		_check(float(r.catchment) > 0.0, "%s carries its real catchment" % r.id)
+	for w in hyd_lakes:
+		_check(Hydrology.region_lake_level.has(w.id),
+			"%s level rides the region lake tier" % w.id)
+		var c: Vector2 = w.center
+		_check(absf(Terrain.water_surface(c.x, c.y)
+				- (float(w.surface) + Terrain.lake_levels[w.idx])) < 1e-3,
+			"%s answers water at its fill elevation" % w.id)
+		_check(float(w.basin_depth) == 0.0,
+			"%s never re-carves the tile (the depression is already in it)" % w.id)
+
+
 func _test_water_field() -> void:
 	# Tier 2 is presentation: headless (no RenderingDevice) it stays off,
 	# and the whole game must run without it — the canonical water is
@@ -574,11 +637,25 @@ func _test_water_field() -> void:
 	_check(not WaterField.enabled, "tier-2 field disabled without a GPU (headless)")
 	_check(WaterField.depth_at(Vector3(70, 0, -310)) == 0.0,
 		"field depth reads 0 when disabled")
-	# The current fallback is the real gameplay path when the field is off.
-	# With the authored rivers retired there is no discharge to push, so
-	# dry ground reads zero current everywhere — and nothing crashes.
-	_check(WaterField.current_at(Vector3(200, 0, -100)) == Vector2.ZERO,
-		"no current on dry ground")
+	# The current fallback is the real gameplay path when the field is off:
+	# dry ground reads zero current — and nothing crashes. The fixed probe
+	# point died with P2 (an imported lake can cover any spot), so FIND a
+	# dry inland point; skip honestly if the import flooded them all.
+	var dry := Vector2.INF
+	for gz in range(-8, 9):
+		for gx in range(-8, 9):
+			var p := Vector2(gx * 400.0, gz * 400.0)
+			if Terrain.home_guard(p.x, p.y) == 0.0 \
+					and Terrain.water_surface(p.x, p.y) < -1e6:
+				dry = p
+				break
+		if dry.is_finite():
+			break
+	if dry.is_finite():
+		_check(WaterField.current_at(Vector3(dry.x, 0, dry.y)) == Vector2.ZERO,
+			"no current on dry ground (%.0f, %.0f)" % [dry.x, dry.y])
+	else:
+		print("  water field: SKIP dry-ground current (no dry guarded point on this import)")
 	_check(not WaterWaves.enabled, "tier-2.5 wave field disabled without a GPU")
 	# The wave kernel spec (CPU reference = what the GLSL must do):
 	# a dent rings OUTWARD, total energy DECAYS, nothing blows up.

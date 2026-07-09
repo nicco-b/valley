@@ -732,9 +732,68 @@ func _test_records_desk(peer: StreamPeerTCP) -> void:
 		"a reloaderless kind says restart-to-apply (got %s)" % replies[7])
 	_check(String(replies[8]).begins_with("err records needs"),
 		"a bogus subverb errs with the contract line (got %s)" % replies[8])
-	# Leave no trace: drop the synthetic kind from the registries.
+
+	# -- edge grammar (PLAN.md axiom-4 amendment): a kind declares which
+	# fields are graph edges and a SEMANTIC validator judges the whole
+	# record. `records schema` emits the edge tokens (Strata's licence to
+	# render/edit them); `records validate` runs the validator so a bad edge
+	# bounces with the GAME's words. Pinned both ways below.
+	Records.register_edges("probe_edge_kind",
+		[{"field": "after", "to": "stage-id"}])
+	Records.load_dir("res://data/probe_edge_kind", {"id": TYPE_STRING})
+	# A stand-in semantic validator: the record's `bad` flag stands for "the
+	# game's lint refused it" (the real quests validator is QuestLint; here we
+	# only prove the desk relays a validator's verdict verbatim).
+	Records.register_validator("probe_edge_kind",
+		func(rec: Dictionary) -> String:
+			return "edge cycle at 'z'" if rec.get("bad", false) else "")
+	var good_edge := '{"id": "e", "after": ["a"]}'
+	var bad_edge := '{"id": "e", "after": ["z"], "bad": true}'
+	# The REAL quests kind: a well-formed but CYCLIC quest must bounce through
+	# QuestLint (story.gd registered it as the quests validator) — the mission's
+	# core claim, "the game's own lint judges cycles/unknown stages".
+	var cyclic_quest := '{"format": 2, "id": "probe_cycle", "title": "P", "tier": "errand", "stages": [{"id": "a", "start": true, "after": ["b"]}, {"id": "b", "after": ["a"], "terminal": true, "journal": "x"}]}'
+	var sound_quest := '{"format": 2, "id": "probe_ok", "title": "P", "tier": "errand", "stages": [{"id": "a", "start": true}, {"id": "done", "terminal": true, "journal": "done"}]}'
+	var ereplies := await _link_send(peer, [
+		"records schema probe_edge_kind",
+		"records validate probe_edge_kind " + good_edge,
+		"records validate probe_edge_kind " + bad_edge,
+		"records schema quests",
+		"records validate quests " + cyclic_quest,
+		"records validate quests " + sound_quest,
+	])
+	_check(ereplies.size() == 6, "edge replies land (got %d)" % ereplies.size())
+	if ereplies.size() == 6:
+		# schema emits the declared edge as edge:<field>><to> alongside the
+		# field hints — the grammar Strata's RecordSchema parser pins.
+		_check("edge:after>stage-id" in ereplies[0],
+			"schema emits the edge grammar token (got %s)" % ereplies[0])
+		_check("id:String" in ereplies[0],
+			"schema still carries field hints beside edges (got %s)" % ereplies[0])
+		# validate: a sound record passes, a refused edge bounces with the
+		# validator's OWN words (the desk never invents the verdict).
+		_check(ereplies[1] == "ok validate probe_edge_kind",
+			"a valid edge record validates ok (got %s)" % ereplies[1])
+		_check(ereplies[2] == "err validate probe_edge_kind: edge cycle at 'z'",
+			"a refused edge bounces with the game's words (got %s)" % ereplies[2])
+		# The REAL quests kind declares its `after` edge — the shipped licence
+		# Strata reads to light up quest-flow editing.
+		_check("edge:after>stage-id" in ereplies[3],
+			"the shipped quests kind declares its after edge (got %s)" % ereplies[3])
+		# The real QuestLint judges the whole edited quest: a cycle bounces
+		# with the game's own words; a sound quest passes. This is what an
+		# illegal drag hits before anything lands.
+		_check(String(ereplies[4]).begins_with("err validate quests:")
+				and "cycle" in String(ereplies[4]),
+			"a cyclic quest bounces with QuestLint's cycle words (got %s)" % ereplies[4])
+		_check(ereplies[5] == "ok validate quests",
+			"a sound quest validates ok through the real lint (got %s)" % ereplies[5])
+	# Leave no trace: drop the synthetic kinds from the registries.
 	Records._schemas.erase("probe_kind")
 	Records._reloaders.erase("probe_kind")
+	Records._schemas.erase("probe_edge_kind")
+	Records._edges.erase("probe_edge_kind")
+	Records._validators.erase("probe_edge_kind")
 
 
 ## preview_world (ONE_APP P8, the viewer): the game wears a Strata export

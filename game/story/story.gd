@@ -97,6 +97,18 @@ func _load_quests() -> void:
 		"format": TYPE_FLOAT, "id": TYPE_STRING, "title": TYPE_STRING,
 		"tier": TYPE_STRING, "stages": TYPE_ARRAY,
 	})
+	# The one graph edge quests declare (PLAN.md axiom-4 amendment): a stage's
+	# `after` list names its parent stages (§3's explicit-parent rule). Strata's
+	# quest flow view renders these arrows and, licensed by THIS declaration,
+	# edits them — every drag is a validated `after` write, never a semantics
+	# Strata invented. The semantic judge is QuestLint (cycles, unreachable,
+	# unknown targets) — the SAME rules test.sh enforces, wired as the kind's
+	# validator so an edge edit bounces with the game's own lint words.
+	Records.register_edges("quests", [{"field": "after", "to": "stage-id"}])
+	Records.register_validator("quests",
+		func(rec: Dictionary) -> String:
+			var problems := QuestLint.lint_quest(rec)
+			return "" if problems.is_empty() else problems[0])
 	var keys := records.keys()
 	keys.sort()
 	for k: String in keys:

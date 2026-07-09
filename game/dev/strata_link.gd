@@ -822,7 +822,13 @@ func _state_set(key: String, raw: String) -> String:
 ##                                       loader trusts, so the desk marks which
 ##                                       scalars are typed: "ok schema <kind>
 ##                                       field:Type ..." ("-" when the kind has
-##                                       no registered schema).
+##                                       no registered schema). EDGE fields the
+##                                       game declared ride the same line as
+##                                       "edge:<field>><to>" tokens (quests:
+##                                       edge:after>stage-id) — the graph desk's
+##                                       licence to render/edit them (PLAN.md
+##                                       axiom-4 amendment); no token, no edge
+##                                       editing.
 ## Data, not hand state: answers in every posture (the desk edits with or
 ## without the Toolkit up). Grammar pinned by Strata's RecordReport parser.
 func _records(parts: PackedStringArray, line: String) -> String:
@@ -855,12 +861,21 @@ func _records(parts: PackedStringArray, line: String) -> String:
 			reloader.call()
 			return "ok reload %s %d" % [kind, loaded.size()]
 		"schema":
+			# Field-type hints, then any EDGE declarations the game published
+			# for the kind (edge:<field>><to> — quests: edge:after>stage-id).
+			# Edge tokens ride the same space-joined line, additively: an old
+			# desk reads the field hints and ignores tokens it doesn't know;
+			# the graph-editing desk reads the edge grammar and lights up.
 			var schema := Records.schema_for(kind)
-			if schema.is_empty():
-				return "ok schema %s -" % kind
+			var edges := Records.edges_for(kind)
 			var toks := PackedStringArray()
 			for field: String in schema:
 				toks.append("%s:%s" % [field, type_string(int(schema[field]))])
+			for e: Dictionary in edges:
+				toks.append("edge:%s>%s" % [
+					String(e.get("field", "")), String(e.get("to", ""))])
+			if toks.is_empty():
+				return "ok schema %s -" % kind
 			return "ok schema %s %s" % [kind, " ".join(toks)]
 		_:
 			return "err records needs validate|reload|schema <kind> ..."

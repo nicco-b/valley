@@ -67,7 +67,9 @@ var _palette: Array = []  # Cards.placeable(), cached at _ready
 var _place_index := 0     # flat index into _palette
 var _world_panel: Label
 var _panel_accum := 0.0
-var _sculpt_undo: Image = null
+var _sculpt_pre: Image = null  # pre-stroke whole-layer snapshot (transient:
+	# the region memento is carved from it at stroke end, then it is dropped)
+var _sculpt_bbox := Rect2()  # union of the brush rects painted this stroke
 var _sculpt_unsaved := false  # sculpt strokes newer than the disk layer
 var _flush_quiet := 0.0  # seconds since the last hand edit (the flush clock)
 var _flatten_target := 0.0
@@ -77,27 +79,28 @@ var _stroke_live := false
 # PLACE selection state: identity is the record's stable id plus the
 # cell it lives in (the Chronicle is the truth — the marker and HUD read
 # the record back every frame, so a deletion under us deselects instead
-# of showing a ghost). _place_undo is the one-deep memento, shaped
-# {op, cell, id, before} so undo v2 can deepen it into a stack later.
+# of showing a ghost). Undo v2 (audit R3): place/delete/edit push a record
+# action onto ToolkitHistory — the one stream, not a per-tool memento.
 var _sel_cell := Vector2i.ZERO
 var _sel_id := ""
 var _sel_marker: MeshInstance3D
-var _place_undo: Dictionary = {}
 
-# TERRAIN pen state (paints Terrain's tile override layer).
-var _pen_undo: Image = null
+# TERRAIN pen state (paints Terrain's tile override layer). _pen_pre is the
+# transient pre-stroke whole-layer snapshot the region memento is carved from.
+var _pen_pre: Image = null
 var _pen_dirty := false
 var _pen_quiet := 0.0
-var _pen_bbox := Rect2()  # painted world region (scoped rebuild on commit)
+var _pen_bbox := Rect2()  # painted world region (scoped rebuild + memento)
 var _terrain_unsaved := false
 
-# BIOME pen state.
+# BIOME pen state. _biome_pre is the transient pre-stroke snapshot; the
+# region memento covers _biome_pre_rect (what the stroke actually painted).
 var _biome_index := 4
 var _biome_dirty := Rect2()
 var _biome_stroke := false
 var _biome_unsaved := false
-var _biome_undo: Image = null  # one-deep pre-stroke memento (Z)
-var _biome_undo_rect := Rect2()  # region painted since that memento
+var _biome_pre: Image = null
+var _biome_pre_rect := Rect2()
 
 # RIVER pen state.
 var _river_nodes: Array[Vector2] = []
@@ -302,7 +305,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			HUD.notify("no baked tile — import a Strata world first")
 		_update_hud()
 	elif event.is_action_pressed("toolkit_undo"):
-		_undo()
+		# Z undoes, Shift+Z redoes — one stream (undo v2). The action matches
+		# Z with or without the modifier, so read shift off the event.
+		if event is InputEventKey and event.shift_pressed:
+			_redo()
+		else:
+			_undo()
 	# The selection's edit keys (placement v2) — PLACE mode only, so G/R
 	# stay free for future tools elsewhere. Each tap is its own stroke:
 	# one memento, one Z.
@@ -320,7 +328,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			and _tool == Tool.RIVER \
 			and (event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER):
 		if _river_nodes.size() >= 2:
-			RiverPen.commit(_river_nodes)
+			_carve_river(_river_nodes.duplicate())
 			_river_nodes.clear()
 			_update_hud()
 		else:
@@ -397,75 +405,70 @@ func _unhandled_input(event: InputEvent) -> void:
 			_inspector.visible = _inspected != null
 
 
-## Z — the one-deep per-tool memento. Every tool answers for ITSELF, by
-## name: a mode with nothing to undo is a no-op with a HUD notice, NEVER
-## a cross-tool action (the audit's Z footgun: the old default branch
-## fell through to CellRecords.remove_last, so Z in biome mode silently
-## deleted a placed object). PLACE rides its {op, cell, id, before}
-## memento (placement v2): place/edit/delete each revert targeted, by
-## record id; the LIFO remove_last survives only as the no-memento
-## fallback over placements from an earlier session.
+## Z — one step back through ToolkitHistory (undo v2, audit R3). ONE stream
+## for every tool: undo pops the last committed ACTION regardless of the
+## active tool, so the old cross-tool footgun (Z in biome mode falling
+## through to a placement delete) cannot exist. The only tool-local branch
+## is the RIVER drawing buffer — a course still being dropped backspaces
+## node-by-node before the shared stack is consulted (its own points, never
+## another tool's edit). An empty stack notices, never acts.
 func _undo() -> void:
-	match _tool:
-		Tool.SCULPT:
-			if _sculpt_undo != null:
-				# Revert to the pre-stroke snapshot of the edit layer.
-				Terrain.restore_edits(_sculpt_undo)
-				_sculpt_undo = null
-				_sculpt_unsaved = true  # the revert itself needs the flush
-			else:
-				HUD.notify("sculpt: nothing to undo")
-		Tool.TERRAIN:
-			if _pen_undo != null:
-				# Restore the pre-stroke override (recomposites + reshapes
-				# immediately).
-				Terrain.restore_tile_override(_pen_undo.duplicate())
-				_pen_dirty = false
-				_pen_bbox = Rect2()
-				_terrain_unsaved = true
-			else:
-				HUD.notify("terrain: nothing to undo")
-		Tool.BIOME:
-			if _biome_undo != null:
-				# The pre-stroke index map returns: tint instantly, flora
-				# re-composed over the undone region only.
-				Terrain.restore_biome_map(_biome_undo, _biome_undo_rect)
-				_biome_undo = null
-				_biome_undo_rect = Rect2()
-				_biome_dirty = Rect2()
-				_biome_stroke = false
-				_biome_unsaved = true  # the revert itself needs the flush
-			else:
-				HUD.notify("biome: nothing to undo")
-		Tool.RIVER:
-			if not _river_nodes.is_empty():
-				_river_nodes.pop_back()
-				_update_hud()
-			else:
-				HUD.notify("river: nothing to undo")
-		Tool.PLACE:
-			if not _place_undo.is_empty():
-				_undo_place_op()
-			else:
-				# No memento this session: the old LIFO fallback under
-				# the cursor keeps Z useful over yesterday's placements.
-				var hit := _ray_to_ground()
-				if hit == Vector3.INF \
-						or not CellRecords.remove_last(CellRecords.cell_of(hit)):
-					HUD.notify("place: nothing to undo here")
+	if _tool == Tool.RIVER and not _river_nodes.is_empty():
+		_river_nodes.pop_back()
+		_update_hud()
+		return
+	if not ToolkitHistory.undo():
+		HUD.notify("nothing to undo")
+
+
+## Shift+Z — one step forward (redo). The RIVER drawing buffer has no redo
+## (a dropped-and-popped point is just re-dropped); the shared stack is the
+## whole story.
+func _redo() -> void:
+	if not ToolkitHistory.redo():
+		HUD.notify("nothing to redo")
 
 
 # --- PLACE selection (placement v2, audit #1): the Creation Kit edits
 # what it placed. RMB picks a record, G moves it to the cursor, R turns
-# it (Shift reverses), , . scale it, X deletes THAT one, Z reverts the
-# last of any of these through the one-deep memento. Yaw/scale stay
-# randomized at placement — but as DATA in the record, editable after.
+# it (Shift reverses), , . scale it, X deletes THAT one. Each commit pushes
+# a record action onto ToolkitHistory — the one undo stream (undo v2).
+# Yaw/scale stay randomized at placement — but as DATA in the record,
+# editable after.
+
+
+## Set the record layer to `target` and the selection with it, removing
+## whatever `other` currently holds for that id first — the shared body of
+## every record action's undo AND redo (place: other→target = {}→rec and
+## rec→{}; delete: rec→{} and {}→rec; edit: before↔after). Both sides are
+## write-through (CellRecords.remove/insert save per op), so disk tracks the
+## stack. An empty target deselects.
+func _record_to_state(target: Dictionary, other: Dictionary) -> void:
+	if not other.is_empty():
+		CellRecords.remove(
+			CellRecords.cell_of(Vector3(float(other.x), 0.0, float(other.z))),
+			String(other.id))
+	if not target.is_empty():
+		_sel_cell = CellRecords.insert(target.duplicate())
+		_sel_id = String(target.id)
+	else:
+		_deselect()
+	_update_hud()
+
+
+## Build a record action from a before/after pair (either may be {} = the
+## record is absent on that side). undo restores `before`, redo restores
+## `after` — the inverse-of-inverse identity the tests pin.
+func _record_action(label: String, before: Dictionary, after: Dictionary) -> Dictionary:
+	return {"label": label,
+		"undo": func() -> void: _record_to_state(before, after),
+		"redo": func() -> void: _record_to_state(after, before)}
 
 
 ## Place the palette's current slot at a ground hit — the LMB path,
 ## split out so the scene tests can drive it headless (the
-## _biome_paint_at pattern). Records the {op place} memento: Z removes
-## THIS record by id, never someone else's LIFO tail.
+## _biome_paint_at pattern). Pushes a place action: undo removes THIS
+## record by id, never someone else's LIFO tail; redo re-lays it.
 func _place_at(hit: Vector3) -> void:
 	if _palette.is_empty():
 		return
@@ -478,8 +481,8 @@ func _place_at(hit: Vector3) -> void:
 		return
 	var rec: Dictionary = CellRecords.add(hit, file,
 			randf() * TAU, randf_range(0.85, 1.15))
-	_place_undo = {"op": "place", "cell": CellRecords.cell_of(hit),
-			"id": String(rec["id"]), "before": {}}
+	# undo removes THIS record by id; redo re-lays it (before = {} absent).
+	ToolkitHistory.push(_record_action("place", {}, rec.duplicate()))
 
 
 ## The selected record, straight from the Chronicle ({} when nothing is
@@ -524,7 +527,7 @@ func _sel_move_to(hit: Vector3) -> void:
 		return
 	if hit == Vector3.INF:
 		return
-	_memento_edit(rec)
+	var before := rec.duplicate()
 	# The effective offset covers every record vintage — snap (0),
 	# ground_dy, legacy absolute-Y: seat_y is the one truth for where
 	# it rides today.
@@ -535,7 +538,7 @@ func _sel_move_to(hit: Vector3) -> void:
 		"y": Terrain.height(hit.x, hit.z) + dy,
 		"ground_dy": dy,
 	})
-	_place_undo["cell"] = _sel_cell  # revert must find it where it lives NOW
+	_push_edit(before)
 	_flush_quiet = 0.0
 	_update_hud()
 
@@ -546,9 +549,10 @@ func _sel_rotate(dir: float) -> void:
 	if rec.is_empty():
 		HUD.notify("place: nothing selected (RMB picks)")
 		return
-	_memento_edit(rec)
+	var before := rec.duplicate()
 	_sel_cell = CellRecords.update(_sel_cell, _sel_id, {
 		"yaw": wrapf(float(rec.yaw) + dir * SEL_YAW_STEP, 0.0, TAU)})
+	_push_edit(before)
 	_flush_quiet = 0.0
 	_update_hud()
 
@@ -559,11 +563,12 @@ func _sel_scale(dir: int) -> void:
 	if rec.is_empty():
 		HUD.notify("place: nothing selected (RMB picks)")
 		return
-	_memento_edit(rec)
+	var before := rec.duplicate()
 	var s: float = float(rec.get("scale", 1.0))
 	s = clampf((s * SEL_SCALE_STEP) if dir > 0 else (s / SEL_SCALE_STEP),
 			SEL_SCALE_MIN, SEL_SCALE_MAX)
 	_sel_cell = CellRecords.update(_sel_cell, _sel_id, {"scale": s})
+	_push_edit(before)
 	_flush_quiet = 0.0
 	_update_hud()
 
@@ -579,48 +584,21 @@ func _sel_delete() -> void:
 			HUD.notify("place: nothing selected, nothing here to remove")
 		return
 	var gone: Dictionary = CellRecords.remove(_sel_cell, _sel_id)
-	_place_undo = {"op": "delete", "cell": _sel_cell, "id": _sel_id,
-			"before": gone}
+	# undo re-inserts it (selected again), redo removes it (after = {} absent).
+	ToolkitHistory.push(_record_action("place", gone, {}))
 	_deselect()
 	HUD.notify("deleted — Z brings it back")
 
 
-## Take the one-deep edit memento BEFORE a field lands: the whole record
-## as it stood, so Z restores it bit-exact (unknown keys included) even
-## across a cell migration. {record-id, before-state} — undo v2 stacks
-## these without reshaping them.
-func _memento_edit(rec: Dictionary) -> void:
-	_place_undo = {"op": "edit", "cell": _sel_cell, "id": _sel_id,
-			"before": rec.duplicate()}
-
-
-## Revert the one-deep placement memento: a place comes OUT (targeted,
-## by id), a delete comes BACK bit-exact and selected again, an edit
-## returns to its before-state (cell migration and all). Consumed on use.
-func _undo_place_op() -> void:
-	var m: Dictionary = _place_undo
-	_place_undo = {}
-	var cell: Vector2i = m["cell"]
-	var id := String(m["id"])
-	match String(m["op"]):
-		"place":
-			CellRecords.remove(cell, id)
-			if _sel_id == id:
-				_deselect()
-			HUD.notify("place undone")
-		"delete":
-			_sel_cell = CellRecords.insert(m["before"])
-			_sel_id = id  # the returned object is the selection again
-			HUD.notify("delete undone")
-		"edit":
-			if CellRecords.remove(cell, id).is_empty():
-				HUD.notify("place: that object is gone — nothing to undo")
-				return
-			var back: Vector2i = CellRecords.insert(m["before"])
-			if _sel_id == id:
-				_sel_cell = back
-			HUD.notify("edit undone")
-	_update_hud()
+## Push an edit action from the record's pre-edit snapshot: `before` is the
+## whole record as it stood (unknown keys, cell and all), the after side is
+## read live NOW — so undo returns bit-exact even across a cell migration,
+## redo re-applies. The record still carries its id, the stack's anchor.
+func _push_edit(before: Dictionary) -> void:
+	var after := CellRecords.record(_sel_cell, _sel_id)
+	if after.is_empty():
+		return
+	ToolkitHistory.push(_record_action("place", before, after.duplicate()))
 
 
 func _process(delta: float) -> void:
@@ -681,7 +659,7 @@ func _process(delta: float) -> void:
 		if _tool == Tool.TERRAIN and painting and Terrain.has_world_tile():
 			if not _stroke_live:
 				_stroke_live = true
-				_pen_undo = Terrain.snapshot_tile_override()  # Z reverts
+				_pen_pre = Terrain.snapshot_tile_override()  # before-image
 			var dir_g := -1.0 if Input.is_action_pressed("sprint") else 1.0
 			var painted: Rect2 = Terrain.paint_tile_override(
 				Vector2(hit.x, hit.z), _macro_radius,
@@ -699,9 +677,11 @@ func _process(delta: float) -> void:
 			_biome_paint_at(hit)
 		if _tool == Tool.SCULPT and painting:
 			if not _stroke_live:
-				# Stroke begins: snapshot for Z-undo.
+				# Stroke begins: the pre-stroke snapshot (the region memento
+				# is carved from it at stroke end), a fresh painted bbox.
 				_stroke_live = true
-				_sculpt_undo = Terrain.snapshot_edits()
+				_sculpt_pre = Terrain.snapshot_edits()
+				_sculpt_bbox = Rect2()
 				_sculpt_unsaved = true
 				_flattening = Input.is_key_pressed(KEY_CTRL)
 				_flatten_target = hit.y  # flatten to first-touched height
@@ -719,8 +699,23 @@ func _process(delta: float) -> void:
 					Terrain.apply_brush(hit, _brush_radius, -amount)
 				else:
 					Terrain.apply_brush(hit, _brush_radius, amount)
+			# Grow the stroke's painted region for the region memento.
+			var br := Rect2(hit.x - _brush_radius, hit.z - _brush_radius,
+					_brush_radius * 2.0, _brush_radius * 2.0)
+			_sculpt_bbox = br if _sculpt_bbox.size == Vector2.ZERO \
+					else _sculpt_bbox.merge(br)
 		elif not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-			_stroke_live = false  # stroke ended; snapshot stays for Z
+			_stroke_live = false  # stroke ended; the memento push is below
+
+	# SCULPT: the stroke ends on LMB release — carve the region memento from
+	# the pre-stroke snapshot over the painted bbox, push it, drop the
+	# transient whole-layer snapshot. Outside the cursor block so a release
+	# with the ray off-terrain still finalizes.
+	if _sculpt_pre != null and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+		_push_layer_action("sculpt", "edits", _sculpt_pre, _sculpt_bbox)
+		_sculpt_pre = null
+		_sculpt_bbox = Rect2()
+		_stroke_live = false
 
 	# TERRAIN pen: commit on stroke-quiet — a scoped recomposite (blessed
 	# tile + override, painted rect only) reshapes the ground you're
@@ -731,16 +726,15 @@ func _process(delta: float) -> void:
 				and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 			_pen_dirty = false
 			Terrain.commit_tile_override(_pen_bbox)
+			_push_layer_action("terrain", "override", _pen_pre, _pen_bbox)
+			_pen_pre = null
 			_pen_bbox = Rect2()
 			_terrain_unsaved = true
 
 	# BIOME pen: the tint was live per-stroke; flora re-composes once,
 	# on release (cell rebuilds ride the streamer's finish budget).
 	if _biome_stroke and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-		_biome_stroke = false
-		if _biome_dirty.size != Vector2.ZERO:
-			Terrain.commit_biome_paint(_biome_dirty)
-			_biome_dirty = Rect2()
+		_commit_biome_stroke()
 
 	# The selection ring rides its record every frame — records re-seat
 	# when the ground changes, and a marker that lagged that would lie.
@@ -786,9 +780,12 @@ func _save_pens() -> void:
 		Terrain.save_biome_map()
 		_biome_unsaved = false
 	if _pen_dirty:
-		# A stroke still waiting on quiet: commit before persisting.
+		# A stroke still waiting on quiet: commit (and push its memento)
+		# before persisting.
 		_pen_dirty = false
 		Terrain.commit_tile_override(_pen_bbox)
+		_push_layer_action("terrain", "override", _pen_pre, _pen_bbox)
+		_pen_pre = null
 		_pen_bbox = Rect2()
 		_terrain_unsaved = true
 	if _terrain_unsaved:
@@ -799,22 +796,96 @@ func _save_pens() -> void:
 
 ## One biome-pen application under the cursor (the _process stroke path,
 ## split out so the scene test can drive a stroke headless). The first
-## touch of a stroke takes the one-deep Z memento — the sculpt pattern.
+## touch of a stroke takes the pre-stroke snapshot — the region memento is
+## carved from it, over what the stroke painted, when the stroke releases.
 func _biome_paint_at(hit: Vector3) -> void:
 	if not _biome_stroke:
 		_biome_stroke = true
-		_biome_undo = Terrain.snapshot_biome_map()
-		_biome_undo_rect = Rect2()
+		_biome_pre = Terrain.snapshot_biome_map()
+		_biome_pre_rect = Rect2()
 	var painted: Rect2 = Terrain.paint_biome_index(
 		hit.x, hit.z, _macro_radius, _biome_index)
 	if painted.size == Vector2.ZERO:
 		return
 	_biome_dirty = painted if _biome_dirty.size == Vector2.ZERO \
 			else _biome_dirty.merge(painted)
-	_biome_undo_rect = painted if _biome_undo_rect.size == Vector2.ZERO \
-			else _biome_undo_rect.merge(painted)
+	_biome_pre_rect = painted if _biome_pre_rect.size == Vector2.ZERO \
+			else _biome_pre_rect.merge(painted)
 	_biome_unsaved = true
 	_flush_quiet = 0.0
+
+
+## Finalize the biome stroke on release: re-flora the painted region and
+## push the region memento (split out so the scene test drives a stroke's
+## commit headless, the _biome_paint_at pattern).
+func _commit_biome_stroke() -> void:
+	_biome_stroke = false
+	if _biome_dirty.size != Vector2.ZERO:
+		Terrain.commit_biome_paint(_biome_dirty)
+	_push_layer_action("biome", "biome", _biome_pre, _biome_pre_rect)
+	_biome_pre = null
+	_biome_pre_rect = Rect2()
+	_biome_dirty = Rect2()
+
+
+# --- Undo v2 (audit R3): the pen actions. A committed sculpt/terrain/biome
+# stroke pushes a region memento — the before sub-image (carved from the
+# pre-stroke whole-layer snapshot) and the after sub-image (read live), both
+# at the painted rect. Small, so a bounded stack of strokes stays memory-
+# flat (tile RECTS, never whole tiles). undo/redo blit the right side back
+# and mark the layer dirty, so the stroke-quiet flush keeps disk in step.
+
+
+## Carve the before/after region mementos and push the stroke's action.
+## No-op when nothing was painted (empty rect / no snapshot) — the tests'
+## "a stroke that touched nothing pushes nothing" honesty.
+func _push_layer_action(label: String, layer: String,
+		pre: Image, world_rect: Rect2) -> void:
+	if pre == null or world_rect.size == Vector2.ZERO:
+		return
+	var before: Dictionary = Terrain.layer_region(layer, world_rect, pre)
+	var after: Dictionary = Terrain.layer_region(layer, world_rect)
+	if before.is_empty() or after.is_empty():
+		return
+	ToolkitHistory.push(_layer_action(label, layer, before, after))
+
+
+func _layer_action(label: String, layer: String,
+		before: Dictionary, after: Dictionary) -> Dictionary:
+	return {"label": label,
+		"undo": func() -> void:
+			Terrain.restore_layer_region(before)
+			_mark_layer_dirty(layer),
+		"redo": func() -> void:
+			Terrain.restore_layer_region(after)
+			_mark_layer_dirty(layer)}
+
+
+## A pen undo/redo reverts memory — mark the layer newer than disk so the
+## stroke-quiet flush (or F5) persists the reverted state. Save-on-commit:
+## the stack position and the disk converge, never diverge.
+func _mark_layer_dirty(layer: String) -> void:
+	match layer:
+		"edits": _sculpt_unsaved = true
+		"override": _terrain_unsaved = true
+		"biome": _biome_unsaved = true
+	_flush_quiet = 0.0
+
+
+## Carve a drawn course and push its action (undo v2): undo lifts the river
+## back out (Terrain.remove_river + the pen file goes), redo recarves it from
+## the record. Split out so the scene test drives a carve headless. The pen
+## files are write-through, so the stack position tracks disk.
+func _carve_river(points: Array) -> void:
+	var out: Dictionary = RiverPen.commit(points)
+	if out.is_empty():
+		return
+	var rec: Dictionary = out["rec"]
+	var path: String = out["path"]
+	var id := String(rec["id"])
+	ToolkitHistory.push({"label": "river",
+		"undo": func() -> void: RiverPen.erase(id, path),
+		"redo": func() -> void: RiverPen.recarve(rec, path)})
 
 
 ## The stroke-quiet disk flush (crash-safety): exactly the writes F5
@@ -1181,12 +1252,23 @@ func set_active(on: bool) -> bool:
 	return active
 
 
-## One Z, remotely (the link's `toolkit undo` — Strata's Undo In Game
-## menu item). The SAME per-tool memento dispatch as the key; a mode
-## with nothing to undo notices instead of acting (and while the chrome
-## drives, that notice rides the `notices` drain).
-func undo_last() -> void:
+## One step back through the shared stack, remotely (the link's `undo` verb
+## — Strata's ⌘Z when the pane is front). The SAME ToolkitHistory the key
+## drives; a mode with nothing to undo notices via the `notices` drain
+## instead of acting. Returns the tool label it reverted ("" when empty) so
+## the link reply can name it.
+func undo_last() -> String:
+	var label := ToolkitHistory.peek_undo_label()
 	_undo()
+	return label
+
+
+## One step forward (the link's `redo` verb — Strata's ⇧⌘Z). Returns the
+## tool label it re-applied ("" when nothing to redo).
+func redo_last() -> String:
+	var label := ToolkitHistory.peek_redo_label()
+	_redo()
+	return label
 
 
 ## The last RMB-inspected agent (the link's `inspect` verb) — read back

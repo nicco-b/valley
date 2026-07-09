@@ -85,7 +85,7 @@ func _process(_d: float) -> void:
 		# Leave no trace: pop the probe's records from every cell it
 		# touched; a cell file only goes if the probe created it.
 		Toolkit._deselect()
-		Toolkit._place_undo = {}
+		ToolkitHistory.clear()
 		CellRecords.flush()
 		for cell: Vector2i in _cells:
 			while CellRecords.remove_last(cell):

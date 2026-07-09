@@ -22,8 +22,10 @@ const FEATHER := 8.0
 const RIVER_DIR := "res://data/water/rivers"
 
 
-## Commit a drawn course (world-XZ points). Returns the live river dict,
-## or {} if the course is too short.
+## Commit a drawn course (world-XZ points). Returns {} if the course is too
+## short, else {river, rec, path}: the live river dict, the JSON record, and
+## the res:// pen file it was written to — the last two let the Toolkit's
+## undo stack erase and recarve THIS river (undo v2, audit R3).
 static func commit(points: Array) -> Dictionary:
 	if points.size() < 2:
 		return {}
@@ -52,12 +54,36 @@ static func commit(points: Array) -> Dictionary:
 	var rec := {"id": "pen_%d" % n, "no_sim": true,
 		"depth": DEPTH, "feather": FEATHER,
 		"catchment_m2": snappedf(length * 200.0, 1.0), "nodes": nodes}
+	var path := "%s/pen_%d.json" % [RIVER_DIR, n]
 	var river := Terrain.add_river(rec)
-	var fh := FileAccess.open("%s/pen_%d.json" % [RIVER_DIR, n], FileAccess.WRITE)
+	_write(rec, path)
+	HUD.notify("river penned (%d nodes, %.0fm) — carving" % [nodes.size(), length])
+	return {"river": river, "rec": rec, "path": path}
+
+
+## Re-add a penned river from its record and rewrite its file (undo v2 redo
+## of a carve). Returns the live river dict.
+static func recarve(rec: Dictionary, path: String) -> Dictionary:
+	var river := Terrain.add_river(rec)
+	_write(rec, path)
+	return river
+
+
+## Lift a penned river out — the carve un-does, the file goes (undo v2 undo
+## of a carve). The ground returns as Terrain.remove_river rebuilds the kernel.
+static func erase(id: String, path: String) -> void:
+	Terrain.remove_river(id)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+static func _write(rec: Dictionary, path: String) -> void:
+	var fh := FileAccess.open(path, FileAccess.WRITE)
+	if fh == null:
+		push_error("[riverpen] cannot write %s: %s" % [path,
+			error_string(FileAccess.get_open_error())])
+		return
 	fh.store_string(JSON.stringify(rec, "\t") + "\n")
 	fh.close()
-	HUD.notify("river penned (%d nodes, %.0fm) — carving" % [nodes.size(), length])
-	return river
 
 
 ## Uniform arc-length resample of a clicked polyline (endpoints kept), so

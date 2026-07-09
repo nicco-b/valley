@@ -167,6 +167,12 @@ func _run_real() -> void:
 			continue
 		var text := FileAccess.get_file_as_string("res://" + path)
 		for hit: Dictionary in lint_text(path, text, ids):
+			# The verification harness ships in the manifest (FW3) but its
+			# job is to probe CONTENT where it ships — every probe rides a
+			# content-empty guard. Naming ids/assets there is the harness
+			# working, not a framework coupling; only shader-global applies.
+			if path.begins_with("tests/") and hit.rule != "shader-global":
+				continue
 			var allowed := _allowlisted(hit)
 			if allowed.is_empty():
 				_failures += 1

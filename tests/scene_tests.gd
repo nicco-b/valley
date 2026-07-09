@@ -20,6 +20,7 @@ func _ready() -> void:
 	_test_hydrology()
 	_test_strata_water()
 	_test_water_field()
+	_test_wave_sources()
 	_test_flora()
 	_test_moon()
 	_test_wildlife()
@@ -1888,6 +1889,77 @@ func _test_water_field() -> void:
 		var ok := src != null and src.get_spirv() != null \
 			and src.get_spirv().compile_error_compute == ""
 		_check(ok, "compute kernel compiles: " + kernel)
+
+
+## PLAN_SUBSTANCES S1: everything that moves rings the water. The GPU
+## field is off headless (the WaterWaves law), so these pin the SOURCE
+## math — the pure ring functions every body speaks through — and drive
+## a scripted crossing into the CPU reference kernel: the sand
+## discipline, applied to who touches the water.
+func _test_wave_sources() -> void:
+	# A hound wading at a trot rings; standing still settles; dry paws
+	# never ring; fleeing rings harder; bigger bodies ring bigger.
+	var trot := WaterWaves.wade_ring(0.3, 2.2, 0.7)
+	_check(trot != Vector2.ZERO, "a wading creature rings the water")
+	_check(WaterWaves.wade_ring(0.3, 0.0, 0.7) == Vector2.ZERO,
+		"standing still settles — no ring")
+	_check(WaterWaves.wade_ring(-0.1, 2.2, 0.7) == Vector2.ZERO,
+		"dry ground never rings")
+	var flee := WaterWaves.wade_ring(0.3, 3.6, 0.7)
+	_check(flee.y > trot.y, "faster wading rings harder")
+	var big := WaterWaves.wade_ring(0.3, 2.2, 1.0)
+	_check(big.x > trot.x and big.y > trot.y, "bigger bodies ring bigger")
+	var splash := WaterWaves.splash_ring(3.6, 0.7)
+	_check(splash.x > flee.x and splash.y > flee.y,
+		"a deep entry throws one big ring")
+	# The scripted crossing: four strides of hound rings splatted into
+	# the reference field must put real energy in, and the rings must
+	# outlive the crossing and spread past the last paw-fall.
+	var n := 48
+	var texel := WaveGpu.REGION / WaveGpu.GRID
+	var prev := PackedFloat32Array()
+	prev.resize(n * n)
+	var curr := prev.duplicate()
+	for stride in 4:
+		_splat_ref(curr, n, 12.0 + stride * 6.0, 24.0,
+			trot.x / texel, -trot.y)
+	var e0 := WaveReference.energy(curr)
+	_check(e0 > 0.0, "a creature crossing puts energy in the field")
+	for i in 30:
+		var next := WaveReference.step(prev, curr, n)
+		prev = curr
+		curr = next
+	_check(WaveReference.energy(curr) > 0.0,
+		"the rings outlive the crossing")
+	_check(absf(curr[24 * n + 41]) > 1e-5,
+		"the rings spread past the last paw-fall")
+	# Rain rides the one weather truth: a storm pocks the window, a calm
+	# sky rings nothing (wind chop is its own term).
+	_check(WaterWaves.rain_rate(1.0) > 0.0, "storm rain pocks the window")
+	_check(WaterWaves.rain_rate(0.0) == 0.0, "calm produces no rain rings")
+	_check(WaterWaves.chop_rate(1.0) > WaterWaves.chop_rate(0.12),
+		"wind scales the chop")
+	# The ★ knobs, shipped as knobs: the doubled window and the ring
+	# posterize live where a probe A/B can retune them.
+	_check(WaveGpu.GRID == 1024 and is_equal_approx(WaveGpu.REGION, 128.0),
+		"window ships doubled: 128m at 1024² (the ★ knob)")
+	var wsh: Shader = load("res://game/shaders/water.gdshader")
+	_check("ring_posterize" in wsh.code,
+		"ring posterize knob exists in the water shader")
+	_check(not WaterWaves.summary().is_empty(), "WAVES Toolkit line speaks")
+
+
+## The wave_splat.glsl stamp as pure CPU math (cosine dent, hard rails)
+## — keep in step with the kernel, like WaveReference.
+func _splat_ref(field: PackedFloat32Array, n: int, cx: float, cy: float,
+		radius_px: float, w: float) -> void:
+	for y in n:
+		for x in n:
+			var d := Vector2(x - cx, y - cy).length() / maxf(radius_px, 1.0)
+			if d < 1.0:
+				field[y * n + x] = clampf(
+					field[y * n + x] + w * (0.5 + 0.5 * cos(d * PI)),
+					-0.2, 0.2)
 
 
 func _test_climate() -> void:

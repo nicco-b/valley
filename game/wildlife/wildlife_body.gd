@@ -18,6 +18,9 @@ const HEARING_RANGE := 6.0  # behind it, you're heard, not seen
 const PRESS_RANGE := 9.0  # alert + this close = flee
 const FLEE_DISTANCE := 20.0
 const CALM_SECONDS := 3.0  # unseen this long -> back to its day
+const RING_SIZE := 0.7  # body scale vs the player's 1.0: hound-sized rings
+const RIDE_HEIGHT := 0.5  # body origin sits about this far above its feet
+const SPLASH_DEPTH := 0.55  # dipping past this throws the one big entry ring
 
 enum Attention { CALM, ALERT, FLEEING }
 
@@ -29,6 +32,7 @@ var _sim_target := Vector3.ZERO
 var _flee_target := Vector3.ZERO
 var _calm_accum := 0.0
 var _step_accum := 0.0
+var _wading_deep := false  # deep-water edge: crossing it splashes once
 var _nav := PathCursor.new()  # embodied walking follows the baked navmesh
 
 @onready var _anim: AnimationPlayer = $Body/Model/AnimationPlayer
@@ -104,10 +108,29 @@ func _physics_process(delta: float) -> void:
 		_step_accum += Vector2(velocity.x, velocity.z).length() * delta
 		if _step_accum >= 0.7:
 			_step_accum = 0.0
-			InteractionField.wear_only(
-				Vector2(global_position.x, global_position.z))
-			SandField.stamp(Vector2(global_position.x, global_position.z),
-				_body.rotation.y, SandField.Mask.PAW, 0.8)
+			var pxz := Vector2(global_position.x, global_position.z)
+			InteractionField.wear_only(pxz)
+			SandField.stamp(pxz, _body.rotation.y, SandField.Mask.PAW, 0.8)
+			# ...and the same stride rings the water (PLAN_SUBSTANCES S1):
+			# speed scales the dent, body size scales the ring, and a
+			# standing animal lets the pool go still for free — the
+			# accumulator only advances while it moves. One water query
+			# per stride, never per frame; wading past its depth throws
+			# the one big entry splash (the crown of spray is S6's).
+			var wsurf := Terrain.water_surface(
+				global_position.x, global_position.z)
+			var dip := wsurf + RIDE_HEIGHT - global_position.y \
+					if wsurf > -1e11 else -1.0
+			var ring := WaterWaves.wade_ring(dip,
+				Vector2(velocity.x, velocity.z).length(), RING_SIZE)
+			if ring != Vector2.ZERO:
+				WaterWaves.disturb(pxz, ring.x, ring.y)
+			var deep := dip > SPLASH_DEPTH
+			if deep and not _wading_deep:
+				var splash := WaterWaves.splash_ring(
+					Vector2(velocity.x, velocity.z).length(), RING_SIZE)
+				WaterWaves.disturb(pxz, splash.x, splash.y)
+			_wading_deep = deep
 
 	var flat := Vector3(velocity.x, 0.0, velocity.z)
 	if flat.length() > 0.3:

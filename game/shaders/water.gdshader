@@ -66,6 +66,15 @@ uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 global uniform sampler2D wave_map; // tier-2.5 height field, meters
 global uniform vec2 wave_center;
 global uniform float wave_size;
+// ★ Ring posterization (PLAN_SUBSTANCES S1): quantize the wave-field
+// READ into N height bands so dense rings hold as painted strokes
+// instead of CG interference — flap_posterize's trick on water. The
+// banded read feeds displacement AND the crest-foam term, so each ring
+// wears a stepped foam edge. 0 = smooth field. 8 shipped from the
+// wave_probe A/B (WAVE_POST=n re-shoots it): coarser bands (5) swallow
+// a hound ring and a rain pock whole — held poses must never erase the
+// speaker. Retune by eye.
+uniform float ring_posterize = 8.0;
 global uniform sampler2D trace_map;
 global uniform vec2 trace_center;
 global uniform float trace_size;
@@ -93,6 +102,14 @@ void vertex() {
 	wave_h = 0.0;
 	if (all(greaterThan(wuv, vec2(0.0))) && all(lessThan(wuv, vec2(1.0)))) {
 		wave_h = textureLod(wave_map, wuv, 0.0).r * wave_fade(wuv);
+	}
+	if (ring_posterize > 0.5) {
+		// Hold the height in N bands across the WADING-ring span (±0.05m)
+		// — not the field's ±0.12 clamp, which would drop a hound-sized
+		// ring (±0.015m) below the first band and erase it. Splashes just
+		// saturate more bands; sub-band chop rounds to honest stillness.
+		float band = 0.096 / ring_posterize;
+		wave_h = floor(wave_h / band + 0.5) * band;
 	}
 	VERTEX.y += clamp(wave_h, -0.12, 0.12);
 	wpos.y += clamp(wave_h, -0.12, 0.12);

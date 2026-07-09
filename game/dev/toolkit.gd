@@ -241,6 +241,7 @@ func panel_sections() -> Array:
 		["CLIMATE", Climate.summary()],
 		["WATER", Hydrology.summary()],
 		["FIELD", WaterField.summary()],
+		["WAVES", WaterWaves.summary()],
 		["SWELL", SeaSwell.summary()],
 		["FLORA", FloraLife.summary()],
 		["SPRING", FabricSpring.summary()],

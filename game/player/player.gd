@@ -388,10 +388,12 @@ func _physics_process(delta: float) -> void:
 
 	# Splashdown: landing in water rings it hard — entry displacement
 	# scales with fall speed (water review: submerged capsules inject
-	# proportional to speed).
+	# proportional to speed). The ring law is shared with every entering
+	# body (PLAN_SUBSTANCES S1); the player is just size 1.0.
 	if _was_airborne and not is_on_floor() and water_depth > 0.25:
+		var splash := WaterWaves.splash_ring(absf(velocity.y), 1.0)
 		WaterWaves.disturb(Vector2(global_position.x, global_position.z),
-			1.4, clampf(0.02 + absf(velocity.y) * 0.012, 0.02, 0.09))
+			splash.x, splash.y)
 		_was_airborne = false
 
 	# Kicked sand: a landing thumps a burst and blasts a real crater,

@@ -2,12 +2,17 @@ class_name WaveGpu
 extends RefCounted
 ## GPU driver for tier 2.5, the wave field (DECISIONS 2026-07-04: water's
 ## ceiling is the heightfield; realism lives in surface displacement).
-## A 512² damped wave-equation grid in a window that follows the focus:
+## A 1024² damped wave-equation grid in a window that follows the focus:
 ## disturbances ring outward, the water shaders displace their vertices
 ## by the display texture. Presentation-only, like every GPU tier.
 
-const GRID := 512
-const REGION := 64.0  # meters — 12.5cm texels, ripple-scale
+# ★ Window size (PLAN_SUBSTANCES S1): a taste knob, not a budget one —
+# at 512²/64m a ring dies 32m out; 1024²/128m (+0.06 ms/step measured)
+# lets a hound crossing the far side of a pond still speak to you.
+# Texels stay 12.5cm, so K's stability story never moves. A/B shots:
+# tests/wave_probe.tscn.
+const GRID := 1024
+const REGION := 128.0  # meters — 12.5cm texels, ripple-scale
 const MAX_OPS := 32
 const K := 0.18  # c²dt²/dx², stable < 0.5
 const DAMP := 0.975  # settles faster: calm is what makes reactions legible

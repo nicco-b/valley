@@ -34,6 +34,15 @@ var _built_mutex := Mutex.new()
 var _built: Array = []  # [key, mesh] finished by the builder thread
 var _pending_edits: Array[Rect2] = []
 var _edit_cooldown := 0.0
+# Redraw cadence (perf, 2026-07-09): the desired-leaf walk rebuilds a
+# ~60-key string dictionary every frame, but the leaf set only changes
+# when the focus crosses tile geometry — meters of travel, not frames.
+# Recompute only after REFRESH_DIST of focus movement, or when a build
+# lands / an edit invalidates (the set may gain a hole to fill). A
+# split/join then lands within 16m of travel instead of the same frame —
+# under the streamer's discard footprint and the skirts, invisible.
+const REFRESH_DIST := 16.0
+var _last_refresh := Vector2.INF
 
 
 func _ready() -> void:
@@ -56,6 +65,8 @@ func _exit_tree() -> void:
 func _process(delta: float) -> void:
 	var focus := _focus()
 	_tick += 1
+	var refresh := not _last_refresh.is_finite() \
+			or focus.distance_to(_last_refresh) > REFRESH_DIST
 
 	# Sculpt/tile edits: drop intersecting tiles once the brush settles.
 	if not _pending_edits.is_empty():
@@ -64,6 +75,7 @@ func _process(delta: float) -> void:
 			for rect in _pending_edits:
 				_invalidate(rect)
 			_pending_edits.clear()
+			refresh = true
 
 	# Collect finished builds (thread appends; main applies).
 	_built_mutex.lock()
@@ -77,6 +89,11 @@ func _process(delta: float) -> void:
 		_building_key = ""
 		for b in done:
 			_adopt(b[0], b[1])
+		refresh = true
+
+	if not refresh:
+		return
+	_last_refresh = focus
 
 	# Desired leaf set for this focus; show cached, queue the nearest
 	# missing tile, hide the rest.

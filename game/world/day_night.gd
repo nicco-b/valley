@@ -28,6 +28,17 @@ const DEFAULT_KEYS := [
 
 var keys: Array = DEFAULT_KEYS
 
+# Sky cadence (perf, 2026-07-09): the sun crawls — game time is 1:1 real
+# time, so one frame moves it ~0.0004° and every palette value by less
+# than a thousandth of a step. Recomputing + re-setting ~15 material/env
+# params at 120fps bought nothing visible. The whole pass now runs at
+# 10Hz (values move imperceptibly between beats; every input below is
+# seconds-scale eased), EXCEPT a Threshold/interior toggle applies the
+# same frame — the room must never flash storm-lit.
+const UPDATE_INTERVAL := 0.1
+var _accum := UPDATE_INTERVAL
+var _was_inside := false
+
 
 func _ready() -> void:
 	if FileAccess.file_exists(PALETTE_PATH):
@@ -44,7 +55,13 @@ func _ready() -> void:
 			keys = parsed
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	_accum += delta
+	var inside: bool = Interiors.inside
+	if _accum < UPDATE_INTERVAL and inside == _was_inside:
+		return
+	_accum = 0.0
+	_was_inside = inside
 	# Solar hours: seasonally warped so sunrise lands at canonical 6:00 —
 	# the whole palette/arc below inherits real seasonal daylight.
 	var h: float = GameClock.solar_hours()

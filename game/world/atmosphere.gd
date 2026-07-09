@@ -59,6 +59,16 @@ var _next_bolt := 8.0
 var _rain: GPUParticles3D
 var _rain_mat: ParticleProcessMaterial
 
+# Ambient cadence (perf, 2026-07-09): everything this node steers is
+# seconds-scale — fog eases, fronts crawl, swarm gates flip on biome and
+# hour. Re-setting emitters/materials/fog at 120fps was pure per-frame
+# churn (a biome lookup + a dozen redundant property sets a frame). The
+# ambient pass beats at 10Hz with its own accumulated delta (the fog
+# drift integral is unchanged); only the follow transform and the
+# lightning pulse (sub-second by nature) stay per-frame.
+const AMBIENT_INTERVAL := 0.1
+var _ambient_accum := AMBIENT_INTERVAL
+
 
 func _ready() -> void:
 	if FileAccess.file_exists(SWARM_RECORD_PATH):
@@ -192,20 +202,25 @@ func _process(delta: float) -> void:
 	var player := get_tree().get_first_node_in_group("player")
 	if player:
 		global_position = player.global_position
+	_update_lightning(delta)
+	_ambient_accum += delta
+	if _ambient_accum < AMBIENT_INTERVAL:
+		return
+	var adt := _ambient_accum
+	_ambient_accum = 0.0
 	var h: float = GameClock.solar_hours()  # creatures follow the sun, not the clock
 	# The fog bank rides the wind; wrapped drift keeps it near the
 	# player while the noise pattern visibly travels.
 	var fog: float = Weather.fog_amount()
 	_fog_mat.density = fog * 0.055
 	if fog > 0.01:
-		_bank_drift += Weather.wind_dir * (2.0 + 14.0 * Weather.wind) * delta
+		_bank_drift += Weather.wind_dir * (2.0 + 14.0 * Weather.wind) * adt
 		_bank_drift = Vector2(wrapf(_bank_drift.x, -400.0, 400.0),
 			wrapf(_bank_drift.y, -400.0, 400.0))
 	_fog_bank.global_position = Vector3(
 		global_position.x + _bank_drift.x, 11.0,
 		global_position.z + _bank_drift.y)
 	_update_curtains()
-	_update_lightning(delta)
 	# Rain streaks: density from actual rainfall; the wind tilts the fall.
 	_rain.emitting = Weather.rain > 0.05
 	if _rain.emitting:

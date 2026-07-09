@@ -52,6 +52,7 @@ var vitality := 0.7
 var species: Array[Dictionary] = []  # sorted by filename — deterministic
 
 var _shader_vitality := 0.7
+var _set_vitality := -1e9  # last-pushed shader value (perf guard)
 var _cells: Dictionary = {}  # Vector2i -> taken (0..1]; sparse, self-forgetting
 
 
@@ -89,7 +90,11 @@ func load_state() -> void:
 func _process(delta: float) -> void:
 	var blend := 1.0 - exp(-SHADER_EASE * delta)
 	_shader_vitality = lerpf(_shader_vitality, vitality, blend)
-	RenderingServer.global_shader_parameter_set("flora_vitality", _shader_vitality)
+	# Set-on-change (perf 2026-07-09): the ease converges; skip the
+	# redundant RenderingServer push below a visible step.
+	if absf(_shader_vitality - _set_vitality) > 5e-4:
+		_set_vitality = _shader_vitality
+		RenderingServer.global_shader_parameter_set("flora_vitality", _shader_vitality)
 
 
 ## Where vitality wants to settle for a given season, ground moisture,

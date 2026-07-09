@@ -38,6 +38,11 @@ var enabled := false
 var force_amp := -1.0      # Toolkit knob: >= 0 pins the amplitude (meters)
 var force_surf := -1.0     # Toolkit knob: >= 0 pins the breaker foam boost
 var amp := 0.0             # live eased amplitude, meters
+# Last-pushed shader values (perf): set-on-change guards for _process.
+var _set_amp := -1e9
+var _set_len := -1e9
+var _set_dir := Vector2.INF
+var _set_boost := -1e9
 var wavelength := LEN_CALM # live eased primary wavelength, meters
 var direction := Vector2(1.0, 0.0)  # live eased travel direction
 var source := "wind"       # what owns the swell right now (Toolkit line)
@@ -63,11 +68,23 @@ func _process(delta: float) -> void:
 	wavelength = lerpf(wavelength, float(t.len), blend)
 	var target_dir: Vector2 = t.dir
 	direction = direction.rotated(direction.angle_to(target_dir) * blend).normalized()
-	RenderingServer.global_shader_parameter_set("swell_amp", amp)
-	RenderingServer.global_shader_parameter_set("swell_len", wavelength)
-	RenderingServer.global_shader_parameter_set("swell_dir", direction)
-	RenderingServer.global_shader_parameter_set("surf_boost",
-			force_surf if force_surf >= 0.0 else 1.0)
+	# Push to the shader only on visible change (perf 2026-07-09): the
+	# eases converge between weather shifts, and a sub-millimeter step is
+	# nothing the painting can show. The live vars above stay exact —
+	# only the redundant RenderingServer traffic is skipped.
+	if absf(amp - _set_amp) > 1e-4:
+		_set_amp = amp
+		RenderingServer.global_shader_parameter_set("swell_amp", amp)
+	if absf(wavelength - _set_len) > 1e-3:
+		_set_len = wavelength
+		RenderingServer.global_shader_parameter_set("swell_len", wavelength)
+	if direction.distance_squared_to(_set_dir) > 1e-8:
+		_set_dir = direction
+		RenderingServer.global_shader_parameter_set("swell_dir", direction)
+	var boost := force_surf if force_surf >= 0.0 else 1.0
+	if boost != _set_boost:
+		_set_boost = boost
+		RenderingServer.global_shader_parameter_set("surf_boost", boost)
 
 
 ## The energy math, pure + deterministic (scene-tested): swell at `focus`

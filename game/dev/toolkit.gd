@@ -147,7 +147,10 @@ func _ready() -> void:
 	_palette = Cards.placeable()  # card-driven PLACE palette (the Kit from cards)
 	hud_on = not viewer_requested()  # the viewer posture boots dark (P8)
 	if launch_requested():
-		get_tree().node_added.connect(_boot_watch)
+		if get_tree().get_first_node_in_group("player") != null:
+			_enter.call_deferred()  # world IS the main scene: player already here
+		else:
+			get_tree().node_added.connect(_boot_watch)
 
 
 ## Boot posture: open the Toolkit as soon as the world's player enters the

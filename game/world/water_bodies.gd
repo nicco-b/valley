@@ -135,8 +135,11 @@ func _build_river_mesh(r: Dictionary) -> void:
 	var mat := _material(Vector2.ZERO)
 	mat.set_shader_parameter("rapids_boost", 1.0)
 	mat.set_shader_parameter("flow_scale", _flow_speed(r.id))
+	# Mouth feather (S2): ribbons draw AFTER lake discs so the feathered
+	# alpha blends over the lake instead of racing it in the sort.
+	mat.render_priority = 1
 	mi.mesh = _ribbon(r.nodes, Terrain.river_levels[r.idx], float(r.depth),
-			r.get("falls", []))
+			r.get("falls", []), _mouth_for(r.nodes))
 	_river_built_level[r.id] = Terrain.river_levels[r.idx]
 	mi.mesh.surface_set_material(0, mat)
 	_river_mats[r.id] = mat
@@ -223,6 +226,24 @@ func _on_levels_changed() -> void:
 ## Stripe drift speed from real discharge: baseline ~1, floods ~2.
 func _flow_speed(river_id: String) -> float:
 	return 2.0 * Hydrology.flow_norm(river_id)
+
+
+## Mouth feather (S2, the flagged river-into-lake seam): if a river's
+## last node lands on a lake disc, the ribbon feathers into it — alpha
+## ramp + flow fade + surface dropped to the lake's LIVE level over the
+## last ~two widths, so the hyd rivers stop ending in drawn lines.
+## Returns {} for rivers that end anywhere else (the sea has W2 surf;
+## a dry wash just ends).
+func _mouth_for(nodes: Array) -> Dictionary:
+	if nodes.size() < 2 or OS.get_environment("WATER_NO_MOUTH") == "1":
+		return {}  # env gate: the probe's before/after A/B only
+	var last: Dictionary = nodes[nodes.size() - 1]
+	var lp: Vector2 = last.pos
+	for w in Terrain.water_bodies:
+		if lp.distance_to(w.center) < float(w.radius) + float(last.half) * 2.0:
+			return {"level": float(w.surface) + Terrain.lake_levels[w.idx],
+				"span": clampf(4.0 * float(last.half), 6.0, 30.0)}
+	return {}
 
 
 func _material(flow: Vector2) -> ShaderMaterial:
@@ -414,8 +435,13 @@ func _disc(radius: float, step: float = DISC_STEP) -> ArrayMesh:
 # then a backward max-scan from the mouth makes the surface monotone
 # downstream, pooling flat behind lips instead of running uphill.
 # Steep row-to-row drops are written into COLOR.r → shader rapids foam.
+# `mouth` (S2): {level: lake's live surface (absolute), span: meters} —
+# the last span of the ribbon feathers into its lake: COLOR.a ramps 1→0
+# (the shader honors it as ALPHA), UV2 flow fades to zero so advection
+# agrees, and the surface eases down to the lake level so the geometry
+# meets the disc instead of shelving over it.
 func _ribbon(nodes: Array, level: float, depth: float,
-		falls: Array = []) -> ArrayMesh:
+		falls: Array = [], mouth: Dictionary = {}) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	# Resample the polyline.
@@ -490,15 +516,36 @@ func _ribbon(nodes: Array, level: float, depth: float,
 					< FALL_FOAM_R + float(fl.drop):
 				rapids[i] = 1.0
 				break
+	# Mouth feather (S2): walk back from the end, ramping 0→1 over the
+	# span. The surface eases to the lake's live level (kept monotone —
+	# both lerp endpoints are) and the drawn line dissolves.
+	var feather := PackedFloat32Array(); feather.resize(final_rows.size())
+	feather.fill(1.0)
+	if not mouth.is_empty():
+		var span: float = mouth.span
+		var lake_local: float = float(mouth.level) - level
+		var dist := 0.0
+		for i in range(final_rows.size() - 1, -1, -1):
+			if i < final_rows.size() - 1:
+				dist += Vector2(final_rows[i][0]) \
+						.distance_to(Vector2(final_rows[i + 1][0]))
+			if dist >= span:
+				break
+			var tt := clampf(dist / span, 0.0, 1.0)
+			feather[i] = tt
+			final_rows[i][2] = lerpf(lake_local, float(final_rows[i][2]), tt)
 	# Emit rows of verts, stitch quads. UV2 is the FLOW MAP: downstream
 	# direction × a local pace (rapids race, pools laze) — the shader
 	# advects ripples and foam along it, scaled by the live discharge.
+	# COLOR carries rapids in .r and the mouth feather in .a.
 	for i in final_rows.size():
 		var row: Array = final_rows[i]
 		var perp: Vector2 = Vector2(-row[3].y, row[3].x)
-		st.set_color(Color(rapids[i], 0.0, 0.0))
+		# Rapids die with the feather too: the eased-to-lake drop must not
+		# read as white water while the ribbon dissolves.
+		st.set_color(Color(rapids[i] * feather[i], 0.0, 0.0, feather[i]))
 		var tan_v: Vector2 = row[3]
-		st.set_uv2(tan_v * (0.7 + 1.8 * rapids[i]))
+		st.set_uv2(tan_v * (0.7 + 1.8 * rapids[i]) * feather[i])
 		for k in RIBBON_ACROSS:
 			var u := (float(k) / (RIBBON_ACROSS - 1)) * 2.0 - 1.0
 			var p: Vector2 = row[0] + perp * (u * row[1])

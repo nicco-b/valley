@@ -509,6 +509,27 @@ lake discs (alpha + flow + level agreement); lake calm-band check.
 ✓ Foam born at a breaker rides ashore and dies on the sand in ~6 s; a
 lake at 400m is a quiet color field; a hyd river enters its lake with
 no drawn line. Soak untouched.
+*DONE 2026-07-09 (worktree agent).* The wave field is rg16f: G = foam
+history — every disturbance deposits past a 0.004m floor (chop stays
+clean; `WaveReference.foam_deposit` is the pure law), travelling
+crests re-deposit, the breaker band stipples via the SeaSwell CPU
+mirror (importance-sampled: the surf strip measured 1% of the window —
+uniform tries starve it), and the channel advects along one window
+drift (swell travel + focus current) with TIME-based decay
+(`foam_decay` ★ 6s: the kernel gets exp(-dt/τ), never a per-step
+constant — the DAMP lesson). Read as painted curds: a sqrt lift (paint
+thins, never dims) + age bands (`foam_posterize` ★ 6) composed AFTER
+the instant terms' 3-step quantize — the S1 posterize lesson bit
+twice: the first shoot's trails died under the floor. Distance fade
+shipped as uniforms (`foam_fade_near/far` 150/300m); mouth feather =
+COLOR.a ramp over the last ~2 widths + flow-to-zero + surface eased to
+the lake's live level + rapids dying with the feather (the level-drop
+lit them) + ribbons drawing after lakes (render_priority). Probes:
+wave_probe grew wake (3-shot linger/die + WAVE_FOAM τ A/B), breaker
+(2 shots 6s apart — the band rides ashore), far + mouth (each with a
+before: WAVE_FADE=off / WATER_NO_MOUTH=1), calm control still clean;
+foam_dbg.gd (THROWAWAY) reads the channel back numerically. Soak
+2814434129 unmoved.
 
 **S3 · Things float.** `SeaSwell.surface_at(x,z,t)` CPU mirror
 (scene-tested against the shader math on pinned cases); `FloatBody`

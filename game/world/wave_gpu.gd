@@ -5,6 +5,12 @@ extends RefCounted
 ## A 1024² damped wave-equation grid in a window that follows the focus:
 ## disturbances ring outward, the water shaders displace their vertices
 ## by the display texture. Presentation-only, like every GPU tier.
+## S2 (the water remembers): the field is TWO channels now — rg16f,
+## R = height (the wave equation, unchanged), G = foam memory. Every
+## disturbance deposits foam where it lands, crests re-deposit as they
+## travel, the whole channel decays on TIME (not steps — DAMP taught us
+## a per-frame constant lies at any other frame rate) and drifts along
+## one window-wide current so breaker foam rides ashore.
 
 # ★ Window size (PLAN_SUBSTANCES S1): a taste knob, not a budget one —
 # at 512²/64m a ring dies 32m out; 1024²/128m (+0.06 ms/step measured)
@@ -14,6 +20,7 @@ extends RefCounted
 const GRID := 1024
 const REGION := 128.0  # meters — 12.5cm texels, ripple-scale
 const MAX_OPS := 32
+const FOAM_OPS := 16  # foam-only deposits (breaker band) ride after the wave ops
 const K := 0.18  # c²dt²/dx², stable < 0.5
 const DAMP := 0.975  # settles faster: calm is what makes reactions legible
 
@@ -21,7 +28,7 @@ var display_texture: Texture2DRD
 
 var _rd: RenderingDevice
 var _pipeline := {}
-var _ring := []  # three r32f fields: indices rotate prev/curr/next
+var _ring := []  # three rg16f fields: indices rotate prev/curr/next
 var _display: RID
 var _ops_buffer: RID
 var _i := 0  # ring position: prev = _i, curr = _i+1, next = _i+2 (mod 3)
@@ -45,19 +52,20 @@ func setup() -> bool:
 	var fmt := RDTextureFormat.new()
 	fmt.width = GRID
 	fmt.height = GRID
-	fmt.format = RenderingDevice.DATA_FORMAT_R32_SFLOAT
+	fmt.format = RenderingDevice.DATA_FORMAT_R16G16_SFLOAT
 	fmt.usage_bits = RenderingDevice.TEXTURE_USAGE_STORAGE_BIT \
 		| RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT \
-		| RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT
+		| RenderingDevice.TEXTURE_USAGE_CAN_UPDATE_BIT \
+		| RenderingDevice.TEXTURE_USAGE_CAN_COPY_FROM_BIT  # probes may read back
 	for i in 3:
 		_ring.append(_rd.texture_create(fmt, RDTextureView.new()))
 	_display = _rd.texture_create(fmt, RDTextureView.new())
-	var zero := PackedFloat32Array()
-	zero.resize(GRID * GRID)
+	var zero := PackedByteArray()
+	zero.resize(GRID * GRID * 4)  # two f16 channels, all-zero
 	for t in _ring:
-		_rd.texture_update(t, 0, zero.to_byte_array())
+		_rd.texture_update(t, 0, zero)
 	var empty := PackedFloat32Array()
-	empty.resize(MAX_OPS * 4)
+	empty.resize((MAX_OPS + FOAM_OPS) * 4)
 	_ops_buffer = _rd.storage_buffer_create(empty.to_byte_array().size(),
 		empty.to_byte_array())
 	display_texture = Texture2DRD.new()
@@ -67,19 +75,24 @@ func setup() -> bool:
 
 
 ## One frame: stamp queued disturbances into curr, step the wave
-## equation, rotate the ring, publish to the display texture.
-func tick(ops: PackedFloat32Array, op_count: int) -> void:
+## equation (+ foam decay/advection), rotate the ring, publish.
+## `foam_decay_f` is this frame's exp(-dt/τ); `drift_texels` is the
+## window current in texels-per-step; `dt` feeds the crest deposit rate.
+func tick(ops: PackedFloat32Array, op_count: int, foam_count: int,
+		foam_decay_f: float, drift_texels: Vector2, dt: float) -> void:
 	if not _ok:
 		return
 	var curr: RID = _ring[(_i + 1) % 3]
-	if op_count > 0:
+	if op_count > 0 or foam_count > 0:
 		_rd.buffer_update(_ops_buffer, 0, ops.size() * 4, ops.to_byte_array())
 		var push := PackedByteArray()
-		push.append_array(PackedInt32Array([GRID, op_count, 0, 0]).to_byte_array())
+		push.append_array(PackedInt32Array([GRID, op_count, foam_count,
+			MAX_OPS]).to_byte_array())
 		_dispatch("wave_splat", [_image(curr, 0), _buffer(_ops_buffer, 1)], push)
 	var push2 := PackedByteArray()
 	push2.append_array(PackedInt32Array([GRID]).to_byte_array())
-	push2.append_array(PackedFloat32Array([K, DAMP, 0.0]).to_byte_array())
+	push2.append_array(PackedFloat32Array([K, DAMP, foam_decay_f,
+		drift_texels.x, drift_texels.y, dt, 0.0]).to_byte_array())
 	_dispatch("wave_step", [
 		_image(_ring[_i % 3], 0),
 		_image(curr, 1),

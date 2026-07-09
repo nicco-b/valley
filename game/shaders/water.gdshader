@@ -75,12 +75,29 @@ global uniform float wave_size;
 // a hound ring and a rain pock whole — held poses must never erase the
 // speaker. Retune by eye.
 uniform float ring_posterize = 8.0;
+// ★ Foam memory (PLAN_SUBSTANCES S2): wave_map.g is a foam HISTORY —
+// deposited by every disturbance, the breaker band, and travelling
+// crests; advected by the window drift; decaying on WaterWaves.foam_decay
+// seconds. Read here as painted curds: the age is quantized into bands
+// sized to the WEAKEST speaker (a swimmer's wake deposits ~0.10 — the
+// S1 posterize lesson: held poses must never erase the speaker), so
+// foam dies in visible steps, not a smooth fade. 0 = smooth history.
+uniform float foam_posterize = 6.0;
+const float FOAM_SPAN = 0.8;  // the band ladder covers this much LIFTED history
+// Foam distance-fade (S2, the "too white at distance" fix): far water is
+// painted stillness — every foam term fades out across this window, so a
+// lake at 400m reads as one quiet color field (gouache distance), not a
+// white shimmer of aliased posterized foam. Uniforms so the probe can
+// A/B the fade off (WAVE_FADE=off) — retune by eye, not by code.
+uniform float foam_fade_near = 150.0;
+uniform float foam_fade_far = 300.0;
 global uniform sampler2D trace_map;
 global uniform vec2 trace_center;
 global uniform float trace_size;
 
 varying vec3 wpos;
 varying float wave_h;
+varying float alpha_v;  // river-mouth feather (S2): COLOR.a ramps to 0
 varying float rapids_v;
 varying vec2 flow_v;
 varying float swell_crest;  // normalized crest phase, foams in storms
@@ -96,6 +113,7 @@ float wave_fade(vec2 uv) {
 
 void vertex() {
 	rapids_v = COLOR.r;
+	alpha_v = COLOR.a;  // 1 everywhere except a feathered river mouth
 	flow_v = UV2;
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	vec2 wuv = (wpos.xz - wave_center) / wave_size + 0.5;
@@ -247,6 +265,7 @@ void fragment() {
 	vec2 fp = fp1;  // foam/streak anchor rides the primary phase
 	vec2 wuv = (wpos.xz - wave_center) / wave_size + 0.5;
 	vec2 wgrad = vec2(0.0);
+	float foam_hist = 0.0;  // S2: the foam memory channel, read per-texel
 	if (all(greaterThan(wuv, vec2(0.02))) && all(lessThan(wuv, vec2(0.98)))) {
 		float px = 1.0 / float(textureSize(wave_map, 0).x);
 		float f = wave_fade(wuv);
@@ -254,6 +273,19 @@ void fragment() {
 			texture(wave_map, wuv + vec2(px, 0.0)).r - texture(wave_map, wuv - vec2(px, 0.0)).r,
 			texture(wave_map, wuv + vec2(0.0, px)).r - texture(wave_map, wuv - vec2(0.0, px)).r
 		) * f * 7.0;
+		foam_hist = texture(wave_map, wuv).g * f;
+		// The gouache lift: thin foam is still PAINT — a square root
+		// keeps the weakest speaker (a hound's minutes-old trail, a
+		// wake's edge) reading as curds while a saturated splash stays
+		// 1. Perceptual, not physical: paint thins, it never dims.
+		foam_hist = sqrt(clamp(foam_hist, 0.0, 1.0));
+		if (foam_posterize > 0.5) {
+			// The age dies in visible steps — painted curds that hold,
+			// then vanish (the gouache read), banded to the weakest
+			// speaker so a wake survives its own quantization.
+			float band = FOAM_SPAN / foam_posterize;
+			foam_hist = floor(foam_hist / band + 0.5) * band;
+		}
 	}
 	vec3 n_ws = normalize(vec3(
 			-rx * (0.3 + t * 0.5) - wgrad.x - swell_grad.x * 2.8, 1.0,
@@ -298,12 +330,27 @@ void fragment() {
 	foam += surf_v * (0.85 + 0.15 * sin(fp.x * 0.9 + fp.y * 1.3));
 	foam += after_v * (0.42 + 0.28 * sin(fp.x * 0.23 + fp.y * 0.31)
 			* sin(fp.x * 0.07 - fp.y * 0.11));
+	// Distance is stillness (S2): every foam term fades out with camera
+	// distance INTO the calm palette — far water is a flat color field,
+	// not a white shimmer. VERTEX is view-space here; its length is the
+	// camera distance.
+	float dist_still = 1.0 - smoothstep(foam_fade_near, foam_fade_far, length(VERTEX));
+	foam *= dist_still;
 	foam = floor(clamp(foam, 0.0, 1.0) * 3.0) / 3.0;  // stepped: gouache, not mist
+	// The memory (S2): foam born by events outlives them — a wake trails
+	// a swimmer, breaker curds ride ashore and die on the sand. Composed
+	// AFTER the 3-step quantize: the history carries its own age bands
+	// (foam_posterize above), and the instant terms' floor must never
+	// swallow a fading trail (the S1 lesson, twice now).
+	foam = max(foam, foam_hist * 0.85 * dist_still);
 	vec3 foam_col = pal_b * mix(1.04, 1.12, water_gold) + vec3(0.04 * water_gold + 0.01);
 	col = mix(col, foam_col, foam * 0.85);
 
 	ALBEDO = col;
-	ALPHA = 1.0;  // opaque composite; the screen read does the seeing-through
+	// The composite is opaque (the screen read does the seeing-through)
+	// everywhere but a feathered river mouth, where the ribbon dissolves
+	// into its lake disc (S2 — the mouth-seam fix).
+	ALPHA = alpha_v;
 	ROUGHNESS = mix(0.1, 0.5, foam);
 	SPECULAR = 0.5;
 }

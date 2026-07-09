@@ -21,6 +21,7 @@ func _ready() -> void:
 	_test_strata_water()
 	_test_water_field()
 	_test_wave_sources()
+	_test_foam_memory()
 	_test_flora()
 	_test_moon()
 	_test_wildlife()
@@ -1947,6 +1948,119 @@ func _test_wave_sources() -> void:
 	_check("ring_posterize" in wsh.code,
 		"ring posterize knob exists in the water shader")
 	_check(not WaterWaves.summary().is_empty(), "WAVES Toolkit line speaks")
+
+
+## PLAN_SUBSTANCES S2: the water remembers. The GPU field is off headless,
+## so these pin the foam SPEC — deposit law, TIME-based decay (the DAMP
+## lesson: a per-step constant decays at whatever the frame rate happens
+## to be), drift advection — on the CPU reference, plus the flagged-
+## eyesore fixes' presence: distance fade + foam-age posterize in the
+## shader, the mouth feather in the ribbon builder.
+func _test_foam_memory() -> void:
+	# The deposit law (wave_splat's foam term): chop under the floor
+	# leaves clean water; strides, wakes, splashes each leave their weight.
+	_check(WaveReference.foam_deposit(0.002) == 0.0,
+		"wind chop deposits no foam (under the floor)")
+	var wake := WaveReference.foam_deposit(0.012)
+	var stride := WaveReference.foam_deposit(WaterWaves.WADE_STRENGTH)
+	var splash := WaveReference.foam_deposit(0.09)
+	_check(wake > 0.0 and stride > wake and splash > stride,
+		"splash > stride > wake > chop — foam scales with the speaker")
+	# TIME-based decay: 6 seconds is 6 seconds whether it ran as 60
+	# small frames or 6 big ones — the same water, any frame rate.
+	var n := 16
+	var still := PackedFloat32Array()
+	still.resize(n * n)
+	var tau := 6.0
+	var f_small := still.duplicate()
+	var f_big := still.duplicate()
+	f_small[8 * n + 8] = 0.6
+	f_big[8 * n + 8] = 0.6
+	for i in 60:
+		f_small = WaveReference.foam_step(f_small, still, n,
+			exp(-0.1 / tau), Vector2.ZERO, 0.1)
+	for i in 6:
+		f_big = WaveReference.foam_step(f_big, still, n,
+			exp(-1.0 / tau), Vector2.ZERO, 1.0)
+	_check(absf(f_small[8 * n + 8] - 0.6 / exp(1.0)) < 0.01,
+		"foam falls to 1/e after τ seconds (%.3f)" % f_small[8 * n + 8])
+	_check(absf(f_small[8 * n + 8] - f_big[8 * n + 8]) < 1e-4,
+		"decay is a function of TIME, not steps (%.4f vs %.4f)" % [
+			f_small[8 * n + 8], f_big[8 * n + 8]])
+	# Drift: a curd pulled 0.5 texels/step for 8 steps rides 4 texels
+	# downstream — breaker foam's ride ashore, in miniature.
+	var f_drift := still.duplicate()
+	f_drift[8 * n + 4] = 1.0
+	for i in 8:
+		f_drift = WaveReference.foam_step(f_drift, still, n,
+			1.0, Vector2(0.5, 0.0), 0.0)
+	var cx := 0.0
+	var total := 0.0
+	for x in n:
+		cx += f_drift[8 * n + x] * x
+		total += f_drift[8 * n + x]
+	_check(total > 0.0 and absf(cx / total - 8.0) < 0.35,
+		"foam rides the drift (centroid %.2f, want 8)" % (cx / total))
+	# Travelling crests re-deposit: a field holding a crest above CREST_H
+	# feeds foam; still water feeds none.
+	var crest := still.duplicate()
+	crest[8 * n + 8] = 0.12
+	var fed := WaveReference.foam_step(still.duplicate(), crest, n,
+		1.0, Vector2.ZERO, 0.5)
+	_check(fed[8 * n + 8] > 0.0 and fed[8 * n + 9] == 0.0,
+		"a travelling crest re-deposits foam where it rides")
+	# GLSL lockstep: the kernel sources must carry the reference's
+	# constants (the compile check catches syntax; this catches drift).
+	var splat_src := FileAccess.get_file_as_string(
+		"res://game/shaders/compute/wave_splat.glsl")
+	var step_src := FileAccess.get_file_as_string(
+		"res://game/shaders/compute/wave_step.glsl")
+	_check("FOAM_FLOOR = 0.004" in splat_src and "FOAM_GAIN = 25.0" in splat_src,
+		"wave_splat.glsl carries the reference deposit constants")
+	_check("CREST_H = 0.05" in step_src and "CREST_GAIN = 6.0" in step_src,
+		"wave_step.glsl carries the reference crest constants")
+	# The knob is a knob, and time-based: the autoload hands the kernel
+	# exp(-dt/τ), never a bare per-frame constant.
+	_check(WaterWaves.foam_decay > 0.0, "foam_decay ★ knob exists (%.1fs)" % [
+		WaterWaves.foam_decay])
+	_check("foam" in WaterWaves.summary() or not WaterWaves.enabled,
+		"WAVES Toolkit line speaks foam")
+	# The flagged eyesores, fixed where a headless run can see them:
+	# distance fade + foam-age posterize live in the water shader...
+	var wsh: Shader = load("res://game/shaders/water.gdshader")
+	_check("foam_fade_near" in wsh.code and "foam_posterize" in wsh.code,
+		"water shader carries distance fade + foam-age posterize")
+	_check("ALPHA = alpha_v" in wsh.code,
+		"water shader honors the mouth feather alpha")
+	# ...and the mouth feather ramps the ribbon into its lake: alpha 1→0,
+	# flow to zero, surface down to the lake's live level.
+	var wb: Node3D = load("res://game/world/water_bodies.gd").new()
+	var nodes: Array = [
+		{"pos": Vector2(0, 0), "half": 3.0, "surface": 0.0},
+		{"pos": Vector2(36, 0), "half": 3.0, "surface": -0.5},
+	]
+	var mesh: ArrayMesh = wb._ribbon(nodes, 0.0, 1.0, [],
+		{"level": -3.0, "span": 12.0})
+	var arrays: Array = mesh.surface_get_arrays(0)
+	var cols: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+	var uv2: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var last := cols.size() - 1
+	_check(cols[0].a > 0.99, "ribbon head keeps full alpha")
+	_check(cols[last].a < 0.05, "ribbon mouth feathers to alpha 0")
+	_check(uv2[last].length() < 0.05, "mouth flow fades to zero (advection agrees)")
+	_check(absf(verts[last].y - (-3.0)) < 0.15,
+		"mouth surface drops to the lake's level (%.2f, want -3)" % verts[last].y)
+	var mid_alpha := cols[int(cols.size() / 2.0)].a
+	_check(mid_alpha > cols[last].a and mid_alpha <= 1.0,
+		"the feather is a ramp, not a cliff")
+	wb.free()
+	# A river that ends nowhere near a lake keeps a hard, honest end.
+	var wb2: Node3D = load("res://game/world/water_bodies.gd").new()
+	var plain: ArrayMesh = wb2._ribbon(nodes, 0.0, 1.0, [])
+	wb2.free()
+	var pcols: PackedColorArray = plain.surface_get_arrays(0)[Mesh.ARRAY_COLOR]
+	_check(pcols[pcols.size() - 1].a > 0.99, "a mouthless river never feathers")
 
 
 ## The wave_splat.glsl stamp as pure CPU math (cosine dent, hard rails)

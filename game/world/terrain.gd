@@ -1561,3 +1561,129 @@ func save_edits() -> void:
 	DirAccess.make_dir_recursive_absolute(dir)
 	_edits.save_exr(ProjectSettings.globalize_path(EDIT_PATH))
 	print("[terrain] edit layer saved")
+
+
+# --- Undo v2 (audit R3): region mementos for the paint layers. The
+# one-deep snapshot_* dups above take the WHOLE layer — fine for a single
+# live memento, ruinous for a bounded stack of strokes (a 2048² RF edit
+# layer is 16MB each). layer_region carves out just the painted rect — the
+# before/after sub-images the ToolkitHistory command holds — so a long
+# session's undo stack stays memory-flat. One helper spans the three
+# layers (edits / tile override / biome index map); the world→pixel
+# transform and the post-restore refresh are the only per-layer parts.
+
+
+## The pixel rect a world Rect2 covers in one paint layer's image (floor
+## the near edge, ceil the far, so a stroke's disc is fully enclosed).
+## Clamped to the image below; here it may run past the edges.
+func _layer_px_rect(layer: String, wr: Rect2) -> Rect2i:
+	match layer:
+		"edits":
+			var half := EDIT_SIZE * EDIT_M_PER_PX * 0.5
+			var x0 := floori((wr.position.x + half) / EDIT_M_PER_PX)
+			var z0 := floori((wr.position.y + half) / EDIT_M_PER_PX)
+			var x1 := ceili((wr.end.x + half) / EDIT_M_PER_PX)
+			var z1 := ceili((wr.end.y + half) / EDIT_M_PER_PX)
+			return Rect2i(x0, z0, x1 - x0, z1 - z0)
+		"override":
+			if _tile_override == null:
+				return Rect2i()
+			var oscale := (_tile_override.get_width() - 1) / _ov_size
+			var x0 := floori((wr.position.x - _ov_x0) * oscale)
+			var z0 := floori((wr.position.y - _ov_z0) * oscale)
+			var x1 := ceili((wr.end.x - _ov_x0) * oscale)
+			var z1 := ceili((wr.end.y - _ov_z0) * oscale)
+			return Rect2i(x0, z0, x1 - x0, z1 - z0)
+		"biome":
+			if _biome_res <= 0:
+				return Rect2i()
+			var scale := _biome_res / _biome_size
+			var x0 := floori((wr.position.x - _biome_origin.x) * scale)
+			var z0 := floori((wr.position.y - _biome_origin.y) * scale)
+			var x1 := ceili((wr.end.x - _biome_origin.x) * scale)
+			var z1 := ceili((wr.end.y - _biome_origin.y) * scale)
+			return Rect2i(x0, z0, x1 - x0, z1 - z0)
+	return Rect2i()
+
+
+func _layer_image(layer: String) -> Image:
+	match layer:
+		"edits": return _edits
+		"override": return _tile_override
+		"biome": return _biome_img
+	return null
+
+
+## Capture a region memento of a paint layer: the sub-image covering
+## `world_rect` plus the pixel rect it occupies. `src` defaults to the live
+## layer; pass a pre-stroke WHOLE-layer snapshot to grab the BEFORE image at
+## the exact rect the AFTER capture (src=null) will use. {} when the layer
+## is absent or the rect misses it entirely — the caller pushes nothing.
+func layer_region(layer: String, world_rect: Rect2, src: Image = null) -> Dictionary:
+	var img: Image = src if src != null else _layer_image(layer)
+	if img == null or world_rect.size == Vector2.ZERO:
+		return {}
+	var px := _layer_px_rect(layer, world_rect)
+	px = px.intersection(Rect2i(0, 0, img.get_width(), img.get_height()))
+	if px.size.x <= 0 or px.size.y <= 0:
+		return {}
+	return {"layer": layer, "rect": px, "world": world_rect,
+		"img": img.get_region(px)}
+
+
+## Blit a region memento back into its layer and refresh exactly what
+## changed (the same repaint each restore_* does, scoped to the rect). The
+## inverse-of-inverse identity the undo tests pin rides this: a before/after
+## pair captured at one rect restores bit-exact.
+func restore_layer_region(mem: Dictionary) -> void:
+	if mem.is_empty():
+		return
+	var layer := String(mem["layer"])
+	var rect: Rect2i = mem["rect"]
+	var world: Rect2 = mem["world"]
+	var sub: Image = mem["img"]
+	var dst := _layer_image(layer)
+	if dst == null:
+		return
+	dst.blit_rect(sub, Rect2i(Vector2i.ZERO, rect.size), rect.position)
+	match layer:
+		"edits":
+			if kernel:
+				_init_kernel()  # the kernel reads the whole edit layer
+			edited.emit(world)
+		"override":
+			# Grow the persisted dirty rect so save_tile_override writes the
+			# reverted region, then recomposite base+override over it.
+			_override_rect = world if _override_rect.size == Vector2.ZERO \
+					else _override_rect.merge(world)
+			commit_tile_override(world)
+		"biome":
+			_biome_idx_tex.update(_biome_img)
+			edited.emit(world)  # re-flora the reverted region
+
+
+## Remove a runtime-penned river by id (undo v2: the carve joins the undo
+## stack). Erases it, REINDEXES the survivors — river.idx is a slot into
+## river_levels, so a hole would misread — resets the levels (Hydrology's
+## region tier rewrites them next tick), rebuilds the kernel so the carve
+## lifts out of the ground, and invalidates the river's span. no_sim penned
+## rivers only in practice; returns whether anything was removed.
+func remove_river(id: String) -> bool:
+	var found := -1
+	for i in rivers.size():
+		if String(rivers[i].id) == id:
+			found = i
+			break
+	if found < 0:
+		return false
+	var bbox: Rect2 = rivers[found].bbox
+	rivers.remove_at(found)
+	for i in rivers.size():
+		rivers[i].idx = i
+	river_levels.resize(rivers.size())
+	for i in rivers.size():
+		river_levels[i] = 0.0
+	if kernel:
+		_init_kernel()  # fresh instance sees the shortened river set
+	edited.emit(bbox)
+	return true

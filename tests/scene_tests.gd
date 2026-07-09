@@ -35,9 +35,11 @@ func _ready() -> void:
 	_test_placement_reseat()
 	_test_cell_records_armor()
 	_test_import_frame_refusal()
-	_test_biome_undo()
-	await _test_toolkit_undo()
+	_test_layer_region()
+	_test_toolkit_history()
+	_test_undo_footgun()
 	_test_placement_edit()
+	_test_river_undo()
 	_test_overrides_emit()
 	_test_edit_flush()
 	await _test_threshold()
@@ -289,12 +291,12 @@ func _test_toolkit_verbs(peer: StreamPeerTCP) -> void:
 	var hreplies := await _link_send(peer, ["hud on"])
 	_check(hreplies.size() == 1 and hreplies[0] == "ok hud on" and HUD.visible
 		and Toolkit._hud.visible, "hud on relights both overlays")
-	# One Z over the wire (contract v2): the same per-tool memento
-	# dispatch as the key — sculpt with no memento is the honest no-op,
-	# and the reply names the tool it dispatched to.
+	# One Z over the wire (undo v2): the shared stack the key drives. Empty
+	# here (cleared) — the honest "nothing" no-op, never a cross-tool delete.
+	ToolkitHistory.clear()
 	var ureplies := await _link_send(peer, ["toolkit undo"])
-	_check(ureplies.size() == 1 and ureplies[0] == "ok undo sculpt",
-		"toolkit undo answers the tool it dispatched to (got %s)" % str(ureplies))
+	_check(ureplies.size() == 1 and ureplies[0] == "ok undo nothing",
+		"toolkit undo answers 'nothing' on an empty stack (got %s)" % str(ureplies))
 	# The place slot rides the Cards palette (skip empty: fresh clone
 	# without the placeholder drop still has the tracked cards, but honest).
 	var count := int(Toolkit.link_state()["place_count"])
@@ -513,7 +515,7 @@ func _test_inspect_notices(peer: StreamPeerTCP) -> void:
 	HUD.prompt("")
 	HUD._notice.visible = false
 	Toolkit._deselect()
-	Toolkit._place_undo = {}
+	ToolkitHistory.clear()
 	CellRecords.remove(cell, String(rec["id"]))
 	var cell_path := "%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]
 	if FileAccess.file_exists(cell_path):
@@ -1122,128 +1124,229 @@ func _test_placement_reseat() -> void:
 			"%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]))
 
 
-## The biome pen's Z (audit quick win 2): one pre-stroke memento, the
-## exact sculpt pattern — paint a stroke, tap Z, and the index map
-## returns bit-identical; the memento is one-deep and consumed.
-func _test_biome_undo() -> void:
-	if Terrain._biome_img == null:
-		print("  biome undo: SKIP (no biome map on this checkout)")
-		return
-	var p := Vector2(1200.0, 1200.0)
-	var before: int = Terrain.biome_at(p.x, p.y)
-	var before_img: PackedByteArray = Terrain._biome_img.get_data()
-	Toolkit._tool = Toolkit.Tool.BIOME
-	Toolkit._biome_index = (before + 1) % Terrain.biomes.size()
-	Toolkit._macro_radius = 120.0
-	Toolkit._biome_paint_at(Vector3(p.x, 0.0, p.y))
-	_check(Terrain.biome_at(p.x, p.y) == Toolkit._biome_index,
-		"biome pen paints the picked index")
-	_check(Toolkit._biome_undo != null, "stroke start takes the Z memento")
-	_check(Toolkit._biome_unsaved, "a stroke marks the biome map unsaved")
-	Toolkit._biome_stroke = false  # stroke released
-	Toolkit._undo()
-	_check(Terrain.biome_at(p.x, p.y) == before, "Z reverts the biome stroke")
-	_check(Terrain._biome_img.get_data() == before_img,
-		"undo returns a bit-identical index map")
-	_check(Toolkit._biome_undo == null, "the memento is one-deep (consumed)")
-	# A second Z has nothing left: a safe no-op, never a deletion.
-	Toolkit._undo()
-	_check(Terrain._biome_img.get_data() == before_img,
-		"Z on an empty biome memento changes nothing")
-	# Leave no pending flush: memory equals disk again after the revert.
-	Toolkit._biome_unsaved = false
-	Toolkit._biome_dirty = Rect2()
-	Toolkit._tool = Toolkit.Tool.SCULPT
-	Toolkit._biome_index = 4
-	Toolkit._macro_radius = 160.0
+## Undo v2 (audit R3) — the pens' region mementos. layer_region carves out
+## just the painted rect (tile RECTS, not whole tiles: a bounded stack of
+## strokes stays memory-flat), and restore_layer_region blits it back. The
+## inverse-of-inverse identity for the three paint layers: capture BEFORE,
+## mutate, capture AFTER, restore before -> bit-identical to the original,
+## restore after -> the mutation returns. In-memory only (never saved), and
+## the original is restored last, so the checkout's layers are untouched.
+func _test_layer_region() -> void:
+	# EDITS layer: always present (the sculpt edit layer).
+	var wr := Rect2(480.0, 480.0, 240.0, 240.0)
+	var orig_e: PackedByteArray = Terrain.layer_region("edits", wr).img.get_data()
+	var before_e: Dictionary = Terrain.layer_region("edits", wr)
+	Terrain.apply_brush(Vector3(600.0, 0.0, 600.0), 80.0, 6.0)
+	var after_e: Dictionary = Terrain.layer_region("edits", wr)
+	_check(after_e.img.get_data() != orig_e, "apply_brush changes the edits region")
+	Terrain.restore_layer_region(before_e)
+	_check(Terrain.layer_region("edits", wr).img.get_data() == orig_e,
+		"restore(before) returns the edits region bit-identical")
+	Terrain.restore_layer_region(after_e)
+	_check(Terrain.layer_region("edits", wr).img.get_data() == after_e.img.get_data(),
+		"restore(after) re-applies the edits mutation")
+	Terrain.restore_layer_region(before_e)  # leave the checkout's layer clean
+
+	# OVERRIDE layer: only with a baked world tile loaded.
+	if Terrain.has_world_tile():
+		var pre := Terrain.snapshot_tile_override()  # ensures the layer exists
+		var orig_o: PackedByteArray = Terrain.layer_region("override", wr).img.get_data()
+		var before_o: Dictionary = Terrain.layer_region("override", wr)
+		Terrain.paint_tile_override(Vector2(600.0, 600.0), 80.0, 5.0)
+		var after_o: Dictionary = Terrain.layer_region("override", wr)
+		_check(after_o.img.get_data() != orig_o, "paint changes the override region")
+		Terrain.restore_layer_region(before_o)
+		_check(Terrain.layer_region("override", wr).img.get_data() == orig_o,
+			"restore(before) returns the override region bit-identical")
+		Terrain.restore_layer_region(after_o)
+		_check(Terrain.layer_region("override", wr).img.get_data() == after_o.img.get_data(),
+			"restore(after) re-applies the override mutation")
+		Terrain.restore_layer_region(before_o)
+		Terrain.restore_tile_override(pre)  # full clean-up, override untouched
+	else:
+		print("  layer region: override sub-check SKIP (no baked tile)")
+
+	# BIOME layer: only with a biome index map.
+	if Terrain._biome_img != null:
+		var orig_b: PackedByteArray = Terrain.layer_region("biome", wr).img.get_data()
+		var before_b: Dictionary = Terrain.layer_region("biome", wr)
+		var idx := (Terrain.biome_at(600.0, 600.0) + 1) % Terrain.biomes.size()
+		Terrain.paint_biome_index(600.0, 600.0, 80.0, idx)
+		var after_b: Dictionary = Terrain.layer_region("biome", wr)
+		_check(after_b.img.get_data() != orig_b, "paint changes the biome region")
+		Terrain.restore_layer_region(before_b)
+		_check(Terrain.layer_region("biome", wr).img.get_data() == orig_b,
+			"restore(before) returns the biome region bit-identical")
+		Terrain.restore_layer_region(after_b)
+		_check(Terrain.layer_region("biome", wr).img.get_data() == after_b.img.get_data(),
+			"restore(after) re-applies the biome mutation")
+		Terrain.restore_layer_region(before_b)  # leave the biome map clean
+	else:
+		print("  layer region: biome sub-check SKIP (no biome map)")
 
 
-## The Z dispatch (audit quick win 1, the footgun): every tool answers Z
-## for ITSELF — Z in biome mode must never fall through to a placement
-## delete, Z with an empty memento is a no-op, and PLACE keeps its LIFO
-## remove. A real physics floor gives the cursor ray ground to hit, so
-## the OLD fallthrough would genuinely have deleted the record.
-func _test_toolkit_undo() -> void:
-	var player := CharacterBody3D.new()
-	player.add_to_group("player")
-	add_child(player)
-	var floor_body := StaticBody3D.new()
-	floor_body.collision_layer = 1  # world layer — what _ray_to_ground casts at
-	var shape := CollisionShape3D.new()
-	var box := BoxShape3D.new()
-	box.size = Vector3(500.0, 1.0, 500.0)
-	shape.shape = box
-	floor_body.add_child(shape)
-	floor_body.position = Vector3(700.0, -0.5, 700.0)
-	add_child(floor_body)
-	Toolkit._enter()
-	_check(Toolkit.active, "toolkit enters for the undo test")
-	Toolkit._cam.global_position = Vector3(700.0, 40.0, 700.0)
-	Toolkit._pitch = -1.55  # straight down at the floor
-	Toolkit._yaw = 0.0
-	# Applied directly too: _process may not run between physics frames.
-	Toolkit._cam.rotation = Vector3(Toolkit._pitch, Toolkit._yaw, 0.0)
-	await get_tree().physics_frame
-	await get_tree().physics_frame
-	Toolkit._cam.rotation = Vector3(Toolkit._pitch, Toolkit._yaw, 0.0)
-	var hit: Vector3 = Toolkit._ray_to_ground()
-	_check(hit != Vector3.INF, "cursor ray hits the test floor")
-	if hit == Vector3.INF:
-		Toolkit.active = false
-		player.remove_from_group("player")
-		player.queue_free()
-		floor_body.queue_free()
-		return
-	var cell: Vector2i = CellRecords.cell_of(hit)
+## Undo v2 (audit R3) — the bounded command stack itself, on synthetic
+## actions (label + undo/redo Callables). Undo pops newest-first and pushes
+## to the redo stack; a fresh push forks the timeline (redo cleared); the
+## stack is bounded to CAP and the oldest drops off the bottom; empty
+## undo/redo are safe no-ops.
+func _test_toolkit_history() -> void:
+	ToolkitHistory.clear()
+	var log: Array[String] = []
+	var mk := func(name: String) -> Dictionary:
+		return {"label": name,
+			"undo": func() -> void: log.append("-" + name),
+			"redo": func() -> void: log.append("+" + name)}
+	ToolkitHistory.push(mk.call("a"))
+	ToolkitHistory.push(mk.call("b"))
+	ToolkitHistory.push(mk.call("c"))
+	_check(ToolkitHistory.depth() == 3, "three actions on the stack")
+	_check(ToolkitHistory.peek_undo_label() == "c", "peek names the newest action")
+	_check(ToolkitHistory.undo() and log[-1] == "-c", "undo pops the newest first")
+	_check(ToolkitHistory.undo() and log[-1] == "-b", "undo walks back")
+	_check(ToolkitHistory.can_redo() and ToolkitHistory.peek_redo_label() == "b",
+		"an undone action is redoable")
+	_check(ToolkitHistory.redo() and log[-1] == "+b", "redo re-applies it")
+	# A fresh push forks the timeline — the redo of c is gone.
+	ToolkitHistory.push(mk.call("d"))
+	_check(not ToolkitHistory.can_redo(), "a new action clears the redo stack")
+	_check(ToolkitHistory.depth() == 3, "the stack is a, b, d")
+	# Empty-stack honesty.
+	ToolkitHistory.clear()
+	_check(not ToolkitHistory.undo() and not ToolkitHistory.redo(),
+		"undo/redo on an empty stack are safe no-ops")
+	# Bounded: the oldest drops when the cap is reached.
+	for i in ToolkitHistory.CAP + 5:
+		ToolkitHistory.push(mk.call("f%d" % i))
+	_check(ToolkitHistory.depth() == ToolkitHistory.CAP,
+		"the stack is bounded to CAP (got %d)" % ToolkitHistory.depth())
+	var steps := 0
+	while ToolkitHistory.undo():
+		steps += 1
+	_check(steps == ToolkitHistory.CAP, "undo walks back exactly CAP steps, no more")
+	ToolkitHistory.clear()
+
+
+## Undo v2 (audit R3) — the cross-tool footgun dies BY CONSTRUCTION. The
+## old Z dispatch fell through to CellRecords.remove_last, so Z in biome
+## mode silently deleted a placed object. Now undo pops the last ACTION off
+## the shared stack, never the current mode's guess: paint a biome stroke,
+## press Z, and the biome reverts while every placement lives — in ANY tool,
+## and on an empty stack Z touches nothing. The biome stroke's inverse-of-
+## inverse identity rides along.
+func _test_undo_footgun() -> void:
+	ToolkitHistory.clear()
+	# A placement that must survive every Z below (a far synthetic cell).
+	var px := 707.0 * 128.0
+	var pz := 707.0 * 128.0
+	var cell: Vector2i = CellRecords.cell_of(Vector3(px, 0.0, pz))
 	var pre: int = CellRecords.records(cell).size()
-	CellRecords.add(hit, "test_kit", 0.0, 1.0)
-	_check(CellRecords.records(cell).size() == pre + 1, "test placement lands")
-	# THE footgun: Z in biome mode with nothing painted. The old default
-	# branch reached CellRecords.remove_last and deleted the placement.
-	Toolkit._tool = Toolkit.Tool.BIOME
-	Toolkit._biome_undo = null
-	Toolkit._undo()
+	CellRecords.add(Vector3(px, Terrain.height(px, pz), pz), "test_kit", 0.0, 1.0)
+	_check(CellRecords.records(cell).size() == pre + 1, "the test placement lands")
+
+	if Terrain._biome_img != null:
+		var b := Vector2(1200.0, 1200.0)
+		var before_i: int = Terrain.biome_at(b.x, b.y)
+		var before_img: PackedByteArray = Terrain._biome_img.get_data()
+		Toolkit._tool = Toolkit.Tool.BIOME
+		Toolkit._biome_index = (before_i + 1) % Terrain.biomes.size()
+		Toolkit._macro_radius = 120.0
+		var d0 := ToolkitHistory.depth()
+		Toolkit._biome_paint_at(Vector3(b.x, 0.0, b.y))
+		_check(Terrain.biome_at(b.x, b.y) == Toolkit._biome_index,
+			"biome pen paints the picked index")
+		Toolkit._commit_biome_stroke()  # stroke release: pushes the action
+		_check(ToolkitHistory.depth() == d0 + 1, "a biome stroke pushes ONE action")
+		var painted: int = Toolkit._biome_index
+		# THE footgun scenario: Z while in biome mode. The old code deleted
+		# the placement; the stack pops the biome action instead.
+		Toolkit._undo()
+		_check(CellRecords.records(cell).size() == pre + 1,
+			"Z in biome mode never deletes a placement (footgun dead by construction)")
+		_check(Terrain.biome_at(b.x, b.y) == before_i, "Z reverts the biome stroke")
+		_check(Terrain._biome_img.get_data() == before_img,
+			"undo returns a bit-identical index map")
+		# Shift+Z re-applies it; then undo back to leave the map clean.
+		Toolkit._redo()
+		_check(Terrain.biome_at(b.x, b.y) == painted, "redo re-applies the biome stroke")
+		Toolkit._undo()
+		Toolkit._biome_unsaved = false
+		ToolkitHistory.clear()
+	else:
+		print("  undo footgun: biome sub-check SKIP (no biome map)")
+
+	# An empty stack: Z in EVERY tool is a no-op — no LIFO fallback, no
+	# placement ever dies (the removed cross-tool door stays shut).
+	ToolkitHistory.clear()
+	for t in [Toolkit.Tool.BIOME, Toolkit.Tool.SCULPT, Toolkit.Tool.TERRAIN,
+			Toolkit.Tool.PLACE, Toolkit.Tool.RIVER]:
+		Toolkit._tool = t
+		Toolkit._undo()
+		Toolkit._redo()
 	_check(CellRecords.records(cell).size() == pre + 1,
-		"Z in biome mode never deletes a placement")
-	# Empty mementos elsewhere: safe no-ops too.
-	Toolkit._tool = Toolkit.Tool.RIVER
-	Toolkit._undo()
+		"Z/Shift+Z with an empty stack deletes nothing, in any tool")
+
+	# Teardown: pop the placement, remove the file if the test created it.
+	# Direct tool set — the hand was never _enter()ed, so _update_hud's
+	# label doesn't exist (set_tool would touch it).
 	Toolkit._tool = Toolkit.Tool.SCULPT
-	Toolkit._sculpt_undo = null
-	Toolkit._undo()
-	Toolkit._tool = Toolkit.Tool.TERRAIN
-	Toolkit._pen_undo = null
-	Toolkit._undo()
-	_check(CellRecords.records(cell).size() == pre + 1,
-		"Z with empty mementos deletes nothing anywhere")
-	# PLACE keeps its LIFO remove — and empties honestly (no crash, notice).
-	Toolkit._tool = Toolkit.Tool.PLACE
-	Toolkit._undo()
-	_check(CellRecords.records(cell).size() == pre, "Z in place mode removes the record")
-	if pre == 0:
-		Toolkit._undo()  # nothing left: the honest no-op path
-		_check(CellRecords.records(cell).size() == 0,
-			"Z in place mode on an empty cell is a no-op")
+	Toolkit._biome_index = 4  # the boot default the link's status test expects
+	Toolkit._macro_radius = 160.0
+	Toolkit._biome_unsaved = false
+	CellRecords.remove_last(cell)
+	if CellRecords.records(cell).is_empty() and pre == 0:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(
 			"%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]))
-	# Teardown (the _test_toolkit_verbs pattern: no _exit — it wants the
-	# real player rig and would save layers to the checkout). Degrouped
-	# immediately: queue_free only lands at frame end, and a stale grouped
-	# player would shadow the next test's real rig.
-	Toolkit.set_tool("sculpt")
-	Toolkit.active = false
-	player.remove_from_group("player")
-	player.queue_free()
-	floor_body.queue_free()
+	ToolkitHistory.clear()
 
 
-## Placement editing v2 (audit #1): the hand edits what it placed.
-## Pick = nearest record within reach; move keeps the ground offset
-## (the ground-relative law) and migrates cell files across a boundary;
-## rotate/scale are data edits; delete is TARGETED (never LIFO); Z
-## reverts each through the one-deep {record-id, before-state} memento;
-## yaw/scale/id survive a save/load round trip; legacy rows are named
-## the moment they're picked. Synthetic far-off cells, no files left.
+## Undo v2 (audit R3) — a carved river joins the stack (node ops). Enter
+## carves and writes pen_N.json; undo lifts the river out (Terrain
+## .remove_river rebuilds the kernel, the file goes, the ground returns);
+## redo re-carves from the record. Ends erased — no river, no file, so the
+## soak never sees a penned channel this test made.
+func _test_river_undo() -> void:
+	ToolkitHistory.clear()
+	var before_n: int = Terrain.rivers.size()
+	var mid := Vector2(2000.0, 2060.0)
+	var h_pre: float = Terrain.height(mid.x, mid.y)
+	Toolkit._carve_river([Vector2(2000.0, 2000.0), Vector2(2000.0, 2120.0)])
+	if Terrain.rivers.size() != before_n + 1:
+		print("  river undo: SKIP (course too short / no carve)")
+		ToolkitHistory.clear()
+		return
+	_check(ToolkitHistory.depth() == 1, "the carve pushes one action")
+	var carved_id := String(Terrain.rivers.back().id)
+	var pen_path := "res://data/water/rivers/%s.json" % carved_id
+	_check(FileAccess.file_exists(pen_path), "the carve writes its pen file")
+	_check(Terrain.height(mid.x, mid.y) <= h_pre + 0.001, "the carve never raises the ground")
+	# Undo: river out, file gone, ground back.
+	Toolkit._undo()
+	_check(Terrain.rivers.size() == before_n, "undo removes the river")
+	_check(not FileAccess.file_exists(pen_path), "undo deletes the pen file")
+	_check(absf(Terrain.height(mid.x, mid.y) - h_pre) < 0.01,
+		"undo restores the ground the carve lowered")
+	# Redo: back.
+	Toolkit._redo()
+	_check(Terrain.rivers.size() == before_n + 1, "redo re-carves the river")
+	_check(FileAccess.file_exists(pen_path), "redo rewrites the pen file")
+	# Leave clean: undo again, and belt-and-braces delete the file.
+	Toolkit._undo()
+	_check(Terrain.rivers.size() == before_n, "final undo leaves no river")
+	if FileAccess.file_exists(pen_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(pen_path))
+	ToolkitHistory.clear()
+	Toolkit._tool = Toolkit.Tool.SCULPT  # direct: the hand was never entered
+
+
+## Placement editing v2 (audit #1) over undo v2 (audit R3): the hand edits
+## what it placed. Pick = nearest record within reach; move keeps the
+## ground offset (the ground-relative law) and migrates cell files across a
+## boundary; rotate/scale are data edits; delete is TARGETED (never LIFO);
+## each pushes a record action onto the shared stack, and Z reverts the last
+## by before/after state (cell migration and all); yaw/scale/id survive a
+## save/load round trip; legacy rows are named the moment they're picked.
+## Synthetic far-off cells, no files left.
 func _test_placement_edit() -> void:
 	var player := CharacterBody3D.new()
 	player.add_to_group("player")
@@ -1251,6 +1354,7 @@ func _test_placement_edit() -> void:
 	Toolkit._enter()
 	_check(Toolkit.active, "toolkit enters for the placement-edit test")
 	Toolkit._tool = Toolkit.Tool.PLACE
+	ToolkitHistory.clear()  # a clean stream: each edit below is one step back
 	var x := 903.0 * 128.0
 	var z := 900.0 * 128.0
 	var cell: Vector2i = CellRecords.cell_of(Vector3(x, 0.0, z))
@@ -1337,15 +1441,15 @@ func _test_placement_edit() -> void:
 	_check(not CellRecords.record(cell, id1).is_empty(), "Z returns the deleted record")
 	_check(Toolkit._sel_id == id1, "the returned record is the selection again")
 
-	# Place memento: _place_at records {op place}; Z removes THAT record
-	# by id even under a newer sibling — never the LIFO tail. Needs the
-	# palette (cards are tracked; resolve can still miss binaries — skip
+	# Place action: _place_at pushes {before {}, after rec}; Z removes THAT
+	# record by id even under a newer sibling — never the LIFO tail. Needs
+	# the palette (cards are tracked; resolve can still miss binaries — skip
 	# honestly, the targeted machinery is covered above either way).
 	if not Toolkit._palette.is_empty():
 		var pre: int = CellRecords.records(cell).size()
 		Toolkit._place_at(Vector3(x + 5.0, Terrain.height(x + 5.0, z), z))
 		if CellRecords.records(cell).size() == pre + 1:
-			var placed_id := String(Toolkit._place_undo["id"])
+			var placed_id := String(CellRecords.records(cell).back()["id"])
 			var r3: Dictionary = CellRecords.add(
 				Vector3(x + 7.0, Terrain.height(x + 7.0, z), z), "kit_c", 0.0, 1.0)
 			Toolkit._undo()
@@ -1368,7 +1472,7 @@ func _test_placement_edit() -> void:
 
 	# Leave no trace: pop everything, remove the files the test created.
 	Toolkit._deselect()
-	Toolkit._place_undo = {}
+	ToolkitHistory.clear()
 	CellRecords.flush()
 	for c: Vector2i in [cell, ncell]:
 		while CellRecords.remove_last(c):

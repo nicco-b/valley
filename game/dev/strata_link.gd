@@ -109,11 +109,22 @@ extends Node
 ##                               toolkit on|off", idempotent). Entering
 ##                               with no player in the world (title
 ##                               screen) errs "err no player in tree".
-##   toolkit undo             -> one Z, remotely (Strata's Undo In Game):
-##                               the same per-tool memento dispatch as
-##                               the key — replies "ok undo <tool>"; a
-##                               mode with nothing to undo notices via
-##                               the `notices` drain instead of acting.
+##   undo / redo              -> one step back / forward through the in-game
+##                               undo stream (undo v2, audit R3) — Strata's
+##                               ⌘Z / ⇧⌘Z when the pane is front in builder
+##                               mode. ONE bounded command stack every hand
+##                               tool pushes to (sculpt/terrain/biome region
+##                               mementos, place/delete/move record ops, the
+##                               carved river), so the old cross-tool footgun
+##                               cannot exist: undo pops the last ACTION,
+##                               never the current mode's guess. Replies "ok
+##                               undo <tool>" / "ok redo <tool>" naming what
+##                               moved, or "ok undo nothing" on an empty
+##                               stack. Answers in every posture (the stack
+##                               is the editor's, not the hand's).
+##   toolkit undo             -> the same step-back, under the toolkit verb
+##                               (Strata's Undo In Game menu, ⌥⌘Z); an alias
+##                               of `undo`, gated on the hand.
 ##   toolkit tool <name>      -> switch the active tool
 ##                               (sculpt|place|terrain|biome|river)
 ##   toolkit brush <m>        -> set the active tool's brush radius in
@@ -216,7 +227,7 @@ const PROTOCOL := 1
 const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
 	"teleport", "screenshot", "weather", "time", "preview_world",
 	"preview_mesh", "camera", "view", "view_layer", "probe", "toolkit", "hud",
-	"panel", "inspect", "notices", "overrides", "state"]
+	"panel", "inspect", "notices", "overrides", "state", "undo", "redo"]
 
 ## Actual port (STRATA_LINK_PORT env overrides — a second instance, e.g.
 ## the P3.5 embedded pane or a probe, gets its own link beside the game).
@@ -308,6 +319,10 @@ func _execute(line: String) -> String:
 			if tile == "failed":
 				return "err reload failed: tile did not reload (old tile stays live)"
 			Terrain.reload_biomes()
+			# The undo stack's mementos point at the world that just changed
+			# under them — a reverted stroke over a fresh tile would be
+			# garbage. Disk is the truth across a reload; the stream restarts.
+			ToolkitHistory.clear()
 			return "ok reloaded tile=%s biomes" % ("yes" if tile == "reloaded" else "no-tile")
 		"teleport":
 			if parts.size() < 3:
@@ -404,6 +419,18 @@ func _execute(line: String) -> String:
 				drained += "\t" + "\t".join(_notices)
 			_notices.clear()
 			return drained
+		"undo":
+			# One step back through the in-game undo stream (undo v2, audit
+			# R3) — Strata's ⌘Z when the pane is front in builder mode. The
+			# ONE stack every hand tool pushes to; the reply names the tool
+			# whose action reverted, "nothing" when the stack is empty.
+			var undone := Toolkit.undo_last()
+			return "ok undo %s" % (undone if undone != "" else "nothing")
+		"redo":
+			# One step forward (Strata's ⇧⌘Z) — re-applies the last undone
+			# action; "nothing" when there is nothing to redo.
+			var redone := Toolkit.redo_last()
+			return "ok redo %s" % (redone if redone != "" else "nothing")
 		_:
 			return "err unknown verb '%s'" % parts[0]
 
@@ -451,10 +478,11 @@ func _toolkit(parts: PackedStringArray) -> String:
 				",".join(cats) if not cats.is_empty() else "-",
 				int(s["river"])]
 		"undo":
-			# One Z, remotely — the same per-tool memento dispatch as the
-			# key (a no-op mode notices via the `notices` drain).
-			Toolkit.undo_last()
-			return "ok undo %s" % Toolkit.link_state()["tool"]
+			# One step back through the shared stack, remotely — the same
+			# ToolkitHistory the top-level `undo` verb and the key drive.
+			# Names the tool whose action reverted, "nothing" when empty.
+			var undone := Toolkit.undo_last()
+			return "ok undo %s" % (undone if undone != "" else "nothing")
 		"tool":
 			if parts.size() < 3 or not Toolkit.set_tool(parts[2]):
 				return "err toolkit tool needs sculpt|place|terrain|biome|river"

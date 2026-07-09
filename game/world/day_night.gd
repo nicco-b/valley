@@ -10,10 +10,20 @@ const PALETTE_PATH := "res://data/sky/day_night.json"
 # Keyframes: [hour, sky top, sky horizon, sun light color]. The real palette
 # (painting-sampled, dawn/dusk pinks, red sun) is valley content at
 # PALETTE_PATH (FW4); this is the neutral fallback a content-empty game
-# boots with when that record is absent — flat grey, no art baked in here.
+# boots with when that record is absent — an honest lit day (pale blue sky,
+# warm white noon sun) falling to a dark but non-black night, no painting
+# art baked in here. A flat two-key grey-both-ends curve makes noon look
+# identical to midnight (the bug this replaces); a content-empty game must
+# still boot with a sky that visibly lights the world.
 const DEFAULT_KEYS := [
-	[0.0, Color(0.05, 0.05, 0.07), Color(0.1, 0.1, 0.12), Color(1.0, 1.0, 1.0)],
-	[24.0, Color(0.05, 0.05, 0.07), Color(0.1, 0.1, 0.12), Color(1.0, 1.0, 1.0)],
+	[0.0, Color(0.04, 0.05, 0.08), Color(0.07, 0.08, 0.12), Color(0.2, 0.22, 0.3)],
+	[5.5, Color(0.04, 0.05, 0.08), Color(0.07, 0.08, 0.12), Color(0.2, 0.22, 0.3)],
+	[7.0, Color(0.55, 0.62, 0.78), Color(0.85, 0.78, 0.7), Color(1.0, 0.85, 0.72)],
+	[12.0, Color(0.45, 0.68, 0.9), Color(0.78, 0.85, 0.9), Color(1.0, 0.97, 0.9)],
+	[17.0, Color(0.45, 0.68, 0.9), Color(0.78, 0.85, 0.9), Color(1.0, 0.97, 0.9)],
+	[19.0, Color(0.5, 0.5, 0.65), Color(0.88, 0.72, 0.6), Color(1.0, 0.7, 0.55)],
+	[21.0, Color(0.04, 0.05, 0.08), Color(0.07, 0.08, 0.12), Color(0.2, 0.22, 0.3)],
+	[24.0, Color(0.04, 0.05, 0.08), Color(0.07, 0.08, 0.12), Color(0.2, 0.22, 0.3)],
 ]
 
 var keys: Array = DEFAULT_KEYS

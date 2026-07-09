@@ -946,8 +946,18 @@ func _add_records(c: Vector2i) -> void:
 		# Seat on the CURRENT ground (ground_dy re-seats across terrain
 		# regeneration — the Chronicle owns the rule, see CellRecords.seat_y).
 		node.position = Vector3(rec.x, CellRecords.seat_y(rec), rec.z)
-		node.rotation.y = rec.yaw
-		node.scale = Vector3.ONE * rec.get("scale", 1.0)
+		var s: float = rec.get("scale", 1.0)
+		# align-to-normal (audit R1 polish): a record carrying a `tilt` normal
+		# lies against the slope — aligned_basis lays local +Y along the stored
+		# normal, then turns by yaw about it; scale rides on top. Flat records
+		# (no tilt) keep the cheap yaw-only path unchanged.
+		var tilt: Variant = rec.get("tilt")
+		if tilt is Array and (tilt as Array).size() == 3:
+			var n := Vector3(float(tilt[0]), float(tilt[1]), float(tilt[2]))
+			node.basis = ToolkitSnap.aligned_basis(n, rec.yaw).scaled(Vector3.ONE * s)
+		else:
+			node.rotation.y = rec.yaw
+			node.scale = Vector3.ONE * s
 		# The Threshold (PLAN_INTERIORS): a record wearing a `door` key is
 		# still an ordinary placement — the key grows the Interactable.
 		if rec.has("door"):

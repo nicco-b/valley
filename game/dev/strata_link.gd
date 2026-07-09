@@ -574,8 +574,44 @@ func _toolkit(parts: PackedStringArray) -> String:
 				return "err no such place slot '%s'" % parts[2]
 			var s: Dictionary = Toolkit.link_state()
 			return "ok place %d/%d:%s" % [landed, int(s["place_count"]), s["place_slot"]]
+		"snap":
+			# `toolkit snap grid|ground|normal on|off` or `... step <m>`
+			# (audit R1 polish): the same toggles B/K/H drive.
+			if parts.size() >= 4 and parts[2] == "step" and parts[3].is_valid_float():
+				return "ok snap step %.2fm" % Toolkit.set_grid_step(float(parts[3]))
+			if parts.size() < 4 or not (parts[3] == "on" or parts[3] == "off"):
+				return "err toolkit snap needs grid|ground|normal on|off, or step <m>"
+			var snap_r := Toolkit.set_snap(parts[2], parts[3] == "on")
+			if snap_r < 0:
+				return "err toolkit snap needs grid|ground|normal"
+			return "ok snap %s %s" % [parts[2], parts[3]]
+		"select":
+			# `toolkit select box <x0> <z0> <x1> <z1>` — box multi-select
+			# (the headless seam for Shift+RMB). Returns the count.
+			if parts.size() < 7 or parts[2] != "box":
+				return "err toolkit select needs box <x0> <z0> <x1> <z1>"
+			var n := Toolkit.select_box(
+				Vector2(float(parts[3]), float(parts[4])),
+				Vector2(float(parts[5]), float(parts[6])))
+			return "ok select %d" % n
+		"move":
+			# `toolkit move <x> <z>` — group-move the selection so the
+			# primary lands there, offsets preserved (headless drag seam).
+			if parts.size() < 4 or not parts[2].is_valid_float() \
+					or not parts[3].is_valid_float():
+				return "err toolkit move needs <x> <z>"
+			var moved := Toolkit.group_move(float(parts[2]), float(parts[3]))
+			if moved == 0:
+				return "err nothing selected"
+			return "ok move %d" % moved
+		"duplicate":
+			# `toolkit duplicate` — copy the selection in place (alt-drag seam).
+			var made := Toolkit.duplicate_selection()
+			if made == 0:
+				return "err nothing selected"
+			return "ok duplicate %d" % made
 		_:
-			return "err toolkit needs status|tool|brush|biome|place|keys|on|off|undo"
+			return "err toolkit needs status|tool|brush|biome|place|snap|select|move|duplicate|keys|on|off|undo"
 
 
 ## The RMB sim-inspector + the PLACE selection, one line (chrome contract

@@ -161,6 +161,39 @@ func find_at(pos: Vector3, radius: float) -> Dictionary:
 	return best
 
 
+## Every record whose XZ falls inside a world-space rectangle (min/max XZ) —
+## the Toolkit's box multi-select (audit R1 polish). Walks the cells the box
+## spans (inclusive of the fringe, so a record on the seam is caught), tests
+## each record's XZ against the rect, and returns [{cell, id}] sorted by id so
+## a group edit's batched undo is deterministic (the acceptance's "group-move
+## determinism"). Pure over the Chronicle — no picking radius, exact
+## containment.
+func find_in_box(min_xz: Vector2, max_xz: Vector2) -> Array:
+	var lo := Vector2(minf(min_xz.x, max_xz.x), minf(min_xz.y, max_xz.y))
+	var hi := Vector2(maxf(min_xz.x, max_xz.x), maxf(min_xz.y, max_xz.y))
+	var c_lo := cell_of(Vector3(lo.x, 0.0, lo.y))
+	var c_hi := cell_of(Vector3(hi.x, 0.0, hi.y))
+	var out: Array = []
+	for cy in range(c_lo.y - 1, c_hi.y + 2):
+		for cx in range(c_lo.x - 1, c_hi.x + 2):
+			var cell := Vector2i(cx, cy)
+			for rec: Dictionary in _cells.get(cell, []):
+				var x := float(rec.x)
+				var z := float(rec.z)
+				if x >= lo.x and x <= hi.x and z >= lo.y and z <= hi.y:
+					out.append({"cell": cell, "id": ensure_id(cell, rec)})
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return String(a.id) < String(b.id))
+	return out
+
+
+## Mint a fresh record id — public so the Toolkit's duplicate (alt-drag)
+## can name a copy without reaching into _new_id. Unique across sessions
+## and within one.
+func mint_id() -> String:
+	return _new_id()
+
+
 ## Mint a record id: unique across sessions (millisecond clock) and
 ## within one (serial) — and short enough to sit on a HUD line.
 func _new_id() -> String:
@@ -245,7 +278,12 @@ func update(cell: Vector2i, id: String, fields: Dictionary) -> Vector2i:
 	if rec.is_empty():
 		return cell
 	for k: String in fields:
-		rec[k] = fields[k]
+		# A null value ERASES the key (align-to-normal toggled off drops the
+		# `tilt` a slope once wrote) — the streamer reads its absence as flat.
+		if fields[k] == null:
+			rec.erase(k)
+		else:
+			rec[k] = fields[k]
 	var now := cell_of(Vector3(float(rec.x), 0.0, float(rec.z)))
 	if now != cell:
 		_cells[cell].erase(rec)

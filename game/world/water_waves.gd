@@ -165,7 +165,9 @@ func _process(delta: float) -> void:
 		if _anchor.is_finite():
 			_gpu.scroll(Vector2i(((new_anchor - _anchor) / texel).round()))
 		_anchor = new_anchor
-	RenderingServer.global_shader_parameter_set("wave_center", _anchor)
+		# Push only when it moves (perf 2026-07-09): the global is a
+		# constant between re-anchors; re-setting it per frame was churn.
+		RenderingServer.global_shader_parameter_set("wave_center", _anchor)
 
 	# Wading strides ring the surface (the trace map brightens it; this
 	# moves it). Swimming rings wider and softer — and tows a wake:

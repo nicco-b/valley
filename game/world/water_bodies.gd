@@ -49,6 +49,7 @@ const SEA_FAR_STEP := 250.0
 const BATHY_DEEP := 1000.0  # "no data" depth: shoaling math degenerates to W1
 const BATHY_FMT: int = Mesh.ARRAY_CUSTOM_RGB_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT
 var _sea_near: MeshInstance3D
+var _set_sea_level := -1e9  # last-applied tide (perf guard)
 var _sea_mid: MeshInstance3D
 var _sea_far: MeshInstance3D
 var _bathy: Dictionary = {}  # tier -> bake state (see _bathy_register)
@@ -186,8 +187,9 @@ func _process(_delta: float) -> void:
 	# ran out 6km short of the horizon on far coasts — a visible band of
 	# missing sea from any strand past ~3km out.
 	var far_focus := focus.snappedf(SEA_FAR_STEP * 2.0)
-	_sea_far.position.x = far_focus.x
-	_sea_far.position.z = far_focus.y
+	if _sea_far.position.x != far_focus.x or _sea_far.position.z != far_focus.y:
+		_sea_far.position.x = far_focus.x
+		_sea_far.position.z = far_focus.y
 	# The orbit map sees to the world's rim and past it: stretch the far
 	# disc so beyond-the-tile reads as OCEAN, not the far-LOD's bare
 	# seabed squares (the flat map's palette used to paper over those;
@@ -199,10 +201,16 @@ func _process(_delta: float) -> void:
 	# The tide: all sheets ride the live surface, and the strand
 	# shader's dark band follows it via the sea_level global.
 	var live: float = Terrain.sea_surface()
-	_sea_near.position.y = live
-	_sea_mid.position.y = live - 0.07
-	_sea_far.position.y = live - 0.15
-	RenderingServer.global_shader_parameter_set("sea_level", live)
+	# Move the sheets and push the global only when the tide has moved a
+	# tenth of a millimeter (perf 2026-07-09): between tide steps these
+	# were redundant transform dirties + RenderingServer traffic at
+	# frame rate. The live value stays exact for every reader.
+	if absf(live - _set_sea_level) > 1e-4:
+		_set_sea_level = live
+		_sea_near.position.y = live
+		_sea_mid.position.y = live - 0.07
+		_sea_far.position.y = live - 0.15
+		RenderingServer.global_shader_parameter_set("sea_level", live)
 
 
 func _on_levels_changed() -> void:

@@ -67,6 +67,9 @@ const WET_KINDS := ["storm", "squall", "drizzle"]
 
 var state := "calm"
 var wind := 0.12
+# Last-pushed shader values (perf): set-on-change guards for _process.
+var _set_wind := -1e9
+var _set_wind_dir := Vector2.INF
 var storminess := 0.0  # menace at the focus (the old meaning, eased)
 var rain := 0.0        # rainfall at the focus, 0..1
 var cloud := 0.08      # cloud cover at the focus, 0..1
@@ -313,8 +316,15 @@ func _process(delta: float) -> void:
 	rain = lerpf(rain, property_at(fx.x, fx.y, "rain"), blend)
 	cloud = lerpf(cloud, float(k.cloud) * lerpf(0.5, 1.0, lw.lead), blend)
 	dust = lerpf(dust, property_at(fx.x, fx.y, "dust"), blend)
-	RenderingServer.global_shader_parameter_set("wind_strength", wind)
-	RenderingServer.global_shader_parameter_set("wind_dir", wind_dir)
+	# Push to the shader only on visible change (perf 2026-07-09): the
+	# sim vars above keep their exact per-frame eases — only redundant
+	# RenderingServer traffic is skipped (sub-thousandth steps).
+	if absf(wind - _set_wind) > 5e-4:
+		_set_wind = wind
+		RenderingServer.global_shader_parameter_set("wind_strength", wind)
+	if wind_dir.distance_squared_to(_set_wind_dir) > 1e-8:
+		_set_wind_dir = wind_dir
+		RenderingServer.global_shader_parameter_set("wind_dir", wind_dir)
 
 
 ## Dev/test override: drop a full-cover front of `kind` on the whole

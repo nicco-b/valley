@@ -65,6 +65,11 @@ var wetness: float:
 
 var _shader_wetness := 0.25
 var _shader_snow := 0.0
+# Last-pushed shader values (perf): set-on-change guards for _process.
+var _set_wetness := -1e9
+var _set_snow := -1e9
+var _set_snow_line := -1e9
+var _set_humidity := -1e9
 # Static terrain facts per grid cell (swing, gradient, height), cached
 # so the hourly field tick — and every catch-up replay hour — pays for
 # terrain probes exactly once. Cleared when the terrain itself moves
@@ -133,13 +138,26 @@ func _process(delta: float) -> void:
 	var fx := _focus_xz()
 	_shader_wetness = lerpf(_shader_wetness, wetness_at(fx.x, fx.y), blend)
 	_shader_snow = lerpf(_shader_snow, snow, blend)
-	RenderingServer.global_shader_parameter_set("ground_wetness", _shader_wetness)
-	RenderingServer.global_shader_parameter_set("snow_cover", _shader_snow)
-	RenderingServer.global_shader_parameter_set("snow_line", snow_line())
+	# Push to the shader only on visible change (perf 2026-07-09): the
+	# eases converge, and a step below a thousandth of the range is
+	# invisible. The eased vars stay exact — only redundant
+	# RenderingServer traffic is skipped.
+	if absf(_shader_wetness - _set_wetness) > 5e-4:
+		_set_wetness = _shader_wetness
+		RenderingServer.global_shader_parameter_set("ground_wetness", _shader_wetness)
+	if absf(_shader_snow - _set_snow) > 5e-4:
+		_set_snow = _shader_snow
+		RenderingServer.global_shader_parameter_set("snow_cover", _shader_snow)
+	var line := snow_line()
+	if absf(line - _set_snow_line) > 0.01:
+		_set_snow_line = line
+		RenderingServer.global_shader_parameter_set("snow_line", line)
 	# The air over the focus: humid nights wash the stars out, dry cold
 	# ones sharpen them (the sky shader reads this).
-	RenderingServer.global_shader_parameter_set("air_humidity",
-			humidity(fx.x, fx.y))
+	var hum := humidity(fx.x, fx.y)
+	if absf(hum - _set_humidity) > 5e-4:
+		_set_humidity = hum
+		RenderingServer.global_shader_parameter_set("air_humidity", hum)
 
 
 func _focus_xz() -> Vector2:

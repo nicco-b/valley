@@ -24,6 +24,12 @@ data/water/hyd_*.json
 # holds a full import of. Per-machine cache like the tile above (Strata
 # re-runs the importer when it's missing/stale), never committed.
 data/strata_import.json
+# The importer's fresh-journey landing spot: picked on the imported world's
+# largest island (import_world.gd), read by Terrain.recorded_spawn(). A
+# regenerable per-import cache like the tile/stamp above — never committed,
+# so valley keeps its authored home-valley spawn and only a blessed world
+# carries its own.
+data/world/spawn.json
 # Blender terrain workspace: derived from the guide + cell records,
 # regenerate with valley_terrain.py -- import.
 assets/blender/terrain/valley_map.blend

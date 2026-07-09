@@ -31,6 +31,22 @@ const STRATA_TO_VALLEY := [0, 1, 5, 2, 4, 4, 3, 3, 7, 6]
 ## pre-capped by the doc's max_rivers.
 const LAKE_MAX := 24
 
+## Spawn picking: where a fresh journey begins is a property of the WORLD,
+## so the importer chooses it when it blesses the tile and records it as
+## data/world/spawn.json {x, z}. The pick is a gentle coastal spot on the
+## largest island — near the sea but safely above the tide — and stays
+## clear of river channels (height() carves them below the tile). No static
+## coordinate can solve an arbitrary world; this is why the spawn is DATA,
+## chosen at import time when the land is finally known.
+const SPAWN_GRID := 512         # coarse cells over the tile (32m at 16km)
+const SPAWN_LAND_MIN := 1.5     # m above sea a cell needs to count as land
+const SPAWN_HEIGHT_MAX := 25.0  # m above sea: a landing, not a cliff top
+const SPAWN_COAST_MIN := 64.0   # m inland from the shore...
+const SPAWN_COAST_MAX := 480.0  # ...but still within sight of it
+const NB_DX := [1, -1, 0, 0]    # 4-neighborhood for the grid walks
+const NB_DZ := [0, 0, 1, -1]
+const SPAWN_REC_PATH := "res://data/world/spawn.json"
+
 
 func _init() -> void:
 	var world_dir: String = OS.get_environment("STRATA_WORLD")
@@ -131,6 +147,13 @@ func _init() -> void:
 	f.store_string(JSON.stringify(rec, "\t", true) + "\n")
 	f.close()
 
+	# --- the landing spot: the world records where a fresh journey begins
+	# (the scene's authored transform has no claim on an imported world) ---
+	var spawn := _pick_spawn(data, img.get_width(), world_size, sea_level, world_dir)
+	var spawn_path := SPAWN_REC_PATH if not scratch \
+			else out_dir.path_join("spawn.json")
+	_write_spawn(spawn_path, spawn)
+
 	# --- dressed layers: Strata's climate-driven biome map ---
 	var biome_out := ProjectSettings.globalize_path("res://data/world") if not scratch \
 			else out_dir
@@ -152,6 +175,11 @@ func _init() -> void:
 	print("  tile %dx%d, %.1f..%.1fm over %.0fm world, sea %.1fm, sha %s…" % [
 		img.get_width(), img.get_height(), hmin, hmax, world_size,
 		sea_level, got_sha.substr(0, 12)])
+	if spawn.is_empty():
+		push_warning("no land above %.1fm over sea — no spawn recorded (authored default stands)" % SPAWN_LAND_MIN)
+	else:
+		print("  spawn recorded at (%.0f, %.0f): %.1fm ground, sea %.1fm, %.0fm inland" % [
+			spawn.x, spawn.z, spawn.h, sea_level, spawn.inland_m])
 	if biome_ok:
 		print("  biome_map %dx%d painted from Strata biomes" % [BIOME_RES, BIOME_RES])
 	if hydro_counts.x >= 0:
@@ -203,6 +231,210 @@ func _write_import_stamp(world_dir: String, height_sha: String, world_frame_m: f
 	f.store_string(JSON.stringify(stamp, "\t", true) + "\n")
 	f.close()
 	print("  import stamp: data/strata_import.json (sha %s…)" % height_sha.substr(0, 12))
+
+
+## Write (or clear) data/world/spawn.json — the fresh-journey landing spot
+## Terrain.recorded_spawn() reads back. An all-sea world (empty pick)
+## removes any stale record so a re-import to open water never keeps an old
+## island's spawn; the game then falls back to its authored transform.
+func _write_spawn(path: String, spawn: Dictionary) -> void:
+	if spawn.is_empty():
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+		return
+	DirAccess.make_dir_recursive_absolute(
+		ProjectSettings.globalize_path(path.get_base_dir()))
+	var rec := {"x": spawn.x, "z": spawn.z}
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		push_error("cannot write spawn record %s" % path)
+		return
+	f.store_string(JSON.stringify(rec, "\t", true) + "\n")
+	f.close()
+
+
+## Pick where a fresh journey begins: a gentle spot on the largest island,
+## near the coast but clear of tide, cliffs, and river carves. Works on a
+## SPAWN_GRID coarse sampling of the heightfield: flood-fill labels the
+## islands, a multi-source BFS from the sea measures how far inland each
+## cell sits, then the best coastal cell wins (flattest ground closest to
+## a mild beach-meadow height). Returns {x, z, h, inland_m} in world
+## meters — the exact heightfield pixel, so the game's bilinear sample at
+## (x, z) reproduces h — or {} for an all-sea world (no spawn recorded).
+func _pick_spawn(data: PackedFloat32Array, res: int, world_size: float,
+		sea_level: float, world_dir: String) -> Dictionary:
+	var n := mini(SPAWN_GRID, res)
+	var cell_m := world_size / n
+	var half := world_size * 0.5
+	# Coarse height/land masks: each cell reads the fine pixel nearest its
+	# center, with the game's tile mapping (pixel i at x0 + i/(res-1)*size).
+	var hgt := PackedFloat32Array()
+	hgt.resize(n * n)
+	var land := PackedByteArray()
+	land.resize(n * n)
+	var land_count := 0
+	for cz in n:
+		var pz := int(roundf((cz + 0.5) / n * (res - 1)))
+		for cx in n:
+			var px := int(roundf((cx + 0.5) / n * (res - 1)))
+			var h := data[pz * res + px]
+			var i := cz * n + cx
+			hgt[i] = h
+			if h > sea_level + SPAWN_LAND_MIN:
+				land[i] = 1
+				land_count += 1
+	if land_count == 0:
+		return {}
+
+	# Label connected landmasses (4-neighbor flood fill); keep the largest.
+	var comp := PackedInt32Array()
+	comp.resize(n * n)
+	comp.fill(-1)
+	var best_comp := -1
+	var best_count := 0
+	var next_comp := 0
+	var stack := PackedInt32Array()
+	for seed in n * n:
+		if land[seed] == 0 or comp[seed] >= 0:
+			continue
+		var count := 0
+		stack.clear()
+		stack.append(seed)
+		comp[seed] = next_comp
+		while not stack.is_empty():
+			var i := stack[stack.size() - 1]
+			stack.resize(stack.size() - 1)
+			count += 1
+			var cx := i % n
+			@warning_ignore("integer_division")
+			var cz := i / n
+			for k in 4:
+				var nx: int = cx + NB_DX[k]
+				var nz: int = cz + NB_DZ[k]
+				if nx < 0 or nz < 0 or nx >= n or nz >= n:
+					continue
+				var j := nz * n + nx
+				if land[j] == 1 and comp[j] < 0:
+					comp[j] = next_comp
+					stack.append(j)
+		if count > best_count:
+			best_count = count
+			best_comp = next_comp
+		next_comp += 1
+
+	# How far inland each land cell sits: multi-source BFS from every sea
+	# cell (distance in cells; land nobody reaches — an all-land grid —
+	# just never enters the coastal band and falls through to the fallback).
+	var dist := PackedInt32Array()
+	dist.resize(n * n)
+	dist.fill(-1)
+	var queue := PackedInt32Array()
+	for i in n * n:
+		if land[i] == 0:
+			dist[i] = 0
+			queue.append(i)
+	var head := 0
+	while head < queue.size():
+		var i := queue[head]
+		head += 1
+		var cx := i % n
+		@warning_ignore("integer_division")
+		var cz := i / n
+		for k in 4:
+			var nx: int = cx + NB_DX[k]
+			var nz: int = cz + NB_DZ[k]
+			if nx < 0 or nz < 0 or nx >= n or nz >= n:
+				continue
+			var j := nz * n + nx
+			if dist[j] < 0:
+				dist[j] = dist[i] + 1
+				queue.append(j)
+
+	var blocked := _river_cells(world_dir, n, world_size)
+
+	# The pick: flattest coastal-band cell nearest a mild landing height.
+	var best_i := -1
+	var best_score := INF
+	var inland_i := -1  # fallback: the island's most inland cell
+	var inland_d := -1
+	for i in n * n:
+		if comp[i] != best_comp or blocked[i] == 1:
+			continue
+		if dist[i] > inland_d:
+			inland_d = dist[i]
+			inland_i = i
+		var inland_m := dist[i] * cell_m
+		if inland_m < SPAWN_COAST_MIN or inland_m > SPAWN_COAST_MAX:
+			continue
+		if hgt[i] > sea_level + SPAWN_HEIGHT_MAX:
+			continue
+		var score := _cell_slope(hgt, i, n, cell_m) * 40.0 \
+			+ absf(hgt[i] - (sea_level + 5.0)) * 0.3 \
+			+ absf(inland_m - 160.0) * 0.01
+		if score < best_score:
+			best_score = score
+			best_i = i
+	if best_i < 0:
+		best_i = inland_i  # no coastal band (tiny or landlocked island)
+	if best_i < 0:
+		return {}  # every cell of the island is a river channel — give up
+
+	# Back to the exact fine pixel the cell sampled, in world meters.
+	var bx := best_i % n
+	@warning_ignore("integer_division")
+	var bz := best_i / n
+	var px := int(roundf((bx + 0.5) / n * (res - 1)))
+	var pz := int(roundf((bz + 0.5) / n * (res - 1)))
+	return {
+		"x": snappedf(-half + float(px) / (res - 1) * world_size, 0.1),
+		"z": snappedf(-half + float(pz) / (res - 1) * world_size, 0.1),
+		"h": data[pz * res + px],
+		"inland_m": dist[best_i] * cell_m,
+	}
+
+
+## Steepness proxy for one coarse cell: the largest height step to a
+## 4-neighbor, per meter. Off-grid neighbors read as steep (tile edge).
+func _cell_slope(hgt: PackedFloat32Array, i: int, n: int, cell_m: float) -> float:
+	var cx := i % n
+	@warning_ignore("integer_division")
+	var cz := i / n
+	var worst := 0.0
+	for k in 4:
+		var nx: int = cx + NB_DX[k]
+		var nz: int = cz + NB_DZ[k]
+		if nx < 0 or nz < 0 or nx >= n or nz >= n:
+			return 1.0
+		worst = maxf(worst, absf(hgt[nz * n + nx] - hgt[i]))
+	return worst / cell_m
+
+
+## Coarse cells a river runs through (plus one cell of margin): the game
+## carves the channel below the tile, so no landing there. Reads the
+## export's hydrology.json directly — nodes are already world meters.
+func _river_cells(world_dir: String, n: int, world_size: float) -> PackedByteArray:
+	var cells := PackedByteArray()
+	cells.resize(n * n)
+	var path := world_dir.path_join("hydrology.json")
+	if not FileAccess.file_exists(path):
+		return cells
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if not (parsed is Dictionary):
+		return cells
+	var hydro: Dictionary = parsed
+	var rivers: Array = hydro.get("rivers", [])
+	for r: Dictionary in rivers:
+		var nodes: Array = r.get("nodes", [])
+		for node: Dictionary in nodes:
+			var cx := int((float(node["x"]) + world_size * 0.5) / world_size * n)
+			var cz := int((float(node["z"]) + world_size * 0.5) / world_size * n)
+			for dz in range(-1, 2):
+				for dx in range(-1, 2):
+					var nx := cx + dx
+					var nz := cz + dz
+					if nx >= 0 and nz >= 0 and nx < n and nz < n:
+						cells[nz * n + nx] = 1
+	return cells
 
 
 ## Set the game's sea surface (data/water/sea.json) to the manifest's sea

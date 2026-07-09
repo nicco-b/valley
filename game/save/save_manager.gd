@@ -107,6 +107,7 @@ func load_into_world() -> void:
 			break
 		data = null
 	if data == null:
+		_spawn_fresh()
 		return
 	GameClock.hours = data.hours
 	GameClock.day = int(data.get("day", 0))
@@ -154,3 +155,28 @@ func load_into_world() -> void:
 		HUD.notify("day %d — the valley kept its own time while you were away" % GameClock.day)
 	else:
 		HUD.notify("journey resumed — day %d" % GameClock.day)
+
+
+## A fresh journey (no save on disk yet): begin at the world's recorded
+## landing spot instead of the scene's authored Player transform. An
+## imported Strata world has no reason to honour that transform — the
+## importer picks a dry spot on the largest island and records it
+## (Terrain.recorded_spawn(), off data/world/spawn.json), and the walker
+## starts there, force-streaming the cell so it stands on real collision.
+## No recorded spawn (content-empty, the authored home valley, a pre-spawn
+## tile) leaves the authored transform exactly as it was — today's
+## behaviour, byte for byte.
+func _spawn_fresh() -> void:
+	var sp: Variant = Terrain.recorded_spawn()
+	if not (sp is Vector2):
+		return
+	var player := get_tree().get_first_node_in_group("player")
+	if player == null:
+		return
+	var p: Vector2 = sp
+	player.global_position = Vector3(p.x, Terrain.height(p.x, p.y) + 1.2, p.y)
+	player.velocity = Vector3.ZERO
+	var streamer := get_tree().get_first_node_in_group("world_streamer")
+	if streamer:
+		streamer._update_cells(true)
+	print("[save] new journey — landed at (%.0f, %.0f)" % [p.x, p.y])

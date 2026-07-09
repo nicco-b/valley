@@ -376,6 +376,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_sculpt_unsaved = false
 		_save_pens()
 		CellRecords.flush()  # pending placement edits land with F5 too
+		InteriorRecords.flush()  # and any interior-book edits (the active book)
 		Overrides.emit()  # the seam artifact rides every save (P4)
 	elif event.is_action_pressed("toolkit_tool"):
 		_tool = ((_tool as int) + 1) % Tool.size() as Tool
@@ -552,19 +553,44 @@ func _redo() -> void:
 # editable after.
 
 
+## The ACTIVE truth-store for the hand (PLAN_INTERIORS §4): inside an
+## interior the place/select/move/delete/undo funnel targets that
+## interior's book (InteriorRecords); outside, the world cells
+## (CellRecords). Untyped so the two autoloads' shared verb surface is
+## called dynamically — one seam, the whole hand rides it. Undo mementos
+## CAPTURE this at commit and close over it, so Z reverses the store it
+## actually touched, honestly across the threshold.
+func _book() -> Variant:
+	return InteriorRecords if Interiors.inside else CellRecords
+
+
+## The height term the move funnel feeds _move_fields. Inside a pocket it
+## is the record's ABSOLUTE y (there is no terrain; _move_fields uses it
+## directly). Outside it is the height ABOVE the ground — 0 with snap-to-
+## ground, else the record's current standoff (the ground-relative law).
+func _move_dy(rec: Dictionary, abs_y_inside: float) -> float:
+	if Interiors.inside:
+		return abs_y_inside
+	if _snap_ground:
+		return 0.0
+	return CellRecords.seat_y(rec) - Terrain.height(float(rec.x), float(rec.z))
+
+
 ## Set the record layer to `target` and the selection with it, removing
 ## whatever `other` currently holds for that id first — the shared body of
 ## every record action's undo AND redo (place: other→target = {}→rec and
 ## rec→{}; delete: rec→{} and {}→rec; edit: before↔after). Both sides are
-## write-through (CellRecords.remove/insert save per op), so disk tracks the
-## stack. An empty target deselects.
-func _record_to_state(target: Dictionary, other: Dictionary) -> void:
+## write-through (remove/insert save per op), so disk tracks the stack.
+## `book` is the store the action was committed against (CellRecords or an
+## interior's InteriorRecords) — the cross-threshold-honest undo. An empty
+## target deselects.
+func _record_to_state(target: Dictionary, other: Dictionary, book: Variant) -> void:
 	if not other.is_empty():
-		CellRecords.remove(
-			CellRecords.cell_of(Vector3(float(other.x), 0.0, float(other.z))),
+		book.remove(
+			book.cell_of(Vector3(float(other.x), 0.0, float(other.z))),
 			String(other.id))
 	if not target.is_empty():
-		_sel_cell = CellRecords.insert(target.duplicate())
+		_sel_cell = book.insert(target.duplicate())
 		_sel_id = String(target.id)
 	else:
 		_deselect()
@@ -573,11 +599,13 @@ func _record_to_state(target: Dictionary, other: Dictionary) -> void:
 
 ## Build a record action from a before/after pair (either may be {} = the
 ## record is absent on that side). undo restores `before`, redo restores
-## `after` — the inverse-of-inverse identity the tests pin.
+## `after` — the inverse-of-inverse identity the tests pin. Captures the
+## active book so undo lands in the store the edit touched.
 func _record_action(label: String, before: Dictionary, after: Dictionary) -> Dictionary:
+	var book: Variant = _book()
 	return {"label": label,
-		"undo": func() -> void: _record_to_state(before, after),
-		"redo": func() -> void: _record_to_state(after, before)}
+		"undo": func() -> void: _record_to_state(before, after, book),
+		"redo": func() -> void: _record_to_state(after, before, book)}
 
 
 ## Place the palette's current slot at a ground hit — the LMB path,
@@ -602,14 +630,24 @@ func _place_at(hit: Vector3) -> void:
 	# fields patched right after the add (add mints the id + ground_dy from
 	# the seat, the snap fields refine it — one funnel, undo covers it).
 	var p := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
-	var seat_y: float = Terrain.height(p.x, p.z) if _snap_ground else p.y
-	var rec: Dictionary = CellRecords.add(Vector3(p.x, seat_y, p.z), file,
+	# Inside a pocket the raycast hit on the floor pieces IS the seat
+	# (snap-to-ground means snap-to-hit; no terrain, no ground_dy) — else
+	# the ground plane (snap on) or the raw drop height (snap off).
+	var seat_y: float
+	if Interiors.inside:
+		seat_y = p.y
+	elif _snap_ground:
+		seat_y = Terrain.height(p.x, p.z)
+	else:
+		seat_y = p.y
+	var book: Variant = _book()
+	var rec: Dictionary = book.add(Vector3(p.x, seat_y, p.z), file,
 			randf() * TAU, randf_range(0.85, 1.15))
 	var extra := _snap_fields(p.x, p.z)
 	if not extra.is_empty():
-		var c := CellRecords.update(CellRecords.cell_of(Vector3(p.x, 0.0, p.z)),
+		var c: Variant = book.update(book.cell_of(Vector3(p.x, 0.0, p.z)),
 				String(rec.id), extra)
-		rec = CellRecords.record(c, String(rec.id))
+		rec = book.record(c, String(rec.id))
 	# undo removes THIS record by id; redo re-lays it (before = {} absent).
 	ToolkitHistory.push(_record_action("place", {}, rec.duplicate()))
 
@@ -630,12 +668,13 @@ func _place_prefab_at(hit: Vector3, name: String) -> void:
 	var mem: Array = Prefabs.members(name)
 	if mem.is_empty():
 		return
+	var book: Variant = _book()
 	var placed: Array = []
 	for m: Dictionary in mem:
 		var px := hit.x + float(m.get("dx", 0.0))
 		var pz := hit.z + float(m.get("dz", 0.0))
-		var py := Terrain.height(px, pz) + float(m.get("ground_dy", 0.0))
-		var rec: Dictionary = CellRecords.add(Vector3(px, py, pz),
+		var py: float = book.ground_h(px, pz) + float(m.get("ground_dy", 0.0))
+		var rec: Dictionary = book.add(Vector3(px, py, pz),
 				String(m.get("kit", "")), float(m.get("yaw", 0.0)),
 				float(m.get("scale", 1.0)))
 		placed.append(rec.duplicate())
@@ -647,15 +686,16 @@ func _place_prefab_at(hit: Vector3, name: String) -> void:
 ## member by id, redo re-inserts them exactly (ids and all). Mirrors the
 ## single-record place action's write-through, batched.
 func _prefab_action(recs: Array) -> Dictionary:
+	var book: Variant = _book()
 	return {"label": "prefab",
 		"undo": func() -> void:
 			for r: Dictionary in recs:
-				CellRecords.remove(
-					CellRecords.cell_of(Vector3(float(r.x), 0.0, float(r.z))),
+				book.remove(
+					book.cell_of(Vector3(float(r.x), 0.0, float(r.z))),
 					String(r.id)),
 		"redo": func() -> void:
 			for r: Dictionary in recs:
-				CellRecords.insert((r as Dictionary).duplicate())}
+				book.insert((r as Dictionary).duplicate())}
 
 
 ## Capture the selection's cluster as a prefab (K, and the link's `prefab
@@ -670,7 +710,7 @@ func capture_prefab(name := "", radius := PREFAB_CAPTURE_M) -> int:
 	if anchor.is_empty():
 		HUD.notify("prefab: pick a piece first (RMB), then K to save")
 		return 0
-	var cluster := CellRecords.within(
+	var cluster: Array = _book().within(
 			Vector3(float(anchor.x), 0.0, float(anchor.z)), radius)
 	if cluster.is_empty():
 		return 0
@@ -721,7 +761,7 @@ func _rebuild_palette() -> void:
 func _selected() -> Dictionary:
 	if _sel_id == "":
 		return {}
-	return CellRecords.record(_sel_cell, _sel_id)
+	return _book().record(_sel_cell, _sel_id)
 
 
 ## RMB in PLACE mode: nearest placed record within reach of the ground
@@ -730,13 +770,13 @@ func _selected() -> Dictionary:
 func _pick_at(hit: Vector3) -> void:
 	if hit == Vector3.INF:
 		return
-	var found: Dictionary = CellRecords.find_at(hit, SEL_PICK_M)
+	var found: Dictionary = _book().find_at(hit, SEL_PICK_M)
 	if found.is_empty():
 		_deselect()
 		return
 	_sel_extra.clear()  # a single pick replaces any box multi-select
 	_sel_cell = found["cell"]
-	_sel_id = CellRecords.ensure_id(_sel_cell, found["rec"])
+	_sel_id = _book().ensure_id(_sel_cell, found["rec"])
 	_update_hud()
 
 
@@ -766,10 +806,10 @@ func _sel_move_to(hit: Vector3) -> void:
 	# offset covers every record vintage — snap-to-ground forces 0, else
 	# seat_y is the one truth for where it rides today (ground-relative law).
 	var p := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
-	var dy: float = 0.0 if _snap_ground else \
-			CellRecords.seat_y(rec) - Terrain.height(float(rec.x), float(rec.z))
-	_sel_cell = CellRecords.update(_sel_cell, _sel_id,
-			_move_fields(p.x, p.z, dy))
+	# Inside, snap to the floor hit at the new spot (abs y = p.y); outside,
+	# the ground-relative standoff rides the move.
+	var dy: float = _move_dy(rec, p.y)
+	_sel_cell = _book().update(_sel_cell, _sel_id, _move_fields(p.x, p.z, dy))
 	_push_edit(before)
 	_flush_quiet = 0.0
 	_update_hud()
@@ -782,7 +822,7 @@ func _sel_rotate(dir: float) -> void:
 		HUD.notify("place: nothing selected (RMB picks)")
 		return
 	var before := rec.duplicate()
-	_sel_cell = CellRecords.update(_sel_cell, _sel_id, {
+	_sel_cell = _book().update(_sel_cell, _sel_id, {
 		"yaw": wrapf(float(rec.yaw) + dir * SEL_YAW_STEP, 0.0, TAU)})
 	_push_edit(before)
 	_flush_quiet = 0.0
@@ -799,7 +839,7 @@ func _sel_scale(dir: int) -> void:
 	var s: float = float(rec.get("scale", 1.0))
 	s = clampf((s * SEL_SCALE_STEP) if dir > 0 else (s / SEL_SCALE_STEP),
 			SEL_SCALE_MIN, SEL_SCALE_MAX)
-	_sel_cell = CellRecords.update(_sel_cell, _sel_id, {"scale": s})
+	_sel_cell = _book().update(_sel_cell, _sel_id, {"scale": s})
 	_push_edit(before)
 	_flush_quiet = 0.0
 	_update_hud()
@@ -812,10 +852,10 @@ func _sel_delete() -> void:
 	if rec.is_empty():
 		var hit := _ray_to_ground()
 		if hit == Vector3.INF \
-				or not CellRecords.remove_last(CellRecords.cell_of(hit)):
+				or not _book().remove_last(_book().cell_of(hit)):
 			HUD.notify("place: nothing selected, nothing here to remove")
 		return
-	var gone: Dictionary = CellRecords.remove(_sel_cell, _sel_id)
+	var gone: Dictionary = _book().remove(_sel_cell, _sel_id)
 	# undo re-inserts it (selected again), redo removes it (after = {} absent).
 	ToolkitHistory.push(_record_action("place", gone, {}))
 	_deselect()
@@ -827,7 +867,7 @@ func _sel_delete() -> void:
 ## read live NOW — so undo returns bit-exact even across a cell migration,
 ## redo re-applies. The record still carries its id, the stack's anchor.
 func _push_edit(before: Dictionary) -> void:
-	var after := CellRecords.record(_sel_cell, _sel_id)
+	var after: Dictionary = _book().record(_sel_cell, _sel_id)
 	if after.is_empty():
 		return
 	ToolkitHistory.push(_record_action("place", before, after.duplicate()))
@@ -843,11 +883,12 @@ func _push_edit(before: Dictionary) -> void:
 ## then _sel_extra — filtering any member a delete/undo removed under us so a
 ## group op never touches a ghost.
 func _selection_set() -> Array:
+	var book: Variant = _book()
 	var out: Array = []
-	if _sel_id != "" and not CellRecords.record(_sel_cell, _sel_id).is_empty():
+	if _sel_id != "" and not book.record(_sel_cell, _sel_id).is_empty():
 		out.append({"cell": _sel_cell, "id": _sel_id})
 	for m: Dictionary in _sel_extra:
-		if not CellRecords.record(m.cell, String(m.id)).is_empty():
+		if not book.record(m.cell, String(m.id)).is_empty():
 			out.append({"cell": m.cell, "id": String(m.id)})
 	return out
 
@@ -878,6 +919,10 @@ func _ground_normal_arr(x: float, z: float) -> Array:
 ## the move/group/reseat funnel. `tilt` rides when align-to-normal is on and
 ## is ERASED (null) when it is off, so toggling the slope lay off truly clears.
 func _move_fields(x: float, z: float, dy: float) -> Dictionary:
+	# Inside a pocket there is no terrain to anchor to: `dy` IS the absolute
+	# local y, and ground_dy / tilt (both terrain-derived) never ride.
+	if Interiors.inside:
+		return {"x": x, "z": z, "y": dy}
 	return {
 		"x": x, "z": z, "y": Terrain.height(x, z) + dy, "ground_dy": dy,
 		"tilt": _ground_normal_arr(x, z) if _snap_normal else null,
@@ -885,9 +930,10 @@ func _move_fields(x: float, z: float, dy: float) -> Dictionary:
 
 
 ## The placement's snap-extra fields (align-to-normal `tilt`; grid + ground
-## already land in the seat _place_at builds). {} when align is off.
+## already land in the seat _place_at builds). {} when align is off or
+## inside (no terrain normal to align to).
 func _snap_fields(x: float, z: float) -> Dictionary:
-	if _snap_normal:
+	if _snap_normal and not Interiors.inside:
 		return {"tilt": _ground_normal_arr(x, z)}
 	return {}
 
@@ -897,13 +943,14 @@ func _snap_fields(x: float, z: float) -> Dictionary:
 ## before, redo every after; each side reuses _record_to_state (remove the
 ## other, insert the target) so a cell migration reverses exactly, per member.
 func _group_action(label: String, pairs: Array) -> Dictionary:
+	var book: Variant = _book()
 	return {"label": label,
 		"undo": func() -> void:
 			for p: Dictionary in pairs:
-				_record_to_state(p.before, p.after),
+				_record_to_state(p.before, p.after, book),
 		"redo": func() -> void:
 			for p: Dictionary in pairs:
-				_record_to_state(p.after, p.before)}
+				_record_to_state(p.after, p.before, book)}
 
 
 ## Move the WHOLE selection so the primary lands at `hit` (grid-snapped) and
@@ -916,7 +963,8 @@ func _group_move_to(hit: Vector3) -> void:
 		return
 	if hit == Vector3.INF:
 		return
-	var arec := CellRecords.record(set[0]["cell"], String(set[0]["id"]))
+	var book: Variant = _book()
+	var arec: Dictionary = book.record(set[0]["cell"], String(set[0]["id"]))
 	if arec.is_empty():
 		return
 	var target := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
@@ -925,17 +973,17 @@ func _group_move_to(hit: Vector3) -> void:
 	var pairs: Array = []
 	var new_sel: Array = []
 	for m: Dictionary in set:
-		var rec := CellRecords.record(m.cell, String(m.id))
+		var rec: Dictionary = book.record(m.cell, String(m.id))
 		if rec.is_empty():
 			continue
 		var before := rec.duplicate()
 		var nx := target.x + (float(rec.x) - ax)
 		var nz := target.z + (float(rec.z) - az)
-		var dy := 0.0 if _snap_ground else \
-				CellRecords.seat_y(rec) - Terrain.height(float(rec.x), float(rec.z))
-		var ncell := CellRecords.update(m.cell, String(m.id), _move_fields(nx, nz, dy))
+		# Inside, members keep their own height as the group slides in XZ.
+		var dy := _move_dy(rec, float(rec.get("y", 0.0)))
+		var ncell: Variant = book.update(m.cell, String(m.id), _move_fields(nx, nz, dy))
 		pairs.append({"before": before,
-			"after": CellRecords.record(ncell, String(m.id)).duplicate()})
+			"after": book.record(ncell, String(m.id)).duplicate()})
 		new_sel.append({"cell": ncell, "id": String(m.id)})
 	if pairs.is_empty():
 		return
@@ -951,7 +999,8 @@ func _sel_duplicate_move(hit: Vector3) -> void:
 	var set := _selection_set()
 	if set.is_empty() or hit == Vector3.INF:
 		return
-	var arec := CellRecords.record(set[0]["cell"], String(set[0]["id"]))
+	var book: Variant = _book()
+	var arec: Dictionary = book.record(set[0]["cell"], String(set[0]["id"]))
 	if arec.is_empty():
 		return
 	var target := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
@@ -960,13 +1009,12 @@ func _sel_duplicate_move(hit: Vector3) -> void:
 	var pairs: Array = []
 	var new_sel: Array = []
 	for m: Dictionary in set:
-		var rec := CellRecords.record(m.cell, String(m.id))
+		var rec: Dictionary = book.record(m.cell, String(m.id))
 		if rec.is_empty():
 			continue
 		var nx := target.x + (float(rec.x) - ax)
 		var nz := target.z + (float(rec.z) - az)
-		var dy := 0.0 if _snap_ground else \
-				CellRecords.seat_y(rec) - Terrain.height(float(rec.x), float(rec.z))
+		var dy := _move_dy(rec, float(rec.get("y", 0.0)))
 		new_sel.append(_spawn_copy(rec, nx, nz, dy, pairs))
 	if pairs.is_empty():
 		return
@@ -983,13 +1031,16 @@ func _sel_duplicate() -> Array:
 	var set := _selection_set()
 	if set.is_empty():
 		return []
+	var book: Variant = _book()
 	var pairs: Array = []
 	var new_sel: Array = []
 	for m: Dictionary in set:
-		var rec := CellRecords.record(m.cell, String(m.id))
+		var rec: Dictionary = book.record(m.cell, String(m.id))
 		if rec.is_empty():
 			continue
-		var dy := float(rec.get("ground_dy", 0.0))
+		# Inside, the copy keeps its absolute y; outside, its ground standoff.
+		var dy := float(rec.get("y", 0.0)) if Interiors.inside \
+				else float(rec.get("ground_dy", 0.0))
 		new_sel.append(_spawn_copy(rec, float(rec.x) + DUP_NUDGE,
 				float(rec.z) + DUP_NUDGE, dy, pairs))
 	if pairs.is_empty():
@@ -1005,15 +1056,22 @@ func _sel_duplicate() -> Array:
 ## {before {}, after copy} pair for the batched undo; returns its {cell, id}.
 func _spawn_copy(rec: Dictionary, nx: float, nz: float, dy: float,
 		pairs: Array) -> Dictionary:
+	var book: Variant = _book()
 	var dup := rec.duplicate()
-	dup["id"] = CellRecords.mint_id()
+	dup["id"] = book.mint_id()
 	dup["x"] = nx
 	dup["z"] = nz
-	dup["y"] = Terrain.height(nx, nz) + dy
-	dup["ground_dy"] = dy
-	if _snap_normal:
-		dup["tilt"] = _ground_normal_arr(nx, nz)
-	var cell := CellRecords.insert(dup)
+	if Interiors.inside:
+		# `dy` carries the absolute local y inside — no terrain, no ground_dy.
+		dup["y"] = dy
+		dup.erase("ground_dy")
+		dup.erase("tilt")
+	else:
+		dup["y"] = Terrain.height(nx, nz) + dy
+		dup["ground_dy"] = dy
+		if _snap_normal:
+			dup["tilt"] = _ground_normal_arr(nx, nz)
+	var cell: Variant = book.insert(dup)
 	pairs.append({"before": {}, "after": dup.duplicate()})
 	return {"cell": cell, "id": String(dup["id"])}
 
@@ -1025,20 +1083,20 @@ func _reseat_selection() -> void:
 	var set := _selection_set()
 	if set.is_empty():
 		return
+	var book: Variant = _book()
 	var pairs: Array = []
 	var new_sel: Array = []
 	for m: Dictionary in set:
-		var rec := CellRecords.record(m.cell, String(m.id))
+		var rec: Dictionary = book.record(m.cell, String(m.id))
 		if rec.is_empty():
 			continue
 		var before := rec.duplicate()
 		var x := float(rec.x)
 		var z := float(rec.z)
-		var dy := 0.0 if _snap_ground else \
-				CellRecords.seat_y(rec) - Terrain.height(x, z)
-		var ncell := CellRecords.update(m.cell, String(m.id), _move_fields(x, z, dy))
+		var dy := _move_dy(rec, float(rec.get("y", 0.0)))
+		var ncell: Variant = book.update(m.cell, String(m.id), _move_fields(x, z, dy))
 		pairs.append({"before": before,
-			"after": CellRecords.record(ncell, String(m.id)).duplicate()})
+			"after": book.record(ncell, String(m.id)).duplicate()})
 		new_sel.append({"cell": ncell, "id": String(m.id)})
 	if pairs.is_empty():
 		return
@@ -1055,7 +1113,7 @@ func _close_box(hit: Vector3) -> void:
 		(_box_preview.mesh as ImmediateMesh).clear_surfaces()
 	if hit == Vector3.INF:
 		return
-	var found := CellRecords.find_in_box(
+	var found: Array = _book().find_in_box(
 			Vector2(_box_a.x, _box_a.z), Vector2(hit.x, hit.z))
 	if found.is_empty():
 		_deselect()
@@ -1250,7 +1308,7 @@ func _process(delta: float) -> void:
 			_sel_marker.visible = true
 			_sel_marker.scale = Vector3.ONE * (2.0 * sc)
 			_sel_marker.global_position = Vector3(float(sel.x),
-				CellRecords.seat_y(sel) + 0.4, float(sel.z))
+				_book().seat_y(sel) + 0.4, float(sel.z))
 			_rebuild_gizmo(hit)
 	elif _sel_marker.visible:
 		_sel_marker.visible = false
@@ -1267,7 +1325,7 @@ func _process(delta: float) -> void:
 	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) \
 			or not (_sculpt_unsaved or _terrain_unsaved
 				or _biome_unsaved or _pen_dirty or CellRecords.has_dirty()
-				or Overrides.pending):
+				or InteriorRecords.has_dirty() or Overrides.pending):
 		_flush_quiet = 0.0
 	else:
 		_flush_quiet += delta
@@ -1404,6 +1462,8 @@ func _flush_hand_edits() -> void:
 		_save_pens()
 	if CellRecords.has_dirty():
 		CellRecords.flush()  # deferred placement edits (move/rotate/scale)
+	if InteriorRecords.has_dirty():
+		InteriorRecords.flush()  # deferred interior-book edits
 	Overrides.emit()  # the P4 seam artifact: overrides.json tracks the flush
 	_flush_quiet = 0.0
 
@@ -1429,16 +1489,19 @@ func _rebuild_gizmo(cursor: Vector3) -> void:
 	var set := _selection_set()
 	if set.is_empty():
 		return
-	var prec := CellRecords.record(set[0]["cell"], String(set[0]["id"]))
+	var book: Variant = _book()
+	var prec: Dictionary = book.record(set[0]["cell"], String(set[0]["id"]))
 	if prec.is_empty():
 		return
 	var s := float(prec.get("scale", 1.0))
-	var at := Vector3(float(prec.x), CellRecords.seat_y(prec) + 0.4, float(prec.z))
+	var at := Vector3(float(prec.x), book.seat_y(prec) + 0.4, float(prec.z))
 	# While a drag is live, float the gizmo at the (snapped) cursor — the
-	# preview of where the primary will seat on release.
+	# preview of where the primary will seat on release. Inside, the cursor
+	# hit height IS the seat (no terrain); outside, the ground under it.
 	if _drag_active and cursor != Vector3.INF:
 		var p := ToolkitSnap.snap_to_grid(cursor, _grid_step) if _snap_grid else cursor
-		at = Vector3(p.x, Terrain.height(p.x, p.z) + 0.4, p.z)
+		var gy: float = p.y if Interiors.inside else Terrain.height(p.x, p.z)
+		at = Vector3(p.x, gy + 0.4, p.z)
 	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
 	_gizmo_arm(mesh, at, Vector3.RIGHT, s, Color(1.0, 0.3, 0.3))    # X
 	_gizmo_arm(mesh, at, Vector3.UP, s, Color(0.4, 1.0, 0.4))       # Y
@@ -1446,10 +1509,10 @@ func _rebuild_gizmo(cursor: Vector3) -> void:
 	_gizmo_ring(mesh, at, s, Color(1.0, 0.9, 0.3))                  # rotate
 	# Extra members: a small cross tick each, so a group reads at a glance.
 	for i in range(1, set.size()):
-		var r := CellRecords.record(set[i]["cell"], String(set[i]["id"]))
+		var r: Dictionary = book.record(set[i]["cell"], String(set[i]["id"]))
 		if r.is_empty():
 			continue
-		var c := Vector3(float(r.x), CellRecords.seat_y(r) + 0.4, float(r.z))
+		var c := Vector3(float(r.x), book.seat_y(r) + 0.4, float(r.z))
 		var t := 1.2 * float(r.get("scale", 1.0))
 		_gizmo_line(mesh, c - Vector3(t, 0, 0), c + Vector3(t, 0, 0), Color(0.25, 0.95, 1.0))
 		_gizmo_line(mesh, c - Vector3(0, 0, t), c + Vector3(0, 0, t), Color(0.25, 0.95, 1.0))
@@ -1589,10 +1652,14 @@ func _exit() -> void:
 	_sculpt_unsaved = false
 	_save_pens()
 	CellRecords.flush()
+	InteriorRecords.flush()  # the active interior book lands with the hand
 	Overrides.emit()
 	var player := _player()
-	var ground := Terrain.height(_cam.global_position.x, _cam.global_position.z)
-	player.global_position = Vector3(_cam.global_position.x, ground + 1.5, _cam.global_position.z)
+	# Inside a pocket there is no terrain to re-seat on (it is 1.5km below):
+	# leave the player at the fly camera's spot, on the interior's own floor.
+	var gy: float = _cam.global_position.y - 1.5 if Interiors.inside \
+			else Terrain.height(_cam.global_position.x, _cam.global_position.z)
+	player.global_position = Vector3(_cam.global_position.x, gy + 1.5, _cam.global_position.z)
 	player.velocity = Vector3.ZERO
 	player.set_physics_process(true)
 	player.set_process_unhandled_input(true)
@@ -1960,7 +2027,7 @@ func set_grid_step(m: float) -> float:
 ## headless seam for Shift+RMB). Returns the count selected.
 func select_box(a: Vector2, b: Vector2) -> int:
 	_tool = Tool.PLACE
-	var found := CellRecords.find_in_box(a, b)
+	var found: Array = _book().find_in_box(a, b)
 	if found.is_empty():
 		_deselect()
 		return 0

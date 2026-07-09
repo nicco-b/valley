@@ -12,6 +12,7 @@
 			"game/data/records.gd",
 			"game/data/cards.gd",
 			"game/world/cell_records.gd",
+			"game/world/interior_records.gd",
 			"game/world/prefabs.gd",
 			"game/save/save_manager.gd",
 			"game/dev/overrides.gd"

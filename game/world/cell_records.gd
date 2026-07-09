@@ -342,6 +342,15 @@ func seat_y(rec: Dictionary) -> float:
 	return float(rec.y)
 
 
+## The "ground" a placed record seats above at (x, z) — the terrain height
+## here. The active-book seam (PLAN_INTERIORS §4): the Toolkit's seating
+## funnels read ground_h off whichever book is active, and inside an
+## interior InteriorRecords answers a flat 0 (no terrain). y = ground_h(x,
+## z) + dy is the one seating law both books share.
+func ground_h(x: float, z: float) -> float:
+	return Terrain.height(x, z)
+
+
 func _save(cell: Vector2i) -> void:
 	# Opportunistic migration: legacy records gain their ground-relative
 	# anchor — and their stable id — whenever their cell is saved anyway;

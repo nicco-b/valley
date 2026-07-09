@@ -74,6 +74,10 @@ func _ready() -> void:
 	_fade_rect.visible = false
 	layer.add_child(_fade_rect)
 	add_child(layer)
+	# The hand edits the interior's book (InteriorRecords) while inside; a
+	# changed book re-dresses the live pocket so the room the player sees IS
+	# the records on disk (PLAN_INTERIORS §4, the I2 done-means).
+	InteriorRecords.changed.connect(_on_book_changed)
 
 
 func _physics_process(_delta: float) -> void:
@@ -146,7 +150,7 @@ func enter(id: String, door_pos: Vector3, yaw: float, by: Node) -> void:
 	await _fade_to(1.0)
 	door_position = door_pos
 	door_yaw = yaw
-	_build_pocket(def, Vector3(door_pos.x, POCKET_ALT, door_pos.z))
+	_build_pocket(def, id, Vector3(door_pos.x, POCKET_ALT, door_pos.z))
 	inside = true
 	interior_id = id
 	_place(by, _pocket.position + _spawn_local
@@ -199,7 +203,7 @@ func restore(id: String, door_pos: Vector3, yaw: float, local_pos: Vector3,
 		return false
 	door_position = door_pos
 	door_yaw = yaw
-	_build_pocket(def, Vector3(door_pos.x, POCKET_ALT, door_pos.z))
+	_build_pocket(def, id, Vector3(door_pos.x, POCKET_ALT, door_pos.z))
 	inside = true
 	interior_id = id
 	_place(player, _pocket.position + local_pos)
@@ -223,17 +227,36 @@ func _place(by: Node, pos: Vector3) -> void:
 		(by as CharacterBody3D).velocity = Vector3.ZERO
 
 
-## Instantiate the interior's placements under one root at `origin`.
-## Rows are CellRecords-shaped; kit resolves through the same Kit door
-## the streamer uses; y is absolute-local (no terrain, no seat_y).
-func _build_pocket(def: Dictionary, origin: Vector3) -> void:
+## Stand a fresh pocket at `origin` and point the interior book (I2's
+## InteriorRecords) at it — the book becomes the pocket's live truth, in
+## WORLD coordinates (local + origin), so the Toolkit's world-space hand
+## edits it in place. Then dress the room from the book. `def` carries the
+## header (light/ambience) the book does not own.
+func _build_pocket(def: Dictionary, id: String, origin: Vector3) -> void:
 	_free_pocket()
 	_pocket = Node3D.new()
 	_pocket.name = "InteriorPocket"
 	_pocket.position = origin
+	add_child(_pocket)
+	InteriorRecords.focus(id, origin)  # the book now speaks this pocket
+	_populate_pocket(def)
+	_gate_sun(true)
+
+
+## (Re)dress the live pocket from the interior book. Called on build and on
+## every book `changed` (the hand placed / moved / deleted a piece), so the
+## room the player stands in always mirrors the records. Rows are
+## CellRecords-shaped in WORLD coords; kit resolves through the same Kit
+## door the streamer uses; y is absolute-local, seated by subtracting the
+## pocket origin (no terrain, no seat_y).
+func _populate_pocket(def: Dictionary) -> void:
+	if _pocket == null or not is_instance_valid(_pocket):
+		return
+	for child in _pocket.get_children():
+		child.queue_free()
 	_spawn_local = Vector3(0.0, 0.5, 0.0)  # fallback: pocket origin
 	_spawn_yaw = 0.0
-	for rec: Dictionary in def.get("placements", []):
+	for rec: Dictionary in InteriorRecords.active_rows():
 		var scene: PackedScene = Kit.scene_for(str(rec.get("kit", "")))
 		if scene == null:
 			continue
@@ -241,7 +264,7 @@ func _build_pocket(def: Dictionary, origin: Vector3) -> void:
 		_dress(node)
 		_pocket.add_child(node)
 		node.position = Vector3(float(rec.get("x", 0.0)),
-			float(rec.get("y", 0.0)), float(rec.get("z", 0.0)))
+			float(rec.get("y", 0.0)), float(rec.get("z", 0.0))) - _pocket.position
 		node.rotation.y = float(rec.get("yaw", 0.0))
 		node.scale = Vector3.ONE * float(rec.get("scale", 1.0))
 		var door: Dictionary = rec.get("door", {})
@@ -268,11 +291,22 @@ func _build_pocket(def: Dictionary, origin: Vector3) -> void:
 	# cull mask drops it below. Cameras see all layers by default.
 	for mi: MeshInstance3D in _pocket.find_children("*", "MeshInstance3D", true, false):
 		mi.layers = POCKET_LAYER_BIT
-	add_child(_pocket)
-	_gate_sun(true)
+
+
+## The interior book changed under the hand — re-dress the live pocket so
+## the room follows the records (only when this IS the standing pocket).
+func _on_book_changed(id: String) -> void:
+	if not inside or _busy or id != interior_id:
+		return
+	if _pocket == null or not is_instance_valid(_pocket):
+		return
+	_populate_pocket(definition(id))
 
 
 func _free_pocket() -> void:
+	# Persist any pending book edits before the pocket goes (a nudge stream
+	# that never reached the stroke-quiet flush must not vanish at the door).
+	InteriorRecords.flush()
 	if _pocket != null and is_instance_valid(_pocket):
 		_pocket.queue_free()
 	_pocket = null

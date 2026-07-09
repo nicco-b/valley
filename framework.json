@@ -56,6 +56,7 @@
 			"game/world/climate.gd",
 			"game/world/atmosphere.gd",
 			"game/world/day_night.gd",
+			"game/world/audio.gd",
 			"game/world/ambience.gd",
 			"game/world/weather_fx.gd",
 			"game/world/flora_life.gd",

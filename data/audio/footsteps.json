@@ -1,0 +1,14 @@
+[
+	{
+		"surface": "sand",
+		"files": [
+			"res://assets/audio/steps/sand_1.wav",
+			"res://assets/audio/steps/sand_2.wav",
+			"res://assets/audio/steps/sand_3.wav",
+			"res://assets/audio/steps/sand_4.wav"
+		],
+		"volume_db": -13.0,
+		"pitch_var": 1.12,
+		"volume_var_db": 2.0
+	}
+]

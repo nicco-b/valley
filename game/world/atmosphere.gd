@@ -325,6 +325,12 @@ func _update_lightning(delta: float) -> void:
 		strike.y = Terrain.height(strike.x, strike.z)
 		_bolt.global_position = strike + Vector3(0, 180.0, 0)
 		_draw_bolt(strike)
+		# The thunder socket (PLAN_AUDIO A1, 4d): one emit at the strike,
+		# positional. No thunder_near record ships yet (the wav is Nicco's),
+		# so Audio.play no-ops silently — content-empty, no error — until a
+		# data/audio/sfx/thunder_near.json + wav land. Presentation-only,
+		# like the flash itself (never fingerprinted).
+		Audio.play("thunder_near", strike)
 		_bolt_t = 0.45
 		_next_bolt = 2.5 + randf() * 12.0 * (1.6 - menace)
 

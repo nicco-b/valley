@@ -30,14 +30,15 @@ const FABRIC_CHAINS: Array[Dictionary] = [
 		"gravity": 0.05, "radius": 0.03, "wind": 1.2, "extend": 0.14},
 ]
 
-# Footstep audio — content, not framework, the same footing as FABRIC_CHAINS
-# above (FW5: Q1 marks fox model + footstep audio as content-via-character-
-# records; no such record system exists yet — deliberately, see the fence —
-# so this stays one named, existence-guarded constant instead of speculative
-# machinery). The lint OBSERVEs it by name — an honest allowlist entry,
-# not a dodge. _make_footsteps() below already tolerates the folder being
-# empty/absent (content-empty boots silent, no error).
-const FOOTSTEP_AUDIO_DIR := "res://assets/audio/steps"
+# Footstep audio is DATA now (PLAN_AUDIO 2b): data/audio/footsteps.json
+# holds one row per surface (surface, files, volume_db, pitch_var). The
+# pool below is the consumer; a new surface — stone, wet, an interior
+# floor — is a new ROW + files, no code (ASSETS_NEEDED's "code is ready
+# when sounds exist," done as data). The record path names data/, never
+# res://assets/, so the framework file carries no content path (the old
+# FOOTSTEP_AUDIO_DIR literal is gone, and with it its lint allowlist
+# entry). Content-empty (no record) boots silent, no error.
+const FOOTSTEP_RECORD := "res://data/audio/footsteps.json"
 
 var _sitting := false
 # Underwater swim state (2026-07-04 water review, step 1). PROVISIONAL
@@ -47,6 +48,7 @@ var _sitting := false
 var _submerged := false
 var _uw_rect: ColorRect
 var _uw_lowpass := -1
+var _uw_bus := 0  # World bus index (resolved at fx-setup; Master fallback)
 var _target: Interactable = null
 var _step_accum := 0.0
 var _step_left := false
@@ -55,7 +57,8 @@ var _sand_puff: GPUParticles3D
 var _scuff: GPUParticles3D
 var _was_airborne := false
 var _fall_speed := 0.0  # |velocity.y| while airborne; floor zeroes velocity
-var _steps: AudioStreamPlayer
+var _steps: Dictionary = {}  # surface -> AudioStreamPlayer (its own pool)
+var _step_default := ""  # first surface loaded — the fallback pool
 # Skill xp accumulators, flushed to WorldState every few seconds.
 var _xp_walk := 0.0
 var _xp_sit := 0.0
@@ -86,7 +89,7 @@ func _ready() -> void:
 	FabricSpring.adopt($Body/Model, FABRIC_CHAINS)
 	_sand_puff = _make_sand_puff()
 	_scuff = _make_scuff()
-	_steps = _make_footsteps()
+	_make_footsteps()
 	SaveGame.load_into_world.call_deferred()
 
 
@@ -111,24 +114,53 @@ func _resolve_anim(desired: String) -> String:
 	return ""
 
 
-## Footstep pool: every wav in FOOTSTEP_AUDIO_DIR (synth placeholders now;
-## drop real recordings in the same folder and they take over). Existence-
-## guarded: an absent/empty folder just leaves the randomizer empty and
-## _play_footstep() below already checks streams_count before playing.
-func _make_footsteps() -> AudioStreamPlayer:
-	var randomizer := AudioStreamRandomizer.new()
-	randomizer.random_pitch = 1.12
-	randomizer.random_volume_offset_db = 2.0
-	var dir := DirAccess.open(FOOTSTEP_AUDIO_DIR)
-	if dir:
-		for f in dir.get_files():
-			if f.ends_with(".wav"):
-				randomizer.add_stream(-1, load(FOOTSTEP_AUDIO_DIR.path_join(f)))
-	var player := AudioStreamPlayer.new()
-	player.stream = randomizer
-	player.volume_db = -13.0
-	add_child(player)
-	return player
+## Footstep pools, one per surface, from data/audio/footsteps.json (2b).
+## Each row (surface, files, volume_db, pitch_var) becomes an
+## AudioStreamRandomizer on its own SFX-bus player. The first row is the
+## fallback surface (today: sand — the migrated −13 dB / 1.12-pitch pool,
+## which played everywhere). Existence-guarded end to end: an absent
+## record or a row whose files are missing just leaves that pool empty,
+## and _play_footstep() checks streams_count before playing.
+func _make_footsteps() -> void:
+	# Existence-guarded before the read (the swarm-record pattern,
+	# atmosphere.gd): a content-empty game with no footstep record boots
+	# silent AND clean — no "missing record" error in the log.
+	if not FileAccess.file_exists(FOOTSTEP_RECORD):
+		return
+	var rows: Variant = Records.load_json(FOOTSTEP_RECORD)
+	if not (rows is Array):
+		return
+	for row in rows:
+		if not (row is Dictionary) or not row.has("surface") or not row.has("files"):
+			continue
+		var surface := String(row["surface"])
+		var randomizer := AudioStreamRandomizer.new()
+		randomizer.random_pitch = float(row.get("pitch_var", 1.12))
+		randomizer.random_volume_offset_db = float(row.get("volume_var_db", 2.0))
+		for f in row["files"]:
+			if ResourceLoader.exists(String(f)):
+				randomizer.add_stream(-1, load(String(f)))
+		var player := AudioStreamPlayer.new()
+		player.stream = randomizer
+		player.bus = "SFX"  # footsteps are world SFX (muffled underwater)
+		player.volume_db = float(row.get("volume_db", -13.0))
+		add_child(player)
+		_steps[surface] = player
+		if _step_default == "":
+			_step_default = surface
+
+
+## The surface the foot lands on: the biome id under the player, or
+## "interior" inside a pocket room. A row keyed by that name plays; with
+## no matching row the fallback (first-loaded) pool does — so adding a
+## surface is a record row + files, never code.
+func _footstep_surface() -> String:
+	if Interiors.inside:
+		return "interior"
+	var bidx: int = Terrain.biome_at(global_position.x, global_position.z)
+	if bidx >= 0 and bidx < Terrain.biomes.size():
+		return str(Terrain.biomes[bidx].id)
+	return _step_default
 
 
 func _flush_xp() -> void:
@@ -147,8 +179,10 @@ func _flush_xp() -> void:
 
 
 func _play_footstep() -> void:
-	if _steps.stream.streams_count > 0:
-		_steps.play()
+	var player: AudioStreamPlayer = _steps.get(_footstep_surface(),
+			_steps.get(_step_default, null))
+	if player != null and player.stream.streams_count > 0:
+		player.play()
 
 
 func _make_sand_puff() -> GPUParticles3D:
@@ -275,9 +309,16 @@ func _ensure_underwater_fx() -> void:
 	add_child(layer)
 	var lp := AudioEffectLowPassFilter.new()
 	lp.cutoff_hz = 900.0
-	_uw_lowpass = AudioServer.get_bus_effect_count(0)
-	AudioServer.add_bus_effect(0, lp)
-	AudioServer.set_bus_effect_enabled(0, _uw_lowpass, false)
+	# The low-pass lives on the World bus, not Master (PLAN_AUDIO 3a): so
+	# submersion muffles ambience + SFX, NOT the UI or music that route
+	# straight to Master. Before A1 this sat on bus 0 and muffled the whole
+	# game. Fall back to Master if the house graph isn't up (defensive; the
+	# Audio autoload builds World at boot).
+	var world := AudioServer.get_bus_index("World")
+	_uw_bus = world if world >= 0 else 0
+	_uw_lowpass = AudioServer.get_bus_effect_count(_uw_bus)
+	AudioServer.add_bus_effect(_uw_bus, lp)
+	AudioServer.set_bus_effect_enabled(_uw_bus, _uw_lowpass, false)
 
 
 func _update_underwater_fx() -> void:
@@ -289,7 +330,7 @@ func _update_underwater_fx() -> void:
 	var under := cp.y < Terrain.water_surface(cp.x, cp.z)
 	if under != _uw_rect.visible:
 		_uw_rect.visible = under
-		AudioServer.set_bus_effect_enabled(0, _uw_lowpass, under)
+		AudioServer.set_bus_effect_enabled(_uw_bus, _uw_lowpass, under)
 
 
 func _physics_process(delta: float) -> void:

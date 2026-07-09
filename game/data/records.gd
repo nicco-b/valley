@@ -38,7 +38,7 @@ func load_json(path: String) -> Variant:
 func load_dir(dir_path: String, required: Dictionary = {}) -> Dictionary:
 	# Remember the kind's schema so `records validate` judges an edited
 	# record by the exact same required-field map its loader trusts.
-	_schemas[dir_path.get_file()] = required
+	register_schema(dir_path.get_file(), required)
 	var out: Dictionary = {}
 	var dir := DirAccess.open(dir_path)
 	if dir == null:
@@ -87,6 +87,17 @@ func validate_message(record: Dictionary, required: Dictionary) -> String:
 ## "" on ok, else the game's own failure words.
 func validate_kind(kind: String, record: Dictionary) -> String:
 	return validate_message(record, _schemas.get(kind, {}))
+
+
+## Register a kind's required-field schema by NAME, independent of a
+## `load_dir` call. `load_dir` routes through here (kind = the directory's
+## basename); a loader whose records live in a NESTED dir whose basename
+## doesn't match the desk kind it wants (data/audio/sfx served as kind
+## "audio_sfx") registers the schema itself, so `records validate <kind>`
+## judges by the same map the loader trusts. Idempotent — the last writer
+## for a kind wins, as with load_dir.
+func register_schema(kind: String, required: Dictionary) -> void:
+	_schemas[kind] = required
 
 
 ## The required-field schema a kind registered (empty when none) — the

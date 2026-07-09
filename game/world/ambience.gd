@@ -6,6 +6,16 @@ extends Node
 @onready var _night: AudioStreamPlayer = $Night
 
 
+func _ready() -> void:
+	# The beds ride the Ambience bus (PLAN_AUDIO 3a) — under World, so the
+	# underwater low-pass muffles them, but never the UI or music. Before
+	# A1 they sat on Master (bus 0) like everything else.
+	if is_instance_valid(_wind):
+		_wind.bus = "Ambience"
+	if is_instance_valid(_night):
+		_night.bus = "Ambience"
+
+
 func _process(_delta: float) -> void:
 	var h: float = GameClock.solar_hours()  # dusk tracks the seasonal sunset
 	var nightness := clampf(

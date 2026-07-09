@@ -63,10 +63,9 @@ const ALLOWLIST: Array[Dictionary] = [
 	{"path": "game/world/terrain.gd", "rule": "content-id",
 		"literal": "sea",
 		"reason": "schema field key (water-body bool flag), not an id reference"},
-	{"path": "game/player/player.gd", "rule": "asset-preload",
-		"literal": "res://assets/audio/steps",
-		"reason": "content marked in place — Q1 wants character records (none exist "
-			+ "yet, per the fence); one named, existence-guarded const until they do"},
+	# (PLAN_AUDIO A1 removed player.gd's res://assets/audio/steps literal —
+	# footsteps are data now, data/audio/footsteps.json — so its
+	# asset-preload allowlist entry retired with it.)
 	# -- content-id: RESIDUE. Real leaks, no pending rung claims them. --
 	{"path": "game/player/player.gd", "rule": "content-id",
 		"literal": "wayfaring",

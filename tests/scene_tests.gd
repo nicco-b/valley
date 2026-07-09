@@ -50,6 +50,7 @@ func _ready() -> void:
 	_test_scatter_roundtrip()
 	_test_edit_flush()
 	_test_budget()
+	_test_audio()
 	await _test_threshold()
 	await _test_interior_hand()
 	_test_map()
@@ -98,6 +99,54 @@ func _test_budget() -> void:
 	Budget.snapshot()
 	Budget.worst_grade()
 	_check(Budget.total_records() == before, "budget: reading never mutates the Chronicle")
+
+
+## Audio (PLAN_AUDIO A1): the house bus graph is framework-owned and built
+## at boot (LAW A2), the SFX records are validated content (LAW A3), and a
+## content-empty game (no SFX records ship in valley) plays silent, never
+## errors (FW1). No sound is ever fingerprinted (LAW A1) — proven by soak,
+## asserted here structurally: audio only reads AudioServer, never sim.
+func _test_audio() -> void:
+	# The house graph: Master (bus 0) + the five children, routed as the
+	# plan's tree — World under Master, Ambience/SFX under World, Music/UI
+	# straight to Master.
+	_check(AudioServer.get_bus_name(0) == "Master", "audio: Master is bus 0")
+	for bus in ["World", "Ambience", "SFX", "Music", "UI"]:
+		_check(AudioServer.get_bus_index(bus) >= 0, "audio: house bus %s exists" % bus)
+	var sends := {"World": "Master", "Ambience": "World", "SFX": "World",
+		"Music": "Master", "UI": "Master"}
+	for bus in sends:
+		_check(AudioServer.get_bus_send(AudioServer.get_bus_index(bus)) == sends[bus],
+			"audio: %s routes to %s" % [bus, sends[bus]])
+	# The wart A1 fixes: UI (and Music) bypass World, so the underwater
+	# low-pass on World (player.gd) can never muffle them — "UI is audible
+	# underwater" is structural, not incidental.
+	_check(AudioServer.get_bus_send(AudioServer.get_bus_index("UI")) != "World",
+		"audio: UI does not route through World (never muffled underwater)")
+	# SFX records are validated content: the desk judges kind audio_sfx by
+	# the game's own loader schema. A bad record (missing a required field)
+	# is caught; a complete one passes — the same words `records validate`
+	# hands the desk.
+	_check(not Records.schema_for("audio_sfx").is_empty(),
+		"audio: audio_sfx schema registered for the records desk")
+	var bad := {"id": "x", "files": [], "volume_db": -6.0}  # no bus
+	_check(Records.validate_kind("audio_sfx", bad) != "",
+		"audio: records validate audio_sfx catches a bad record (no bus)")
+	var good := {"id": "x", "files": ["a.wav"], "volume_db": -6.0, "bus": "SFX"}
+	_check(Records.validate_kind("audio_sfx", good) == "",
+		"audio: a complete audio_sfx record validates")
+	# Content-empty (valley ships no SFX records — the wavs are Nicco's):
+	# an unknown event is a silent no-op, never a crash. The thunder socket
+	# rides exactly this until a thunder_near record lands.
+	Audio.play("no_such_event")
+	Audio.play("thunder_near", Vector3.ZERO)
+	Audio.play_file("res://assets/audio/does_not_exist.wav")
+	_check(true, "audio: play of an unknown/absent sound is a safe no-op")
+	# The Mix face's data: bus levels in tree order, one <bus>:<db> token
+	# each (the `audio` verb's payload).
+	var levels := Audio.bus_levels()
+	_check(levels.begins_with("Master:") and " UI:" in levels,
+		"audio: bus_levels lists the house buses (got %s)" % levels)
 
 
 ## StrataLink (ONE_APP P3): the live-link verbs answer over a real local
@@ -170,6 +219,7 @@ func _test_strata_link() -> void:
 	await _test_inspect_notices(peer)
 	await _test_pulse(peer)
 	await _test_records_desk(peer)
+	await _test_audio_verbs(peer)
 	peer.disconnect_from_host()
 
 
@@ -735,6 +785,49 @@ func _test_records_desk(peer: StreamPeerTCP) -> void:
 	# Leave no trace: drop the synthetic kind from the registries.
 	Records._schemas.erase("probe_kind")
 	Records._reloaders.erase("probe_kind")
+
+
+## The audio verbs over the link (PLAN_AUDIO A1, 4a/4b-ii). play_sound
+## auditions an event or a res-path (fire-and-forget, sync ok — silent
+## no-op for content valley doesn't ship); `audio` mirrors the house bus
+## levels and `audio set` drives one live, honest about a non-house bus.
+func _test_audio_verbs(peer: StreamPeerTCP) -> void:
+	var r := await _link_send(peer, [
+		"play_sound",
+		"play_sound thunder_near",
+		"play_sound res://assets/audio/does_not_exist.wav",
+		"audio",
+		"audio set SFX -4.5",
+		"audio set Nonsense 0",
+		"audio set SFX",
+		"audio bogus",
+	])
+	_check(r.size() == 8, "audio verb replies land (got %d)" % r.size())
+	if r.size() != 8:
+		return
+	_check(String(r[0]).begins_with("err play_sound needs"),
+		"play_sound bare errs with the contract line (got %s)" % r[0])
+	_check(r[1] == "ok play_sound thunder_near",
+		"play_sound <event> answers ok, fire-and-forget (got %s)" % r[1])
+	_check(String(r[2]) == "ok play_sound res://assets/audio/does_not_exist.wav",
+		"play_sound <res-path> answers ok even for absent content (got %s)" % r[2])
+	# `audio` mirrors the live buses in tree order + the duck token.
+	var levels := String(r[3])
+	_check(levels.begins_with("ok audio Master:") and " UI:" in levels
+		and levels.ends_with("duck:-"),
+		"audio reply carries the house buses + duck token (got %s)" % levels)
+	# `audio set` drives the live bus and reports it back.
+	_check(r[4] == "ok audio SFX -4.5", "audio set drives a house bus (got %s)" % r[4])
+	_check(absf(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("SFX"))
+		- (-4.5)) < 0.01, "audio set actually moved the SFX bus")
+	_check(String(r[5]).begins_with("err audio set: 'Nonsense'"),
+		"audio set on a non-house bus errs (got %s)" % r[5])
+	_check(String(r[6]).begins_with("err audio set needs"),
+		"audio set missing db errs with the contract line (got %s)" % r[6])
+	_check(String(r[7]).begins_with("err audio needs"),
+		"audio bogus subverb errs with the contract line (got %s)" % r[7])
+	# Leave the mix as found (other probes read levels).
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("SFX"), 0.0)
 
 
 ## preview_world (ONE_APP P8, the viewer): the game wears a Strata export

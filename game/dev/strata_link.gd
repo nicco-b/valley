@@ -261,7 +261,8 @@ const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "reload_world"
 	"camera", "view", "view_layer", "probe",
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
 	"records", "budget", "undo", "redo", "prefab",
-	"save_anchor", "restore_anchor", "anchors", "journal", "scrub"]
+	"save_anchor", "restore_anchor", "anchors", "journal", "scrub",
+	"play_sound", "audio"]
 
 ## Thumbnail render target size (square). The pane renders this offscreen;
 ## Strata caches the PNG by card sha and downsamples in its grid.
@@ -576,6 +577,27 @@ func _execute(line: String) -> String:
 			if parts.size() < 2 or not parts[1].is_valid_float():
 				return "err scrub needs <abs-hours>"
 			return _scrub(float(parts[1]))
+		"play_sound":
+			# The thumbnail verb's audio sibling (PLAN_AUDIO 4b-ii): audition
+			# an SFX event by record id (full pipeline — variations, jitter,
+			# bus, ducks, low-pass) OR a bare res-path on the SFX bus. Fire
+			# and forget — sync reply, no async dance. An Audition button in
+			# the record inspector / on audio cards drives it.
+			if parts.size() < 2:
+				return "err play_sound needs <event|res-path>"
+			var arg := parts[1]
+			if arg.begins_with("res://"):
+				Audio.play_file(arg)
+			else:
+				Audio.play(arg)
+			return "ok play_sound %s" % arg
+		"audio":
+			# The Mix face (PLAN_AUDIO 4a): `audio` reports the house bus
+			# levels in tree order (+ a duck token the A2 mix rules fill);
+			# `audio set <bus> <db>` drives AudioServer live, the time-slider
+			# contract. Levels are tuning — the graph stays framework-owned
+			# (LAW A2; the fence's amended clause).
+			return _audio(parts)
 		_:
 			return "err unknown verb '%s'" % parts[0]
 
@@ -864,6 +886,27 @@ func _records(parts: PackedStringArray, line: String) -> String:
 			return "ok schema %s %s" % [kind, " ".join(toks)]
 		_:
 			return "err records needs validate|reload|schema <kind> ..."
+
+
+## The Mix face over the link (PLAN_AUDIO 4a). Bare `audio` mirrors the
+## live house bus levels (Audio reads AudioServer, so the reply follows
+## whatever the settings slider or a duck last wrote) plus a trailing
+## `duck:` token — empty in A1, filled by A2's mix.json rules so the face
+## can show WHY a bus is quiet. `audio set <bus> <db>` drives one bus
+## level live (the graph itself stays framework-owned — LAW A2).
+func _audio(parts: PackedStringArray) -> String:
+	if parts.size() == 1:
+		return "ok audio %s duck:-" % Audio.bus_levels()
+	if parts[1] == "set":
+		if parts.size() < 4 or not parts[3].is_valid_float():
+			return "err audio set needs <bus> <db>"
+		var bus := parts[2]
+		var idx := AudioServer.get_bus_index(bus)
+		if idx < 0:
+			return "err audio set: '%s' is not a house bus" % bus
+		AudioServer.set_bus_volume_db(idx, float(parts[3]))
+		return "ok audio %s %s" % [bus, parts[3]]
+	return "err audio needs set <bus> <db>"
 
 
 ## Advance the clock for the hub — always FORWARD, always through

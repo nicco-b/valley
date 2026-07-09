@@ -260,7 +260,7 @@ const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "reload_world"
 	"preview_world", "preview_mesh", "preview_shared", "render_device",
 	"camera", "view", "view_layer", "probe",
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
-	"records", "undo", "redo", "prefab"]
+	"records", "budget", "undo", "redo", "prefab"]
 
 ## Thumbnail render target size (square). The pane renders this offscreen;
 ## Strata caches the PNG by card sha and downsamples in its grid.
@@ -493,6 +493,15 @@ func _execute(line: String) -> String:
 			# framework stays game-agnostic — Records holds the schema and
 			# reloader registries; the game's loaders fill them.
 			return _records(parts, line)
+		"budget":
+			# The world budget in one line (a METER, NOT A WALL): the three axes
+			# the stress probe charted — this cell's placements, live agents,
+			# total records — each graded green/amber/red. Data, not hand state
+			# (the Chronicle and the population registry answer in every posture),
+			# so Strata's inspector wears a Budget row without the Toolkit up.
+			# Grammar pinned by Strata's BudgetReport parser — change both or
+			# neither.
+			return Budget.link_line()
 		"hud":
 			if parts.size() < 2 or not (parts[1] in ["on", "off"]):
 				return "err hud needs on|off"
@@ -557,12 +566,16 @@ const PULSE_SEP := "\u001e"  # ASCII record separator (0x1e)
 ## truth, zero drift — the batch cannot skew from what the hub sees on the
 ## fallback path). Sections ride behind PULSE_SEP; new heartbeat fields
 ## append as fresh sections (old hubs ignore names they don't know). Note
-## `notices` DRAINS once here, exactly as it did as its own poll line.
+## `notices` DRAINS once here, exactly as it did as its own poll line. The
+## `budget` section rides along as the sixth field — an additive fresh section
+## (the world budget's three graded axes for Strata's Budget row); older hubs
+## that don't parse it simply ignore the name, no PROTOCOL bump.
 func _pulse() -> String:
 	var out := "ok pulse"
 	# key -> verb line; keys are Strata's GamePulse section names.
 	for pair: Array in [["toolkit", "toolkit status"], ["panel", "panel"],
-			["inspect", "inspect"], ["notices", "notices"], ["status", "status"]]:
+			["inspect", "inspect"], ["notices", "notices"], ["status", "status"],
+			["budget", "budget"]]:
 		out += "%s%s=%s" % [PULSE_SEP, pair[0], _execute(pair[1])]
 	return out
 

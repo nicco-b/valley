@@ -42,7 +42,20 @@ func _ready() -> void:
 	# the running game reflects the change — the same door F5 would take on
 	# a restart, minus the restart.
 	Records.register_reloader("wildlife", reload)
+	# The world budget's agent axis (a METER, NOT A WALL): every embodied-or-not
+	# mind counts toward the live-agent tally the meter grades. Read-only — the
+	# meter only ever calls this back; it never touches a sim.
+	Budget.register_population(_population)
 	GameClock.hour_tick.connect(func(_h: int) -> void: _save_state())
+
+
+## Live agent count for the world budget: every individual across every herd
+## (a mind counts whether or not a body is currently embodied).
+func _population() -> int:
+	var n := 0
+	for herd in herds:
+		n += herd.individuals.size()
+	return n
 
 
 ## Read the wildlife records and spawn one herd per species, then restore

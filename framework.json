@@ -93,6 +93,7 @@
 			"game/dev/toolkit_history.gd",
 			"game/dev/toolkit_snap.gd",
 			"game/dev/scatter_hand.gd",
+			"game/dev/budget.gd",
 			"game/dev/strata_link.gd",
 			"game/dev/strata_conventions.gd",
 			"game/dev/hot_reload.gd",

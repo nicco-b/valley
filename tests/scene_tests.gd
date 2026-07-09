@@ -49,6 +49,7 @@ func _ready() -> void:
 	_test_overrides_emit()
 	_test_scatter_roundtrip()
 	_test_edit_flush()
+	_test_budget()
 	await _test_threshold()
 	_test_map()
 	_test_pause_esc_routing()
@@ -66,6 +67,35 @@ func _check(condition: bool, name: String) -> void:
 	if not condition:
 		_failures += 1
 		print("  FAIL: ", name)
+
+
+## The world budget (a METER, NOT A WALL): the three axes grade green/amber/red
+## against the thresholds (framework DEFAULTS under data/world/budget.json), the
+## meter reads live state without ever writing it, and the `budget` link line
+## carries the grammar Strata's Budget row parses. Grading is pinned at the
+## boundaries so a tuned threshold cannot silently invert a colour.
+func _test_budget() -> void:
+	# Grading boundaries: below amber is green, amber..red-1 is amber, red+ is red.
+	var a := int(Budget.thresholds.cell_placements.amber)
+	var r := int(Budget.thresholds.cell_placements.red)
+	_check(Budget.grade(a - 1, "cell_placements") == Budget.GREEN,
+		"budget: below amber grades green")
+	_check(Budget.grade(a, "cell_placements") == Budget.AMBER,
+		"budget: at amber grades amber")
+	_check(Budget.grade(r, "cell_placements") == Budget.RED,
+		"budget: at red grades red")
+	# The content record loaded over the framework defaults (valley ships one).
+	_check(a > 0 and r > a, "budget: cell thresholds are ordered (amber<red)")
+	# The link line grammar Strata's BudgetReport parser pins.
+	var line := Budget.link_line()
+	_check(line.begins_with("ok budget cell=") and " agents=" in line
+		and " records=" in line and " est_ms=" in line,
+		"budget: link line carries all three axes + est_ms (got %s)" % line)
+	# The meter is read-only: reading it must not perturb the Chronicle.
+	var before := Budget.total_records()
+	Budget.snapshot()
+	Budget.worst_grade()
+	_check(Budget.total_records() == before, "budget: reading never mutates the Chronicle")
 
 
 ## StrataLink (ONE_APP P3): the live-link verbs answer over a real local

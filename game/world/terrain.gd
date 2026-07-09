@@ -198,7 +198,7 @@ func sea_surface() -> float:
 # pool threads corrupts the VM (the descent crash; STATUS "OPEN
 # BLOCKER"). macOS-only library, loaded at runtime so other platforms
 # fall back to the GDScript paths silently. Null when unavailable.
-const KERNEL_EXT := "res://native/bin/valleykernel.gdext"
+const KERNEL_EXT := "res://native/bin/loomkernel.gdext"
 var kernel: RefCounted = null
 
 

@@ -8,16 +8,24 @@ var _motes: GPUParticles3D
 var _glow: GPUParticles3D
 var _moths: GPUParticles3D
 
-# Swarms (the drop's paintings/swarms/): biome-and-time-keyed ambient life
-# that rides the player like the moths — butterflies over greenery by day,
-# pollen on the breeze, gnat columns at dusk near water, embers over the
-# volcano's rock, gulls wheeling above the strand. Placeholder sprites →
-# her painted swarms in the same slots. glow_mote is gated (skipped).
+# Swarms (paintings/swarms/): biome-and-time-keyed ambient life that rides
+# the player like the moths — butterflies over greenery by day, pollen on
+# the breeze, gnat columns at dusk near water, embers over the volcano's
+# rock, gulls wheeling above the strand. glow_mote is gated (skipped).
 var _butterflies: GPUParticles3D
 var _pollen: GPUParticles3D
 var _gnats: GPUParticles3D
 var _embers: GPUParticles3D
 var _gulls: GPUParticles3D
+
+# The moth + swarm paintings are valley content, not framework — the same
+# seam as day_night.gd's sky palette (FW5). SWARM_RECORD_PATH points at a
+# data/ record (never res://assets/ named here); a content-empty game has
+# no record, _moth_path/_swarm_dir stay "", and _painting() below already
+# tolerates a missing/empty path by returning null (plain quads, no error).
+const SWARM_RECORD_PATH := "res://data/sky/swarms.json"
+var _moth_path := ""
+var _swarm_dir := ""
 
 # The fog bank (the Elements): one broad FogVolume of 3D noise that
 # DRIFTS along the wind through the player's area — morning dew fog is
@@ -53,6 +61,11 @@ var _rain_mat: ParticleProcessMaterial
 
 
 func _ready() -> void:
+	if FileAccess.file_exists(SWARM_RECORD_PATH):
+		var rec: Variant = JSON.parse_string(FileAccess.get_file_as_string(SWARM_RECORD_PATH))
+		if rec is Dictionary:
+			_moth_path = String(rec.get("moth", ""))
+			_swarm_dir = String(rec.get("base_dir", ""))
 	_fog_bank = FogVolume.new()
 	_fog_bank.size = Vector3(1500.0, 44.0, 1500.0)
 	_fog_mat = FogMaterial.new()
@@ -136,8 +149,8 @@ func _ready() -> void:
 	glow_mat.emission = Color(0.91, 0.33, 0.48)
 	glow_mat.emission_energy_multiplier = 2.2
 	_moths = _make_particles(10, 9.0, 0.5, Color(1, 1, 1, 1), 0.8, 2.2,
-			_painting("res://assets/paintings/moth.png"))
-	var sw := "res://assets/paintings/swarms/"
+			_painting(_moth_path))
+	var sw := _swarm_dir
 	_butterflies = _make_particles(9, 8.0, 0.42, Color(1, 1, 1, 1), 0.7, 2.0,
 			_painting(sw + "butterfly_01.png"))
 	_pollen = _make_particles(40, 7.0, 0.09, Color(1, 0.98, 0.85, 0.5), 0.4, 1.4,

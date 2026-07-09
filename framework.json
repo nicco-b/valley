@@ -89,6 +89,7 @@
 		"toolkit_link": [
 			"game/dev/toolkit.gd",
 			"game/dev/strata_link.gd",
+			"game/dev/strata_conventions.gd",
 			"game/dev/hot_reload.gd",
 			"game/dev/preview_terrain.gd",
 			"game/dev/river_pen.gd",

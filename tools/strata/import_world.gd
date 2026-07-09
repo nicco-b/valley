@@ -14,8 +14,8 @@ extends SceneTree
 ## TILE_OUT (optional) redirects every output into a scratch dir — verify
 ## an export without touching the live tile, biome map, or sea level.
 
-const TILE_EXR := "res://data/terrain/tiles/baked_world.exr"
-const TILE_REC := "res://data/regions/baked_world.json"
+const TILE_EXR := StrataConventions.BAKED_TILE_PATH
+const TILE_REC := StrataConventions.BAKED_REGION_PATH
 const BIOME_RES := 1024
 
 ## Strata biome id → Valley palette index (biomes.json order). Strata:
@@ -97,8 +97,9 @@ func _init() -> void:
 	# --- the blessed tile: byte-identical copy, so the manifest sha keeps
 	# verifying the live cache forever ---
 	var tile_abs := ProjectSettings.globalize_path(TILE_EXR) if not scratch \
-			else out_dir.path_join("baked_world.exr")
-	var rec_path := TILE_REC if not scratch else out_dir.path_join("baked_world.json")
+			else out_dir.path_join(StrataConventions.BAKED_WORLD_ID + ".exr")
+	var rec_path := TILE_REC if not scratch \
+			else out_dir.path_join(StrataConventions.BAKED_WORLD_ID + ".json")
 	DirAccess.make_dir_recursive_absolute(tile_abs.get_base_dir())
 	# data/regions/ can be absent on a fresh clone (every record in it is
 	# gitignored cache) — FileAccess.open(WRITE) never creates directories.
@@ -112,7 +113,7 @@ func _init() -> void:
 
 	# --- the F3 region record (heightmap already in meters: hmin 0, hmax 1
 	# keep the pixel = the height) + provenance for the Toolkit/registry ---
-	var rec := {"id": "baked_world", "layer": "surface", "kind": "tile",
+	var rec := {"id": StrataConventions.BAKED_WORLD_ID, "layer": "surface", "kind": "tile",
 		"origin": {"x": -world_size * 0.5, "z": -world_size * 0.5},
 		"size": world_size, "feather": 600,
 		"heightmap": TILE_EXR if not scratch else tile_abs,

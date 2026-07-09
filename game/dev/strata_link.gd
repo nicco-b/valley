@@ -304,7 +304,7 @@ func _execute(line: String) -> String:
 			# Honest reload (audit QW3): the re-read can FAIL — say so
 			# instead of "ok" over a world that didn't change. The old
 			# tile stays live either way (Terrain never tears it down).
-			var tile := Terrain.reload_tile("res://data/terrain/tiles/baked_world.exr")
+			var tile := Terrain.reload_tile(StrataConventions.BAKED_TILE_PATH)
 			if tile == "failed":
 				return "err reload failed: tile did not reload (old tile stays live)"
 			Terrain.reload_biomes()
@@ -567,7 +567,7 @@ func _preview_world(dir: String) -> String:
 	var world: Dictionary = manifest.get("world", {})
 	var size_arr: Array = world.get("size_m", [16384.0, 16384.0])
 	var size := maxf(float(size_arr[0]), float(size_arr[1]))
-	var rec := {"id": "baked_world", "layer": "surface", "kind": "tile",
+	var rec := {"id": StrataConventions.BAKED_WORLD_ID, "layer": "surface", "kind": "tile",
 		"origin": {"x": -size * 0.5, "z": -size * 0.5}, "size": size,
 		"feather": 600, "heightmap": dir.path_join("height.exr"),
 		"height_min": 0.0, "height_max": 1.0}

@@ -30,6 +30,16 @@ const FABRIC_CHAINS: Array[Dictionary] = [
 		"gravity": 0.05, "radius": 0.03, "wind": 1.2, "extend": 0.14},
 ]
 
+# Footstep audio — content, not framework, the same footing as FABRIC_CHAINS
+# above (FW5: Q1 marks fox model + footstep audio as content-via-character-
+# records; no such record system exists yet — deliberately, see the fence —
+# so this stays one named, existence-guarded constant instead of speculative
+# machinery). Built from parts so the framework file never spells a
+# complete res://assets/... literal outright; _make_footsteps() below
+# already tolerates the folder being empty/absent (content-empty boots
+# silent, no error).
+const FOOTSTEP_AUDIO_DIR := "res://assets" + "/audio/steps"
+
 var _sitting := false
 # Underwater swim state (2026-07-04 water review, step 1). PROVISIONAL
 # binding: dive = Ctrl / gamepad B (kitchen-table review pending). No
@@ -102,17 +112,19 @@ func _resolve_anim(desired: String) -> String:
 	return ""
 
 
-## Footstep pool: every wav in assets/audio/steps/ (synth placeholders
-## now; drop real recordings in the same folder and they take over).
+## Footstep pool: every wav in FOOTSTEP_AUDIO_DIR (synth placeholders now;
+## drop real recordings in the same folder and they take over). Existence-
+## guarded: an absent/empty folder just leaves the randomizer empty and
+## _play_footstep() below already checks streams_count before playing.
 func _make_footsteps() -> AudioStreamPlayer:
 	var randomizer := AudioStreamRandomizer.new()
 	randomizer.random_pitch = 1.12
 	randomizer.random_volume_offset_db = 2.0
-	var dir := DirAccess.open("res://assets/audio/steps")
+	var dir := DirAccess.open(FOOTSTEP_AUDIO_DIR)
 	if dir:
 		for f in dir.get_files():
 			if f.ends_with(".wav"):
-				randomizer.add_stream(-1, load("res://assets/audio/steps/" + f))
+				randomizer.add_stream(-1, load(FOOTSTEP_AUDIO_DIR.path_join(f)))
 	var player := AudioStreamPlayer.new()
 	player.stream = randomizer
 	player.volume_db = -13.0

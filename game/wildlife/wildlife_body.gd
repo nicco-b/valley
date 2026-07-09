@@ -26,6 +26,7 @@ enum Attention { CALM, ALERT, FLEEING }
 
 var species := "creature"
 var sim: AgentSim = null  # the live mind (shared reference with the manager)
+var fabric_chains: Array[Dictionary] = []  # this creature's dangle config (its record's "fabric")
 var attention := Attention.CALM
 
 var _sim_target := Vector3.ZERO
@@ -46,10 +47,12 @@ func _ready() -> void:
 	if _anim.has_animation("Idle"):
 		_anim.play("Idle")
 	CharacterPaint.apply($Body/Model)
-	# F2 fabric: the tail is danglable — spring bones stream it in wind
-	# and lag it through turns. Presentation only; headless runs never
-	# construct the simulator (PLAN_FABRIC determinism stance).
-	FabricSpring.adopt($Body/Model)
+	# F2 fabric: dangle config rides the record (WildlifeManager sets
+	# fabric_chains before add_child, same pattern as species). Spring
+	# bones stream it in wind and lag it through turns. Presentation
+	# only; headless runs never construct the simulator (PLAN_FABRIC
+	# determinism stance).
+	FabricSpring.adopt($Body/Model, fabric_chains)
 
 
 func set_target(t: Vector2) -> void:

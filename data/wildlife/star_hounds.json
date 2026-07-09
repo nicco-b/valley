@@ -3,6 +3,11 @@
 	"count": 4,
 	"home": {"x": -170, "z": -420},
 	"range": 160,
+	"body_scene": "res://game/wildlife/hound_body.tscn",
+	"fabric": [
+		{"root": "tail.1", "end": "tail_star", "stiffness": 2.4, "drag": 0.7,
+			"gravity": 0.1, "radius": 0.05, "wind": 0.4}
+	],
 	"activities": [
 		{"id": "drink", "at": {"x": 28, "z": -300}, "satisfies": "thirst", "rate": 16, "hours": [5, 9]},
 		{"id": "rest", "at": {"x": -190, "z": -450}, "satisfies": "rest", "rate": 10, "hours": [11, 16]},

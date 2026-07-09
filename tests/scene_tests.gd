@@ -2448,6 +2448,7 @@ func _test_wildlife() -> void:
 	var herd: Dictionary = mgr.spawn_herd({
 		"id": "test_herd", "count": 2.0,
 		"home": {"x": 0.0, "z": 0.0}, "range": 100.0,
+		"body_scene": "res://game/wildlife/hound_body.tscn",
 		"activities": [
 			{"id": "drink", "at": {"x": 50.0, "z": 0.0}, "satisfies": "thirst",
 				"rate": 16.0, "hours": [5.0, 9.0]},
@@ -2496,18 +2497,26 @@ func _test_wildlife() -> void:
 ## (right bones, right joint counts, gouache damping) on both shipped
 ## rigs. Both halves proved here, meaningfully, under the dummy display.
 func _test_fabric_spring() -> void:
-	# The hound body is game content — proven only where it ships. The
-	# fox (the framework's default-look body) proves the same builder
-	# below, so a content-empty game keeps real fabric coverage.
-	if ResourceLoader.exists("res://game/wildlife/hound_body.tscn"):
+	# Chains ride real content now (FW4: fabric_spring.gd carries no
+	# PRESETS): the hound's from its wildlife record, the fox's from
+	# player.gd's own const — proving the record/const round-trip, not
+	# a copy of the tuning. The hound body + record are game content —
+	# proven only where they ship. The fox (the framework's default-look
+	# body) proves the same builder below, so a content-empty game keeps
+	# real fabric coverage.
+	if ResourceLoader.exists("res://game/wildlife/hound_body.tscn") \
+			and FileAccess.file_exists("res://data/wildlife/star_hounds.json"):
+		var hound_rec: Dictionary = Records.load_json("res://data/wildlife/star_hounds.json")
+		var hound_chains: Array[Dictionary] = []
+		hound_chains.assign(hound_rec.fabric)
 		var hound: Node = load("res://game/wildlife/hound_body.tscn").instantiate()
 		add_child(hound)
 		var model: Node = hound.get_node("Body/Model")
-		_check(FabricSpring.adopt(model) == null, "headless adopt refuses")
+		_check(FabricSpring.adopt(model, hound_chains) == null, "headless adopt refuses")
 		_check(hound.find_children("*", "SpringBoneSimulator3D", true, false).is_empty(),
 			"headless hound body carries no simulator")
 		var skel: Skeleton3D = model.find_children("*", "Skeleton3D", true, false)[0]
-		var fs: FabricSpring = FabricSpring.build(skel)
+		var fs: FabricSpring = FabricSpring.build(skel, hound_chains)
 		_check(fs != null, "builder assembles the windowed node")
 		if fs != null:
 			_check(fs.setting_count == 1, "hound adopts one chain (the tail)")
@@ -2521,10 +2530,12 @@ func _test_fabric_spring() -> void:
 		hound.queue_free()
 	# The fox: ears are LEAF bones — each one-bone chain must grow a
 	# virtual tip or there is no lever for the wind to push.
+	var fox_script := load("res://game/player/player.gd")
+	var fox_chains: Array[Dictionary] = fox_script.FABRIC_CHAINS
 	var fox: Node = load("res://assets/models/creatures/biped_fox.glb").instantiate()
 	add_child(fox)
 	var fskel: Skeleton3D = fox.find_children("*", "Skeleton3D", true, false)[0]
-	var ff: FabricSpring = FabricSpring.build(fskel)
+	var ff: FabricSpring = FabricSpring.build(fskel, fox_chains)
 	_check(ff != null and ff.setting_count == 2, "fox adopts both ears")
 	if ff != null and ff.setting_count == 2:
 		_check(ff.is_end_bone_extended(0) and ff.is_end_bone_extended(1),

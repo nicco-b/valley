@@ -17,6 +17,13 @@ extends SceneTree
 ##   shader-global    a framework file may not write a shader-global key
 ##                    literally namespaced "valley.*" — that bakes this
 ##                    game's name into machinery every game shares.
+##   dev-gate         a framework file may not gate on OS.is_debug_build()
+##                    directly (PLAN_SHIP §2 FW5): the dev control plane is
+##                    an explicit signal, not a build-flavor accident.
+##                    DevMode is the one door — game/dev/dev_mode.gd is the
+##                    sole exemption (it reads the raw signal so nothing
+##                    else has to). No allowlist: new gates route through
+##                    DevMode.active() or they fail the fence.
 ##
 ## ALLOWLIST is the FW1-era honesty valve: known hits, each tagged with
 ## WHY it's not failing the build today — either a pending FW4 rung that
@@ -133,8 +140,14 @@ func _run_probes() -> void:
 	_check(globalhit.size() == 1 and globalhit[0].rule == "shader-global",
 		"probe: shader-global catches an un-namespaced valley.* key")
 
+	var gatehit := lint_text("probe/dirty4.gd",
+		"\tset_process(OS.is_debug_build())\n", [])
+	_check(gatehit.size() == 1 and gatehit[0].rule == "dev-gate",
+		"probe: dev-gate catches a direct OS.is_debug_build() call")
+
 	var clean := lint_text("probe/clean.gd",
 		"# res://assets/ only in a comment, and \"wind_strength\" isn't a data id\n"
+		+ "# OS.is_debug_build() in a comment is fine too\n"
 		+ "RenderingServer.global_shader_parameter_set(\"wind_strength\", 0.1)\n",
 		["probe_id"])
 	_check(clean.is_empty(), "probe: a clean file passes with zero hits")
@@ -163,6 +176,12 @@ func _run_real() -> void:
 			# working, not a framework coupling; only shader-global applies.
 			if path.begins_with("tests/") and hit.rule != "shader-global":
 				continue
+			# DevMode is the one door (PLAN_SHIP §2): dev_mode.gd reads the
+			# raw OS.is_debug_build() signal so every other framework file
+			# can route through DevMode.active(). Not an allowlist entry —
+			# an intrinsic exemption the rule carries.
+			if hit.rule == "dev-gate" and hit.path == "game/dev/dev_mode.gd":
+				continue
 			var allowed := _allowlisted(hit)
 			if allowed.is_empty():
 				_failures += 1
@@ -190,6 +209,7 @@ func lint_text(path: String, text: String, ids: Array) -> Array[Dictionary]:
 	var lit_re := RegEx.create_from_string("[\"']([^\"']*)[\"']")
 	var global_re := RegEx.create_from_string(
 		"global_shader_parameter_(set|get)(_override)?\\s*\\(\\s*[\"']valley\\.[^\"']*[\"']")
+	var devgate_re := RegEx.create_from_string("OS\\.is_debug_build\\s*\\(")
 
 	for line in text.split("\n"):
 		var s := line.strip_edges()
@@ -199,6 +219,10 @@ func lint_text(path: String, text: String, ids: Array) -> Array[Dictionary]:
 		for m in asset_re.search_all(line):
 			hits.append({"path": path, "rule": "asset-preload",
 				"literal": m.get_string().substr(1, m.get_string().length() - 2)})
+
+		for m in devgate_re.search_all(line):
+			hits.append({"path": path, "rule": "dev-gate",
+				"literal": "OS.is_debug_build"})
 
 		for m in global_re.search_all(line):
 			var full := m.get_string()

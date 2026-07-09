@@ -12,7 +12,7 @@ var _accum := 0.0
 
 
 func _ready() -> void:
-	set_process(OS.is_debug_build())
+	set_process(DevMode.active())
 
 
 func _process(delta: float) -> void:

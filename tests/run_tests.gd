@@ -59,17 +59,22 @@ func _test_terrain_determinism() -> void:
 	var a: float = t.height(123.0, -456.0)
 	var b: float = t.height(123.0, -456.0)
 	_check(a == b, "height() is deterministic")
-	# Spawn-on-land is a property of the WORLD, not the code: a live
-	# (unblessed) Strata tile in the local cache reshapes the ground under
-	# the spawn point with every re-import, so the invariant only binds on
-	# checkouts without a tile (fresh clone / CI = the committed world).
-	# With a tile present it's a bless-time check — skip honestly instead
-	# of failing Nicco's in-flight world (found 2026-07-08: world_v1
-	# floods 0,0 to -123m).
-	if t.has_world_tile():
-		print("  spawn-on-land: SKIP (live tile in cache — bless-time invariant)")
+	# Spawn-on-land, re-bound: the spawn rides the WORLD, not a static
+	# coordinate. import_world.gd records a dry landing spot on the largest
+	# island (data/world/spawn.json) and a fresh journey begins there
+	# (SaveGame._spawn_fresh). The invariant binds wherever a world records
+	# its spawn — the imported ground under it must be dry at high tide.
+	# Without a record there is nothing to hold it to: a fresh clone / the
+	# tile-less procedural fallback (flooded by the committed sea) and a
+	# tile that predates spawn recording both need a (re-)import to pick a
+	# spot, so skip honestly instead of asserting a coordinate no importer
+	# ever chose (the old 0,5 assert failed the day world_v1 flooded 0,0).
+	var sp: Variant = t.recorded_spawn()
+	if sp is Vector2:
+		_check(t.height(sp.x, sp.y) > t.sea_level + t.TIDE_AMP,
+			"spawn is on land (above sea at high tide)")
 	else:
-		_check(t.height(0.0, 5.0) > t.sea_level, "spawn is on land (above sea)")
+		print("  spawn-on-land: SKIP (no recorded spawn — import a world to bind it)")
 	_check(t.valley_factor(0.0, -100.0) < 0.1, "valley floor factor ~0")
 	_check(t.valley_factor(900.0, -100.0) > 0.9, "far plateau factor ~1")
 	t.free()

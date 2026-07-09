@@ -1283,6 +1283,25 @@ func world_tile_size() -> float:
 	return float(_tiles[0].size) if not _tiles.is_empty() else 0.0
 
 
+## Where a fresh journey begins is a property of the WORLD, not the code:
+## the importer chooses a dry landing spot when it blesses the tile (the
+## largest-island coastal pick — tools/strata/import_world.gd) and records
+## it as data/world/spawn.json {x, z}. This reads that record back, in
+## world XZ, or null when no world recorded one (a content-empty game, a
+## pre-spawn tile that predates the pick, or the authored home valley) —
+## the fresh-journey placer (SaveGame) and the spawn-on-land test both bind
+## against it, and its absence keeps today's authored-transform behaviour.
+const SPAWN_RECORD_PATH := "res://data/world/spawn.json"
+func recorded_spawn() -> Variant:
+	if not FileAccess.file_exists(SPAWN_RECORD_PATH):
+		return null
+	var parsed: Variant = JSON.parse_string(
+		FileAccess.get_file_as_string(SPAWN_RECORD_PATH))
+	if not (parsed is Dictionary and parsed.has("x") and parsed.has("z")):
+		return null
+	return Vector2(float(parsed["x"]), float(parsed["z"]))
+
+
 # Load the pen override layer from disk (no-op when absent). The sidecar
 # meta carries the frame it was painted in plus the dirty rect, so boot
 # only composites where strokes actually exist.

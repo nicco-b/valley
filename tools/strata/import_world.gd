@@ -159,7 +159,49 @@ func _init() -> void:
 	else:
 		print("  no hydrology.json (pre-P2 export) — water records cleared, world loads as before")
 	print("  the world is live (running game hot-reloads the tile). Walk it: ./scripts/run.sh")
+
+	# --- the completion stamp (strata post-bless atomicity) ---
+	# Written LAST — after every data/ write above and this headless run's
+	# own resource reimport — so it can only exist when the importer ran to
+	# COMPLETION for THIS world on THIS checkout. Strata reads it at
+	# project-open: a stamp that is missing or names a different world means
+	# a bless was interrupted (quit / SIGKILL before the import finished, or
+	# a half-written .godot cache), leaving terrain + water absent until
+	# Godot rebuilds — the "quit and reopen twice" symptom. Strata re-runs
+	# this importer before booting the pane when the stamp doesn't match, so
+	# ONE relaunch always finds a complete checkout. Local cache, gitignored
+	# beside the baked tile it certifies. Skipped on a scratch/verify run
+	# (TILE_OUT) — that never touches the live checkout.
+	if not scratch:
+		_write_import_stamp(world_dir, got_sha, world_size, sea_level, manifest)
+
 	quit()
+
+
+## The importer's completion marker (data/strata_import.json). Records the
+## blessed world's identity — height_sha256 is the fingerprint Strata
+## compares against its world registry's canon entry; the rest is
+## provenance for anyone reading the checkout by hand.
+func _write_import_stamp(world_dir: String, height_sha: String, world_frame_m: float,
+		sea_level: float, manifest: Dictionary) -> void:
+	var stamp := {
+		"schema": 1,
+		"height_sha256": height_sha,
+		"name": manifest.get("name", ""),
+		"param_hash": manifest.get("param_hash", ""),
+		"date": manifest.get("date", ""),
+		"source": world_dir,
+		"world_frame_m": world_frame_m,
+		"sea_level_m": sea_level,
+	}
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://data"))
+	var f := FileAccess.open("res://data/strata_import.json", FileAccess.WRITE)
+	if f == null:
+		push_error("cannot write import stamp res://data/strata_import.json")
+		return
+	f.store_string(JSON.stringify(stamp, "\t", true) + "\n")
+	f.close()
+	print("  import stamp: data/strata_import.json (sha %s…)" % height_sha.substr(0, 12))
 
 
 ## Set the game's sea surface (data/water/sea.json) to the manifest's sea

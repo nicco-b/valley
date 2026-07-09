@@ -39,6 +39,11 @@ func _ready() -> void:
 	_test_toolkit_history()
 	_test_undo_footgun()
 	_test_placement_edit()
+	_test_toolkit_snap()
+	_test_multi_select_group()
+	_test_duplicate()
+	_test_snap_apply()
+	_test_link_toolkit_ops()
 	_test_river_undo()
 	_test_overrides_emit()
 	_test_edit_flush()
@@ -284,7 +289,7 @@ func _test_toolkit_verbs(peer: StreamPeerTCP) -> void:
 			"bad brush errs with the contract line")
 		_check(replies[10].begins_with("err toolkit biome needs 1.."),
 			"biome 0 errs with the contract line")
-		_check(replies[11] == "err toolkit needs status|tool|brush|biome|place|keys|on|off|undo",
+		_check(replies[11] == "err toolkit needs status|tool|brush|biome|place|snap|select|move|duplicate|keys|on|off|undo",
 			"unknown subverb errs with the contract line")
 		# hud off is the batch's LAST state change: the darkness is
 		# assertable here (hud on rides its own batch below).
@@ -1484,6 +1489,367 @@ func _test_undo_footgun() -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(
 			"%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]))
 	ToolkitHistory.clear()
+
+
+## Snapping math (audit R1 polish) — the pure ToolkitSnap seam, no engine
+## state: grid snaps XZ to the lattice (Y intact, step 0 the identity); the
+## ground normal is +Y on the flat and tilts downhill on a slope, unit length;
+## aligned_basis lays local +Y along the normal as a proper rotation and
+## reproduces Basis(Y, yaw) on the flat; the grid-step ladder cycles and snaps
+## an off-ladder value to its nearest rung.
+func _test_toolkit_snap() -> void:
+	# snappedf rounds half up (floor(v/step + 0.5)*step): 13 -> 12, -6 -> -4.
+	var p := ToolkitSnap.snap_to_grid(Vector3(13.0, 7.5, -6.0), 4.0)
+	_check(p == Vector3(12.0, 7.5, -4.0),
+		"grid snaps XZ to the nearest step, Y untouched (got %s)" % p)
+	_check(ToolkitSnap.snap_to_grid(Vector3(10.0, 1.0, 10.0), 4.0) == Vector3(12.0, 1.0, 12.0),
+		"grid snaps up at the half-step (10 -> 12)")
+	_check(ToolkitSnap.snap_to_grid(Vector3(13.0, 7.5, -6.0), 0.0)
+			== Vector3(13.0, 7.5, -6.0), "grid step 0 is the identity")
+	# Ground normal.
+	_check(ToolkitSnap.ground_normal(10.0, 10.0, 10.0, 1.0) == Vector3.UP,
+		"flat ground normal is exactly +Y")
+	var n := ToolkitSnap.ground_normal(0.0, 1.0, 0.0, 1.0)  # rises to the east
+	_check(n.y > 0.0 and n.x < 0.0 and absf(n.z) < 1e-6,
+		"a rising-east slope tilts the normal west (got %s)" % n)
+	_check(absf(n.length() - 1.0) < 1e-5, "the ground normal is unit length")
+	# aligned_basis.
+	var flat := ToolkitSnap.aligned_basis(Vector3.UP, PI / 3.0)
+	_check(flat.is_equal_approx(Basis(Vector3.UP, PI / 3.0)),
+		"aligned_basis on the flat is exactly Basis(Y, yaw)")
+	var b := ToolkitSnap.aligned_basis(n, 0.0)
+	_check((b.y - n).length() < 1e-5, "aligned_basis up follows the normal")
+	_check(absf(b.determinant() - 1.0) < 1e-4, "aligned_basis is a proper rotation")
+	_check(absf(b.x.dot(b.y)) < 1e-5 and absf(b.y.dot(b.z)) < 1e-5
+			and absf(b.x.dot(b.z)) < 1e-5, "aligned_basis is orthonormal")
+	_check(ToolkitSnap.aligned_basis(Vector3.ZERO, 0.0).y == Vector3.UP,
+		"a zero normal falls back to flat +Y")
+	# The step ladder.
+	_check(ToolkitSnap.cycle_grid_step(4.0, 1) == 8.0, "grid step coarsens 4 -> 8")
+	_check(ToolkitSnap.cycle_grid_step(16.0, 1) == 1.0, "grid step wraps 16 -> 1")
+	_check(ToolkitSnap.cycle_grid_step(1.0, -1) == 16.0, "grid step wraps 1 -> 16")
+	_check(ToolkitSnap.cycle_grid_step(3.0, -1) == 2.0,
+		"an off-ladder 3 snaps to the nearest rung then refines")
+
+
+## Find a record by id anywhere in the Chronicle (a test helper — post-move/
+## undo the cell is not known up front). {} when it is gone.
+func _find_rec(id: String) -> Dictionary:
+	for c: Vector2i in CellRecords.all_cells():
+		var r: Dictionary = CellRecords.record(c, id)
+		if not r.is_empty():
+			return r
+	return {}
+
+
+## Box multi-select + group move (audit R1 polish) over undo v2: find_in_box
+## returns exactly the records inside the rect, id-sorted (deterministic); a
+## group move lands the primary at the target with every member's relative
+## offset preserved and pushes ONE undo action; Z reverses the WHOLE group in
+## one step. Synthetic far cells, no files left.
+func _test_multi_select_group() -> void:
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	Toolkit._enter()
+	Toolkit._tool = Toolkit.Tool.PLACE
+	ToolkitHistory.clear()
+	var bx := 861.0 * 128.0
+	var bz := 861.0 * 128.0
+	# Three records in a tight cluster with known relative offsets.
+	var offs := [Vector2(0, 0), Vector2(4, 0), Vector2(0, 6)]
+	var ids: Array[String] = []
+	var orig := {}
+	for o: Vector2 in offs:
+		var rr: Dictionary = CellRecords.add(
+			Vector3(bx + o.x, Terrain.height(bx + o.x, bz + o.y), bz + o.y),
+			"kit_grp", 0.0, 1.0)
+		ids.append(String(rr.id))
+		orig[String(rr.id)] = Vector2(bx + o.x, bz + o.y)
+	# find_in_box: the enclosing rect catches all three; a tighter one drops
+	# the +6z member; the reply is id-sorted (the determinism anchor).
+	var found := CellRecords.find_in_box(Vector2(bx - 2, bz - 2), Vector2(bx + 8, bz + 10))
+	_check(found.size() == 3, "box select finds all three in the rect (got %d)" % found.size())
+	var tight := CellRecords.find_in_box(Vector2(bx - 2, bz - 2), Vector2(bx + 8, bz + 3))
+	_check(tight.size() == 2, "a tighter box excludes the out-of-rect record (got %d)" % tight.size())
+	_check(String(found[0].id) < String(found[1].id)
+			and String(found[1].id) < String(found[2].id),
+		"find_in_box returns ids sorted (group-op determinism)")
+	# Select and group-move.
+	Toolkit._set_selection(found)
+	_check(Toolkit._selection_set().size() == 3, "the group is the selection")
+	# The gizmo handles + the box rubber-band build ImmediateMesh geometry
+	# without error, headless (the pure mesh path — no GPU needed to assemble).
+	Toolkit._rebuild_gizmo(Vector3.INF)
+	_check((Toolkit._gizmo.mesh as ImmediateMesh).get_surface_count() >= 1,
+		"the gizmo builds handle geometry for the selection")
+	Toolkit._box_active = true
+	Toolkit._box_a = Vector3(bx, Terrain.height(bx, bz), bz)
+	Toolkit._update_box_preview(Vector3(bx + 50.0, Terrain.height(bx + 50.0, bz), bz))
+	_check((Toolkit._box_preview.mesh as ImmediateMesh).get_surface_count() >= 1,
+		"the box rubber-band builds geometry while active")
+	Toolkit._box_active = false
+	Toolkit._update_box_preview(Vector3.INF)
+	_check((Toolkit._box_preview.mesh as ImmediateMesh).get_surface_count() == 0,
+		"the box rubber-band clears when the drag ends")
+	var prim := CellRecords.record(found[0].cell, String(found[0].id))
+	var pax := float(prim.x)
+	var paz := float(prim.z)
+	var rel := {}
+	for m: Dictionary in found:
+		var r: Dictionary = CellRecords.record(m.cell, String(m.id))
+		rel[String(m.id)] = Vector2(float(r.x) - pax, float(r.z) - paz)
+	var d0 := ToolkitHistory.depth()
+	var tx := bx + 300.0
+	var tz := bz - 250.0
+	Toolkit._group_move_to(Vector3(tx, Terrain.height(tx, tz), tz))
+	_check(ToolkitHistory.depth() == d0 + 1, "a group move pushes ONE undo action")
+	var post := Toolkit._selection_set()
+	_check(post.size() == 3, "the group stays selected across the move")
+	for pm: Dictionary in post:
+		var r: Dictionary = CellRecords.record(pm.cell, String(pm.id))
+		var want: Vector2 = rel[String(pm.id)]
+		_check(absf(float(r.x) - (tx + want.x)) < 0.001
+				and absf(float(r.z) - (tz + want.y)) < 0.001,
+			"each member keeps its relative offset after the group move")
+	# Z reverses the WHOLE group in one step.
+	Toolkit._undo()
+	for id: String in ids:
+		var r := _find_rec(id)
+		var want: Vector2 = orig[id]
+		_check(not r.is_empty() and absf(float(r.x) - want.x) < 0.001
+				and absf(float(r.z) - want.y) < 0.001,
+			"Z returns every group member to its before-state")
+	# Determinism: the same move from the same before-state lands bit-identical.
+	Toolkit._set_selection(found)
+	Toolkit._group_move_to(Vector3(tx, Terrain.height(tx, tz), tz))
+	var a1 := {}
+	for pm: Dictionary in Toolkit._selection_set():
+		var r: Dictionary = CellRecords.record(pm.cell, String(pm.id))
+		a1[String(pm.id)] = Vector2(float(r.x), float(r.z))
+	Toolkit._undo()
+	Toolkit._set_selection(found)
+	Toolkit._group_move_to(Vector3(tx, Terrain.height(tx, tz), tz))
+	for pm: Dictionary in Toolkit._selection_set():
+		var r: Dictionary = CellRecords.record(pm.cell, String(pm.id))
+		var w: Vector2 = a1[String(pm.id)]
+		_check(float(r.x) == w.x and float(r.z) == w.y,
+			"a repeated group move is deterministic")
+	# Leave no trace.
+	Toolkit._deselect()
+	ToolkitHistory.clear()
+	CellRecords.flush()
+	_wipe_records(ids)
+	Toolkit.set_tool("sculpt")
+	Toolkit.active = false
+	player.remove_from_group("player")
+	player.queue_free()
+
+
+## Alt-drag duplicate (audit R1 polish): duplicate mints a NEW id per selected
+## member (originals untouched), the copies become the selection, and the whole
+## batch is ONE undo action — Z removes every copy in one step.
+func _test_duplicate() -> void:
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	Toolkit._enter()
+	Toolkit._tool = Toolkit.Tool.PLACE
+	ToolkitHistory.clear()
+	var bx := 863.0 * 128.0
+	var bz := 863.0 * 128.0
+	var ids: Array[String] = []
+	for o: Vector2 in [Vector2(0, 0), Vector2(5, 0)]:
+		var rr: Dictionary = CellRecords.add(
+			Vector3(bx + o.x, Terrain.height(bx + o.x, bz + o.y), bz + o.y),
+			"kit_dup", 0.7, 1.3)
+		ids.append(String(rr.id))
+	var found := CellRecords.find_in_box(Vector2(bx - 2, bz - 2), Vector2(bx + 8, bz + 2))
+	Toolkit._set_selection(found)
+	var d0 := ToolkitHistory.depth()
+	var made: Array = Toolkit._sel_duplicate()
+	_check(made.size() == 2, "duplicate makes one copy per selected (got %d)" % made.size())
+	_check(ToolkitHistory.depth() == d0 + 1, "duplicate pushes ONE undo action")
+	var new_ids: Array[String] = []
+	for m: Dictionary in made:
+		new_ids.append(String(m.id))
+	_check(new_ids[0] != ids[0] and new_ids[0] != ids[1]
+			and new_ids[1] != ids[0] and new_ids[1] != ids[1]
+			and new_ids[0] != new_ids[1], "each copy carries a fresh unique id")
+	# The copies inherit yaw/scale (the whole record, minus identity).
+	var c0 := _find_rec(new_ids[0])
+	_check(absf(float(c0.yaw) - 0.7) < 1e-6 and absf(float(c0.scale) - 1.3) < 1e-6,
+		"a copy inherits the original's yaw and scale")
+	_check(Toolkit._selection_set().size() == 2, "the copies are the selection")
+	for id: String in ids:
+		_check(not _find_rec(id).is_empty(), "the originals survive the duplicate")
+	# Z removes every copy in one step; the originals stay.
+	Toolkit._undo()
+	for id: String in new_ids:
+		_check(_find_rec(id).is_empty(), "Z removes the copy")
+	for id: String in ids:
+		_check(not _find_rec(id).is_empty(), "Z spares the originals")
+	# Leave no trace.
+	Toolkit._deselect()
+	ToolkitHistory.clear()
+	CellRecords.flush()
+	_wipe_records(ids)
+	Toolkit.set_tool("sculpt")
+	Toolkit.active = false
+	player.remove_from_group("player")
+	player.queue_free()
+
+
+## The snap flags applied through the move funnel (audit R1 polish): grid snap
+## lands the XZ on the lattice; snap-to-ground forces ground_dy 0 (seats flush);
+## align-to-normal writes a unit `tilt` matching the ground, and toggling it off
+## ERASES the key (the null-erase in CellRecords.update). Every edit rides undo.
+func _test_snap_apply() -> void:
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	Toolkit._enter()
+	Toolkit._tool = Toolkit.Tool.PLACE
+	ToolkitHistory.clear()
+	var bx := 865.0 * 128.0
+	var bz := 865.0 * 128.0
+	var rec: Dictionary = CellRecords.add(
+		Vector3(bx, Terrain.height(bx, bz) + 2.0, bz), "kit_snap", 0.0, 1.0)
+	var id := String(rec.id)
+	Toolkit._pick_at(Vector3(bx, 0.0, bz))
+	_check(Toolkit._sel_id == id, "the snap probe is selected")
+	# Grid snap: move to an off-lattice point, land on the 4m grid.
+	Toolkit._snap_grid = true
+	Toolkit._grid_step = 4.0
+	Toolkit._snap_ground = false
+	Toolkit._snap_normal = false
+	var gx := bx + 13.0
+	var gz := bz - 6.0
+	Toolkit._sel_move_to(Vector3(gx, Terrain.height(gx, gz), gz))
+	var moved := _find_rec(id)
+	_check(absf(fmod(float(moved.x), 4.0)) < 1e-4 and absf(fmod(float(moved.z), 4.0)) < 1e-4,
+		"grid snap lands the moved XZ on the lattice (got %.2f,%.2f)" % [moved.x, moved.z])
+	# Snap-to-ground: ground_dy forced to 0, seats flush on the terrain.
+	Toolkit._snap_grid = false
+	Toolkit._snap_ground = true
+	Toolkit._sel_move_to(Vector3(bx + 20.0, Terrain.height(bx + 20.0, bz), bz))
+	moved = _find_rec(id)
+	_check(absf(float(moved.ground_dy)) < 1e-6, "snap-to-ground forces ground_dy 0")
+	_check(absf(CellRecords.seat_y(moved) - Terrain.height(float(moved.x), float(moved.z))) < 1e-4,
+		"a grounded record seats flush on the terrain")
+	# Align-to-normal: a unit `tilt` matching the ground normal is stored.
+	Toolkit._snap_ground = false
+	Toolkit._snap_normal = true
+	var nx := bx + 40.0
+	var nz := bz + 40.0
+	Toolkit._sel_move_to(Vector3(nx, Terrain.height(nx, nz), nz))
+	moved = _find_rec(id)
+	_check(moved.has("tilt") and (moved.tilt as Array).size() == 3,
+		"align-to-normal writes a tilt normal")
+	var tn := Vector3(float(moved.tilt[0]), float(moved.tilt[1]), float(moved.tilt[2]))
+	_check(absf(tn.length() - 1.0) < 1e-4 and tn.y > 0.0, "the stored tilt is a unit up-ward normal")
+	var gn: Array = Toolkit._ground_normal_arr(float(moved.x), float(moved.z))
+	_check(tn.is_equal_approx(Vector3(gn[0], gn[1], gn[2])),
+		"the tilt matches the ground normal under the record")
+	# Toggle align off and move again — the tilt key is ERASED, not left stale.
+	Toolkit._snap_normal = false
+	Toolkit._sel_move_to(Vector3(bx + 60.0, Terrain.height(bx + 60.0, bz), bz))
+	moved = _find_rec(id)
+	_check(not moved.has("tilt"), "toggling align off erases the tilt key (null-erase)")
+	# Leave no trace.
+	Toolkit._deselect()
+	ToolkitHistory.clear()
+	CellRecords.flush()
+	_wipe_records([id])
+	Toolkit._snap_grid = false
+	Toolkit._grid_step = Toolkit.GRID_STEP_DEFAULT
+	Toolkit.set_tool("sculpt")
+	Toolkit.active = false
+	player.remove_from_group("player")
+	player.queue_free()
+
+
+## The link's R1-polish verbs over the REAL dispatch (audit R1 polish), driven
+## headless through StrataLink._execute — the same line grammar Strata sends,
+## so the wire contract for snap/select/move/duplicate is pinned without a
+## socket (the pane's captured-pointer mouse drag cannot run headless; this is
+## the honest seam that can). Gate, happy path, and error lines.
+func _test_link_toolkit_ops() -> void:
+	# Gated on the hand: the R1-polish subverbs err honestly with no hand.
+	Toolkit.active = false
+	_check(StrataLink._execute("toolkit snap grid on") == "err toolkit not active",
+		"toolkit snap errs without the hand")
+	_check(StrataLink._execute("toolkit select box 0 0 1 1") == "err toolkit not active",
+		"toolkit select errs without the hand")
+	# With the hand + a small cluster.
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	Toolkit._enter()
+	Toolkit._tool = Toolkit.Tool.PLACE
+	ToolkitHistory.clear()
+	var bx := 867.0 * 128.0
+	var bz := 867.0 * 128.0
+	var ids: Array[String] = []
+	for o: Vector2 in [Vector2(0, 0), Vector2(4, 0)]:
+		var rr: Dictionary = CellRecords.add(
+			Vector3(bx + o.x, Terrain.height(bx + o.x, bz + o.y), bz + o.y),
+			"kit_lnk", 0.0, 1.0)
+		ids.append(String(rr.id))
+	# select box -> ok count; the selection is live.
+	var sel := StrataLink._execute("toolkit select box %f %f %f %f" % [
+		bx - 2.0, bz - 2.0, bx + 8.0, bz + 2.0])
+	_check(sel == "ok select 2", "link box-select answers the count (got %s)" % sel)
+	_check(Toolkit._selection_set().size() == 2, "the link selected the group")
+	# snap toggles: state flips and the reply names it.
+	_check(StrataLink._execute("toolkit snap grid on") == "ok snap grid on"
+			and Toolkit._snap_grid, "link snap grid on flips the flag")
+	_check(StrataLink._execute("toolkit snap step 8") == "ok snap step 8.00m"
+			and absf(Toolkit._grid_step - 8.0) < 1e-6, "link snap step sets the grid step")
+	_check(StrataLink._execute("toolkit snap ground on") == "ok snap ground on"
+			and Toolkit._snap_ground, "link snap ground on flips the flag")
+	# move the group over the wire.
+	var mv := StrataLink._execute("toolkit move %f %f" % [bx + 200.0, bz + 200.0])
+	_check(mv == "ok move 2", "link move answers the count moved (got %s)" % mv)
+	# duplicate over the wire -> two new copies selected.
+	var d0 := ToolkitHistory.depth()
+	var du := StrataLink._execute("toolkit duplicate")
+	_check(du == "ok duplicate 2", "link duplicate answers the copy count (got %s)" % du)
+	_check(ToolkitHistory.depth() == d0 + 1, "link duplicate is ONE undo action")
+	# Error lines: unknown snap kind, short select.
+	_check(StrataLink._execute("toolkit snap wobble on") == "err toolkit snap needs grid|ground|normal",
+		"an unknown snap kind errs with the contract line")
+	_check(String(StrataLink._execute("toolkit select box 1 2")).begins_with("err toolkit select"),
+		"a short select box errs with the contract line")
+	# Leave no trace: undo the duplicate, wipe every record + cell file.
+	Toolkit._undo()
+	Toolkit._deselect()
+	ToolkitHistory.clear()
+	CellRecords.flush()
+	_wipe_records(ids)
+	Toolkit._snap_grid = false
+	Toolkit._snap_ground = false
+	Toolkit._grid_step = Toolkit.GRID_STEP_DEFAULT
+	Toolkit.set_tool("sculpt")
+	Toolkit.active = false
+	player.remove_from_group("player")
+	player.queue_free()
+
+
+## Remove every record named by id (wherever it sits), then delete any now-empty
+## cell files the test created — the far synthetic cells leave no trace.
+func _wipe_records(ids: Array) -> void:
+	var touched := {}
+	for id: String in ids:
+		for c: Vector2i in CellRecords.all_cells():
+			if not CellRecords.record(c, String(id)).is_empty():
+				CellRecords.remove(c, String(id))
+				touched[c] = true
+	for c: Vector2i in touched.keys():
+		if CellRecords.records(c).is_empty():
+			var path := "%s/cell_%d_%d.json" % [CellRecords.DIR, c.x, c.y]
+			if FileAccess.file_exists(path):
+				DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
 ## Undo v2 (audit R3) — a carved river joins the stack (node ops). Enter

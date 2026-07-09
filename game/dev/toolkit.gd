@@ -44,6 +44,15 @@ const SEL_SCALE_STEP := 1.08  # per scale tap ( , shrinks · . grows )
 const SEL_SCALE_MIN := 0.25
 const SEL_SCALE_MAX := 4.0
 
+# Snapping + multi-select + duplicate (audit R1 polish). The snap toggles ride
+# tool state (data, not a mode) and colour the move/place/drag path; the box
+# select drags a world-space rectangle over the ground ray; alt+move
+# duplicates. Every edit still funnels through CellRecords, so undo v2 covers
+# it by construction. GRID_STEP_DEFAULT starts on the ToolkitSnap ladder.
+const GRID_STEP_DEFAULT := 4.0
+const NORMAL_EPS := 1.0       # metres east/north for the finite-difference normal
+const DUP_NUDGE := 3.0        # in-place duplicate offset (the `duplicate` link verb)
+
 enum Tool { SCULPT, PLACE, TERRAIN, BIOME, RIVER }
 const TOOL_NAMES: Array[String] = ["sculpt", "place", "terrain", "biome", "river"]
 
@@ -84,6 +93,32 @@ var _stroke_live := false
 var _sel_cell := Vector2i.ZERO
 var _sel_id := ""
 var _sel_marker: MeshInstance3D
+# Additional members of a multi-select (audit R1 polish): the primary is
+# _sel_cell/_sel_id (every R1 path stays single-selection-shaped); _sel_extra
+# holds the REST as {cell, id}. _selection_set() is the whole set, primary
+# first. A group edit batches one undo action over the set; an empty _sel_extra
+# is the ordinary single selection.
+var _sel_extra: Array[Dictionary] = []
+var _gizmo: MeshInstance3D  # the translate/rotate/scale handles (ImmediateMesh)
+
+# Snap tool state (data that colours move/place/drag). All off = R1 behaviour.
+var _snap_grid := false
+var _grid_step := GRID_STEP_DEFAULT
+var _snap_ground := false   # seat flush on the terrain (ground_dy = 0)
+var _snap_normal := false   # lie against the slope (store a `tilt` normal)
+
+# Drag-move state (audit R1 polish): press place_move over a selection to begin
+# a drag; the gizmo previews at the cursor while held; release commits ONE
+# atomic move (or, with Alt, a duplicate-move) through _group_move_to. Tests
+# drive the commit primitives directly; the drag is the interactive skin.
+var _drag_active := false
+var _drag_dup := false
+
+# Box multi-select state: Shift+RMB drags a ground-space rectangle; the corner
+# is set on press, rubber-banded to the cursor, and closed on release.
+var _box_active := false
+var _box_a := Vector3.ZERO
+var _box_preview: MeshInstance3D
 
 # TERRAIN pen state (paints Terrain's tile override layer). _pen_pre is the
 # transient pre-stroke whole-layer snapshot the region memento is carved from.
@@ -350,7 +385,27 @@ func _unhandled_input(event: InputEvent) -> void:
 	# stay free for future tools elsewhere. Each tap is its own stroke:
 	# one memento, one Z.
 	elif _tool == Tool.PLACE and event.is_action_pressed("place_move"):
-		_sel_move_to(_ray_to_ground())
+		# Begin a drag: the gizmo previews at the cursor while G is held;
+		# release commits ONE atomic move (Alt = duplicate-move). A tap
+		# (press+release inside a frame) still lands a move to the cursor —
+		# _process sees the drag closed and commits, R1's one-key move intact.
+		_begin_drag(event is InputEventKey and event.alt_pressed)
+	elif _tool == Tool.PLACE and event.is_action_pressed("snap_grid"):
+		# H toggles grid snap; Shift+H cycles the step on the ToolkitSnap ladder.
+		if event is InputEventKey and event.shift_pressed:
+			_grid_step = ToolkitSnap.cycle_grid_step(_grid_step, 1)
+			_snap_grid = true
+		else:
+			_snap_grid = not _snap_grid
+		_update_hud()
+	elif _tool == Tool.PLACE and event.is_action_pressed("snap_ground"):
+		_snap_ground = not _snap_ground
+		_reseat_selection()  # apply the new snap to what is picked, now
+		_update_hud()
+	elif _tool == Tool.PLACE and event.is_action_pressed("snap_normal"):
+		_snap_normal = not _snap_normal
+		_reseat_selection()
+		_update_hud()
 	elif _tool == Tool.PLACE and event.is_action_pressed("place_rotate"):
 		_sel_rotate(-1.0 if Input.is_action_pressed("sprint") else 1.0)
 	elif _tool == Tool.PLACE and event.is_action_pressed("place_grow"):
@@ -406,6 +461,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif _tool == Tool.PLACE:
 			# Number keys jump the palette to a category's first slot.
 			_jump_category(event.physical_keycode - KEY_1)
+	elif event is InputEventMouseButton and not event.pressed \
+			and event.button_index == MOUSE_BUTTON_RIGHT and _box_active:
+		# Shift+RMB released: close the box and select everything inside it.
+		_close_box(_ray_to_ground())
 	elif event is InputEventMouseButton and event.pressed:
 		if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED \
 				and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
@@ -423,6 +482,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			if hit != Vector3.INF:
 				_river_nodes.append(Vector2(hit.x, hit.z))
 				_update_hud()
+		elif event.button_index == MOUSE_BUTTON_RIGHT and _tool == Tool.PLACE \
+				and event.shift_pressed:
+			# Shift+RMB starts a box multi-select: the corner drops on the
+			# ground ray here, rubber-bands to the cursor, closes on release.
+			var a := _ray_to_ground()
+			if a != Vector3.INF:
+				_box_active = true
+				_box_a = a
 		elif event.button_index == MOUSE_BUTTON_RIGHT and _tool == Tool.PLACE:
 			# Pick (placement v2): RMB on a placed thing selects it, on
 			# empty ground deselects — the click-away idiom. The sim
@@ -514,8 +581,18 @@ func _place_at(hit: Vector3) -> void:
 			Cards.variant_for(slot["slot"], hit))
 	if file == "":
 		return
-	var rec: Dictionary = CellRecords.add(hit, file,
+	# Snap the drop point: grid lands the XZ, ground/normal ride as record
+	# fields patched right after the add (add mints the id + ground_dy from
+	# the seat, the snap fields refine it — one funnel, undo covers it).
+	var p := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
+	var seat_y: float = Terrain.height(p.x, p.z) if _snap_ground else p.y
+	var rec: Dictionary = CellRecords.add(Vector3(p.x, seat_y, p.z), file,
 			randf() * TAU, randf_range(0.85, 1.15))
+	var extra := _snap_fields(p.x, p.z)
+	if not extra.is_empty():
+		var c := CellRecords.update(CellRecords.cell_of(Vector3(p.x, 0.0, p.z)),
+				String(rec.id), extra)
+		rec = CellRecords.record(c, String(rec.id))
 	# undo removes THIS record by id; redo re-lays it (before = {} absent).
 	ToolkitHistory.push(_record_action("place", {}, rec.duplicate()))
 
@@ -539,6 +616,7 @@ func _pick_at(hit: Vector3) -> void:
 	if found.is_empty():
 		_deselect()
 		return
+	_sel_extra.clear()  # a single pick replaces any box multi-select
 	_sel_cell = found["cell"]
 	_sel_id = CellRecords.ensure_id(_sel_cell, found["rec"])
 	_update_hud()
@@ -546,8 +624,11 @@ func _pick_at(hit: Vector3) -> void:
 
 func _deselect() -> void:
 	_sel_id = ""
+	_sel_extra.clear()
 	if _sel_marker:
 		_sel_marker.visible = false
+	if _gizmo:
+		(_gizmo.mesh as ImmediateMesh).clear_surfaces()
 	_update_hud()
 
 
@@ -563,16 +644,14 @@ func _sel_move_to(hit: Vector3) -> void:
 	if hit == Vector3.INF:
 		return
 	var before := rec.duplicate()
-	# The effective offset covers every record vintage — snap (0),
-	# ground_dy, legacy absolute-Y: seat_y is the one truth for where
-	# it rides today.
-	var dy: float = CellRecords.seat_y(rec) \
-			- Terrain.height(float(rec.x), float(rec.z))
-	_sel_cell = CellRecords.update(_sel_cell, _sel_id, {
-		"x": hit.x, "z": hit.z,
-		"y": Terrain.height(hit.x, hit.z) + dy,
-		"ground_dy": dy,
-	})
+	# Grid snap lands the XZ on the lattice (off = the raw hit). The height
+	# offset covers every record vintage — snap-to-ground forces 0, else
+	# seat_y is the one truth for where it rides today (ground-relative law).
+	var p := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
+	var dy: float = 0.0 if _snap_ground else \
+			CellRecords.seat_y(rec) - Terrain.height(float(rec.x), float(rec.z))
+	_sel_cell = CellRecords.update(_sel_cell, _sel_id,
+			_move_fields(p.x, p.z, dy))
 	_push_edit(before)
 	_flush_quiet = 0.0
 	_update_hud()
@@ -636,6 +715,258 @@ func _push_edit(before: Dictionary) -> void:
 	ToolkitHistory.push(_record_action("place", before, after.duplicate()))
 
 
+# --- Snapping, multi-select, group ops, duplicate (audit R1 polish). The snap
+# math is pure (ToolkitSnap); everything else funnels through CellRecords so
+# undo v2 covers it. Group edits batch ONE action over the whole set — the
+# acceptance's "batch them as ONE undo action".
+
+
+## The whole selection as [{cell, id}], primary (_sel_cell/_sel_id) first,
+## then _sel_extra — filtering any member a delete/undo removed under us so a
+## group op never touches a ghost.
+func _selection_set() -> Array:
+	var out: Array = []
+	if _sel_id != "" and not CellRecords.record(_sel_cell, _sel_id).is_empty():
+		out.append({"cell": _sel_cell, "id": _sel_id})
+	for m: Dictionary in _sel_extra:
+		if not CellRecords.record(m.cell, String(m.id)).is_empty():
+			out.append({"cell": m.cell, "id": String(m.id)})
+	return out
+
+
+## Point the selection at a fresh [{cell, id}] list (box select, duplicate,
+## a post-migration rebind). Primary = the first; the rest ride _sel_extra.
+func _set_selection(list: Array) -> void:
+	if list.is_empty():
+		_deselect()
+		return
+	_sel_cell = list[0]["cell"]
+	_sel_id = String(list[0]["id"])
+	_sel_extra.clear()
+	for i in range(1, list.size()):
+		_sel_extra.append({"cell": list[i]["cell"], "id": String(list[i]["id"])})
+
+
+## The ground normal at a world XZ as a plain [x, y, z] array (record data) —
+## three Terrain.height samples fed to the pure ToolkitSnap.ground_normal.
+func _ground_normal_arr(x: float, z: float) -> Array:
+	var n := ToolkitSnap.ground_normal(Terrain.height(x, z),
+			Terrain.height(x + NORMAL_EPS, z),
+			Terrain.height(x, z + NORMAL_EPS), NORMAL_EPS)
+	return [n.x, n.y, n.z]
+
+
+## The field patch for seating a record at (x, z) with height offset `dy` —
+## the move/group/reseat funnel. `tilt` rides when align-to-normal is on and
+## is ERASED (null) when it is off, so toggling the slope lay off truly clears.
+func _move_fields(x: float, z: float, dy: float) -> Dictionary:
+	return {
+		"x": x, "z": z, "y": Terrain.height(x, z) + dy, "ground_dy": dy,
+		"tilt": _ground_normal_arr(x, z) if _snap_normal else null,
+	}
+
+
+## The placement's snap-extra fields (align-to-normal `tilt`; grid + ground
+## already land in the seat _place_at builds). {} when align is off.
+func _snap_fields(x: float, z: float) -> Dictionary:
+	if _snap_normal:
+		return {"tilt": _ground_normal_arr(x, z)}
+	return {}
+
+
+## A batched record action over `pairs` ({before, after} per member) — the ONE
+## undo step a group edit (move/duplicate/reseat) pushes. undo restores every
+## before, redo every after; each side reuses _record_to_state (remove the
+## other, insert the target) so a cell migration reverses exactly, per member.
+func _group_action(label: String, pairs: Array) -> Dictionary:
+	return {"label": label,
+		"undo": func() -> void:
+			for p: Dictionary in pairs:
+				_record_to_state(p.before, p.after),
+		"redo": func() -> void:
+			for p: Dictionary in pairs:
+				_record_to_state(p.after, p.before)}
+
+
+## Move the WHOLE selection so the primary lands at `hit` (grid-snapped) and
+## every other member keeps its relative offset — group move, ONE undo action.
+## Deterministic: same set + hit + snap flags => same result (no randomness).
+func _group_move_to(hit: Vector3) -> void:
+	var set := _selection_set()
+	if set.is_empty():
+		HUD.notify("place: nothing selected (RMB picks · Shift+RMB box)")
+		return
+	if hit == Vector3.INF:
+		return
+	var arec := CellRecords.record(set[0]["cell"], String(set[0]["id"]))
+	if arec.is_empty():
+		return
+	var target := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
+	var ax := float(arec.x)
+	var az := float(arec.z)
+	var pairs: Array = []
+	var new_sel: Array = []
+	for m: Dictionary in set:
+		var rec := CellRecords.record(m.cell, String(m.id))
+		if rec.is_empty():
+			continue
+		var before := rec.duplicate()
+		var nx := target.x + (float(rec.x) - ax)
+		var nz := target.z + (float(rec.z) - az)
+		var dy := 0.0 if _snap_ground else \
+				CellRecords.seat_y(rec) - Terrain.height(float(rec.x), float(rec.z))
+		var ncell := CellRecords.update(m.cell, String(m.id), _move_fields(nx, nz, dy))
+		pairs.append({"before": before,
+			"after": CellRecords.record(ncell, String(m.id)).duplicate()})
+		new_sel.append({"cell": ncell, "id": String(m.id)})
+	if pairs.is_empty():
+		return
+	ToolkitHistory.push(_group_action("place", pairs))
+	_set_selection(new_sel)
+	_flush_quiet = 0.0
+	_update_hud()
+
+
+## Alt-drag: duplicate the selection at the destination (originals stay),
+## offsets preserved, copies selected — ONE undo action removes them all.
+func _sel_duplicate_move(hit: Vector3) -> void:
+	var set := _selection_set()
+	if set.is_empty() or hit == Vector3.INF:
+		return
+	var arec := CellRecords.record(set[0]["cell"], String(set[0]["id"]))
+	if arec.is_empty():
+		return
+	var target := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
+	var ax := float(arec.x)
+	var az := float(arec.z)
+	var pairs: Array = []
+	var new_sel: Array = []
+	for m: Dictionary in set:
+		var rec := CellRecords.record(m.cell, String(m.id))
+		if rec.is_empty():
+			continue
+		var nx := target.x + (float(rec.x) - ax)
+		var nz := target.z + (float(rec.z) - az)
+		var dy := 0.0 if _snap_ground else \
+				CellRecords.seat_y(rec) - Terrain.height(float(rec.x), float(rec.z))
+		new_sel.append(_spawn_copy(rec, nx, nz, dy, pairs))
+	if pairs.is_empty():
+		return
+	ToolkitHistory.push(_group_action("place", pairs))
+	_set_selection(new_sel)
+	_flush_quiet = 0.0
+	_update_hud()
+
+
+## Duplicate the selection in place, nudged clear of the originals (the link's
+## `duplicate` verb — the headless seam for alt-drag). Copies selected, ONE
+## undo action. Returns the new [{cell, id}] set ([] when nothing was picked).
+func _sel_duplicate() -> Array:
+	var set := _selection_set()
+	if set.is_empty():
+		return []
+	var pairs: Array = []
+	var new_sel: Array = []
+	for m: Dictionary in set:
+		var rec := CellRecords.record(m.cell, String(m.id))
+		if rec.is_empty():
+			continue
+		var dy := float(rec.get("ground_dy", 0.0))
+		new_sel.append(_spawn_copy(rec, float(rec.x) + DUP_NUDGE,
+				float(rec.z) + DUP_NUDGE, dy, pairs))
+	if pairs.is_empty():
+		return []
+	ToolkitHistory.push(_group_action("place", pairs))
+	_set_selection(new_sel)
+	_update_hud()
+	return new_sel
+
+
+## Insert one copy of `rec` at (nx, nz) with height offset `dy`, minting a new
+## id and carrying the align-to-normal tilt to the new slope. Appends its
+## {before {}, after copy} pair for the batched undo; returns its {cell, id}.
+func _spawn_copy(rec: Dictionary, nx: float, nz: float, dy: float,
+		pairs: Array) -> Dictionary:
+	var dup := rec.duplicate()
+	dup["id"] = CellRecords.mint_id()
+	dup["x"] = nx
+	dup["z"] = nz
+	dup["y"] = Terrain.height(nx, nz) + dy
+	dup["ground_dy"] = dy
+	if _snap_normal:
+		dup["tilt"] = _ground_normal_arr(nx, nz)
+	var cell := CellRecords.insert(dup)
+	pairs.append({"before": {}, "after": dup.duplicate()})
+	return {"cell": cell, "id": String(dup["id"])}
+
+
+## Re-apply the live snap flags to the whole selection where it stands (B/K
+## toggled ground/normal): position unchanged, only the seat + tilt refresh —
+## ONE undo action. A no-op with nothing picked.
+func _reseat_selection() -> void:
+	var set := _selection_set()
+	if set.is_empty():
+		return
+	var pairs: Array = []
+	var new_sel: Array = []
+	for m: Dictionary in set:
+		var rec := CellRecords.record(m.cell, String(m.id))
+		if rec.is_empty():
+			continue
+		var before := rec.duplicate()
+		var x := float(rec.x)
+		var z := float(rec.z)
+		var dy := 0.0 if _snap_ground else \
+				CellRecords.seat_y(rec) - Terrain.height(x, z)
+		var ncell := CellRecords.update(m.cell, String(m.id), _move_fields(x, z, dy))
+		pairs.append({"before": before,
+			"after": CellRecords.record(ncell, String(m.id)).duplicate()})
+		new_sel.append({"cell": ncell, "id": String(m.id)})
+	if pairs.is_empty():
+		return
+	ToolkitHistory.push(_group_action("place", pairs))
+	_set_selection(new_sel)
+	_flush_quiet = 0.0
+
+
+## Close a box multi-select: everything whose XZ falls inside the ground-space
+## rectangle from the drag corner to `hit` becomes the selection.
+func _close_box(hit: Vector3) -> void:
+	_box_active = false
+	if _box_preview:
+		(_box_preview.mesh as ImmediateMesh).clear_surfaces()
+	if hit == Vector3.INF:
+		return
+	var found := CellRecords.find_in_box(
+			Vector2(_box_a.x, _box_a.z), Vector2(hit.x, hit.z))
+	if found.is_empty():
+		_deselect()
+		return
+	_set_selection(found)
+	HUD.notify("selected %d — G moves the group, Alt+G duplicates" % found.size())
+	_update_hud()
+
+
+## Begin a drag-move: the gizmo previews at the cursor while place_move is
+## held; the commit (plain move or, with Alt, duplicate-move) fires on release.
+func _begin_drag(dup: bool) -> void:
+	if _selection_set().is_empty():
+		HUD.notify("place: nothing selected (RMB picks · Shift+RMB box)")
+		return
+	_drag_active = true
+	_drag_dup = dup
+
+
+## Commit the drag at `hit` — one atomic action either way.
+func _end_drag(hit: Vector3) -> void:
+	_drag_active = false
+	if _drag_dup:
+		_sel_duplicate_move(hit)
+	else:
+		_group_move_to(hit)
+	_drag_dup = false
+
+
 func _process(delta: float) -> void:
 	if not active:
 		return
@@ -651,6 +982,8 @@ func _process(delta: float) -> void:
 		_orbit.apply(_cam)
 		_cursor.visible = false
 		_sel_marker.visible = false  # tools are inert here; so is the pick
+		if _gizmo:
+			(_gizmo.mesh as ImmediateMesh).clear_surfaces()
 		return
 	_cam.rotation = Vector3(_pitch, _yaw, 0.0)
 
@@ -775,10 +1108,21 @@ func _process(delta: float) -> void:
 	if _biome_stroke and not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		_commit_biome_stroke()
 
+	# The drag-move (audit R1 polish): while place_move is held over a
+	# selection, the gizmo previews at the cursor; the atomic commit fires
+	# when the key releases (Alt = duplicate-move). A tap lands here too —
+	# the release is seen the same frame, so R1's one-key move still works.
+	if _drag_active and not Input.is_action_pressed("place_move"):
+		_end_drag(hit)
+
+	# The box multi-select preview: a rubber-band rectangle on the ground
+	# from the drag corner to the cursor while Shift+RMB is held.
+	_update_box_preview(hit)
+
 	# The selection ring rides its record every frame — records re-seat
 	# when the ground changes, and a marker that lagged that would lie.
 	# A record removed out from under us (remove_last, another Z)
-	# deselects instead of haunting.
+	# deselects instead of haunting. The gizmo handles ride along.
 	if _tool == Tool.PLACE and _sel_id != "":
 		var sel := _selected()
 		if sel.is_empty():
@@ -789,8 +1133,11 @@ func _process(delta: float) -> void:
 			_sel_marker.scale = Vector3.ONE * (2.0 * sc)
 			_sel_marker.global_position = Vector3(float(sel.x),
 				CellRecords.seat_y(sel) + 0.4, float(sel.z))
+			_rebuild_gizmo(hit)
 	elif _sel_marker.visible:
 		_sel_marker.visible = false
+		if _gizmo:
+			(_gizmo.mesh as ImmediateMesh).clear_surfaces()
 
 	# The crash-safety flush: while any hand-edited layer is newer than
 	# disk and the hand is quiet, the clock runs; at FLUSH_QUIET the dirty
@@ -943,6 +1290,114 @@ func _flush_hand_edits() -> void:
 	_flush_quiet = 0.0
 
 
+# --- The transform gizmo (audit R1 polish): visible translate/rotate/scale
+# handles on the selection, ImmediateMesh (zero fork — the survey's finding).
+# Colour is the axis convention: X red, Z blue (the ground axes G slides in),
+# Y green up, a yellow rotation ring (R turns), white scale ticks at the tips
+# (, . scale). The keys DO the manipulation; the gizmo shows the axes they act
+# on and, while dragging, previews the destination. Sized to the record.
+const GIZMO_LEN := 5.0   # axis arm length at scale 1 (metres)
+const GIZMO_RING := 3.2  # rotation ring radius at scale 1
+
+
+## Rebuild the selection gizmo each frame at the primary's seat (or, while
+## dragging, at the snapped cursor so it previews where the group will land).
+## Extra multi-select members get a small tick so the whole set reads.
+func _rebuild_gizmo(cursor: Vector3) -> void:
+	if _gizmo == null:
+		return
+	var mesh := _gizmo.mesh as ImmediateMesh
+	mesh.clear_surfaces()
+	var set := _selection_set()
+	if set.is_empty():
+		return
+	var prec := CellRecords.record(set[0]["cell"], String(set[0]["id"]))
+	if prec.is_empty():
+		return
+	var s := float(prec.get("scale", 1.0))
+	var at := Vector3(float(prec.x), CellRecords.seat_y(prec) + 0.4, float(prec.z))
+	# While a drag is live, float the gizmo at the (snapped) cursor — the
+	# preview of where the primary will seat on release.
+	if _drag_active and cursor != Vector3.INF:
+		var p := ToolkitSnap.snap_to_grid(cursor, _grid_step) if _snap_grid else cursor
+		at = Vector3(p.x, Terrain.height(p.x, p.z) + 0.4, p.z)
+	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	_gizmo_arm(mesh, at, Vector3.RIGHT, s, Color(1.0, 0.3, 0.3))    # X
+	_gizmo_arm(mesh, at, Vector3.UP, s, Color(0.4, 1.0, 0.4))       # Y
+	_gizmo_arm(mesh, at, Vector3.BACK, s, Color(0.4, 0.6, 1.0))     # Z
+	_gizmo_ring(mesh, at, s, Color(1.0, 0.9, 0.3))                  # rotate
+	# Extra members: a small cross tick each, so a group reads at a glance.
+	for i in range(1, set.size()):
+		var r := CellRecords.record(set[i]["cell"], String(set[i]["id"]))
+		if r.is_empty():
+			continue
+		var c := Vector3(float(r.x), CellRecords.seat_y(r) + 0.4, float(r.z))
+		var t := 1.2 * float(r.get("scale", 1.0))
+		_gizmo_line(mesh, c - Vector3(t, 0, 0), c + Vector3(t, 0, 0), Color(0.25, 0.95, 1.0))
+		_gizmo_line(mesh, c - Vector3(0, 0, t), c + Vector3(0, 0, t), Color(0.25, 0.95, 1.0))
+	mesh.surface_end()
+
+
+## One translate arm: the coloured axis line, a small arrowhead, and a white
+## scale tick at the tip (the , . handles).
+func _gizmo_arm(mesh: ImmediateMesh, at: Vector3, axis: Vector3, s: float,
+		col: Color) -> void:
+	var tip := at + axis * (GIZMO_LEN * s)
+	_gizmo_line(mesh, at, tip, col)
+	# Arrowhead: two short back-swept segments in a perpendicular plane.
+	var perp := Vector3.UP if absf(axis.y) < 0.9 else Vector3.RIGHT
+	var side := axis.cross(perp).normalized() * (0.6 * s)
+	var back := tip - axis * (1.0 * s)
+	_gizmo_line(mesh, tip, back + side, col)
+	_gizmo_line(mesh, tip, back - side, col)
+	# White scale tick just past the tip.
+	var tick := at + axis * (GIZMO_LEN * s + 0.9 * s)
+	_gizmo_line(mesh, tick - side * 0.5, tick + side * 0.5, Color.WHITE)
+
+
+## The rotation ring in the ground (XZ) plane — a closed line loop.
+func _gizmo_ring(mesh: ImmediateMesh, at: Vector3, s: float, col: Color) -> void:
+	var segs := 32
+	var prev := at + Vector3(GIZMO_RING * s, 0.0, 0.0)
+	for i in range(1, segs + 1):
+		var a := TAU * float(i) / float(segs)
+		var p := at + Vector3(cos(a), 0.0, sin(a)) * (GIZMO_RING * s)
+		_gizmo_line(mesh, prev, p, col)
+		prev = p
+
+
+func _gizmo_line(mesh: ImmediateMesh, a: Vector3, b: Vector3, col: Color) -> void:
+	mesh.surface_set_color(col)
+	mesh.surface_add_vertex(a)
+	mesh.surface_set_color(col)
+	mesh.surface_add_vertex(b)
+
+
+## The box multi-select rubber-band: a rectangle on the ground from the drag
+## corner to the cursor while Shift+RMB is held (cleared otherwise).
+func _update_box_preview(cursor: Vector3) -> void:
+	if _box_preview == null:
+		return
+	var mesh := _box_preview.mesh as ImmediateMesh
+	mesh.clear_surfaces()
+	if not _box_active or cursor == Vector3.INF:
+		return
+	var a := _box_a
+	var b := cursor
+	var lift := Vector3.UP * 0.6
+	var c0 := Vector3(a.x, Terrain.height(a.x, a.z), a.z) + lift
+	var c1 := Vector3(b.x, Terrain.height(b.x, a.z), a.z) + lift
+	var c2 := Vector3(b.x, Terrain.height(b.x, b.z), b.z) + lift
+	var c3 := Vector3(a.x, Terrain.height(a.x, b.z), b.z) + lift
+	var col := Color(0.25, 0.95, 1.0)
+	mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	_gizmo_line(mesh, c0, c1, col)
+	_gizmo_line(mesh, c1, c2, col)
+	_gizmo_line(mesh, c2, c3, col)
+	_gizmo_line(mesh, c3, c0, col)
+	mesh.surface_end()
+
+
 # The drawn river course: a floating line strip PLUS a filled marker
 # quad at each dropped node (bare 1px lines vanish over big terrain).
 # Lifted above the ground so it reads over relief; rubber-bands to the
@@ -1083,6 +1538,28 @@ func _build_nodes() -> void:
 	_river_preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_river_preview)
 
+	# The transform gizmo + the box-select rubber-band (audit R1 polish):
+	# ImmediateMesh line kits with per-vertex colour, unshaded, no depth test
+	# so the handles read through the mesh they sit on. Rebuilt per frame.
+	var giz_mat := StandardMaterial3D.new()
+	giz_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	giz_mat.vertex_color_use_as_albedo = true
+	giz_mat.no_depth_test = true
+	_gizmo = MeshInstance3D.new()
+	_gizmo.mesh = ImmediateMesh.new()
+	_gizmo.material_override = giz_mat
+	_gizmo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_gizmo)
+
+	var box_mat := StandardMaterial3D.new()
+	box_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	box_mat.vertex_color_use_as_albedo = true
+	_box_preview = MeshInstance3D.new()
+	_box_preview.mesh = ImmediateMesh.new()
+	_box_preview.material_override = box_mat
+	_box_preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_box_preview)
+
 	_hud = CanvasLayer.new()
 	_hud_label = Label.new()
 	_hud_label.position = Vector2(12, 8)
@@ -1135,17 +1612,25 @@ func _update_hud() -> void:
 				for i in mini(cats.size(), 9):
 					var mark := "[%d %s]" if cats[i] == slot["category"] else "%d %s"
 					tabs.append(mark % [i + 1, cats[i]])
-				_hud_label.text = "TOOLKIT·PLACE   %s › %s (%dv%s) %d/%d   %s   |   LMB place · RMB pick · [ ] item · 1-9 category · Z undo · X remove · Tab tool · F1 exit" % [
+				_hud_label.text = "TOOLKIT·PLACE   %s › %s (%dv%s) %d/%d   %s   |   LMB place · RMB pick · Shift+RMB box · [ ] item · 1-9 category · Z undo · X remove · Tab tool · F1 exit" % [
 					slot["category"], nm, int(slot["variants"]), syn,
 					_place_index + 1, _palette.size(), " ".join(tabs)]
+			# The snap line: which snaps are live and the keys that toggle
+			# them (B ground · K normal · H grid · Shift+H step).
+			_hud_label.text += "\nSNAP  %s ground(B) · %s normal(K) · %s grid(H) %dm[Shift+H]" % [
+				"ON " if _snap_ground else "off", "ON " if _snap_normal else "off",
+				"ON " if _snap_grid else "off", int(_grid_step)]
 			# The selection's own line: what is picked, exactly as data
-			# (id, yaw, scale), and the keys that edit it.
+			# (id, yaw, scale), and the keys that edit it. A group shows its size.
 			var sel := _selected()
+			var extra := _selection_set().size() - 1
 			if not sel.is_empty():
-				_hud_label.text += "\nSEL %s #%s  yaw %.0f°  ×%.2f   |   G move here · R rotate (Shift back) · , . scale · X delete · Z undo · Esc deselect" % [
+				var grp := "  (+%d group: G moves all · Alt+G duplicates)" % extra \
+						if extra > 0 else ""
+				_hud_label.text += "\nSEL %s #%s  yaw %.0f°  ×%.2f%s   |   G move (drag · Alt=dup) · R rotate (Shift back) · , . scale · X delete · Z undo · Esc deselect" % [
 					String(sel.kit).get_file().get_basename(),
 					String(sel.get("id", "?")), rad_to_deg(float(sel.yaw)),
-					float(sel.get("scale", 1.0))]
+					float(sel.get("scale", 1.0)), grp]
 		Tool.TERRAIN:
 			_hud_label.text = "TOOLKIT·TERRAIN (override)   LMB raise · Shift lower — lands when you pause | [ ] brush %dm | Z undo stroke | Tab next tool | F1 exit" % int(_macro_radius)
 		Tool.BIOME:
@@ -1223,6 +1708,11 @@ func link_state() -> Dictionary:
 		"sel_kit": String(sel.get("kit", "")),
 		"sel_yaw": float(sel.get("yaw", 0.0)),
 		"sel_scale": float(sel.get("scale", 1.0)),
+		# Multi-select + snapping (audit R1 polish): the mirror shows how many
+		# are picked and which snaps are live, so Strata's chrome can echo them.
+		"sel_count": _selection_set().size(),
+		"snap_grid": _snap_grid, "grid_step": _grid_step,
+		"snap_ground": _snap_ground, "snap_normal": _snap_normal,
 	}
 
 
@@ -1251,6 +1741,12 @@ func link_keys() -> String:
 		_key_of("place_shrink") + "=shrink",
 		_key_of("place_grow") + "=grow",
 		_key_of("place_delete") + "=delete",
+		# Snapping + multi-select + duplicate (audit R1 polish).
+		_key_of("snap_ground") + "=snapground",
+		_key_of("snap_normal") + "=snapnormal",
+		_key_of("snap_grid") + "=snapgrid",
+		"Shift+RMB=box",
+		"Alt+" + _key_of("place_move") + "=duplicate",
 		"O=panel",
 		"N=navmesh",
 		_key_of("map") + "=map",
@@ -1308,6 +1804,67 @@ func redo_last() -> String:
 	var label := ToolkitHistory.peek_redo_label()
 	_redo()
 	return label
+
+
+# --- Snapping / multi-select / duplicate over the link (audit R1 polish): the
+# same funnels the keys drive, so Strata's chrome and the keyboard cannot
+# drift, and the headless probe can exercise the seam the captured-pointer
+# mouse drag can't reach on a headless boot.
+
+
+## Toggle (or set) a snap mode by name — grid|ground|normal. ground/normal
+## re-seat the current selection immediately (as B/K do). Returns the state
+## that resulted; -1 on an unknown name so the link errs honestly.
+func set_snap(kind: String, on: bool) -> int:
+	match kind:
+		"grid": _snap_grid = on
+		"ground":
+			_snap_ground = on
+			_reseat_selection()
+		"normal":
+			_snap_normal = on
+			_reseat_selection()
+		_:
+			return -1
+	_update_hud()
+	return 1 if on else 0
+
+
+## Set the grid step in metres (clamped > 0); returns the landed value.
+func set_grid_step(m: float) -> float:
+	_grid_step = maxf(m, 0.01)
+	_update_hud()
+	return _grid_step
+
+
+## Box multi-select over a world rectangle (the link's `select box` — the
+## headless seam for Shift+RMB). Returns the count selected.
+func select_box(a: Vector2, b: Vector2) -> int:
+	_tool = Tool.PLACE
+	var found := CellRecords.find_in_box(a, b)
+	if found.is_empty():
+		_deselect()
+		return 0
+	_set_selection(found)
+	_update_hud()
+	return found.size()
+
+
+## Duplicate the current selection in place (the link's `duplicate` — the
+## headless seam for alt-drag). Returns the count of new copies.
+func duplicate_selection() -> int:
+	return _sel_duplicate().size()
+
+
+## Move the whole selection so the primary lands at (x, z), offsets preserved
+## (the link's `move` — the headless seam for the group drag). Returns the
+## count moved; 0 when nothing is selected.
+func group_move(x: float, z: float) -> int:
+	var n := _selection_set().size()
+	if n == 0:
+		return 0
+	_group_move_to(Vector3(x, Terrain.height(x, z), z))
+	return n
 
 
 ## The last RMB-inspected agent (the link's `inspect` verb) — read back

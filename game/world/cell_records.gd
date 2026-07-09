@@ -161,6 +161,23 @@ func find_at(pos: Vector3, radius: float) -> Dictionary:
 	return best
 
 
+## Every record within `radius` meters (XZ) of a world position — the
+## prefab capture's reach (§2.1): pick one piece, sweep up the cluster
+## around it. Returns the LIVE record dicts (capture reads them, never
+## mutates). Spans enough cells to cover the radius even when it exceeds a
+## cell, so a wide capture near a seam still finds every neighbour.
+func within(pos: Vector3, radius: float) -> Array:
+	var out: Array = []
+	var center := cell_of(pos)
+	var span := int(ceil(radius / CELL_SIZE)) + 1
+	for dz in range(-span, span + 1):
+		for dx in range(-span, span + 1):
+			for rec: Dictionary in _cells.get(center + Vector2i(dx, dz), []):
+				if Vector2(float(rec.x) - pos.x, float(rec.z) - pos.z).length() <= radius:
+					out.append(rec)
+	return out
+
+
 ## Mint a record id: unique across sessions (millisecond clock) and
 ## within one (serial) — and short enough to sit on a HUD line.
 func _new_id() -> String:

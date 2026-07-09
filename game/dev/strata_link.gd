@@ -240,7 +240,7 @@ const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
 	"preview_world", "preview_mesh", "preview_shared", "render_device",
 	"camera", "view", "view_layer", "probe",
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
-	"undo", "redo"]
+	"undo", "redo", "prefab"]
 
 ## Thumbnail render target size (square). The pane renders this offscreen;
 ## Strata caches the PNG by card sha and downsamples in its grid.
@@ -499,6 +499,12 @@ func _execute(line: String) -> String:
 			# action; "nothing" when there is nothing to redo.
 			var redone := Toolkit.redo_last()
 			return "ok redo %s" % (redone if redone != "" else "nothing")
+		"prefab":
+			# Composition as a Creation Kit power (§2.1): `prefab list` names
+			# the captured prefabs, `prefab save <name>` keeps the current
+			# selection's cluster as one (placing rides `toolkit place
+			# prefab/<name>` then LMB, like any Kit slot).
+			return _prefab(parts)
 		_:
 			return "err unknown verb '%s'" % parts[0]
 
@@ -576,6 +582,32 @@ func _toolkit(parts: PackedStringArray) -> String:
 			return "ok place %d/%d:%s" % [landed, int(s["place_count"]), s["place_slot"]]
 		_:
 			return "err toolkit needs status|tool|brush|biome|place|keys|on|off|undo"
+
+
+## Prefabs over the link (§2.1). `prefab list` answers the captured names
+## ("-" when none), `prefab save <name>` keeps the current selection's
+## cluster as a reusable record and replies with the piece count. Gated on
+## the hand like the toolkit verbs (capturing is an editor's act); placing a
+## prefab needs no verb — `toolkit place prefab/<name>` selects it in the
+## palette, then the pane's LMB stamps it.
+func _prefab(parts: PackedStringArray) -> String:
+	if not Toolkit.active:
+		return "err toolkit not active"
+	if parts.size() < 2:
+		return "err prefab needs list|save"
+	match parts[1]:
+		"list":
+			var ns: Array = Prefabs.names()
+			return "ok prefab " + (" ".join(ns) if not ns.is_empty() else "-")
+		"save":
+			if parts.size() < 3:
+				return "err prefab save needs a name"
+			var n: int = Toolkit.capture_prefab(parts[2])
+			if n == 0:
+				return "err prefab save found nothing (select a piece first)"
+			return "ok prefab saved %s %d" % [parts[2], n]
+		_:
+			return "err prefab needs list|save"
 
 
 ## The RMB sim-inspector + the PLACE selection, one line (chrome contract

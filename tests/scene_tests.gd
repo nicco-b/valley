@@ -39,6 +39,7 @@ func _ready() -> void:
 	_test_toolkit_history()
 	_test_undo_footgun()
 	_test_placement_edit()
+	_test_prefab()
 	_test_river_undo()
 	_test_overrides_emit()
 	_test_edit_flush()
@@ -1499,6 +1500,138 @@ func _test_placement_edit() -> void:
 		var path := "%s/cell_%d_%d.json" % [CellRecords.DIR, c.x, c.y]
 		if FileAccess.file_exists(path):
 			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Toolkit.set_tool("sculpt")
+	Toolkit.active = false
+	player.remove_from_group("player")
+	player.queue_free()
+
+
+## Prefabs / groups (Creation Kit audit §2.1): a composed place captured as
+## a reusable record, then re-stamped. Places 3 pieces, K captures the
+## cluster, clears the scene, places the prefab elsewhere, and asserts all 3
+## members land with their relative transforms preserved and ONE undo
+## removes the whole stamp. Also pins the record law: it validates through
+## Records.load_json and the browser-shaped {members: [...]} contract, and
+## the palette gains the prefab entry. Leaves the checkout clean.
+func _test_prefab() -> void:
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	Toolkit._enter()
+	_check(Toolkit.active, "toolkit enters for the prefab test")
+	Toolkit._tool = Toolkit.Tool.PLACE
+	ToolkitHistory.clear()
+
+	var bx := 905.0 * 128.0
+	var bz := 900.0 * 128.0
+	var cell: Vector2i = CellRecords.cell_of(Vector3(bx, 0.0, bz))
+	while CellRecords.remove_last(cell):
+		pass
+	var name := "test_yard"
+	var pf_path: String = Prefabs.DIR + "/" + name + ".json"
+	if FileAccess.file_exists(pf_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(pf_path))
+
+	# Three pieces at a known cross: A at origin, B +3x, C +3z (all on the
+	# ground, so ground_dy ≈ 0). The centroid — the capture anchor — is
+	# (bx+1, bz+1).
+	var pa := Vector3(bx, Terrain.height(bx, bz), bz)
+	var pb := Vector3(bx + 3.0, Terrain.height(bx + 3.0, bz), bz)
+	var pc := Vector3(bx, Terrain.height(bx, bz + 3.0), bz + 3.0)
+	var a: Dictionary = CellRecords.add(pa, "kit_a", 0.5, 1.0)
+	var b: Dictionary = CellRecords.add(pb, "kit_b", 1.5, 1.2)
+	var c: Dictionary = CellRecords.add(pc, "kit_c", 2.5, 0.8)
+	_check(CellRecords.records(cell).size() == 3, "three pieces placed")
+
+	# Pick the anchor piece; K sweeps up the cluster within reach and saves.
+	Toolkit._pick_at(pa)
+	_check(Toolkit._sel_id == String(a["id"]), "anchor piece selected")
+	var n: int = Toolkit.capture_prefab(name, 8.0)
+	_check(n == 3, "capture sweeps all 3 pieces (got %d)" % n)
+	_check(Prefabs.has(name), "prefab lands in the live catalog")
+	_check(Prefabs.members(name).size() == 3, "prefab record holds 3 members")
+
+	# The record validates through the game's one load path AND the
+	# browser-shaped {members: [...]} contract Strata's RecordCatalog reads.
+	var reload: Variant = Records.load_json(pf_path)
+	_check(reload is Dictionary and (reload as Dictionary).get("members") is Array
+		and ((reload as Dictionary)["members"] as Array).size() == 3,
+		"prefab record on disk is {members:[3]}")
+	_check(reload is Dictionary
+		and Records.validate(reload, {"members": TYPE_ARRAY}, pf_path),
+		"prefab record passes Records.validate")
+
+	# The palette gained the prefab entry (Kit + prefabs), placeable by slot.
+	_check(Toolkit.set_place_slot("prefab/" + name) > 0,
+		"prefab is selectable in the PLACE palette")
+
+	# Clear the scene — the prefab must stand alone as a record.
+	for id: String in [String(a["id"]), String(b["id"]), String(c["id"])]:
+		CellRecords.remove(cell, id)
+	_check(CellRecords.records(cell).is_empty(), "scene cleared before re-stamp")
+	ToolkitHistory.clear()
+
+	# Stamp the prefab at a fresh spot; all 3 members land.
+	var hx := 906.0 * 128.0
+	var hz := 901.0 * 128.0
+	var ncell: Vector2i = CellRecords.cell_of(Vector3(hx, 0.0, hz))
+	while CellRecords.remove_last(ncell):
+		pass
+	Toolkit._place_prefab_at(Vector3(hx, Terrain.height(hx, hz), hz), name)
+	var placed: Array = CellRecords.records(ncell)
+	_check(placed.size() == 3, "prefab stamps all 3 members (got %d)" % placed.size())
+
+	# Relative transforms preserved: keyed by kit (order-independent), the
+	# pairwise XZ offsets match the captured cross, and each member's own
+	# yaw/scale rides along.
+	var by_kit: Dictionary = {}
+	for r: Dictionary in placed:
+		by_kit[String(r.get("kit", ""))] = r
+	_check(by_kit.has("kit_a") and by_kit.has("kit_b") and by_kit.has("kit_c"),
+		"every captured kit re-appears")
+	if by_kit.has("kit_a") and by_kit.has("kit_b") and by_kit.has("kit_c"):
+		var ra: Dictionary = by_kit["kit_a"]
+		var rb: Dictionary = by_kit["kit_b"]
+		var rc: Dictionary = by_kit["kit_c"]
+		_check(absf((float(rb.x) - float(ra.x)) - 3.0) < 0.01
+			and absf(float(rb.z) - float(ra.z)) < 0.01,
+			"member B keeps its +3x offset from A")
+		_check(absf(float(rc.x) - float(ra.x)) < 0.01
+			and absf((float(rc.z) - float(ra.z)) - 3.0) < 0.01,
+			"member C keeps its +3z offset from A")
+		_check(absf(float(rb.get("yaw", -9.0)) - 1.5) < 0.001
+			and absf(float(rb.get("scale", -9.0)) - 1.2) < 0.001,
+			"member yaw/scale ride the capture")
+		# Ground-relative law: each member re-seats on the CURRENT ground +
+		# its captured offset (~0 here — captured on the ground).
+		_check(absf(CellRecords.seat_y(ra)
+			- Terrain.height(float(ra.x), float(ra.z))) < 0.01,
+			"member re-seats on the current ground (regeneration law)")
+
+	# ONE Z undoes the whole stamp; redo brings the whole set back.
+	Toolkit._undo()
+	_check(CellRecords.records(ncell).is_empty(),
+		"one Z removes every prefab member")
+	ToolkitHistory.redo()
+	_check(CellRecords.records(ncell).size() == 3,
+		"redo re-stamps the whole prefab")
+
+	# Leave no trace: the records, the cells, and the prefab file.
+	Toolkit._deselect()
+	ToolkitHistory.clear()
+	CellRecords.flush()
+	for cc: Vector2i in [cell, ncell]:
+		while CellRecords.remove_last(cc):
+			pass
+		var path := "%s/cell_%d_%d.json" % [CellRecords.DIR, cc.x, cc.y]
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	if FileAccess.file_exists(pf_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(pf_path))
+	# Drop the captured prefab from the live catalog too, so the palette
+	# (and every later test's place_count) returns to pristine.
+	Prefabs._prefabs.erase(name)
+	Toolkit._rebuild_palette()
 	Toolkit.set_tool("sculpt")
 	Toolkit.active = false
 	player.remove_from_group("player")

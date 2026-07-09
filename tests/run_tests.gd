@@ -13,6 +13,7 @@ func _init() -> void:
 	_test_world_state()
 	_test_terrain_determinism()
 	_test_terrain_tile_frame_guard()
+	_test_dev_mode_compute()
 	if _failures > 0:
 		print("FAIL: %d test(s) failed" % _failures)
 		quit(1)
@@ -103,3 +104,29 @@ func _test_terrain_tile_frame_guard() -> void:
 		"strata tile at the world frame loads")
 	t.free()
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(exr))
+
+
+## The dev-gate decision (PLAN_SHIP §2). compute() is a pure function of
+## (features, user_args, debug_build) with strict precedence — no engine
+## state — so every rung and the two-feature collision are unit-testable
+## headless. Loaded directly (like the other tests) rather than via the
+## DevMode global, since `godot -s` compiles before class globals register.
+func _test_dev_mode_compute() -> void:
+	var DM: GDScript = load("res://game/dev/dev_mode.gd")
+	var none := PackedStringArray()
+	var no_dev := PackedStringArray(["strata_no_dev"])
+	var dev := PackedStringArray(["strata_dev"])
+	var both := PackedStringArray(["strata_no_dev", "strata_dev"])
+	var arg := PackedStringArray(["--strata-dev"])
+
+	# rung 4: legacy default — behavior-preserving (debug on, release off)
+	_check(DM.compute(none, none, true) == true, "compute: legacy debug build -> dev on")
+	_check(DM.compute(none, none, false) == false, "compute: legacy release build -> dev off")
+	# rung 3: --strata-dev user arg forces on, even in a release flavor
+	_check(DM.compute(none, arg, false) == true, "compute: --strata-dev arg -> dev on")
+	# rung 2: strata_dev feature forces on, even without the arg or debug
+	_check(DM.compute(dev, none, false) == true, "compute: strata_dev feature -> dev on")
+	# rung 1: strata_no_dev kills it — beats the arg AND a debug build
+	_check(DM.compute(no_dev, arg, true) == false, "compute: strata_no_dev arg+debug -> dev off (kill switch)")
+	# two-feature collision: no_dev wins (it is checked first)
+	_check(DM.compute(both, arg, true) == false, "compute: no_dev+dev collision -> off (no_dev wins)")

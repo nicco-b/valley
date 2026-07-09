@@ -164,7 +164,7 @@ var _orbit := OrbitRig.new()
 ## — the fly camera live over the world the moment the player streams in.
 ## Dev-only, like the F1 toggle it shares. One truth for title + toolkit.
 static func launch_requested() -> bool:
-	return OS.is_debug_build() and (
+	return DevMode.active() and (
 		OS.get_cmdline_user_args().has("--toolkit")
 		or OS.get_cmdline_args().has("--toolkit")) or viewer_requested()
 
@@ -174,7 +174,7 @@ static func launch_requested() -> bool:
 ## ORBIT view framing the whole world tile — Strata's generator preview
 ## with the game's shaders, sky, sea, and hours. HUD starts hidden.
 static func viewer_requested() -> bool:
-	return OS.is_debug_build() and (
+	return DevMode.active() and (
 		OS.get_cmdline_user_args().has("--viewer")
 		or OS.get_cmdline_args().has("--viewer"))
 
@@ -206,7 +206,7 @@ static func embedded_pane(_display_name: String = DisplayServer.get_name(),
 
 
 func _ready() -> void:
-	if OS.is_debug_build():
+	if DevMode.active():
 		# TICKET (take 2): one-line boot print so the NEXT live embedded
 		# launch confirms embedded_pane()'s signal in Nicco's own log,
 		# without needing a strata_link probe.
@@ -355,7 +355,7 @@ func panel_sections() -> Array:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("toolkit_toggle") and OS.is_debug_build():
+	if event.is_action_pressed("toolkit_toggle") and DevMode.active():
 		_exit() if active else _enter()
 		return
 	if not active:

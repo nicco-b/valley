@@ -297,7 +297,7 @@ func clock_text() -> String:
 ## "Back to now" only re-anchors the dial to real local time: days lived
 ## during travel stay lived.
 func _unhandled_input(event: InputEvent) -> void:
-	if not OS.is_debug_build():
+	if not DevMode.active():
 		return
 	if event.is_action_pressed("debug_time_skip"):
 		var mods := event as InputEventWithModifiers

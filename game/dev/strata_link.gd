@@ -283,7 +283,7 @@ var _rendering := false
 
 
 func _ready() -> void:
-	if not OS.is_debug_build():
+	if not DevMode.active():
 		set_process(false)
 		return
 	var env := OS.get_environment("STRATA_LINK_PORT")

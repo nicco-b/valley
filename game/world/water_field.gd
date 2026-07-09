@@ -90,7 +90,7 @@ func set_fill(on: bool) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not enabled or not OS.is_debug_build():
+	if not enabled or not DevMode.active():
 		return
 	if event is InputEventKey and event.pressed and not event.echo \
 			and event.keycode == KEY_K:

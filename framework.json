@@ -90,6 +90,7 @@
 			"game/story/quest_lint.gd"
 		],
 		"toolkit_link": [
+			"game/dev/dev_mode.gd",
 			"game/dev/toolkit.gd",
 			"game/dev/toolkit_history.gd",
 			"game/dev/toolkit_snap.gd",

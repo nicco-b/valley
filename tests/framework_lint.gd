@@ -48,20 +48,6 @@ const ALLOWLIST: Array[Dictionary] = [
 	{"path": "game/dev/hot_reload.gd", "rule": "asset-preload",
 		"literal": "res://assets/paintings",
 		"reason": "dev hot-reload watches the paintings folder generically"},
-	# -- asset-preload: RESIDUE. Real content couplings, no FW4 rung
-	# (fw4-sky/climate/creatures/constants) touches these files. --
-	{"path": "game/world/atmosphere.gd", "rule": "asset-preload",
-		"literal": "res://assets/paintings/moth.png",
-		"reason": "RESIDUE - hardcoded swarm-painting filename, unclaimed"},
-	{"path": "game/world/atmosphere.gd", "rule": "asset-preload",
-		"literal": "res://assets/paintings/swarms/",
-		"reason": "RESIDUE - hardcoded swarm-paintings base dir, unclaimed"},
-	{"path": "game/player/player.gd", "rule": "asset-preload",
-		"literal": "res://assets/audio/steps",
-		"reason": "RESIDUE - Q1: footstep audio path is content via character records, unclaimed"},
-	{"path": "game/player/player.gd", "rule": "asset-preload",
-		"literal": "res://assets/audio/steps/",
-		"reason": "RESIDUE - same seam, the concatenated per-file load"},
 	# -- content-id: framework-level enum names that coincide with
 	# data/overrides/overrides.json's own layer-kind keys (the override
 	# taxonomy is toolkit machinery, not narrative content) --
@@ -93,12 +79,13 @@ const ALLOWLIST: Array[Dictionary] = [
 	{"path": "game/items/firefly.gd", "rule": "content-id",
 		"literal": "firefly",
 		"reason": "RESIDUE - Q5 kitchen table: firefly item id named directly, unclaimed"},
-	{"path": "game/dev/strata_link.gd", "rule": "content-id",
+	# -- content-id: Q1's "a Strata convention, not valley content — name it
+	# once" — strata_link.gd and import_world.gd both now reference
+	# StrataConventions.BAKED_WORLD_ID; the raw literal lives in exactly one
+	# place, the convention file itself, where it necessarily defines it. --
+	{"path": "game/dev/strata_conventions.gd", "rule": "content-id",
 		"literal": "baked_world",
-		"reason": "RESIDUE - Q1: the baked_world.exr magic path/region id, unclaimed"},
-	{"path": "tools/strata/import_world.gd", "rule": "content-id",
-		"literal": "baked_world",
-		"reason": "RESIDUE - Q1: the baked_world.exr magic path/region id, unclaimed"},
+		"reason": "the one place the Strata tile-id convention is named (FW5, Q1)"},
 	{"path": "tools/strata/import_world.gd", "rule": "content-id",
 		"literal": "sea",
 		"reason": "RESIDUE - the import tool mints the base ocean record's id by hand, unclaimed"},

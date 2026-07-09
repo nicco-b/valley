@@ -130,6 +130,7 @@ func _test_strata_link() -> void:
 	await _test_panel_verb(peer)
 	await _test_inspect_notices(peer)
 	await _test_pulse(peer)
+	await _test_records_desk(peer)
 	peer.disconnect_from_host()
 
 
@@ -618,6 +619,83 @@ func _test_pulse(peer: StreamPeerTCP) -> void:
 		+ "five-verb %.3fms/tick (5 round-trips) — round-trips/tick 5 -> 1"
 		% [five_us / 1000.0 / reps])
 	_check(true, "pulse measurement recorded (see [pulse] MEASURE line)")
+
+
+## The records desk (Strata R5): the game judges an edited record with its
+## OWN loader schema before the desk commits (an invalid write never
+## lands), answers the kind's field-type hints, and re-reads a kind live
+## after a landed write. Judgement is the SAME Records.validate the loaders
+## trust — never a parallel rule.
+##
+## The schema + reloader registries fill when a game SYSTEM loads (every
+## load_dir registers its schema; WildlifeManager registers a reloader) —
+## none of those systems live in the headless test scene, so this test
+## stands up a SYNTHETIC kind through the exact same public doors a game
+## system uses (load_dir registers the schema even for an absent dir;
+## register_reloader the reloader), and drives the link against it. The
+## real wildlife round trip is the desk's end-to-end acceptance. No files
+## are written here: this is the game's HALF of the write path (validate +
+## reload); the byte-faithful rewrite is Strata's, covered by its own tests.
+func _test_records_desk(peer: StreamPeerTCP) -> void:
+	# A game system registers its schema by loading its dir (the dir need
+	# not exist for the schema to register — an empty kind still has rules).
+	Records.load_dir("res://data/probe_kind", {"id": TYPE_STRING, "count": TYPE_FLOAT})
+	# ...and a reloader if it can re-read live. We flip a captured latch so
+	# the test can prove the link actually CALLED it (not just replied ok).
+	var rebound := [false]
+	Records.register_reloader("probe_kind", func() -> void: rebound[0] = true)
+	# JSON with spaces on purpose — the record is the rest of the line and
+	# must ride intact past the verb's token split.
+	var ok_json := '{"id": "probe_rec", "count": 2}'
+	var miss_json := '{"count": 2}'
+	var type_json := '{"id": "probe_rec", "count": "lots"}'
+	var replies := await _link_send(peer, [
+		"records validate probe_kind " + ok_json,
+		"records validate probe_kind " + miss_json,
+		"records validate probe_kind " + type_json,
+		"records validate probe_kind not json at all",
+		"records validate schemaless_kind " + ok_json,
+		"records schema probe_kind",
+		"records reload probe_kind",
+		"records reload nosuchkind",
+		"records bogus probe_kind",
+	])
+	_check(replies.size() == 9, "records replies land (got %d)" % replies.size())
+	if replies.size() != 9:
+		return
+	# validate: the game's own judgement, ok on a well-formed record and the
+	# loader's exact words on a bad one — the desk surfaces these verbatim.
+	_check(replies[0] == "ok validate probe_kind",
+		"a valid record validates ok (got %s)" % replies[0])
+	_check(replies[1] == "err validate probe_kind: missing field 'id'",
+		"a missing required field errs in the game's words (got %s)" % replies[1])
+	_check(String(replies[2]).begins_with("err validate probe_kind: field 'count' should be float"),
+		"a wrong-typed field errs in the game's words (got %s)" % replies[2])
+	_check(String(replies[3]).begins_with("err validate probe_kind: not a JSON object"),
+		"non-object JSON errs honestly (got %s)" % replies[3])
+	# An unknown kind has no registered schema — a record that PARSED as an
+	# object is all the game can promise; it passes (the honest floor).
+	_check(replies[4] == "ok validate schemaless_kind",
+		"a schemaless kind validates a parsed object (got %s)" % replies[4])
+	# schema: the field-type hints the loader trusts, one truth with validate.
+	_check(String(replies[5]).begins_with("ok schema probe_kind "),
+		"schema answers the kind's hints (got %s)" % replies[5])
+	_check("id:String" in replies[5] and "count:float" in replies[5],
+		"schema carries the loader's field types (got %s)" % replies[5])
+	# reload: a kind with a live reloader re-reads and rebinds — and the link
+	# actually invoked it (the latch flipped), not just answered ok.
+	_check(String(replies[6]).begins_with("ok reload probe_kind ")
+			and "no-rebind" not in String(replies[6]),
+		"a kind with a reloader re-reads live (got %s)" % replies[6])
+	_check(rebound[0], "the reload verb actually called the registered reloader")
+	# A kind with no reloader is honest about it — never a silent ok.
+	_check(String(replies[7]).begins_with("ok reload nosuchkind 0 no-rebind"),
+		"a reloaderless kind says restart-to-apply (got %s)" % replies[7])
+	_check(String(replies[8]).begins_with("err records needs"),
+		"a bogus subverb errs with the contract line (got %s)" % replies[8])
+	# Leave no trace: drop the synthetic kind from the registries.
+	Records._schemas.erase("probe_kind")
+	Records._reloaders.erase("probe_kind")
 
 
 ## preview_world (ONE_APP P8, the viewer): the game wears a Strata export

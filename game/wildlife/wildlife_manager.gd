@@ -25,18 +25,48 @@ var herds: Array = []  # {species, activities, individuals: [{sim, body}]}
 var _tick_accum := 0.0
 
 
+const DATA_DIR := "res://data/wildlife"
+const SCHEMA := {
+	"id": TYPE_STRING, "count": TYPE_FLOAT,
+	"home": TYPE_DICTIONARY, "activities": TYPE_ARRAY,
+	"body_scene": TYPE_STRING,
+}
+
+
 func _ready() -> void:
 	add_to_group("sim_advance")
 	add_to_group("world_state_reader")
-	var records: Dictionary = Records.load_dir("res://data/wildlife", {
-		"id": TYPE_STRING, "count": TYPE_FLOAT,
-		"home": TYPE_DICTIONARY, "activities": TYPE_ARRAY,
-		"body_scene": TYPE_STRING,
-	})
+	_load_herds()
+	# The records desk (Strata R5): after a landed edit to a wildlife
+	# record, `records reload wildlife` re-reads and respawns the herds so
+	# the running game reflects the change — the same door F5 would take on
+	# a restart, minus the restart.
+	Records.register_reloader("wildlife", reload)
+	GameClock.hour_tick.connect(func(_h: int) -> void: _save_state())
+
+
+## Read the wildlife records and spawn one herd per species, then restore
+## any persisted individual state. The boot path AND the desk's reload
+## path — one truth, so a live re-read builds exactly what a fresh boot
+## would.
+func _load_herds() -> void:
+	var records: Dictionary = Records.load_dir(DATA_DIR, SCHEMA)
 	for key in records:
 		spawn_herd(records[key])
 	load_state()
-	GameClock.hour_tick.connect(func(_h: int) -> void: _save_state())
+
+
+## Live re-read (the records desk): dissolve every embodied animal, drop
+## the herds, and rebuild from disk. Positions and drives reset to the
+## records' homes (a rebuild, not a diff) — acceptable for a dev edit, and
+## honest: what you'd get on the next boot, now.
+func reload() -> void:
+	for herd in herds:
+		for ind in herd.individuals:
+			if ind.body != null:
+				ind.body.queue_free()
+	herds.clear()
+	_load_herds()
 
 
 func spawn_herd(data: Dictionary) -> Dictionary:

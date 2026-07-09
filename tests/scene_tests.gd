@@ -52,6 +52,7 @@ func _ready() -> void:
 	_test_edit_flush()
 	_test_budget()
 	_test_audio()
+	_test_ambience()
 	await _test_threshold()
 	await _test_interior_hand()
 	_test_map()
@@ -148,6 +149,130 @@ func _test_audio() -> void:
 	var levels := Audio.bus_levels()
 	_check(levels.begins_with("Master:") and " UI:" in levels,
 		"audio: bus_levels lists the house buses (got %s)" % levels)
+
+
+## The ambience machine (PLAN_AUDIO A2): beds are RECORDS now, the evaluator
+## is record-driven, and valley's two shipped beds reproduce the OLD
+## hardcoded curves BYTE-FOR-BYTE (the migration acceptance: same curves in
+## = same params out, asserted numerically). Also: the desk validates the
+## kind, the crossfade math is pure, and the mix.json interior duck drives
+## the `audio` verb's duck token.
+func _test_ambience() -> void:
+	# Stand up the real machine (a world node, not an autoload — beds belong
+	# to the world, never the title): its _ready registers the kind with the
+	# desk and loads the shipped beds, exactly as valley.tscn does at boot.
+	var amb := Ambience.new()
+	add_child(amb)
+	# The desk owns the beds: schema registered, dir registered at the true
+	# nested path (the A1 wart fix — audio_sfx/audio_ambience live below
+	# data/<kind>), reload counts that path.
+	_check(not Records.schema_for(Ambience.AMBIENCE_KIND).is_empty(),
+		"ambience: audio_ambience schema registered for the desk")
+	_check(Records.dir_for(Ambience.AMBIENCE_KIND) == Ambience.AMBIENCE_DIR,
+		"ambience: reload counts the registered nested dir, not data/audio_ambience")
+	_check(Records.dir_for(Audio.SFX_KIND) == Audio.SFX_DIR,
+		"ambience: audio_sfx dir registered (A1 wart: was counting data/audio_sfx)")
+	_check(Records.count_dir(Ambience.AMBIENCE_KIND) == 2,
+		"ambience: count_dir tallies the two shipped beds (got %d)"
+			% Records.count_dir(Ambience.AMBIENCE_KIND))
+	# The desk judges a bed by the game's own loader: a bed missing `bus`
+	# is caught; a complete one passes.
+	var bad_bed := {"id": "b", "file": "x.wav"}  # no bus
+	_check(Records.validate_kind(Ambience.AMBIENCE_KIND, bad_bed) != "",
+		"ambience: the desk catches a bed missing a required field")
+	var good_bed := {"id": "b", "file": "x.wav", "bus": "Ambience"}
+	_check(Records.validate_kind(Ambience.AMBIENCE_KIND, good_bed) == "",
+		"ambience: a complete bed record validates")
+
+	# -- crossfade math (pure) --
+	# nightness_for: the window's dusk ramp rises, the dawn ramp recedes.
+	var win := {"in": [19.0, 21.5], "out": [5.0, 7.0]}
+	_check(Ambience.nightness_for(win, 3.0) == 1.0, "ambience: deep night is full nightness")
+	_check(Ambience.nightness_for(win, 12.0) == 0.0, "ambience: noon is zero nightness")
+	_check(Ambience.nightness_for(null, 3.0) == 0.0,
+		"ambience: no solar window is pure day (neutral floor)")
+	# crossfade_step: a linear ramp over crossfade_s; 0 snaps.
+	_check(is_equal_approx(Ambience.crossfade_step(0.0, 1.0, 4.0, 1.0), 0.25),
+		"ambience: crossfade eases 1/4 of the way in one second over 4s")
+	_check(Ambience.crossfade_step(0.0, 1.0, 4.0, 10.0) == 1.0,
+		"ambience: crossfade reaches the target and stops")
+	_check(Ambience.crossfade_step(0.3, 1.0, 0.0, 0.016) == 1.0,
+		"ambience: crossfade_s 0 snaps to target")
+
+	# -- the migration A/B: bed_linear reproduces the OLD hardcoded formula
+	# term-for-term, at a grid of (hour, wind, storminess, interior) inputs.
+	# This is "same params out" proven numerically — the shipped records
+	# are the old code, as data.
+	var wind_rec: Variant = Records.load_json(Ambience.AMBIENCE_DIR + "/wind_bed.json")
+	var night_rec: Variant = Records.load_json(Ambience.AMBIENCE_DIR + "/night_bed.json")
+	_check(wind_rec is Dictionary and night_rec is Dictionary,
+		"ambience: the two shipped beds parse")
+	if wind_rec is Dictionary and night_rec is Dictionary:
+		var mismatch := 0
+		for h in [0.0, 3.0, 5.5, 7.0, 12.0, 18.0, 20.0, 21.5, 23.0]:
+			for w in [0.0, 0.4, 1.0]:
+				for st in [0.0, 0.5, 1.0]:
+					for duck in [1.0, 0.08]:
+						var n := Ambience.nightness_for(wind_rec["solar_window"], h)
+						var got_w := Ambience.bed_linear(wind_rec, n, w, st, duck)
+						var got_n := Ambience.bed_linear(night_rec, n, w, st, duck)
+						if got_w != _ref_wind(h, w, duck) or got_n != _ref_night(h, st, duck):
+							mismatch += 1
+		_check(mismatch == 0,
+			"ambience: shipped beds match the old wind/night curves byte-for-byte (%d off)"
+				% mismatch)
+
+	# -- end-to-end: drive the REAL evaluator one frame and prove each
+	# loaded bed's live player volume is the old curve's value at the live
+	# clock/weather (the full path: record -> _process -> volume_db). No
+	# player node in the test tree, so biome is "" and the universal beds
+	# stay fully present; nothing is inside, so no duck.
+	var was_inside2: bool = Interiors.inside
+	Interiors.inside = false
+	amb._process(0.016)
+	var h: float = GameClock.solar_hours()
+	var loaded: Array = amb.get("_beds")
+	_check(loaded.size() == 2, "ambience: both shipped beds loaded live (got %d)" % loaded.size())
+	for bed: Dictionary in loaded:
+		var id := String(bed.rec["id"])
+		var want := 0.0
+		if id == "wind_bed":
+			want = linear_to_db(clampf(_ref_wind(h, Weather.wind, 1.0), 0.0001, 1.0))
+		else:
+			want = linear_to_db(clampf(_ref_night(h, Weather.storminess, 1.0), 0.0001, 1.0))
+		_check(is_equal_approx(bed.player.volume_db, want),
+			"ambience: %s live volume matches the old curve (%.4f vs %.4f)"
+				% [id, bed.player.volume_db, want])
+	Interiors.inside = was_inside2
+
+	# -- the mix.json interior duck drives the duck token (3b). Force the
+	# interior predicate and read Audio's live duck state, then restore.
+	var was_inside: bool = Interiors.inside
+	Interiors.inside = false
+	_check(is_equal_approx(Audio.bus_duck("Ambience"), 1.0) and Audio.active_ducks() == "-",
+		"ambience: no duck when outside (bus_duck 1.0, token '-')")
+	Interiors.inside = true
+	_check(is_equal_approx(Audio.bus_duck("Ambience"), 0.08),
+		"ambience: interior ducks the Ambience bus to 0.08 (got %f)"
+			% Audio.bus_duck("Ambience"))
+	_check(Audio.active_ducks() == "interior_hush",
+		"ambience: the duck token names the active rule (got %s)" % Audio.active_ducks())
+	Interiors.inside = was_inside
+	amb.queue_free()  # leave no bed players behind
+
+
+## The OLD hardcoded ambience curves (ambience.gd before A2), kept here as
+## the reference the record-driven beds must reproduce bit-for-bit.
+func _ref_nightness(h: float) -> float:
+	return clampf(smoothstep(19.0, 21.5, h) + 1.0 - smoothstep(5.0, 7.0, h), 0.0, 1.0)
+
+
+func _ref_wind(h: float, wind: float, duck: float) -> float:
+	return lerpf(0.5, 0.18, _ref_nightness(h)) * (0.35 + 1.1 * wind) * duck
+
+
+func _ref_night(h: float, storminess: float, duck: float) -> float:
+	return _ref_nightness(h) * 0.16 * (1.0 - storminess * 0.7) * duck
 
 
 ## StrataLink (ONE_APP P3): the live-link verbs answer over a real local

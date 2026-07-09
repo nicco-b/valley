@@ -1,0 +1,13 @@
+{
+	"id": "wind_bed",
+	"file": "res://assets/audio/wind_loop.wav",
+	"bus": "Ambience",
+	"biomes": ["*"],
+	"day_gain": 0.5,
+	"night_gain": 0.18,
+	"wind_base": 0.35,
+	"wind_scale": 1.1,
+	"storm_duck": 0.0,
+	"crossfade_s": 4.0,
+	"solar_window": { "in": [19.0, 21.5], "out": [5.0, 7.0] }
+}

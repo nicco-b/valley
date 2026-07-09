@@ -17,6 +17,14 @@ extends Node
 ## kind (data/<kind>) -> the required-field schema its loader passed to
 ## load_dir; the desk's `records validate/schema` read this.
 var _schemas: Dictionary = {}
+## kind -> the directory its records were scanned from. `load_dir`
+## remembers it (kind = the dir's basename); a loader whose records live
+## in a NESTED dir whose basename doesn't match its desk kind (audio_sfx
+## lives at data/audio/sfx, audio_ambience at data/audio/ambience)
+## registers it by name via `register_dir`. The reload verb re-scans HERE
+## instead of the naive data/<kind>, so a nested-dir kind counts right —
+## the A1 wart ("records reload audio_sfx" counted the absent data/audio_sfx).
+var _dirs: Dictionary = {}
 ## kind -> Callable() that re-reads that kind's records and rebinds them
 ## in the live sim (registered by the owning system at _ready).
 var _reloaders: Dictionary = {}
@@ -53,8 +61,10 @@ func load_json(path: String) -> Variant:
 ## that fail validation. `required` maps field name -> Variant.Type.
 func load_dir(dir_path: String, required: Dictionary = {}) -> Dictionary:
 	# Remember the kind's schema so `records validate` judges an edited
-	# record by the exact same required-field map its loader trusts.
+	# record by the exact same required-field map its loader trusts, and
+	# the dir so `records reload` re-scans the place it was loaded from.
 	register_schema(dir_path.get_file(), required)
+	register_dir(dir_path.get_file(), dir_path)
 	var out: Dictionary = {}
 	var dir := DirAccess.open(dir_path)
 	if dir == null:
@@ -129,6 +139,43 @@ func register_schema(kind: String, required: Dictionary) -> void:
 ## `records schema` verb turns this into the desk's per-field type hints.
 func schema_for(kind: String) -> Dictionary:
 	return _schemas.get(kind, {})
+
+
+## Register the directory a kind's records were scanned from. `load_dir`
+## routes through here (kind = the dir's basename); a NESTED-dir loader
+## whose desk kind differs from the basename (audio_sfx -> data/audio/sfx)
+## registers it explicitly so the reload verb re-scans the true path, not
+## the naive res://data/<kind>. Idempotent — last writer wins.
+func register_dir(kind: String, dir_path: String) -> void:
+	_dirs[kind] = dir_path
+
+
+## The directory a kind was loaded from, or the naive res://data/<kind>
+## when none was registered (the honest default: most kinds ARE a top-level
+## data dir named for the kind).
+func dir_for(kind: String) -> String:
+	return _dirs.get(kind, "res://data/" + kind)
+
+
+## Count the valid records a kind currently has on disk — the reload verb's
+## fresh tally. Scans the kind's REGISTERED dir with its REGISTERED schema
+## and judges each by the same required-field map `load_dir` trusts, WITHOUT
+## load_dir's side effects (re-registering schema/dir under the scanned
+## basename would clobber a nested-dir kind, e.g. count data/audio/sfx as
+## kind "sfx"). Content-empty (no dir / no files) counts zero, errors nothing.
+func count_dir(kind: String) -> int:
+	var dir := DirAccess.open(dir_for(kind))
+	if dir == null:
+		return 0
+	var schema: Dictionary = _schemas.get(kind, {})
+	var n := 0
+	for f in dir.get_files():
+		if not f.ends_with(".json"):
+			continue
+		var rec = load_json(dir_for(kind) + "/" + f)
+		if rec is Dictionary and validate_message(rec, schema) == "":
+			n += 1
+	return n
 
 
 ## Publish a kind's edge declarations (the graph fields Strata may render

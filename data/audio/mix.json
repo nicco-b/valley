@@ -1,0 +1,11 @@
+{
+	"ducks": [
+		{
+			"id": "interior_hush",
+			"when": "interiors.inside",
+			"bus": "Ambience",
+			"gain": 0.08,
+			"fade_s": 0.8
+		}
+	]
+}

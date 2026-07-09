@@ -1,11 +1,9 @@
-[gd_scene load_steps=23 format=3]
+[gd_scene load_steps=21 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="Script" path="res://game/world/water_bodies.gd" id="6_water"]
 [ext_resource type="Script" path="res://game/world/day_night.gd" id="2_daynight"]
 [ext_resource type="Script" path="res://game/world/world_streamer.gd" id="3_streamer"]
-[ext_resource type="AudioStream" path="res://assets/audio/wind_loop.wav" id="4_wind"]
-[ext_resource type="AudioStream" path="res://assets/audio/night_loop.wav" id="7_night"]
 [ext_resource type="Script" path="res://game/world/ambience.gd" id="8_ambience"]
 [ext_resource type="Script" path="res://game/world/weather_fx.gd" id="11_weatherfx"]
 [ext_resource type="Shader" path="res://game/shaders/sky.gdshader" id="12_sky"]
@@ -86,16 +84,6 @@ script = ExtResource("3_streamer")
 
 [node name="Ambience" type="Node" parent="."]
 script = ExtResource("8_ambience")
-
-[node name="Wind" type="AudioStreamPlayer" parent="Ambience"]
-stream = ExtResource("4_wind")
-volume_db = -6.0
-autoplay = true
-
-[node name="Night" type="AudioStreamPlayer" parent="Ambience"]
-stream = ExtResource("7_night")
-volume_db = -60.0
-autoplay = true
 
 [node name="FarTerrain" type="Node3D" parent="."]
 script = ExtResource("14_far")

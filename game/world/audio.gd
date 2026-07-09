@@ -57,6 +57,26 @@ const SFX_SCHEMA := {
 ## four): a handful of concurrent one-shots is plenty.
 const POOL_SIZE := 8
 
+## The ducking table (PLAN_AUDIO 3b) — bus-to-bus duck rules as DATA, not
+## scattered constants. A single framework-level file (one object with a
+## "ducks" array), each rule:
+##   { "id": "interior_hush", "when": "interiors.inside", "bus": "Ambience",
+##     "gain": 0.08, "fade_s": 0.8 }
+## `when` names a predicate from a small closed vocabulary the audio
+## autoload evaluates (the quest-conditions posture). A rule whose
+## predicate holds ducks its bus's content by `gain` (a linear multiplier
+## the CONSUMER applies — ambience beds multiply it into their gain, so the
+## bus level the settings slider owns is never silently moved; the `audio`
+## verb's duck token names WHY a bus sounds quiet). Content-empty (no
+## mix.json) = no ducks, the neutral fallback (FW4). Held as a single file
+## rather than a records-desk dir (it is ONE table, not per-record content).
+const MIX_PATH := "res://data/audio/mix.json"
+## The duck-rule required fields, judged by the records desk's own validator
+## (LAW A3). `gain`/`fade_s` are optional with house defaults.
+const MIX_SCHEMA := {
+	"id": TYPE_STRING, "when": TYPE_STRING, "bus": TYPE_STRING,
+}
+
 var _sfx: Dictionary = {}  # event id -> record
 var _cooldown: Dictionary = {}  # event id -> next-allowed msec (anti-machine-gun)
 var _pool: Array[AudioStreamPlayer] = []
@@ -70,6 +90,9 @@ var _randomizers: Dictionary = {}
 ## seeded streams. Reserved for any variation pick the engine randomizer
 ## doesn't own; its mere existence states the determinism posture.
 var _rng := RandomNumberGenerator.new()
+## The loaded duck rules (from mix.json) — an Array of rule Dictionaries.
+## Empty until _load_mix; empty stays empty when no mix.json ships.
+var _ducks: Array = []
 
 
 func _ready() -> void:
@@ -77,12 +100,16 @@ func _ready() -> void:
 	_build_buses()
 	_build_pools()
 	# The records desk (LAW A3): register the schema by name so the desk
-	# judges data/audio/sfx records as kind "audio_sfx", and a reloader so
-	# `records reload audio_sfx` re-reads them live after a landed edit —
-	# the same door a restart would take, minus the restart.
+	# judges data/audio/sfx records as kind "audio_sfx", the DIR so the
+	# reload verb counts the true nested path (A1 wart: the naive
+	# data/audio_sfx counted zero), and a reloader so `records reload
+	# audio_sfx` re-reads them live after a landed edit — the same door a
+	# restart would take, minus the restart.
 	Records.register_schema(SFX_KIND, SFX_SCHEMA)
+	Records.register_dir(SFX_KIND, SFX_DIR)
 	Records.register_reloader(SFX_KIND, reload)
 	_load_sfx()
+	_load_mix()
 
 
 ## Build the house bus graph in code. Master (bus 0) stays; the rest are
@@ -245,3 +272,72 @@ func bus_levels() -> String:
 		toks.append("%s:%.1f" % [
 			AudioServer.get_bus_name(i), AudioServer.get_bus_volume_db(i)])
 	return " ".join(toks)
+
+
+## Read the duck table (data/audio/mix.json). Each rule is validated
+## against MIX_SCHEMA + a bus-is-a-house-bus check (SFX's honesty), so a
+## malformed rule is dropped with a clear message, never a silent misduck.
+## Content-empty (no file / no ducks) loads nothing, errors nothing (FW4).
+func _load_mix() -> void:
+	_ducks.clear()
+	if not FileAccess.file_exists(MIX_PATH):
+		return  # neutral fallback: no ducks
+	var doc = Records.load_json(MIX_PATH)
+	if not (doc is Dictionary) or not (doc.get("ducks") is Array):
+		push_error("[audio] %s: expected an object with a 'ducks' array" % MIX_PATH)
+		return
+	for rule in doc["ducks"]:
+		if not (rule is Dictionary):
+			continue
+		var msg := Records.validate_message(rule, MIX_SCHEMA)
+		if msg != "":
+			push_error("[audio] %s: duck rule %s" % [MIX_PATH, msg])
+			continue
+		if AudioServer.get_bus_index(String(rule["bus"])) < 0:
+			push_error("[audio] %s: duck bus '%s' is not a house bus"
+				% [MIX_PATH, rule["bus"]])
+			continue
+		_ducks.append(rule)
+
+
+## The live linear duck multiplier for a bus — the product of every active
+## rule's gain (a rule is active when its `when` predicate holds now).
+## 1.0 when nothing ducks the bus. The CONSUMER (ambience beds) multiplies
+## this into its own gain, so the settings slider's bus level is never
+## silently moved — the duck lives in the content's level, not the graph.
+func bus_duck(bus: String) -> float:
+	var g := 1.0
+	for rule in _ducks:
+		if String(rule["bus"]) == bus and _predicate(String(rule["when"])):
+			g *= float(rule.get("gain", 1.0))
+	return g
+
+
+## The ids of every duck rule active right now, space-joined — the `audio`
+## verb's trailing `duck:<ids>` token so the Mix face can show WHY a bus is
+## quiet. "-" when nothing ducks (the A1 placeholder this rung fills).
+func active_ducks() -> String:
+	var ids := PackedStringArray()
+	for rule in _ducks:
+		if _predicate(String(rule["when"])):
+			ids.append(String(rule.get("id", "?")))
+	return "-" if ids.is_empty() else " ".join(ids)
+
+
+## Re-read the duck table live — the door a landed mix.json edit takes so
+## an interior-duck tweak (3b, "interior duck edits as data") applies in the
+## running game without a restart. Fire from the desk/reload path.
+func reload_mix() -> void:
+	_load_mix()
+
+
+## The closed predicate vocabulary the duck rules name (3b: "named game
+## predicates the audio autoload knows"). Reads sim state, never writes it
+## (LAW A1). An unknown predicate is inactive (false) — an honest floor, the
+## same posture the records desk takes on an unknown kind. Grows a case at a
+## time as new ducks are wanted (dialogue-over-music when dialogue exists).
+func _predicate(pred: String) -> bool:
+	match pred:
+		"interiors.inside":
+			return Interiors.inside
+	return false

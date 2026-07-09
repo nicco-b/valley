@@ -873,15 +873,18 @@ func _records(parts: PackedStringArray, line: String) -> String:
 			return "ok validate %s" % kind
 		"reload":
 			var reloader := Records.reloader_for(kind)
-			# Count what the kind now loads (the desk shows the fresh tally);
-			# the dir is data/<kind>, the same place the desk scanned it from.
-			var loaded: Dictionary = Records.load_dir("res://data/" + kind,
-				Records.schema_for(kind))
+			# Count what the kind now loads (the desk shows the fresh tally)
+			# from the REGISTERED dir — data/<kind> for a top-level kind, but
+			# the true nested path for a kind whose desk name differs from its
+			# basename (audio_sfx -> data/audio/sfx). count_dir judges each row
+			# by the kind's schema without load_dir's re-registration side
+			# effects (A1 wart: the naive data/audio_sfx counted zero).
+			var count := Records.count_dir(kind)
 			if not reloader.is_valid():
 				return "ok reload %s %d no-rebind (restart to apply)" % [
-					kind, loaded.size()]
+					kind, count]
 			reloader.call()
-			return "ok reload %s %d" % [kind, loaded.size()]
+			return "ok reload %s %d" % [kind, count]
 		"schema":
 			# Field-type hints, then any EDGE declarations the game published
 			# for the kind (edge:<field>><to> — quests: edge:after>stage-id).
@@ -906,12 +909,14 @@ func _records(parts: PackedStringArray, line: String) -> String:
 ## The Mix face over the link (PLAN_AUDIO 4a). Bare `audio` mirrors the
 ## live house bus levels (Audio reads AudioServer, so the reply follows
 ## whatever the settings slider or a duck last wrote) plus a trailing
-## `duck:` token — empty in A1, filled by A2's mix.json rules so the face
-## can show WHY a bus is quiet. `audio set <bus> <db>` drives one bus
-## level live (the graph itself stays framework-owned — LAW A2).
+## `duck:` token — the ids of every mix.json duck rule active RIGHT NOW
+## (A2: `duck:interior` when inside, `duck:-` when nothing ducks), so the
+## face can show WHY a bus is quiet even though its slider hasn't moved.
+## `audio set <bus> <db>` drives one bus level live (the graph itself stays
+## framework-owned — LAW A2).
 func _audio(parts: PackedStringArray) -> String:
 	if parts.size() == 1:
-		return "ok audio %s duck:-" % Audio.bus_levels()
+		return "ok audio %s duck:%s" % [Audio.bus_levels(), Audio.active_ducks()]
 	if parts[1] == "set":
 		if parts.size() < 4 or not parts[3].is_valid_float():
 			return "err audio set needs <bus> <db>"

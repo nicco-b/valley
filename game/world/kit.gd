@@ -14,8 +14,13 @@ var _by_id: Dictionary = {}
 
 
 func _ready() -> void:
+	# ENTRIES are legacy content, already dying (cards, not ENTRIES) —
+	# a scaffolded game ships this loader without the placeholder scenes,
+	# so an entry whose scene is absent just isn't in the kit (FW1;
+	# valley has them all, so nothing changes here).
 	for e in ENTRIES:
-		_by_id[e.id] = load(e.path)
+		if ResourceLoader.exists(e.path):
+			_by_id[e.id] = load(e.path)
 
 
 func scene(id: String) -> PackedScene:

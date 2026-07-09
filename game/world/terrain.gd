@@ -364,8 +364,11 @@ func _ready() -> void:
 	_load_water()
 	_load_regions()
 	_load_biomes()
-	var ws: Variant = JSON.parse_string(
-		FileAccess.get_file_as_string(WATERSHED_PATH))
+	# The watershed record is content — a fresh game has none and keeps
+	# the fixture rect (FW1 content-empty law; valley ships home.json).
+	var ws: Variant = null
+	if FileAccess.file_exists(WATERSHED_PATH):
+		ws = JSON.parse_string(FileAccess.get_file_as_string(WATERSHED_PATH))
 	if ws is Dictionary and ws.has("center") and ws.has("size"):
 		var c: Dictionary = ws["center"]
 		var s := float(ws["size"])

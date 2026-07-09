@@ -96,15 +96,21 @@ func _ready() -> void:
 
 	# Model scatter: category rules + a category->slots index from the Cards
 	# catalog, so every placeable slot auto-dresses the world by biome.
-	var cfg = Records.load_json("res://data/scatter/props.json")
-	if cfg is Dictionary and cfg.get("groups") is Array:
-		_scatter_groups = cfg["groups"]
-	var dcfg = Records.load_json("res://data/scatter/decals.json")
-	if dcfg is Dictionary and dcfg.get("groups") is Array:
-		_decal_groups = dcfg["groups"]
-	var wcfg = Records.load_json("res://data/scatter/water_plants.json")
-	if wcfg is Dictionary and wcfg.get("groups") is Array:
-		_water_groups = wcfg["groups"]
+	# Scatter tables are content — a fresh game ships none, and that is a
+	# world without scatter, not an error (FW1's content-empty boot law;
+	# valley has all three, so nothing changes here).
+	if FileAccess.file_exists("res://data/scatter/props.json"):
+		var cfg = Records.load_json("res://data/scatter/props.json")
+		if cfg is Dictionary and cfg.get("groups") is Array:
+			_scatter_groups = cfg["groups"]
+	if FileAccess.file_exists("res://data/scatter/decals.json"):
+		var dcfg = Records.load_json("res://data/scatter/decals.json")
+		if dcfg is Dictionary and dcfg.get("groups") is Array:
+			_decal_groups = dcfg["groups"]
+	if FileAccess.file_exists("res://data/scatter/water_plants.json"):
+		var wcfg = Records.load_json("res://data/scatter/water_plants.json")
+		if wcfg is Dictionary and wcfg.get("groups") is Array:
+			_water_groups = wcfg["groups"]
 	for e in Cards.placeable():
 		var cat: String = e["category"]
 		if not _cat_slots.has(cat):

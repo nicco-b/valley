@@ -136,18 +136,18 @@ func _ready() -> void:
 	glow_mat.emission = Color(0.91, 0.33, 0.48)
 	glow_mat.emission_energy_multiplier = 2.2
 	_moths = _make_particles(10, 9.0, 0.5, Color(1, 1, 1, 1), 0.8, 2.2,
-			load("res://assets/paintings/moth.png"))
+			_painting("res://assets/paintings/moth.png"))
 	var sw := "res://assets/paintings/swarms/"
 	_butterflies = _make_particles(9, 8.0, 0.42, Color(1, 1, 1, 1), 0.7, 2.0,
-			load(sw + "butterfly_01.png"))
+			_painting(sw + "butterfly_01.png"))
 	_pollen = _make_particles(40, 7.0, 0.09, Color(1, 0.98, 0.85, 0.5), 0.4, 1.4,
-			load(sw + "pollen_drift_01.png"))
+			_painting(sw + "pollen_drift_01.png"))
 	# Gnat columns rise in a tight, near-still swirl; embers drift upward.
 	_gnats = _make_particles(44, 5.5, 0.11, Color(0.3, 0.32, 0.28, 0.6), 0.2, 0.8,
-			load(sw + "gnat_column_01.png"))
+			_painting(sw + "gnat_column_01.png"))
 	(_gnats.process_material as ParticleProcessMaterial).emission_box_extents = Vector3(6, 5, 6)
 	_embers = _make_particles(22, 6.0, 0.14, Color(1, 1, 1, 1), 0.6, 1.8,
-			load(sw + "ash_ember_01.png"))
+			_painting(sw + "ash_ember_01.png"))
 	var em := _embers.process_material as ParticleProcessMaterial
 	em.direction = Vector3(0.1, 1.0, 0.1)
 	em.gravity = Vector3(0, 1.2, 0)
@@ -156,7 +156,7 @@ func _ready() -> void:
 	em_mat.emission = Color(0.95, 0.5, 0.2)
 	em_mat.emission_energy_multiplier = 2.4
 	_gulls = _make_particles(6, 12.0, 0.9, Color(1, 1, 1, 1), 0.6, 1.6,
-			load(sw + "shore_wheel_01.png"))
+			_painting(sw + "shore_wheel_01.png"))
 	_gulls.visibility_aabb = AABB(Vector3(-60, -10, -60), Vector3(120, 80, 120))
 
 
@@ -353,3 +353,10 @@ func _make_particles(amount: int, lifetime: float, size: float, color: Color,
 	particles.visibility_aabb = AABB(Vector3(-50, -20, -50), Vector3(100, 40, 100))
 	add_child(particles)
 	return particles
+
+
+## Swarm paintings are content — a game shipped without them gets plain
+## quad particles instead of errors (FW1 content-empty law; valley has
+## them all, so nothing changes here).
+static func _painting(path: String) -> Texture2D:
+	return load(path) if ResourceLoader.exists(path) else null

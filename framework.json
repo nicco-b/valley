@@ -1,0 +1,136 @@
+{
+	"format": 1,
+	"framework": "valley",
+	"born": "2026-07-09",
+	"plan": "docs/PLAN_FRAMEWORK.md (FW1 — the world spine)",
+	"note": "The framework manifest v0: the file set a scaffolded game copies (copy + provenance + offered updates, the library pattern). The rev is COMPUTED, never stored: sha256 over the sorted 'path sha256' lines of every file below, truncated to 12 hex — derivable from the filesystem on both sides (scripts/framework_dist.sh prints it). Scope is FW1's world spine (Chronicle + Almanac + Loom + Elements + the whole Watershed) PLUS the parse-time closure that set honestly drags in (GDScript resolves autoload names at compile time, so the spine's scripts pull the Toolkit, the link, the Campfire spine, items/skills/UI and the player). Marked exclusions are content: valley.tscn, the title, the hound and wildlife, the kit placeholder scenes, quest_lint (test harness, rides FW3), and all of data/ except the default biome palette the importer paints against. The autoload column and the framework sections of project.godot (display, autoload, navigation, shader_globals, input, physics) are copied from THIS repo's project.godot at scaffold time — the column IS the table of contents.",
+	"project_sections": ["display", "autoload", "navigation", "shader_globals", "input", "physics"],
+	"systems": {
+		"chronicle": [
+			"game/state/world_state.gd",
+			"game/state/conditions.gd",
+			"game/data/records.gd",
+			"game/data/cards.gd",
+			"game/world/cell_records.gd",
+			"game/save/save_manager.gd",
+			"game/dev/overrides.gd"
+		],
+		"almanac": [
+			"game/world/game_clock.gd",
+			"game/world/focus_throttle.gd"
+		],
+		"loom": [
+			"game/world/terrain.gd",
+			"game/world/world_streamer.gd",
+			"game/world/far_terrain.gd",
+			"game/world/nav.gd",
+			"game/shaders/terrain.gdshader",
+			"native/bin/valleykernel.gdext",
+			"native/bin/libvalleykernel.macos.dylib"
+		],
+		"watershed": [
+			"game/world/hydrology.gd",
+			"game/world/water_bodies.gd",
+			"game/world/water_field.gd",
+			"game/world/water_gpu.gd",
+			"game/world/water_waves.gd",
+			"game/world/wave_gpu.gd",
+			"game/world/wave_reference.gd",
+			"game/world/sea_swell.gd",
+			"game/world/water_sheet.gd",
+			"game/shaders/water.gdshader",
+			"game/shaders/water_sheet.gdshader",
+			"game/shaders/compute/water_copy.glsl",
+			"game/shaders/compute/water_depth.glsl",
+			"game/shaders/compute/water_flux.glsl",
+			"game/shaders/compute/water_probe.glsl",
+			"game/shaders/compute/wave_copy.glsl",
+			"game/shaders/compute/wave_splat.glsl",
+			"game/shaders/compute/wave_step.glsl"
+		],
+		"elements": [
+			"game/world/weather.gd",
+			"game/world/climate.gd",
+			"game/world/atmosphere.gd",
+			"game/world/day_night.gd",
+			"game/world/ambience.gd",
+			"game/world/weather_fx.gd",
+			"game/world/flora_life.gd",
+			"game/shaders/sky.gdshader",
+			"game/shaders/rain_curtain.gdshader",
+			"game/shaders/flora_sway.gdshader"
+		],
+		"grain": [
+			"game/world/sand_field.gd",
+			"game/world/sand_gpu.gd",
+			"game/world/sand_patch.gd",
+			"game/shaders/compute/sand_apply.glsl",
+			"game/shaders/compute/sand_copy.glsl",
+			"game/shaders/compute/sand_relax.glsl"
+		],
+		"traces": [
+			"game/world/interaction_field.gd"
+		],
+		"understory": [
+			"game/sim/agent_sim.gd",
+			"game/sim/path_cursor.gd",
+			"game/sim/rng.gd",
+			"game/world/firefly_field.gd",
+			"game/items/firefly.gd"
+		],
+		"threshold": [
+			"game/world/interiors.gd"
+		],
+		"campfire": [
+			"game/story/story.gd",
+			"game/story/journal_ui.gd"
+		],
+		"toolkit_link": [
+			"game/dev/toolkit.gd",
+			"game/dev/strata_link.gd",
+			"game/dev/hot_reload.gd",
+			"game/dev/preview_terrain.gd",
+			"game/dev/river_pen.gd",
+			"game/shaders/preview_terrain.gdshader"
+		],
+		"map": [
+			"game/ui/map_screen.gd",
+			"game/world/orbit_rig.gd"
+		],
+		"ui": [
+			"game/ui/hud.gd",
+			"game/ui/ui_theme.gd",
+			"game/ui/settings.gd",
+			"game/ui/pause_menu.gd"
+		],
+		"items_skills_interact": [
+			"game/items/items.gd",
+			"game/items/item_pickup.gd",
+			"game/items/forage_spot.gd",
+			"game/items/pickup.tscn",
+			"game/skills/skills.gd",
+			"game/interact/interactable.gd",
+			"game/interact/examinable.gd"
+		],
+		"kit": [
+			"game/world/kit.gd"
+		],
+		"player": [
+			"game/player/player.gd",
+			"game/player/player.tscn",
+			"game/player/fireflies.gd",
+			"game/player/character_paint.gd",
+			"game/player/fabric_spring.gd",
+			"game/shaders/character_paint.gdshader",
+			"game/shaders/fabric_wind.gdshader",
+			"assets/models/creatures/biped_fox.glb"
+		],
+		"strata_seam": [
+			"tools/strata/import_and_bake.sh",
+			"tools/strata/import_world.gd"
+		],
+		"defaults": [
+			"data/world/biomes.json"
+		]
+	}
+}

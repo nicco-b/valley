@@ -1,0 +1,7 @@
+{
+	"comment": "Climate's geography: the reference point (the home valley's thermometer/wetness cell) and the wetness field's grid frame over the world. Valley's own values, moved out of game/world/climate.gd's REFERENCE + grid consts per FW4. A content-empty game falls back to climate.gd's built-in origin-centered frame.",
+	"reference": [0.0, 0.0],
+	"grid_n": 8,
+	"grid_origin": -8192.0,
+	"grid_cell": 2048.0
+}

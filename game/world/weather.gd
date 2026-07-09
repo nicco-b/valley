@@ -19,7 +19,11 @@ extends Node
 #   storm     the full system: rain, wind, menace, hours wide
 # menace is what the old 'storminess' meant: shelter-seeking, sun
 # dimming, dread. wind/rain/cloud/dust each drive their own systems.
-const KINDS := {
+# The taxonomy + spawn chain are MOOD, not mechanism (FW4): a game's
+# `data/climate/weather.json` ("kinds"/"transitions") ships its own;
+# these consts are the framework's fallback for a content-empty boot
+# (this desert default), replaced by _load_climate_records() below.
+const KINDS_DEFAULT := {
 	"calm": {"wind": 0.12, "rain": 0.0, "cloud": 0.08, "dust": 0.05,
 		"menace": 0.0, "speed": 2.2, "width": [7000.0, 16000.0]},
 	"overcast": {"wind": 0.22, "rain": 0.0, "cloud": 0.75, "dust": 0.0,
@@ -36,7 +40,7 @@ const KINDS := {
 		"menace": 1.0, "speed": 4.0, "width": [2600.0, 6500.0]},
 }
 # kind -> [[next kind, probability], ...] — the spawn chain windward.
-const TRANSITIONS := {
+const TRANSITIONS_DEFAULT := {
 	"calm": [["calm", 0.5], ["overcast", 0.16], ["windy", 0.16],
 		["gale", 0.08], ["drizzle", 0.05], ["squall", 0.02], ["storm", 0.03]],
 	"overcast": [["overcast", 0.28], ["calm", 0.22], ["drizzle", 0.24],
@@ -52,6 +56,8 @@ const TRANSITIONS := {
 	"storm": [["overcast", 0.36], ["drizzle", 0.24], ["storm", 0.2],
 		["calm", 0.2]],
 }
+var KINDS: Dictionary = KINDS_DEFAULT
+var TRANSITIONS: Dictionary = TRANSITIONS_DEFAULT
 const EASE := 0.12  # per-second approach rate toward targets
 # Wet-weather likelihood scales with the real season; the gale is the
 # dry season's own violence.
@@ -134,9 +140,26 @@ func summary() -> String:
 
 
 func _ready() -> void:
+	_load_climate_records()
 	add_to_group("world_state_reader")  # SaveGame re-calls load_state post-restore
 	load_state()
 	GameClock.hour_tick.connect(_transition)
+
+
+## The mood: a game's own kinds/transitions from data/climate/weather.json,
+## if it ships one — else the desert defaults above stand (content-empty
+## boot law, FW1). Bad/malformed records are dropped with a Records error;
+## the defaults still stand rather than half-loading.
+func _load_climate_records() -> void:
+	const PATH := "res://data/climate/weather.json"
+	if not FileAccess.file_exists(PATH):
+		return
+	var cfg: Variant = Records.load_json(PATH)
+	if cfg is Dictionary and Records.validate(cfg, {
+		"kinds": TYPE_DICTIONARY, "transitions": TYPE_DICTIONARY,
+	}, PATH):
+		KINDS = cfg["kinds"]
+		TRANSITIONS = cfg["transitions"]
 
 
 func load_state() -> void:

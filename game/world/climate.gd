@@ -35,12 +35,22 @@ const SNOW_MELT_BASE := 0.004
 const SNOW_MELT_WARM := 0.01  # extra melt per degree above freezing
 const MELTWATER := 0.4  # melted snow soaks the ground (spring mud, for free)
 const EASE := 0.4  # per-second visual approach for the shader params
-const REFERENCE := Vector2(0.0, 0.0)  # world center / spawn: the climate thermometer
 
-# The wetness field frame (matches the guide/biome-map framing).
-const GRID_N := 8
-const GRID_ORIGIN := -8192.0
-const GRID_CELL := 2048.0
+# REFERENCE + the wetness field frame are the valley's GEOGRAPHY, not
+# mechanism (FW4): a game's `data/climate/climate.json` ships its own
+# ("reference", "grid_n", "grid_origin", "grid_cell"); these consts are
+# the framework's fallback for a content-empty boot (origin-centered,
+# matches the guide/biome-map framing). _load_climate_records() (called
+# from _ready(), before wet_grid is (re)sized) overrides the vars below.
+const REFERENCE_DEFAULT := Vector2(0.0, 0.0)  # world center / spawn: the climate thermometer
+const GRID_N_DEFAULT := 8
+const GRID_ORIGIN_DEFAULT := -8192.0
+const GRID_CELL_DEFAULT := 2048.0
+
+var REFERENCE: Vector2 = REFERENCE_DEFAULT  # world center / spawn: the climate thermometer
+var GRID_N: int = GRID_N_DEFAULT
+var GRID_ORIGIN: float = GRID_ORIGIN_DEFAULT
+var GRID_CELL: float = GRID_CELL_DEFAULT
 
 var wet_grid := _fresh_grid()  # row-major GRID_N x GRID_N, 0 dust-dry .. 1 soaked
 var snow := 0.0  # 0..1 cover above the snowline (global, valley-anchored)
@@ -64,14 +74,38 @@ var _cell_grad := PackedFloat32Array()
 var _cell_h := PackedFloat32Array()
 
 
-static func _fresh_grid() -> PackedFloat32Array:
+func _fresh_grid() -> PackedFloat32Array:
 	var g := PackedFloat32Array()
 	g.resize(GRID_N * GRID_N)
 	g.fill(0.25)
 	return g
 
 
+## The geography: REFERENCE + grid frame from data/climate/climate.json,
+## if a game ships one — else the origin-centered defaults above stand
+## (content-empty boot law, FW1). Each field is independently overridable;
+## missing/malformed fields just leave that default in place.
+func _load_climate_records() -> void:
+	const PATH := "res://data/climate/climate.json"
+	if not FileAccess.file_exists(PATH):
+		return
+	var cfg: Variant = Records.load_json(PATH)
+	if not (cfg is Dictionary):
+		return
+	if cfg.get("reference") is Array and (cfg["reference"] as Array).size() == 2:
+		REFERENCE = Vector2(float(cfg["reference"][0]), float(cfg["reference"][1]))
+	if typeof(cfg.get("grid_n")) in [TYPE_INT, TYPE_FLOAT]:
+		GRID_N = int(cfg["grid_n"])
+	if typeof(cfg.get("grid_origin")) in [TYPE_INT, TYPE_FLOAT]:
+		GRID_ORIGIN = float(cfg["grid_origin"])
+	if typeof(cfg.get("grid_cell")) in [TYPE_INT, TYPE_FLOAT]:
+		GRID_CELL = float(cfg["grid_cell"])
+
+
 func _ready() -> void:
+	_load_climate_records()
+	if wet_grid.size() != GRID_N * GRID_N:
+		wet_grid = _fresh_grid()  # the record moved the frame; re-size before load_state
 	add_to_group("world_state_reader")  # SaveGame re-calls load_state post-restore
 	load_state()
 	GameClock.hour_tick.connect(_hourly)

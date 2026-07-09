@@ -1639,6 +1639,29 @@ func regions_summary() -> String:
 	return "\n".join(lines)
 
 
+## The stable id of the PLACE a world point stands on — the tile whose
+## rect contains it, else the nearest region within its reach, else "".
+## The world panel's HERE section resolves this through the gazetteer to
+## show a name beside the substrate; a place with no name still answers its
+## id. Read-only, cheap (a handful of landforms), works in every posture.
+func place_at(x: float, z: float) -> String:
+	for t in _tiles:
+		if x >= t.x0 and x < t.x0 + t.size and z >= t.z0 and z < t.z0 + t.size:
+			return String(t.id)
+	var best_id := ""
+	var best_d := INF
+	for r in regions:
+		if r.kind == "ridge":
+			continue  # ridges are lines, not areas — no "you are in" answer
+		var c: Vector2 = r.center
+		var reach := float(r.get("radius", 0.0))
+		var d := Vector2(x, z).distance_to(c)
+		if reach > 0.0 and d <= reach and d < best_d:
+			best_d = d
+			best_id = String(r.id)
+	return best_id
+
+
 func _segment_distance(p: Vector2, a: Vector2, b: Vector2) -> float:
 	var ab := b - a
 	var t := clampf((p - a).dot(ab) / ab.length_squared(), 0.0, 1.0)

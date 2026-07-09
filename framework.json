@@ -10,6 +10,7 @@
 			"game/state/world_state.gd",
 			"game/state/conditions.gd",
 			"game/data/records.gd",
+			"game/world/names.gd",
 			"game/data/cards.gd",
 			"game/world/cell_records.gd",
 			"game/world/interior_records.gd",

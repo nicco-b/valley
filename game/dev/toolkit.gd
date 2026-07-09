@@ -308,8 +308,15 @@ func _here_summary() -> String:
 	var vit: float = FloraLife.vitality_at(p.x, p.z)
 	var snow_gap: float = Climate.snow_line() - h
 	var lines := PackedStringArray()
-	lines.append("(%.0f, %.0f)  h=%.0fm  biome=%s  cell %d,%d" % [
-		p.x, p.z, h, biome, cell.x, cell.y])
+	# The place you stand on, named where the gazetteer knows it (names
+	# beside ids — the naming desk's HERE surface). A bare id, or nothing
+	# when the point is over open ground, is the honest floor.
+	var place_id := Terrain.place_at(p.x, p.z)
+	var place := "" if place_id.is_empty() \
+		else ("  in %s" % ("%s «%s»" % [place_id, Names.resolve(place_id)] \
+			if Names.has_name(place_id) else place_id))
+	lines.append("(%.0f, %.0f)  h=%.0fm  biome=%s  cell %d,%d%s" % [
+		p.x, p.z, h, biome, cell.x, cell.y, place])
 	lines.append("t=%.1f  hum=%.2f  wet=%.2f  moist=%.2f  rain=%.2f" % [
 		Climate.temperature(p.x, p.z), Climate.humidity(p.x, p.z),
 		Climate.wetness_at(p.x, p.z), Climate.moisture(p.x, p.z),

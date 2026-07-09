@@ -1,0 +1,12 @@
+[
+	{
+		"id": "hyd_l1",
+		"kind": "lake",
+		"name": "The Aquifer Pool"
+	},
+	{
+		"id": "hyd_r1",
+		"kind": "river",
+		"name": "The Long Water"
+	}
+]

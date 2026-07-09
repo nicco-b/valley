@@ -5,18 +5,33 @@ extends Node
 @onready var sun: DirectionalLight3D = $"../Sun"
 @onready var world_environment: WorldEnvironment = $"../WorldEnvironment"
 
-# Keyframes: [hour, sky top, sky horizon, sun light color]
-# Palette sampled from the style-reference painting (dawn/dusk pinks, red sun).
-const KEYS := [
-	[0.0, Color(0.08, 0.1, 0.17), Color(0.2, 0.17, 0.25), Color(1.0, 0.5, 0.4)],
-	[5.0, Color(0.08, 0.1, 0.17), Color(0.2, 0.17, 0.25), Color(1.0, 0.5, 0.4)],
-	[6.5, Color(0.976, 0.812, 0.827), Color(0.988, 0.933, 0.894), Color(1.0, 0.62, 0.5)],
-	[9.0, Color(0.70, 0.80, 0.88), Color(0.89, 0.85, 0.78), Color(1.0, 0.878, 0.796)],
-	[17.0, Color(0.70, 0.80, 0.88), Color(0.89, 0.85, 0.78), Color(1.0, 0.878, 0.796)],
-	[19.5, Color(0.93, 0.62, 0.66), Color(1.0, 0.82, 0.72), Color(1.0, 0.45, 0.35)],
-	[21.5, Color(0.08, 0.1, 0.17), Color(0.2, 0.17, 0.25), Color(1.0, 0.5, 0.4)],
-	[24.0, Color(0.08, 0.1, 0.17), Color(0.2, 0.17, 0.25), Color(1.0, 0.5, 0.4)],
+const PALETTE_PATH := "res://data/sky/day_night.json"
+
+# Keyframes: [hour, sky top, sky horizon, sun light color]. The real palette
+# (painting-sampled, dawn/dusk pinks, red sun) is valley content at
+# PALETTE_PATH (FW4); this is the neutral fallback a content-empty game
+# boots with when that record is absent — flat grey, no art baked in here.
+const DEFAULT_KEYS := [
+	[0.0, Color(0.05, 0.05, 0.07), Color(0.1, 0.1, 0.12), Color(1.0, 1.0, 1.0)],
+	[24.0, Color(0.05, 0.05, 0.07), Color(0.1, 0.1, 0.12), Color(1.0, 1.0, 1.0)],
 ]
+
+var keys: Array = DEFAULT_KEYS
+
+
+func _ready() -> void:
+	if FileAccess.file_exists(PALETTE_PATH):
+		var rec: Variant = JSON.parse_string(FileAccess.get_file_as_string(PALETTE_PATH))
+		if rec is Dictionary and rec.get("keys") is Array and rec["keys"].size() >= 2:
+			var parsed: Array = []
+			for k: Array in rec["keys"]:
+				parsed.append([
+					float(k[0]),
+					Color(k[1][0], k[1][1], k[1][2]),
+					Color(k[2][0], k[2][1], k[2][2]),
+					Color(k[3][0], k[3][1], k[3][2]),
+				])
+			keys = parsed
 
 
 func _process(_delta: float) -> void:
@@ -31,12 +46,12 @@ func _process(_delta: float) -> void:
 			* (1.0 - 0.4 * Weather.storminess - 0.3 * Weather.cloud)
 
 	# Sky palette: lerp between bracketing keyframes.
-	var a: Array = KEYS[0]
-	var b: Array = KEYS[KEYS.size() - 1]
-	for i in KEYS.size() - 1:
-		if h >= KEYS[i][0] and h <= KEYS[i + 1][0]:
-			a = KEYS[i]
-			b = KEYS[i + 1]
+	var a: Array = keys[0]
+	var b: Array = keys[keys.size() - 1]
+	for i in keys.size() - 1:
+		if h >= keys[i][0] and h <= keys[i + 1][0]:
+			a = keys[i]
+			b = keys[i + 1]
 			break
 	var t: float = 0.0 if b[0] == a[0] else (h - a[0]) / (b[0] - a[0])
 

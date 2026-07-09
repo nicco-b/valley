@@ -260,7 +260,8 @@ const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "reload_world"
 	"preview_world", "preview_mesh", "preview_shared", "render_device",
 	"camera", "view", "view_layer", "probe",
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
-	"records", "budget", "undo", "redo", "prefab"]
+	"records", "budget", "undo", "redo", "prefab",
+	"save_anchor", "restore_anchor", "anchors", "journal", "scrub"]
 
 ## Thumbnail render target size (square). The pane renders this offscreen;
 ## Strata caches the PNG by card sha and downsamples in its grid.
@@ -545,6 +546,36 @@ func _execute(line: String) -> String:
 			# selection's cluster as one (placing rides `toolkit place
 			# prefab/<name>` then LMB, like any Kit slot).
 			return _prefab(parts)
+		"save_anchor":
+			# The playtest desk (gap #2): snapshot the live world into a
+			# named save-v2 slot (session state in the game's save dir, not
+			# content). Everything after the verb is the slot name.
+			if parts.size() < 2:
+				return "err save_anchor needs a name"
+			return _save_anchor(line.substr(len("save_anchor")).strip_edges())
+		"restore_anchor":
+			# Load a named anchor EXACTLY (no wall-clock replay). Monotone:
+			# reloads an earlier world, never un-latches a quest.
+			if parts.size() < 2:
+				return "err restore_anchor needs a name"
+			return _restore_anchor(line.substr(len("restore_anchor")).strip_edges())
+		"anchors":
+			# List the anchor slots with their stamped moment (day + hours),
+			# tab-separated, sorted by absolute game-time — the scrubber's rail.
+			return _anchors()
+		"journal":
+			# The Campfire's data over the link (gap #2b): quest latches +
+			# frontier as Strata-renderable text. Story is the truth source;
+			# journal_ui renders the SAME truth in-game.
+			return _journal()
+		"scrub":
+			# The scrub convenience (gap #2c): travel to an absolute game-hour.
+			# Forward = advance from live; back = RESTORE nearest anchor at/
+			# before the target, THEN advance forward — honest by construction
+			# (the reply names the anchor it restored from). Never un-latches.
+			if parts.size() < 2 or not parts[1].is_valid_float():
+				return "err scrub needs <abs-hours>"
+			return _scrub(float(parts[1]))
 		_:
 			return "err unknown verb '%s'" % parts[0]
 
@@ -855,6 +886,152 @@ func _time(arg: String) -> String:
 		return "err time needs +<h> or <0..24>"
 	GameClock.advance_hours(delta)
 	return "ok %.2fh day=%d" % [GameClock.hours, GameClock.day]
+
+
+# --- the playtest desk (gap #2): anchors, journal, scrub -------------------
+
+## Current absolute game-time in hours (day*24 + hours) — the axis anchors,
+## the journal, and scrub all speak.
+func _abs_hours() -> float:
+	return float(GameClock.day) * 24.0 + GameClock.hours
+
+
+func _save_anchor(name: String) -> String:
+	var r := SaveGame.save_anchor(name)
+	if not bool(r.get("ok", false)):
+		return "err %s" % r.get("error", "save_anchor failed")
+	return "ok anchor %s day=%d %.2fh" % [r.name, int(r.day), float(r.hours)]
+
+
+func _restore_anchor(name: String) -> String:
+	var r := SaveGame.restore_anchor(name)
+	if not bool(r.get("ok", false)):
+		return "err %s" % r.get("error", "restore_anchor failed")
+	return "ok restored %s day=%d %.2fh" % [r.name, int(r.day), float(r.hours)]
+
+
+## The anchor rail: one tab-separated token per slot, sorted by absolute
+## time. A slot token is `<name>/<day>/<hours>` (the slug can hold no '/',
+## so it splits cleanly Strata-side). The header tokens carry the count and
+## the live moment (`now=<day>/<hours>`) so the scrubber knows where "now"
+## sits without a second round trip.
+func _anchors() -> String:
+	var infos := SaveGame.anchors_info()
+	var toks := PackedStringArray()
+	toks.append("count=%d" % infos.size())
+	toks.append("now=%d/%.2f" % [GameClock.day, GameClock.hours])
+	for info: Dictionary in infos:
+		toks.append("%s/%d/%.2f" % [info.name, int(info.day), float(info.hours)])
+	return "ok anchors " + "\t".join(toks)
+
+
+## The journal over the link: Story's latches + frontier as text lines,
+## flattened onto ONE reply (rows joined by tab, Strata splits them back).
+## Prose control-chars collapse to spaces so a tab in authored prose can't
+## forge a row boundary. Reads Story only — the same truth journal_ui renders.
+func _journal() -> String:
+	var rows := PackedStringArray()
+	var active := 0
+	var remembered: Array[Dictionary] = []
+	for qid: String in Story.quests:
+		var q: Dictionary = Story.quests[qid]
+		if not Story.started(qid):
+			continue
+		if Story.resolved(qid):
+			remembered.append(q)
+			continue
+		active += 1
+		rows.append("# %s" % _clean(String(q.title)))
+		for line in _journal_entries(q):
+			rows.append(line)
+		for sid: String in Story.frontier(qid):
+			for obj: Dictionary in _stage(q, sid).get("objectives", []):
+				if not Story.objective_done(qid, sid, obj.id):
+					rows.append("  ○ %s" % _clean(String(obj.get("text", ""))))
+		rows.append("")
+	if not remembered.is_empty():
+		rows.append("~ Remembered")
+		for q: Dictionary in remembered:
+			rows.append("# %s" % _clean(String(q.title)))
+			for line in _journal_entries(q):
+				rows.append(line)
+			rows.append("")
+	var head := "ok journal active=%d remembered=%d" % [active, remembered.size()]
+	if rows.is_empty():
+		return head
+	return head + "\t" + "\t".join(rows)
+
+
+## A quest's memoir entries (freshest cycle), day-then-stage order, each from
+## the prose sealed at latch time — mirrors journal_ui._entries.
+func _journal_entries(q: Dictionary) -> Array[String]:
+	var latched: Array[Dictionary] = []
+	var order := 0
+	for stage: Dictionary in q.stages:
+		order += 1
+		if not Story.reached(q.id, stage.id):
+			continue
+		var latch: Variant = WorldState.get_value(Story._latch_prefix(q) + String(stage.id))
+		if latch is Dictionary:
+			latched.append({"day": int((latch as Dictionary).get("day", 0)),
+				"order": order, "latch": latch})
+	latched.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return a.day < b.day if a.day != b.day else a.order < b.order)
+	var out: Array[String] = []
+	for row: Dictionary in latched:
+		var latch: Dictionary = row.latch
+		var prose := _clean(String(latch.get("prose", "")))
+		if prose.is_empty():
+			continue
+		out.append("Day %d, %s" % [int(latch.get("day", 0)), latch.get("season", "")])
+		out.append(prose)
+	return out
+
+
+## Flatten a payload string for the tab-joined reply: tabs and newlines (the
+## row/line separators) become spaces so authored prose can't forge structure.
+func _clean(s: String) -> String:
+	return s.replace("\t", " ").replace("\n", " ").replace("\r", " ")
+
+
+func _stage(q: Dictionary, stage_id: String) -> Dictionary:
+	for stage: Dictionary in q.stages:
+		if stage.id == stage_id:
+			return stage
+	return {}
+
+
+## Scrub to an absolute game-hour. FORWARD (target ≥ now) simply advances the
+## live sim — the honest thing (the world can only live time). BACKWARD picks
+## the nearest anchor at/before the target, restores it, then advances forward
+## to the target: latches stay monotone (an earlier world reloaded, replayed
+## up), and the reply NAMES the anchor it restored from so nothing is hidden.
+func _scrub(target_abs: float) -> String:
+	var cur := _abs_hours()
+	if target_abs >= cur - 0.001:
+		var fwd := target_abs - cur
+		if fwd > 0.0:
+			GameClock.advance_hours(fwd)
+		return "ok scrub from=live to=day%d/%.2fh advanced=%.2fh" % [
+			GameClock.day, GameClock.hours, fwd]
+	# Backward: find the nearest anchor at/before the target.
+	var infos := SaveGame.anchors_info()
+	var best: Dictionary = {}
+	for info: Dictionary in infos:
+		if float(info.abs) <= target_abs + 0.001:
+			if best.is_empty() or float(info.abs) > float(best.abs):
+				best = info
+	if best.is_empty():
+		return "err scrub no anchor at/before day%d/%.2fh — save_anchor first" % [
+			int(target_abs / 24.0), fmod(target_abs, 24.0)]
+	var r := SaveGame.restore_anchor(String(best.name))
+	if not bool(r.get("ok", false)):
+		return "err %s" % r.get("error", "restore failed during scrub")
+	var advanced := target_abs - float(best.abs)
+	if advanced > 0.0:
+		GameClock.advance_hours(advanced)
+	return "ok scrub from=%s to=day%d/%.2fh restored=%s@day%d advanced=%.2fh" % [
+		best.name, GameClock.day, GameClock.hours, best.name, int(best.day), advanced]
 
 
 ## The P8 viewer: swap the live world tile + sea level from a Strata

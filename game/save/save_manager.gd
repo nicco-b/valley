@@ -10,6 +10,14 @@ extends Node
 ## position; restore routes through Interiors, falling back to the door.
 
 const PATH := "user://save.json"
+## Named playtest snapshots (the playtest desk, CREATION_KIT_REVIEW_V2 gap #2).
+## Anchors are save-v2 snapshots parked in named slots — SESSION STATE, not
+## content, so they live in the game's save dir beside save.json, never in
+## data/. Restoring one loads that exact frozen moment (NO wall-clock replay:
+## an anchor is a moment, not a resume); "scrub back" composes restore + a
+## forward advance_hours, so quest latches stay monotone (§ Story) — a restore
+## never un-latches, it reloads an earlier world and replays forward.
+const ANCHORS_DIR := "user://anchors"
 const AUTOSAVE_SECONDS := 30.0
 # Keep two generations behind the live file, refreshed at most every
 # BACKUP_MINUTES so the 30s autosave can't churn both backups into
@@ -37,10 +45,13 @@ func _notification(what: int) -> void:
 		save_game()
 
 
-func save_game() -> void:
+## Build the save-v2 snapshot dictionary — the ONE serialize door (save_game
+## and save_anchor both ride it, so an anchor is byte-shaped exactly like the
+## live save). Returns {} when there is no player to anchor to (title screen).
+func snapshot_data() -> Dictionary:
 	var player := get_tree().get_first_node_in_group("player")
 	if player == null:
-		return
+		return {}
 	# Save v2 (the Threshold, PLAN_INTERIORS §3): the player payload may
 	# carry an interior id + pocket-local position. Outside, it is v1's
 	# {x, z} exactly; inside, {x, z} anchor at the DOOR so any reader of
@@ -48,7 +59,7 @@ func save_game() -> void:
 	var pdata: Dictionary = {"x": player.global_position.x, "z": player.global_position.z}
 	if Interiors.inside:
 		pdata = Interiors.save_player(player)
-	var data := {
+	return {
 		"version": 2,
 		"hours": GameClock.hours,
 		"day": GameClock.day,
@@ -59,6 +70,12 @@ func save_game() -> void:
 		"wear": InteractionField.wear_snapshot(),  # desire paths, world-anchored
 		"cells": {},  # future: per-cell world-state mutations
 	}
+
+
+func save_game() -> void:
+	var data := snapshot_data()
+	if data.is_empty():
+		return
 	# Atomic write: never truncate the only copy of months of world
 	# time. Write beside, fsync, then rename over — a crash mid-write
 	# leaves the previous save intact.
@@ -109,6 +126,21 @@ func load_into_world() -> void:
 	if data == null:
 		_spawn_fresh()
 		return
+	# Live load replays the wall-clock gap (the valley kept living while the
+	# app was closed); an anchor restore does NOT (see apply_snapshot).
+	apply_snapshot(data, true)
+
+
+## Apply a save-v2 snapshot to the live world — the ONE deserialize door
+## (load_into_world and restore_anchor both ride it). `replay_away` decides
+## whether the wall-clock gap since the snapshot is lived forward: TRUE for a
+## real load (the world ran 1:1 while away), FALSE for a playtest anchor (a
+## frozen moment, restored exactly — the forward motion is the caller's own
+## advance/scrub). No advance_hours fires when replay_away is false, so a
+## restore never arms the determinism trap or un-latches a quest: it reloads
+## an earlier WorldState wholesale, and Story re-settles forward from there.
+## Returns true when a player was in the world to receive it.
+func apply_snapshot(data: Dictionary, replay_away: bool) -> bool:
 	GameClock.hours = data.hours
 	GameClock.day = int(data.get("day", 0))
 	WorldState.restore(data.get("state", {}))
@@ -119,7 +151,7 @@ func load_into_world() -> void:
 	InteractionField.wear_restore(data.get("wear", {}))
 	# The world ran 1:1 while the app was closed — live the missed hours.
 	var away_hours := 0.0
-	if data.has("wall_time"):
+	if replay_away and data.has("wall_time"):
 		var elapsed: float = Time.get_unix_time_from_system() - float(data.wall_time)
 		away_hours = maxf(0.0, elapsed / 3600.0)
 	if away_hours > 0.01:
@@ -127,7 +159,7 @@ func load_into_world() -> void:
 	# One-time migration: saves from before the civil anchor carry an
 	# arbitrary clock offset — re-anchor to real local time (the sim above
 	# already lived the away hours; this only moves the dial).
-	if not data.get("civil", false):
+	if replay_away and not data.get("civil", false):
 		GameClock.hours = GameClock.civil_now()
 	var player := get_tree().get_first_node_in_group("player")
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
@@ -150,11 +182,14 @@ func load_into_world() -> void:
 					float(pd.get("iz", 0.0))), player)
 			if not seated:
 				HUD.notify("the %s is gone — you wake at its door" % String(pd.interior))
+	if not replay_away:
+		return player != null
 	print("[save] loaded (%.1f hours passed while away)" % away_hours)
 	if away_hours >= 1.0:
 		HUD.notify("day %d — the valley kept its own time while you were away" % GameClock.day)
 	else:
 		HUD.notify("journey resumed — day %d" % GameClock.day)
+	return player != null
 
 
 ## A fresh journey (no save on disk yet): begin at the world's recorded
@@ -180,3 +215,100 @@ func _spawn_fresh() -> void:
 	if streamer:
 		streamer._update_cells(true)
 	print("[save] new journey — landed at (%.0f, %.0f)" % [p.x, p.y])
+
+
+# --- playtest anchors (the desk's named save slots) ------------------------
+
+## Sanitise a slot name to a filesystem-safe token: lowercase, [a-z0-9_-],
+## other runs collapse to '-'. Empty (or all-punctuation) names are refused
+## upstream — an anchor's name is its identity in the Strata list.
+static func _slug(raw: String) -> String:
+	var out := ""
+	for c in raw.strip_edges().to_lower():
+		if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") or c == "_":
+			out += c
+		elif out.length() > 0 and not out.ends_with("-"):
+			out += "-"
+	return out.trim_suffix("-")
+
+
+func _anchor_path(name: String) -> String:
+	return ANCHORS_DIR.path_join(name + ".json")
+
+
+## Save the live world to a named anchor slot. Returns {ok, name, day, hours}
+## or {ok=false, error}. Same atomic write as save_game — the slot is never
+## a half-written file.
+func save_anchor(raw_name: String) -> Dictionary:
+	var name := _slug(raw_name)
+	if name.is_empty():
+		return {"ok": false, "error": "anchor name is empty after sanitising"}
+	var data := snapshot_data()
+	if data.is_empty():
+		return {"ok": false, "error": "no player in the world to anchor"}
+	DirAccess.make_dir_recursive_absolute(ANCHORS_DIR)
+	var path := _anchor_path(name)
+	var tmp := path + ".tmp"
+	var file := FileAccess.open(tmp, FileAccess.WRITE)
+	if file == null:
+		return {"ok": false, "error": "cannot open %s" % tmp}
+	file.store_string(JSON.stringify(data, "\t"))
+	file.flush()
+	file.close()
+	var err := DirAccess.rename_absolute(tmp, path)
+	if err != OK:
+		return {"ok": false, "error": "atomic rename failed (%d)" % err}
+	return {"ok": true, "name": name, "day": int(data.day), "hours": float(data.hours)}
+
+
+## Read one anchor slot's snapshot dict, or {} when missing/corrupt.
+func _read_anchor(name: String) -> Dictionary:
+	var path := _anchor_path(name)
+	if not FileAccess.file_exists(path):
+		return {}
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if parsed is Dictionary and int((parsed as Dictionary).get("version", 0)) in [1, 2]:
+		return parsed
+	return {}
+
+
+## Restore a named anchor into the live world — the frozen moment exactly,
+## no wall-clock replay (replay_away=false). Monotone by construction: the
+## restore reloads an earlier WorldState and Story re-settles forward; it
+## cannot un-happen a latch, only reload a world where it hadn't happened yet.
+func restore_anchor(raw_name: String) -> Dictionary:
+	var name := _slug(raw_name)
+	var data := _read_anchor(name)
+	if data.is_empty():
+		return {"ok": false, "error": "no anchor '%s'" % name}
+	if get_tree().get_first_node_in_group("player") == null:
+		return {"ok": false, "error": "no player in the world to restore into"}
+	apply_snapshot(data, false)
+	HUD.notify("restored anchor '%s' — day %d, %s" % [name, GameClock.day,
+		GameClock.clock_text()])
+	return {"ok": true, "name": name, "day": int(data.get("day", 0)),
+		"hours": float(data.get("hours", 0.0))}
+
+
+## Every anchor slot with its stamped moment, sorted by absolute game-time
+## (day*24 + hours) — the order the Strata scrubber walks. Corrupt/foreign
+## files are skipped silently (the list is a convenience, not a contract).
+func anchors_info() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var dir := DirAccess.open(ANCHORS_DIR)
+	if dir == null:
+		return out
+	for fname in dir.get_files():
+		if not fname.ends_with(".json"):
+			continue
+		var name := fname.trim_suffix(".json")
+		var data := _read_anchor(name)
+		if data.is_empty():
+			continue
+		var day := int(data.get("day", 0))
+		var hours := float(data.get("hours", 0.0))
+		out.append({"name": name, "day": day, "hours": hours,
+			"abs": float(day) * 24.0 + hours})
+	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.abs) < float(b.abs))
+	return out

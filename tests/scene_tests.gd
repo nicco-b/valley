@@ -55,6 +55,7 @@ func _ready() -> void:
 	_test_pause_esc_routing()
 	_test_embedded_pane_posture()
 	_test_story_dry_spell_real()
+	_test_playtest_anchors()
 	await _test_strata_link()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
@@ -3888,6 +3889,118 @@ func _test_story_dry_spell_real() -> void:
 	_check("The valley is parched" in page, "entry one reads in the journal")
 	_check("It rained" in page, "entry two reads in the journal")
 	_check("Remembered" in page, "a resolved errand rests under Remembered")
+
+
+## The playtest desk (CREATION_KIT_REVIEW_V2 gap #2): named save-v2 anchors,
+## the journal verb, and scrub's honest semantics — restore is EXACT (no
+## wall-clock replay), scrub-forward advances the live sim, scrub-back
+## RESTORES the nearest anchor at/before the target then advances forward
+## (never un-latching in place), and the reply names the anchor it used.
+## Driven through the REAL SaveGame + StrataLink._execute, headless.
+func _test_playtest_anchors() -> void:
+	# Guards: the live clock, the whole WorldState, and any pre-existing
+	# anchor slots — this test leaves no trace.
+	var clock_day := GameClock.day
+	var clock_hours := GameClock.hours
+	var ws_guard := WorldState.snapshot()
+	var pre_anchors: Dictionary = {}
+	var adir := DirAccess.open(SaveGame.ANCHORS_DIR)
+	if adir != null:
+		for f in adir.get_files():
+			pre_anchors[f] = true
+	# A disposable player (the threshold test's shape): snapshot_data needs
+	# one in the world to anchor to.
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	player.global_position = Vector3(512.0, 0.0, -512.0)
+
+	# --- round trip: an anchor restores the EXACT frozen moment ---
+	GameClock.day = 3
+	GameClock.hours = 8.0
+	WorldState.set_value("test.anchor.mark", "A")
+	WorldState.set_value("journal.test_anchor.open", {"day": 3, "prose": "sealed"})
+	var saved := SaveGame.save_anchor("Moment A!")
+	_check(bool(saved.get("ok", false)), "save_anchor lands (%s)" % saved)
+	_check(String(saved.get("name", "")) == "moment-a",
+		"the slot name is sanitised (got '%s')" % saved.get("name", ""))
+	_check(int(saved.get("day", -1)) == 3, "the anchor stamps its day")
+	# The slot is a real file in the game's save dir (session state, not data/).
+	_check(FileAccess.file_exists(SaveGame.ANCHORS_DIR.path_join("moment-a.json")),
+		"the anchor is a file in the save dir")
+
+	# Move on: change the mark, latch another journal key, walk the clock.
+	WorldState.set_value("test.anchor.mark", "B")
+	WorldState.set_value("journal.test_anchor.rains", {"day": 5, "prose": "later"})
+	GameClock.day = 5
+	GameClock.hours = 20.0
+
+	var restored := SaveGame.restore_anchor("moment-a")
+	_check(bool(restored.get("ok", false)), "restore_anchor lands (%s)" % restored)
+	_check(GameClock.day == 3 and absf(GameClock.hours - 8.0) < 0.01,
+		"restore returns the exact clock (day %d, %.2fh)" % [GameClock.day, GameClock.hours])
+	_check(WorldState.get_value("test.anchor.mark") == "A",
+		"restore reloads the earlier WorldState wholesale (mark back to A)")
+	_check(not (WorldState.get_value("journal.test_anchor.rains") is Dictionary),
+		"the later latch is gone — restore reloaded a world where it hadn't happened")
+	_check(WorldState.get_value("journal.test_anchor.open") is Dictionary,
+		"the anchor's own latch survives the round trip")
+
+	# --- scrub forward: advances the LIVE sim, restores nothing ---
+	var here := float(GameClock.day) * 24.0 + GameClock.hours  # day3/8h = 80h
+	var fwd := StrataLink._execute("scrub %.2f" % (here + 12.0))  # -> day3/20h
+	_check(fwd.begins_with("ok scrub from=live"),
+		"scrub forward rides the live sim, no restore (got %s)" % fwd)
+	_check(absf((float(GameClock.day) * 24.0 + GameClock.hours) - (here + 12.0)) < 0.05,
+		"scrub forward lands on the target hour")
+
+	# --- scrub back: RESTORES the nearest anchor at/before target, names it ---
+	# We are at day3/20h; the anchor sits at day3/8h. Target day3/9h is BEFORE
+	# now, so scrub must restore moment-a then advance one hour forward.
+	var back := StrataLink._execute("scrub %.2f" % (72.0 + 9.0))  # day3/9h = 81h
+	_check(back.begins_with("ok scrub"), "scrub back answers ok (got %s)" % back)
+	_check("restored=moment-a" in back,
+		"scrub back NAMES the anchor it restored from (honesty — got %s)" % back)
+	_check(GameClock.day == 3 and absf(GameClock.hours - 9.0) < 0.05,
+		"scrub back = restore@8h + advance 1h -> day3/9h (got day%d/%.2fh)"
+			% [GameClock.day, GameClock.hours])
+	_check(WorldState.get_value("test.anchor.mark") == "A",
+		"scrub back reloaded the anchor's world (mark is A again)")
+
+	# --- scrub back with no anchor before the target errs honestly ---
+	var none := StrataLink._execute("scrub -50")
+	_check(none.begins_with("err scrub no anchor"),
+		"scrub before the earliest anchor errs honestly (got %s)" % none)
+
+	# --- the anchors rail + journal verb answer as data ---
+	var rail := StrataLink._execute("anchors")
+	_check(rail.begins_with("ok anchors count=") and "moment-a" in rail,
+		"anchors lists the slot with its moment (got %s)" % rail)
+	var jr := StrataLink._execute("journal")
+	_check(jr.begins_with("ok journal active=") and "remembered=" in jr,
+		"journal answers as parseable data (got %s)" % jr.substr(0, 60))
+
+	# --- monotone: a bare restore never ADVANCES the clock (no trap arm) ---
+	# restore_anchor must not call advance_hours — it reloads, it doesn't
+	# replay. (The determinism gate proves the fork's trap stays silent.)
+	WorldState.set_value("journal.test_anchor.rains", {"day": 9, "prose": "future"})
+	GameClock.day = 9
+	var r2 := SaveGame.restore_anchor("moment-a")
+	_check(bool(r2.get("ok", false)) and GameClock.day == 3,
+		"a second restore snaps straight back to the anchor's day (no replay)")
+
+	# Leave no trace: remove anchor slots we minted, restore clock + WorldState.
+	var adir2 := DirAccess.open(SaveGame.ANCHORS_DIR)
+	if adir2 != null:
+		for f in adir2.get_files():
+			if not pre_anchors.has(f):
+				DirAccess.remove_absolute(
+					ProjectSettings.globalize_path(SaveGame.ANCHORS_DIR.path_join(f)))
+	player.remove_from_group("player")
+	player.queue_free()
+	WorldState.restore(ws_guard)
+	GameClock.day = clock_day
+	GameClock.hours = clock_hours
 
 
 ## The state verb (DESIGN_QUESTS B12): the desk's mirror-law forcing

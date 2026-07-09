@@ -1,0 +1,7 @@
+{
+	"_comment": "The world budget — valley's own thresholds (content; the FW4 record over game/dev/budget.gd's framework DEFAULTS). A METER, NOT A WALL: amber/red is information the Toolkit HUD, the `budget` link verb, and Strata's inspector paint — nothing here ever refuses a placement. Numbers are the measured cliffs (tests/world_budget_probe.gd, fork engine 2026-07-09) with honest safety margin: placement build-hitch crosses one 60fps frame near 800/cell; agent catch-up doubles its ~40ms floor near 1500; record boot-load is ~2.5ms/1000 rows. Tune per-axis; a missing axis falls back to the framework default. No `id` field on purpose — this record names no content, so the framework linter's content-id corpus stays clean.",
+	"cell_placements": {"amber": 250, "red": 600},
+	"agents": {"amber": 500, "red": 1200},
+	"records": {"amber": 10000, "red": 40000},
+	"per_placement_ms": 0.02
+}

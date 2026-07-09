@@ -71,6 +71,7 @@ var _cam: Camera3D
 var _cursor: MeshInstance3D
 var _hud: CanvasLayer
 var _hud_label: Label
+var _budget_label: Label
 var _inspector: Label
 var _inspected: Node = null
 var _yaw := 0.0
@@ -348,6 +349,7 @@ func panel_sections() -> Array:
 		["CARDS", Cards.summary()],
 		["DOORS", Interiors.summary()],
 		["STORY", Story.summary()],
+		["BUDGET", Budget.summary()],
 		["LINK", StrataLink.summary()],
 	]
 
@@ -1686,6 +1688,20 @@ func _build_nodes() -> void:
 	_hud_label.add_theme_constant_override("shadow_offset_y", 1)
 	_hud.add_child(_hud_label)
 
+	# The world budget line (a METER, NOT A WALL): a compact this-cell / world
+	# readout pinned bottom-left, painted green/amber/red by the worst axis —
+	# information, never a gate. Budget.hud_line() is the one truth the O panel
+	# and Strata's Budget row also render.
+	_budget_label = Label.new()
+	_budget_label.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_budget_label.offset_left = 14.0
+	_budget_label.offset_bottom = -12.0
+	_budget_label.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_budget_label.add_theme_font_size_override("font_size", 13)
+	_budget_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.85))
+	_budget_label.add_theme_constant_override("shadow_offset_y", 1)
+	_hud.add_child(_budget_label)
+
 	_inspector = Label.new()
 	_inspector.visible = false
 	_inspector.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1714,6 +1730,7 @@ func _build_nodes() -> void:
 
 
 func _update_hud() -> void:
+	_update_budget_line()
 	match _tool:
 		Tool.SCULPT:
 			_hud_label.text = "TOOLKIT·SCULPT   F1 exit | LMB raise · Shift carve · Ctrl flatten | Z undo stroke | [ ] brush | Tab next tool | O world panel | M map | F5 save"
@@ -1760,6 +1777,17 @@ func _update_hud() -> void:
 					+ "   |   LMB paint (re-flora on release) | Z undo stroke | [ ] brush %dm | Tab next tool" % int(_macro_radius)
 		Tool.RIVER:
 			_hud_label.text = "TOOLKIT·RIVER   LMB drop point (%d) | Enter carve | Z undo point | Tab next tool | F1 exit" % _river_nodes.size()
+
+
+## Paint the compact budget line (bottom-left), coloured by the worst axis.
+## Information only — nothing here ever refuses a placement (a METER, NOT A
+## WALL). Reads the meter's one truth; the O panel and Strata's row read it too.
+func _update_budget_line() -> void:
+	if _budget_label == null:
+		return
+	_budget_label.text = Budget.hud_line()
+	_budget_label.add_theme_color_override("font_color",
+		Budget.status_color(Budget.worst_grade()))
 
 
 ## Step the PLACE palette by ±1 slot (wraps).

@@ -237,7 +237,8 @@ const PROTOCOL := 1
 ## exactly, both ways: add a verb there and it MUST land here too.
 const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
 	"teleport", "screenshot", "thumbnail", "meshstats", "weather", "time",
-	"preview_world", "preview_mesh", "camera", "view", "view_layer", "probe",
+	"preview_world", "preview_mesh", "preview_shared", "render_device",
+	"camera", "view", "view_layer", "probe",
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
 	"undo", "redo"]
 
@@ -406,6 +407,22 @@ func _execute(line: String) -> String:
 			if parts.size() < 2:
 				return "err preview_mesh needs a dir (or off)"
 			return _preview_mesh(line.substr(len("preview_mesh")).strip_edges())
+		"preview_shared":
+			# The ZERO-COPY path (fork-genius #1): Strata blit-published the
+			# bake into shared GPU surfaces and hands us the raw MTLTexture
+			# pointers; we wrap them once (texture_create_from_extension ->
+			# Texture2DRD) onto the SAME PreviewTerrain grid — no EXR, no dir,
+			# no upload. Same-process + one-device only (Strata gates it);
+			# "off" leaves preview like preview_mesh. See _preview_shared.
+			if parts.size() < 2:
+				return "err preview_shared needs a payload (or off)"
+			return _preview_shared(line.substr(len("preview_shared")).strip_edges())
+		"render_device":
+			# The device-identity handshake for the shared path: our engine's
+			# logical-device pointer (get_driver_resource). Strata compares it
+			# to its own MTLDevice pointer — equal means one shared device, the
+			# zero-copy premise. 0 when headless (no RenderingDevice).
+			return _render_device()
 		"view_layer":
 			if parts.size() < 2:
 				return "err view_layer needs %s" % "|".join(PreviewTerrain.LAYERS.keys())
@@ -677,6 +694,82 @@ func _preview_mesh(dir: String) -> String:
 	if line.begins_with("err"):
 		return line
 	return "ok preview_mesh %s (in memory — off restores)" % line
+
+
+## The engine's logical-device pointer (get_driver_resource) — the shared
+## path's device-identity handshake. Strata creates the shared surfaces on
+## whatever MTLDevice its bake runs on; the zero-copy wrap is only safe when
+## that is the SAME device this engine samples from, so Strata compares this
+## pointer to its own. 0 when there is no RenderingDevice (headless dummy
+## renderer) — Strata reads that as "not shareable" and keeps the file path.
+func _render_device() -> String:
+	var rd := RenderingServer.get_rendering_device()
+	if rd == null:
+		return "ok render_device 0"
+	var ptr := rd.get_driver_resource(
+		RenderingDevice.DRIVER_RESOURCE_LOGICAL_DEVICE, RID(), 0)
+	return "ok render_device %d" % ptr
+
+
+## The zero-copy shaping preview: wrap Strata's shared bake surfaces onto the
+## PreviewTerrain grid. The payload is strata_link's wire grammar (pinned by
+## Strata's SharedPreviewSnapshot.verbTail — change both or neither):
+##   gen=<n> w=<px> h=<px> size=<world_m> sea=<m>
+##   <layer>=<fmt>:<ptr0>:<ptr1>:<front> …
+## Pointers are process-local MTLTexture addresses (same-process only — that
+## is the whole premise; Strata never sends this to a standalone game). "off"
+## leaves preview exactly like preview_mesh off.
+func _preview_shared(payload: String) -> String:
+	if payload == "off":
+		if _preview != null:
+			_preview.leave()
+		return "ok preview_shared off (streamed world restored)"
+	var rd := RenderingServer.get_rendering_device()
+	if rd == null:
+		return "err preview_shared needs a RenderingDevice (headless dummy renderer)"
+	var params: Variant = _parse_shared_payload(payload)
+	if params is String:
+		return params  # the honest parse error
+	if _preview == null:
+		_preview = PreviewTerrain.new()
+		get_tree().current_scene.add_child(_preview)
+	var line := _preview.wear_shared(params)
+	if line.begins_with("err"):
+		return line
+	return "ok preview_shared %s (zero-copy — off restores)" % line
+
+
+## Parse the preview_shared payload into a Dictionary, or an "err ..." String.
+## {gen,w,h,size,sealevel, layers:{name:{fmt,ptr0,ptr1,front}}}. The sea-level
+## field is keyed "sealevel", not "sea": the framework linter forbids a quoted
+## string literal matching a data/ record id, and `sea` is the ocean record's.
+func _parse_shared_payload(payload: String) -> Variant:
+	var out := {"gen": 0, "w": 0, "h": 0, "size": 16384.0, "sealevel": 0.0, "layers": {}}
+	for tok in payload.split(" ", false):
+		var eq := tok.find("=")
+		if eq < 0:
+			return "err preview_shared bad token '%s'" % tok
+		var key := tok.substr(0, eq)
+		var val := tok.substr(eq + 1)
+		match key:
+			"gen": out["gen"] = int(val)
+			"w": out["w"] = int(val)
+			"h": out["h"] = int(val)
+			"size": out["size"] = float(val)
+			"sealevel": out["sealevel"] = float(val)
+			_:
+				# A layer token: <fmt>:<ptr0>:<ptr1>:<front>
+				var f := val.split(":", false)
+				if f.size() != 4:
+					return "err preview_shared bad layer '%s'" % tok
+				out["layers"][key] = {
+					"fmt": f[0], "ptr0": int(f[1]), "ptr1": int(f[2]),
+					"front": int(f[3])}
+	if int(out["w"]) <= 0 or int(out["h"]) <= 0 or out["layers"].is_empty():
+		return "err preview_shared payload missing w/h/layers"
+	if not out["layers"].has("height"):
+		return "err preview_shared payload has no height layer"
+	return out
 
 
 ## The camera mirror (engine-viewport M4): the ACTIVE 3D camera, one line,

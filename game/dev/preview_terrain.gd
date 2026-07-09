@@ -87,6 +87,17 @@ var _chart_env: Environment = null
 var _chart_cam: Camera3D = null
 var _chart_prev_env: Environment = null
 
+# --- the zero-copy shared path (fork-genius #1, see wear_shared) ------------
+# When Strata rides the shared-texture transport, the drape/height come from
+# raw GPU surfaces wrapped as Texture2DRDs instead of loaded files. _shared
+# maps layer name -> {tex0,tex1: Texture2DRD, rid0,rid1: RID, ptr0,ptr1,
+# front, w, h, fmt}. The two textures per layer are Strata's double buffer:
+# wrapped ONCE (stable pointers), the flip just re-points the material at the
+# front. A resolution change (new pointers) re-wraps; leave() frees the rids.
+var _shared_mode := false
+var _shared: Dictionary = {}
+var _shared_gen := 0
+
 
 ## Wear an export: height texture + world frame + sea level onto the
 ## grid, then enter preview (first wear) or just swap textures (re-wear).
@@ -104,6 +115,7 @@ func wear(dir: String) -> String:
 	if img == null or img.is_empty():
 		return "err no height.exr in %s" % dir
 	_dir = dir
+	_shared_mode = false  # the file path takes over from any shared wear
 	_layer_cache.clear()  # new export: every cached drape is stale
 	var world: Dictionary = manifest.get("world", {})
 	var size_arr: Array = world.get("size_m", [16384.0, 16384.0])
@@ -138,12 +150,135 @@ func wear(dir: String) -> String:
 	return "%.0fm sea=%.1fm wear=%.0fms" % [_world_size, sea, total_ms]
 
 
+## Wear Strata's SHARED bake surfaces (the zero-copy path): wrap the raw
+## MTLTexture pointers as Texture2DRDs onto this grid — no file, no upload.
+## `params` is strata_link's parsed payload {gen,w,h,size,sea,layers}. A warm
+## push with stable pointers just re-points at the new front (the double
+## buffer flip); a new resolution re-wraps. Returns "err ..." or a reply tail.
+func wear_shared(params: Dictionary) -> String:
+	var t0 := Time.get_ticks_usec()
+	var rd := RenderingServer.get_rendering_device()
+	if rd == null:
+		return "err no RenderingDevice for the shared path"
+	var layers: Dictionary = params.get("layers", {})
+	if not layers.has("height"):
+		return "err shared payload has no height layer"
+	var w := int(params["w"])
+	var h := int(params["h"])
+	_ensure_mesh()
+	# Wrap / re-point every provided layer. A wrap failure on HEIGHT is fatal
+	# (nothing to displace); a failed drape layer is just skipped (its view
+	# falls back to shaded via set_layer's honest err).
+	for name: String in layers.keys():
+		var spec: Dictionary = layers[name]
+		if not _ensure_shared_layer(rd, name, spec, w, h) and name == "height":
+			return "err could not wrap the shared height surface"
+	_world_size = float(params["size"])
+	_shared_gen = int(params["gen"])
+	_shared_mode = true
+	_height_img = null  # no CPU mirror on the shared path (probe errs honestly)
+	var sea := float(params["sealevel"])
+	_mat.set_shader_parameter("height_map", _shared_front("height"))
+	_mat.set_shader_parameter("world_size", _world_size)
+	_mat.set_shader_parameter("sea_level", sea)
+	# The shared path carries no ramps.png; the shader's mirrored fallback
+	# constants answer (same numbers as DataRamps — see the shader header).
+	_ramp_tex = null
+	_mat.set_shader_parameter("ramp_lut", null)
+	_mat.set_shader_parameter("has_lut", false)
+	_mesh.scale = Vector3(_world_size / 2.0, 1.0, _world_size / 2.0)
+	if not worn:
+		_enter()
+	# Re-assert the drape from the new surfaces; a layer the shared push can't
+	# serve (temperature has no raw-field surface yet) falls back to shaded.
+	if _layer != "shaded" and set_layer(_layer).begins_with("err"):
+		_apply_layer("shaded")
+	var total_ms := (Time.get_ticks_usec() - t0) / 1000.0
+	return "%.0fm sea=%.1fm gen=%d wrap=%.1fms" % [_world_size, sea, _shared_gen, total_ms]
+
+
+## Wrap (or re-point) one shared layer's double buffer. Returns whether the
+## front texture is available afterwards. Stable pointers + same size = reuse
+## the two Texture2DRDs (the warm flip); anything changed re-wraps and frees
+## the old rids.
+func _ensure_shared_layer(rd: RenderingDevice, name: String, spec: Dictionary,
+		w: int, h: int) -> bool:
+	var ptr0 := int(spec["ptr0"])
+	var ptr1 := int(spec["ptr1"])
+	var front := int(spec["front"])
+	var fmt := String(spec["fmt"])
+	var have: Dictionary = _shared.get(name, {})
+	if have.is_empty() or int(have.get("ptr0", 0)) != ptr0 \
+			or int(have.get("ptr1", 0)) != ptr1 \
+			or int(have.get("w", 0)) != w or int(have.get("h", 0)) != h:
+		_free_shared_layer(name)  # resolution/pointer change: re-wrap
+		var t0: Variant = _wrap_shared(rd, ptr0, fmt, w, h)
+		var t1: Variant = _wrap_shared(rd, ptr1, fmt, w, h)
+		if t0 == null or t1 == null:
+			return false
+		_shared[name] = {"tex0": t0[0], "rid0": t0[1], "tex1": t1[0], "rid1": t1[1],
+			"ptr0": ptr0, "ptr1": ptr1, "front": front, "w": w, "h": h, "fmt": fmt}
+	else:
+		have["front"] = front
+		_shared[name] = have
+	return true
+
+
+## One raw MTLTexture pointer -> [Texture2DRD, RID], or null on failure. Stock
+## 4.7 API (proven by SharedTexProbe): texture_create_from_extension wraps the
+## host texture, Texture2DRD makes it a sampler2D the shader reads.
+func _wrap_shared(rd: RenderingDevice, ptr: int, fmt: String, w: int, h: int) -> Variant:
+	var data_fmt := RenderingDevice.DATA_FORMAT_R32_SFLOAT
+	if fmt == "rgba8":
+		data_fmt = RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
+	var rid := rd.texture_create_from_extension(
+		RenderingDevice.TEXTURE_TYPE_2D, data_fmt,
+		RenderingDevice.TEXTURE_SAMPLES_1,
+		RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT,
+		ptr, w, h, 1, 1)
+	if not rid.is_valid():
+		return null
+	var tex := Texture2DRD.new()
+	tex.texture_rd_rid = rid
+	return [tex, rid]
+
+
+## The front Texture2DRD of a wrapped shared layer (null when absent).
+func _shared_front(name: String) -> Texture2DRD:
+	var e: Dictionary = _shared.get(name, {})
+	if e.is_empty():
+		return null
+	return e["tex1"] if int(e["front"]) == 1 else e["tex0"]
+
+
+func _free_shared_layer(name: String) -> void:
+	var e: Dictionary = _shared.get(name, {})
+	if e.is_empty():
+		return
+	var rd := RenderingServer.get_rendering_device()
+	if rd != null:
+		for k in ["rid0", "rid1"]:
+			var rid: RID = e[k]
+			if rid.is_valid():
+				rd.free_rid(rid)
+	_shared.erase(name)
+
+
+func _free_shared() -> void:
+	for name in _shared.keys().duplicate():
+		_free_shared_layer(name)
+	_shared.clear()
+	_shared_mode = false
+
+
 ## Switch the false-color drape. Loads the layer texture lazily from the
 ## worn export dir (cached until the next wear). Returns the reply line.
 func set_layer(name: String) -> String:
 	if not LAYERS.has(name):
 		return "err view_layer needs %s" % "|".join(LAYERS.keys())
 	var t0 := Time.get_ticks_usec()
+	if _shared_mode:
+		return _set_layer_shared(name, t0)
 	var spec: Dictionary = LAYERS[name]
 	if spec.has("file"):
 		var entry: Variant = _cached_layer(String(spec["file"]))
@@ -155,6 +290,33 @@ func set_layer(name: String) -> String:
 	return "ok layer %s (%.0fms)" % [name, (Time.get_ticks_usec() - t0) / 1000.0]
 
 
+## The shared-path drape: the false-color layers come from wrapped GPU
+## surfaces, not files. shaded/slope ride the height surface (no drape tex);
+## moisture/flow bind their raw-field surface (the shader's data_scale/offset
+## reproduces the same t the file path computes — moisture and flow store the
+## same values raw as their exports); biome binds the colormap surface.
+## temperature has no raw-field surface yet (its export normalizes °C), so it
+## errs honestly and Strata falls back to the Metal view for that one layer.
+func _set_layer_shared(name: String, t0: int) -> String:
+	match name:
+		"shaded", "slope":
+			pass  # derived from the height surface in-shader; no drape texture
+		"biome":
+			var ctex := _shared_front("colormap")
+			if ctex == null:
+				return "err shared preview has no colormap surface"
+			_mat.set_shader_parameter("color_map", ctex)
+		"temperature":
+			return "err temperature has no shared surface (Metal view only)"
+		_:
+			var dtex := _shared_front(name)
+			if dtex == null:
+				return "err shared preview has no %s surface" % name
+			_mat.set_shader_parameter("data_map", dtex)
+	_apply_layer(name)
+	return "ok layer %s shared (%.0fms)" % [name, (Time.get_ticks_usec() - t0) / 1000.0]
+
+
 ## The active layer's value at a world position — the value-under-cursor
 ## verb (M3). Reply grammar (pinned by Strata's LayerProbe + the scene
 ## tests; keep in lockstep): "ok probe <layer> <value> at (<x>, <z>)".
@@ -164,6 +326,11 @@ func set_layer(name: String) -> String:
 func probe(x: float, z: float) -> String:
 	if not worn:
 		return "err no preview mesh worn (preview_mesh <dir> first)"
+	if _shared_mode:
+		# The zero-copy path keeps no CPU mirror; the value-under-cursor probe
+		# reads back from the GPU or answers from Strata's own store — an
+		# openEnd. Honest err until then (Strata's data-view readout hides).
+		return "err probe unavailable on the shared preview path"
 	# ASCII-only replies (the wire contract): no ± and friends.
 	var half := _world_size / 2.0
 	if absf(x) > half or absf(z) > half:
@@ -208,6 +375,7 @@ func leave() -> void:
 	_restore.clear()
 	worn = false
 	_release_chart_air()
+	_free_shared()  # release the wrapped RD textures (no-op on the file path)
 
 
 # Data layers keep their chart air even when the camera changes hands

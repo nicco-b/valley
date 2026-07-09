@@ -20,6 +20,10 @@ data/water/rivers/gen_*.json
 # hydrology.json at import -- same regenerable cache as the tile.
 data/water/rivers/hyd_*.json
 data/water/hyd_*.json
+# Baked scatter (strata M4): the importer copies world_vN/scatter/ here as a
+# local cache, re-derivable from the export. The hand's edits (data/scatter/
+# hand.json) are NOT here -- they are committed truth, keyed by stable id.
+data/scatter/baked/
 # The importer's completion stamp: names which blessed world this checkout
 # holds a full import of. Per-machine cache like the tile above (Strata
 # re-runs the importer when it's missing/stale), never committed.

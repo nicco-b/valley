@@ -47,6 +47,7 @@ func _ready() -> void:
 	_test_prefab()
 	_test_river_undo()
 	_test_overrides_emit()
+	_test_scatter_roundtrip()
 	_test_edit_flush()
 	await _test_threshold()
 	_test_map()
@@ -2306,6 +2307,107 @@ func _test_overrides_emit() -> void:
 	Toolkit.active = false
 	player.remove_from_group("player")
 	player.queue_free()
+
+
+## The scatter overrides round trip (strata M4, ONE_APP P4 scatter half): a
+## synthetic baked export loads through ScatterBake; the hand's move/delete
+## (ScatterHand) reshapes it; overrides.gd emits the deltas keyed by stable id
+## for Strata to replay. Self-contained: writes a throwaway baked/ + hand.json,
+## restores every file it touches so the checkout stays clean.
+func _test_scatter_roundtrip() -> void:
+	var baked_dir := ScatterBake.DIR
+	var man := ScatterBake.MANIFEST
+	var cell_file := baked_dir + "/cell_0_0.json"
+	var hand := ScatterHand.PATH
+	# Guard: snapshot (absent = null) everything we write, restore at the end.
+	var guard := {}
+	for p: String in [man, cell_file, hand, Overrides.FILE]:
+		guard[p] = FileAccess.get_file_as_bytes(p) if FileAccess.file_exists(p) else null
+	var baked_preexisted := DirAccess.dir_exists_absolute(
+		ProjectSettings.globalize_path(baked_dir))
+
+	# A one-prop baked export (ScatterBake reads the file directly; the sha is
+	# only enforced by the importer, so a placeholder is fine here).
+	var pid := "sc_probe0000abcd01"
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(baked_dir))
+	var cell_json := JSON.stringify([{
+		"id": pid, "cat": "rocks", "x": 10.0, "y": 40.0, "z": 20.0,
+		"yaw": 0.0, "scale": 1.0, "pick": 0.25}])
+	_write_probe(cell_file, cell_json)
+	_write_probe(man, JSON.stringify({
+		"format": 1, "cell_size_m": 128.0, "count": 1,
+		"world": {"size_m": [16384.0, 16384.0]},
+		"cells": [{"cell": [0, 0], "file": "cell_0_0.json", "count": 1, "sha256": ""}]}))
+	# Start from a clean hand store.
+	if FileAccess.file_exists(hand):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(hand))
+	ScatterHand.reload()
+	ScatterBake.reset()
+
+	# 1. Baked scatter loads; the prop is present, unmoved.
+	_check(ScatterBake.has_baked(), "synthetic baked export is seen")
+	_check(absf(ScatterBake.cell_size() - 128.0) < 0.001, "manifest cell size read")
+	var loaded := ScatterBake.load_cell(Vector2i(0, 0))
+	_check(loaded.size() == 1, "the baked cell loads one prop (got %d)" % loaded.size())
+	if loaded.size() == 1:
+		_check(String(loaded[0].get("id", "")) == pid
+			and not bool(loaded[0].get("moved", true)), "the prop rides through unmoved")
+
+	# 2. The hand moves it — the delta the Toolkit would write.
+	ScatterHand.move(pid, Vector3(1000.0, 123.5, -2000.0), 1.25, 1.75, "rocks", 0.25)
+	ScatterHand.reload()  # prove it persisted to disk, not just memory
+	var moved := ScatterBake.load_cell(Vector2i(0, 0))
+	_check(moved.size() == 1 and bool(moved[0].get("moved", false))
+		and absf(float(moved[0].get("x", 0.0)) - 1000.0) < 0.001
+		and absf(float(moved[0].get("y", 0.0)) - 123.5) < 0.001,
+		"the hand's move repositions the baked prop (got %s)" % [moved])
+
+	# 3. overrides.gd emits the delta keyed by the stable id.
+	var counts := Overrides.emit()
+	_check(int(counts.get("scatter", 0)) == 1, "emit reports one scatter delta")
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(Overrides.FILE))
+	var sc: Dictionary = (parsed as Dictionary).get("scatter", {}) if parsed is Dictionary else {}
+	_check(sc.has(pid), "overrides.json carries the scatter delta by id")
+	if sc.has(pid):
+		var d: Dictionary = sc[pid]
+		_check(String(d.get("op", "")) == "move"
+			and absf(float(d.get("x", 0.0)) - 1000.0) < 0.001
+			and String(d.get("cat", "")) == "rocks",
+			"the delta is a move carrying transform + category")
+
+	# 4. A delete drops the prop and survives as a delete op.
+	ScatterHand.remove(pid)
+	ScatterHand.reload()
+	_check(ScatterBake.load_cell(Vector2i(0, 0)).is_empty(),
+		"a hand-deleted prop is gone from the baked load")
+	Overrides.emit()
+	var parsed2: Variant = JSON.parse_string(FileAccess.get_file_as_string(Overrides.FILE))
+	var sc2: Dictionary = (parsed2 as Dictionary).get("scatter", {}) if parsed2 is Dictionary else {}
+	_check(sc2.has(pid) and String((sc2[pid] as Dictionary).get("op", "")) == "delete",
+		"the delete rides the seam artifact")
+
+	# Restore every touched file; the hand store cache is reset for the process.
+	for p: String in guard:
+		var abs := ProjectSettings.globalize_path(p)
+		if guard[p] == null:
+			if FileAccess.file_exists(p):
+				DirAccess.remove_absolute(abs)
+		else:
+			var f := FileAccess.open(p, FileAccess.WRITE)
+			if f != null:
+				f.store_buffer(guard[p])
+				f.close()
+	if not baked_preexisted:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(baked_dir))
+	ScatterHand.reload()
+	ScatterBake.reset()
+
+
+func _write_probe(path: String, text: String) -> void:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f != null:
+		f.store_string(text)
+		f.close()
 
 
 ## The stroke-quiet disk flush (audit quick win 3, crash-safety): hand

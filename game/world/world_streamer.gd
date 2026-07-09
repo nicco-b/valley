@@ -715,7 +715,15 @@ func _on_flora_cell_changed(c: Vector2i) -> void:
 ## saved, never fingerprinted). Each group draws every non-gated slot in its
 ## category, so new cards join with no code change. RNG draws are in a fixed
 ## order per candidate so acceptance never shifts the layout.
+##
+## When Strata blessed a BAKED scatter export (data/scatter/baked/), the baked
+## placements REPLACE this roll — frozen, id-stable, hand-editable (strata M4).
+## The runtime roll below is the FALLBACK: no baked export = valley-today, the
+## FW1 content-empty boot law (has_baked() false -> this function is untouched).
 func _add_model_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
+	if ScatterBake.has_baked():
+		_add_baked_scatter(c, parent, origin)
+		return
 	if _scatter_groups.is_empty():
 		return
 	var rng := RandomNumberGenerator.new()
@@ -764,6 +772,46 @@ func _add_model_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
 			inst.rotation.y = yaw
 			inst.scale = Vector3.ONE * s
 			parent.add_child(inst)
+
+
+## The BAKED scatter path (strata M4): instance Strata's frozen placements for
+## this cell instead of rolling. Biome/water/slope were decided at bake time, so
+## no re-gating — except the game-side FLATTENS clearings (villages) Strata can't
+## know, which still clear a prop UNLESS the hand moved it there on purpose. The
+## category->slot resolution mirrors the runtime roll (baked `pick` picks the
+## slot, Cards resolves the variant), so the mesh is stable too. Presentation
+## only, exactly like the roll — never saved, never fingerprinted.
+func _add_baked_scatter(c: Vector2i, parent: Node3D, origin: Vector3) -> void:
+	for p: Dictionary in ScatterBake.load_cell(c):
+		var cat: String = p.get("cat", "")
+		var slots: Array = _cat_slots.get(cat, [])
+		if slots.is_empty():
+			continue
+		var wx := float(p.get("x", 0.0))
+		var wz := float(p.get("z", 0.0))
+		var moved: bool = bool(p.get("moved", false))
+		if not moved:
+			var clear := false
+			for f in Terrain.FLATTENS:
+				if Vector2(wx - f[0], wz - f[1]).length() < f[2] + f[3]:
+					clear = true
+					break
+			if clear:
+				continue
+		var pick := float(p.get("pick", 0.0))
+		var slot: String = slots[int(pick * slots.size()) % slots.size()]
+		var file: String = Cards.resolve(slot, Cards.variant_for(slot, Vector3(wx, 0.0, wz)))
+		var scene: PackedScene = Kit.scene_for(file)
+		if scene == null:
+			continue
+		var inst: Node3D = scene.instantiate()
+		_dress_placeable(inst, file)
+		# Positions are absolute world meters; the cell body sits at `origin`
+		# (y=0), so local = world − origin, y verbatim (baked, or the hand's).
+		inst.position = Vector3(wx - origin.x, float(p.get("y", 0.0)), wz - origin.z)
+		inst.rotation.y = float(p.get("yaw", 0.0))
+		inst.scale = Vector3.ONE * float(p.get("scale", 1.0))
+		parent.add_child(inst)
 
 
 ## Aquatic plants placed at the authored water surface: floating pads on the

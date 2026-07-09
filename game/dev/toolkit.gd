@@ -219,19 +219,33 @@ func set_view_mode(p_orbit: bool) -> void:
 	orbit = p_orbit
 	if orbit:
 		_orbit.frame_tile()
-		if _cam:
-			# The generator view is a CHART with weather (the map-screen
-			# lesson): the world's air minus the fogs (OrbitRig has the
-			# recipe) so time-of-day and weather read without obscuring.
-			var world_env := get_viewport().world_3d.environment
-			if world_env and _cam.environment == null:
-				_cam.environment = OrbitRig.chart_environment(world_env)
+		_ensure_chart_air()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif active:
 		if _cam:
 			_cam.far = 8000.0
 			_cam.environment = null  # back under the world's real air
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+## Dress the orbit camera in the chart air (the world's air minus the
+## fogs — OrbitRig.chart_environment) so time-of-day and weather read
+## without the tile-distance haze whiting the whole view to a beige slab.
+## Re-assertable ON PURPOSE: the WorldEnvironment may not be in the tree
+## the frame the viewer posture is entered (a boot race — Strata boots the
+## pane straight into orbit, and the first preview_mesh can land before the
+## world's env node arrives). set_view_mode calls this once; the orbit
+## _process calls it every frame while the camera still lacks the chart air,
+## so it lands the instant world_3d.environment appears and the generator
+## viewport never sits stuck under the fog. A no-op once the air is on
+## (the != null guard), and it never clobbers preview_terrain's own
+## data-layer chart env (that env is also non-null).
+func _ensure_chart_air() -> void:
+	if _cam == null or _cam.environment != null:
+		return
+	var world_env := get_viewport().world_3d.environment
+	if world_env:
+		_cam.environment = OrbitRig.chart_environment(world_env)
 
 
 ## The world panel's first block: every per-position number the sim
@@ -626,6 +640,10 @@ func _process(delta: float) -> void:
 	if not active:
 		return
 	if orbit:
+		# The chart air may have been skipped at entry (world env not yet in
+		# the tree — the boot race); land it the instant it is available so
+		# the tile never sits washed to a beige slab under the world's haze.
+		_ensure_chart_air()
 		# Spherical ride around the target; WASD pans the target in the
 		# camera's ground plane (the Strata-viewport hand, in-engine).
 		_orbit.pan(Input.get_vector(

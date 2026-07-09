@@ -30,6 +30,17 @@ extends Node
 ##                               (audit QW3).
 ##   teleport <x> <z>         -> fly cam if the Toolkit is open, else player
 ##   screenshot <path>        -> saves the viewport to an absolute png path
+##   thumbnail <slot> <path>  -> renders the slot's resolved scene/mesh to
+##                               a transparent PNG at <path>, orbit-framed
+##                               in an offscreen SubViewport (the pane has a
+##                               live GPU; true --headless is the dummy
+##                               renderer and answers "err ... no image").
+##                               The slot is a Cards id, resolved through the
+##                               same catalog placement uses — so a retired
+##                               placeholder thumbnails as its real art. Path
+##                               may carry spaces (slot is one token, the
+##                               rest is the path). "ok thumbnail <slot>
+##                               <w>x<h> <path>" on success.
 ##   weather <kind>           -> Weather.force_kind (calm/storm/... )
 ##   time +<hours>            -> advance the clock by float hours
 ##   time <0..24>             -> advance FORWARD to the next occurrence of
@@ -225,9 +236,13 @@ const PROTOCOL := 1
 ## The scene tests assert this list matches the dispatcher's match arms
 ## exactly, both ways: add a verb there and it MUST land here too.
 const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
-	"teleport", "screenshot", "weather", "time", "preview_world",
+	"teleport", "screenshot", "thumbnail", "weather", "time", "preview_world",
 	"preview_mesh", "camera", "view", "view_layer", "probe", "toolkit", "hud",
 	"panel", "inspect", "notices", "overrides", "state", "undo", "redo"]
+
+## Thumbnail render target size (square). The pane renders this offscreen;
+## Strata caches the PNG by card sha and downsamples in its grid.
+const THUMB_SIZE := 512
 
 ## Actual port (STRATA_LINK_PORT env overrides — a second instance, e.g.
 ## the P3.5 embedded pane or a probe, gets its own link beside the game).
@@ -236,6 +251,12 @@ var port := PORT
 var _server: TCPServer = null
 var _peers: Array[StreamPeerTCP] = []
 var _served := 0  # commands answered (summary/observability)
+# The thumbnail render reads an offscreen SubViewport back to the CPU — that
+# needs a real frame to land (force_draw won't; the just-added instances
+# register next frame). So the render awaits, and _process re-entrancy is
+# fenced by this flag: while a thumbnail draws, the next frame's _process
+# bows out rather than double-servicing the same peers.
+var _rendering := false
 
 
 func _ready() -> void:
@@ -257,7 +278,7 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	if _server == null:
+	if _server == null or _rendering:
 		return
 	while _server.is_connection_available():
 		var peer := _server.take_connection()
@@ -273,11 +294,21 @@ func _process(_delta: float) -> void:
 		if st != StreamPeerTCP.STATUS_CONNECTED:
 			continue
 		while peer.get_available_bytes() > 0:
-			var line := _read_line(peer)
+			var line := _read_line(peer).strip_edges()
 			if line.is_empty():
 				break
-			var reply := _execute(line.strip_edges())
-			peer.put_data((reply + "\n").to_utf8_buffer())
+			var reply: String
+			# The one async verb: thumbnail renders over a frame, so its reply
+			# waits for the draw (the flag above holds _process off meanwhile).
+			# Every other verb answers synchronously, same as ever.
+			if line == "thumbnail" or line.begins_with("thumbnail "):
+				_rendering = true
+				reply = await _thumbnail_command(line)
+				_rendering = false
+			else:
+				reply = _execute(line)
+			if peer.get_status() == StreamPeerTCP.STATUS_CONNECTED:
+				peer.put_data((reply + "\n").to_utf8_buffer())
 			_served += 1
 
 
@@ -336,6 +367,17 @@ func _execute(line: String) -> String:
 				return "err no viewport image (headless?)"
 			var err := img.save_png(parts[1])
 			return ("ok %s" % parts[1]) if err == OK else ("err save_png %d" % err)
+		"thumbnail":
+			# The librarian's eyes (audit R6). The render is ASYNC (an
+			# offscreen SubViewport read-back needs a frame), so the socket
+			# path in _process routes full commands through _thumbnail_command
+			# and the reply waits for the draw. This synchronous arm answers
+			# the arg check (the `verbs` live-probe sends it bare) and directs
+			# a direct caller to the coroutine — the source-visible arm the
+			# discovery test pins against, never a silent no-op.
+			if parts.size() < 3:
+				return "err thumbnail needs <slot> <path>"
+			return "err thumbnail renders async — send it over the link"
 		"weather":
 			if parts.size() < 2:
 				return "err weather needs a kind"
@@ -670,6 +712,167 @@ func _focus() -> Vector2:
 	var player: Node3D = get_tree().get_first_node_in_group("player")
 	return Vector2(player.global_position.x, player.global_position.z) \
 			if player else Vector2.ZERO
+
+
+## Parse and serve a `thumbnail <slot> <path>` line (the socket's async
+## door). Slot is one token; everything after it is the path (paths may
+## carry spaces). Awaits the render and returns the reply line.
+func _thumbnail_command(line: String) -> String:
+	var parts := line.split(" ", false)
+	if parts.size() < 3:
+		return "err thumbnail needs <slot> <path>"
+	var slot: String = parts[1]
+	var path := line.substr(len("thumbnail") + 1 + len(slot) + 1).strip_edges()
+	return await _thumbnail(slot, path)
+
+
+## Render one slot's resolved art to a transparent PNG (audit R6). A slot
+## is a Cards id; we resolve it through the SAME catalog placement uses, so
+## a retired placeholder thumbnails as its real art and the cache key (the
+## card sha, on Strata's side) tracks the file the game would actually
+## spawn. The render is offscreen — an own-world SubViewport framed on the
+## subject's AABB — and awaits one drawn frame before the read-back (the
+## just-added instances register with the renderer next frame; a synchronous
+## force_draw sees an empty scene). True --headless renders the dummy
+## driver: get_image is empty and we say so honestly, never a blank PNG.
+func _thumbnail(slot: String, path: String) -> String:
+	if path == "":
+		return "err thumbnail needs a path"
+	if not Cards.has(slot):
+		return "err thumbnail unknown slot '%s'" % slot
+	var file: String = Cards.resolve(slot, 0)
+	if file == "":
+		return "err thumbnail slot '%s' resolves no file" % slot
+	var head_on := file.get_extension().to_lower() == "png"
+	var subject := _thumbnail_subject(file)
+	if subject == null:
+		return "err thumbnail cannot build a subject from '%s'" % file
+
+	var vp := SubViewport.new()
+	vp.size = Vector2i(THUMB_SIZE, THUMB_SIZE)
+	vp.transparent_bg = true
+	vp.own_world_3d = true
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	var stage := Node3D.new()
+	vp.add_child(stage)
+	stage.add_child(subject)
+	# Two directional lights (key + soft fill) and a bright ambient floor so
+	# vertex-coloured art reads without the world's own environment.
+	var key := DirectionalLight3D.new()
+	key.rotation = Vector3(deg_to_rad(-50.0), deg_to_rad(-35.0), 0.0)
+	key.light_energy = 1.1
+	stage.add_child(key)
+	var fill := DirectionalLight3D.new()
+	fill.rotation = Vector3(deg_to_rad(-15.0), deg_to_rad(130.0), 0.0)
+	fill.light_energy = 0.4
+	stage.add_child(fill)
+	var cam := Camera3D.new()
+	var env := Environment.new()
+	env.background_mode = Environment.BG_CLEAR_COLOR  # kept transparent by the viewport
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(1.0, 1.0, 1.0)
+	env.ambient_light_energy = 0.6
+	cam.environment = env
+	stage.add_child(cam)
+	add_child(vp)
+
+	# Show vertex colours the way placement does (world_streamer._dress_placeable),
+	# without importing its terrain coupling — just the albedo flag.
+	for node in subject.find_children("*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if mi.mesh == null:
+			continue
+		if mi.name.ends_with("-col"):  # collision hulls stay out of the frame
+			mi.visible = false
+			continue
+		for s in mi.mesh.get_surface_count():
+			var mat := mi.mesh.surface_get_material(s)
+			if mat is StandardMaterial3D and not mat.vertex_color_use_as_albedo:
+				mat.vertex_color_use_as_albedo = true
+
+	_frame_thumbnail_camera(cam, subject, head_on)
+	# One drawn frame so the instances register and the target fills, then a
+	# post-draw beat to guarantee the GPU->CPU read-back sees this frame. The
+	# dummy renderer never emits frame_post_draw (verified) — awaiting it
+	# under --headless would wedge the link, so there we settle for the idle
+	# frame and let the empty read-back report itself honestly below.
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	await get_tree().process_frame
+	if DisplayServer.get_name() != "headless":
+		await RenderingServer.frame_post_draw
+	var img := vp.get_texture().get_image()
+	vp.queue_free()
+	if img == null or img.is_empty():
+		return "err thumbnail no image (headless dummy renderer draws nothing — needs the live pane)"
+	var err := img.save_png(path)
+	if err != OK:
+		return "err thumbnail save_png %d -> %s" % [err, path]
+	return "ok thumbnail %s %dx%d %s" % [slot, img.get_width(), img.get_height(), path]
+
+
+## Build the render subject for a resolved file: a billboard quad for a
+## painting (.png), else the placement scene the kit resolves (a .glb or a
+## .tscn). Returns null when neither loads.
+func _thumbnail_subject(file: String) -> Node3D:
+	if file.get_extension().to_lower() == "png":
+		var tex: Texture2D = load(file)
+		if tex == null:
+			return null
+		var w := maxf(1.0, float(tex.get_width()))
+		var h := maxf(1.0, float(tex.get_height()))
+		var quad := QuadMesh.new()
+		quad.size = Vector2(1.0, h / w)  # preserve the art's aspect
+		var mat := StandardMaterial3D.new()
+		mat.albedo_texture = tex
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		mat.alpha_scissor_threshold = 0.5
+		mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		quad.material = mat
+		var mi := MeshInstance3D.new()
+		mi.mesh = quad
+		return mi
+	var scene := Kit.scene_for(file)
+	if scene == null:
+		return null
+	return scene.instantiate() as Node3D
+
+
+## Orbit-frame the camera on the subject's combined mesh AABB (head-on for a
+## flat billboard). Needs the subject already in the tree so global_transform
+## resolves. Falls back to a unit box for an empty AABB (no meshes yet).
+func _frame_thumbnail_camera(cam: Camera3D, subject: Node3D, head_on: bool) -> void:
+	var box := _subject_aabb(subject)
+	if box.size.length() <= 0.0001:
+		box = AABB(Vector3(-0.5, -0.5, -0.5), Vector3.ONE)
+	var center := box.get_center()
+	var radius := maxf(0.001, 0.5 * box.size.length())
+	cam.fov = 35.0
+	var dist := radius / sin(deg_to_rad(cam.fov * 0.5)) * 1.15
+	var dir := Vector3(0.0, 0.0, 1.0) if head_on \
+			else Vector3(0.75, 0.55, 0.9).normalized()
+	cam.position = center + dir * dist
+	cam.look_at(center, Vector3.UP)
+	cam.near = maxf(0.01, dist - radius * 3.0)
+	cam.far = dist + radius * 3.0
+
+
+## The subject's mesh AABB in ITS local space (merged over every child
+## MeshInstance3D, collision proxies excluded — placement hides "*-col").
+func _subject_aabb(subject: Node3D) -> AABB:
+	var out := AABB()
+	var have := false
+	var inv := subject.global_transform.affine_inverse()
+	for node in subject.find_children("*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if mi.mesh == null or mi.name.ends_with("-col"):
+			continue
+		var local := inv * mi.global_transform * mi.mesh.get_aabb()
+		out = local if not have else out.merge(local)
+		have = true
+	if not have and subject is MeshInstance3D and (subject as MeshInstance3D).mesh != null:
+		out = (subject as MeshInstance3D).mesh.get_aabb()
+	return out
 
 
 ## Toolkit world panel line.

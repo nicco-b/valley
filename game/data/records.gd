@@ -20,6 +20,22 @@ var _schemas: Dictionary = {}
 ## kind -> Callable() that re-reads that kind's records and rebinds them
 ## in the live sim (registered by the owning system at _ready).
 var _reloaders: Dictionary = {}
+## kind -> Array of edge DECLARATIONS the game published for this kind:
+## each is {"field": String, "to": String} — which record field carries
+## graph edges and what its ids reference (quests: [{"field":"after",
+## "to":"stage-id"}]). The framework stays edge-agnostic: it only relays
+## what a game declared. Strata's graph view renders/edits ONLY declared
+## edge fields — no declaration, no edge editing (PLAN.md axiom-4
+## amendment: "a graph view MAY render and edit fields the game's schema
+## declares as edges … Strata never defines an evaluation model").
+var _edges: Dictionary = {}
+## kind -> Callable(record: Dictionary) -> String: a SEMANTIC validator the
+## owning system registers (quests -> QuestLint). Returns "" when the whole
+## record is sound, else the game's own first failure words. `validate_kind`
+## runs it AFTER the required-field check, so an edge edit that makes a
+## cycle / names an unknown stage bounces with the game's lint, not a
+## Strata invention (quest_lint/story stay the only semantic truth).
+var _validators: Dictionary = {}
 
 ## Parse a JSON file; null (with an error) on failure.
 func load_json(path: String) -> Variant:
@@ -81,12 +97,21 @@ func validate_message(record: Dictionary, required: Dictionary) -> String:
 
 
 ## The records desk's validation door: judge a record of `kind` by the
-## schema its loader registered. An unknown kind (loaded by hand via
-## load_json, or not yet loaded) has no field schema — a record that
-## parsed as an object is all the game can promise, so it passes. Returns
-## "" on ok, else the game's own failure words.
+## schema its loader registered, THEN by any semantic validator the owning
+## system registered (quests -> QuestLint: cycles, unreachable stages,
+## unknown `after` targets — the truths the required-field map can't see).
+## An unknown kind (loaded by hand via load_json, or not yet loaded) has no
+## field schema and no validator — a record that parsed as an object is all
+## the game can promise, so it passes. Returns "" on ok, else the game's
+## own failure words.
 func validate_kind(kind: String, record: Dictionary) -> String:
-	return validate_message(record, _schemas.get(kind, {}))
+	var msg := validate_message(record, _schemas.get(kind, {}))
+	if msg != "":
+		return msg
+	var validator: Callable = _validators.get(kind, Callable())
+	if validator.is_valid():
+		return String(validator.call(record))
+	return ""
 
 
 ## Register a kind's required-field schema by NAME, independent of a
@@ -104,6 +129,27 @@ func register_schema(kind: String, required: Dictionary) -> void:
 ## `records schema` verb turns this into the desk's per-field type hints.
 func schema_for(kind: String) -> Dictionary:
 	return _schemas.get(kind, {})
+
+
+## Publish a kind's edge declarations (the graph fields Strata may render
+## and edit). `edges` is an Array of {"field": String, "to": String}. The
+## owning system calls this once at _ready (quests -> after -> stage-id).
+func register_edges(kind: String, edges: Array) -> void:
+	_edges[kind] = edges
+
+
+## A kind's edge declarations (empty when none) — the `records schema` verb
+## appends these so Strata's graph view knows which fields are edges.
+func edges_for(kind: String) -> Array:
+	return _edges.get(kind, [])
+
+
+## Register a kind's SEMANTIC validator (record -> failure words, "" = ok).
+## The owning system supplies the game's own judgement (quests -> QuestLint)
+## so an edited record is judged by the same rules test.sh enforces, never
+## by a rule Strata invented.
+func register_validator(kind: String, validator: Callable) -> void:
+	_validators[kind] = validator
 
 
 ## A system that can re-read its records and rebind them live registers a

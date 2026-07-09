@@ -305,6 +305,7 @@ func _build_terrain_mesh(c: Vector2i, with_nav := true, with_shape := true,
 	var step := CELL_SIZE / (res - 1)
 	var pts := PackedVector3Array()
 	var wet := PackedByteArray()
+	var indices := PackedInt32Array()
 	var mesh: ArrayMesh
 	if Terrain.kernel:
 		# Native path: the whole vertex/normal/index build runs in C++ —
@@ -314,6 +315,7 @@ func _build_terrain_mesh(c: Vector2i, with_nav := true, with_shape := true,
 			origin.x, origin.z, CELL_SIZE, res, with_nav)
 		pts = built.vertices
 		wet = built.wet
+		indices = built.indices
 		var arrays := []
 		arrays.resize(Mesh.ARRAY_MAX)
 		arrays[Mesh.ARRAY_VERTEX] = built.vertices
@@ -341,15 +343,20 @@ func _build_terrain_mesh(c: Vector2i, with_nav := true, with_shape := true,
 					wet[i] = 1 if y < Terrain.water_surface_base(wx, wz) - 0.05 else 0
 				st.set_uv(Vector2(wx, wz) * 0.05)
 				st.add_vertex(pts[i])
+		indices.resize((res - 1) * (res - 1) * 6)
+		var w := 0
 		for iz in res - 1:
 			for ix in res - 1:
 				var i := iz * res + ix
-				st.add_index(i)
-				st.add_index(i + 1)
-				st.add_index(i + res)
-				st.add_index(i + 1)
-				st.add_index(i + res + 1)
-				st.add_index(i + res)
+				indices[w] = i
+				indices[w + 1] = i + 1
+				indices[w + 2] = i + res
+				indices[w + 3] = i + 1
+				indices[w + 4] = i + res + 1
+				indices[w + 5] = i + res
+				w += 6
+		for i in indices:
+			st.add_index(i)
 		st.generate_normals()
 		mesh = st.commit()
 	var faces := PackedVector3Array()
@@ -371,8 +378,31 @@ func _build_terrain_mesh(c: Vector2i, with_nav := true, with_shape := true,
 					faces.append(pts[e])
 					faces.append(pts[d])
 	var navmesh: NavigationMesh = Nav.bake_navmesh(faces) if with_nav else null
-	var shape: Shape3D = mesh.create_trimesh_shape() if with_shape else null
+	var shape: Shape3D = _trimesh_shape(pts, indices) if with_shape else null
 	return [mesh, shape, navmesh]
+
+
+## Collision trimesh built straight from the vertex/index arrays already in
+## hand — NEVER mesh.create_trimesh_shape() on a worker thread: that
+## re-fetches the arrays through RenderingServer.mesh_surface_get_arrays, a
+## cross-thread push_and_ret that parks the worker until the MAIN thread
+## flushes the RS command queue. A zoom-in burst parks enough builders to
+## fill the pool's low-priority lane; if the main thread then hard-waits on
+## any queued low-priority task before the frame's RS sync (the 2026-07-08
+## map-zoom freeze: freeing a streamed-out material waits on its starved
+## pipeline-compile task), the whole engine deadlocks. Same faces, no RS.
+## Regression: tests/stream_deadlock_probe.tscn.
+static func _trimesh_shape(vertices: PackedVector3Array,
+		indices: PackedInt32Array) -> ConcavePolygonShape3D:
+	if indices.is_empty():
+		return null
+	var faces := PackedVector3Array()
+	faces.resize(indices.size())
+	for i in indices.size():
+		faces[i] = vertices[indices[i]]
+	var shape := ConcavePolygonShape3D.new()
+	shape.set_faces(faces)
+	return shape
 
 
 func _thread_build_terrain(c: Vector2i, res: int) -> void:

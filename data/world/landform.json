@@ -1,0 +1,21 @@
+{
+	"comment": "The procedural draft: the noise-driven base world Terrain.height() builds UNDER the blessed Strata tile (which replaces it where present). Valley's archipelago, moved out of game/world/terrain.gd's VALLEY_PATH/WALL_HEIGHT/SEABED consts and hardcoded noise seeds per FW4. A content-empty game ships no landform and falls back to terrain.gd's neutral defaults (no home valley, flat walls, generic noise). The draft's fixed amplitude profile (floor/wall/range/seabed multipliers) is the interpreter's shape and stays in terrain.gd + the native kernel — this record carries only the per-game parameters the kernel already takes via set_base/set_home.",
+	"valley": {
+		"comment": "Home valley centerline (behind spawn, past the pond, to the shrine); floor stays low and dense, walls rise into an enclosing ridge plateau.",
+		"path": [
+			[0, 220], [0, 0], [30, -160], [70, -310],
+			[95, -470], [120, -620], [130, -790]
+		],
+		"inner": 120.0,
+		"outer": 220.0,
+		"wall_height": 42.0
+	},
+	"seabed": -35.0,
+	"noise": {
+		"hills": {"seed": 7, "frequency": 0.0025, "octaves": 4, "ridged": false},
+		"dunes": {"seed": 40, "frequency": 0.03, "octaves": 5, "ridged": false},
+		"ranges": {"seed": 23, "frequency": 0.0007, "octaves": 3, "ridged": true},
+		"island": {"seed": 91, "frequency": 0.0015, "octaves": 2, "ridged": false},
+		"coast": {"seed": 55, "frequency": 0.001, "octaves": 5, "ridged": false}
+	}
+}

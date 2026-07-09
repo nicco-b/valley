@@ -162,7 +162,10 @@ var river_levels := PackedFloat32Array()
 # (the Watershed's domain ends at the home rect); the seabed comes from
 # the guard lerp in height().
 var sea_level := -1e12
-const SEABED := -35.0
+# Seabed depth under the world sea, outside the home guard. A landform
+# parameter (FW4): sourced from data/world/landform.json; SEABED_DEFAULT
+# is the framework's neutral fallback for a content-empty boot.
+var _seabed := SEABED_DEFAULT
 
 # The tide: a stateless function of the clock (sim-contract type (a),
 # like the sun and moon) — semidiurnal lunar period, so high water
@@ -313,16 +316,43 @@ func river_query(r: Dictionary, x: float, z: float) -> Dictionary:
 	var q := _river_probe(r, x, z)
 	return {"d": q.x, "half": q.y, "surface": q.z}
 
-# The home valley: an authored landform. Centerline from behind spawn,
-# past the pond, to the shrine; floor stays low and dense, walls rise
-# into an enclosing ridge plateau (doubles as the frontier rim).
-const VALLEY_PATH := [
-	Vector2(0, 220), Vector2(0, 0), Vector2(30, -160), Vector2(70, -310),
-	Vector2(95, -470), Vector2(120, -620), Vector2(130, -790),
-]
-const VALLEY_INNER := 120.0
-const VALLEY_OUTER := 220.0
-const WALL_HEIGHT := 42.0
+# The procedural draft (FW4): the noise-driven base world height() builds
+# under the blessed tile — a home valley cut into rolling ground, ridged
+# ranges beyond it, an archipelago sinking to the seabed outside the home
+# guard. It is a DRAFT: where a Strata tile is present it is entirely
+# replaced (the tile is the real ground). Its per-game PARAMETERS —
+# the home valley's centerline + shape, the wall height, the seabed, and
+# the five noise fields' seeds/frequencies — live in
+# data/world/landform.json; valley ships its archipelago as that record.
+# The framework file keeps only the interpreter and NEUTRAL defaults
+# (no home valley, flat walls, generic noise), so a content-empty game
+# boots on plain deterministic ground with no crash. This is the same
+# parameter boundary the native kernel already draws (set_base/set_home
+# take exactly these values); the draft's fixed amplitude profile
+# (floor/wall/range/seabed multipliers) stays baked in both the GDScript
+# reference and the C++ kernel as the interpreter's shape.
+const LANDFORM_PATH := "res://data/world/landform.json"
+const VALLEY_INNER_DEFAULT := 120.0
+const VALLEY_OUTER_DEFAULT := 220.0
+const WALL_HEIGHT_DEFAULT := 0.0
+const SEABED_DEFAULT := 0.0
+# Per noise field: seed, frequency, fractal octaves, ridged (else FBM).
+const NOISE_DEFAULT := {
+	"hills": {"seed": 0, "frequency": 0.0025, "octaves": 4, "ridged": false},
+	"dunes": {"seed": 0, "frequency": 0.03, "octaves": 5, "ridged": false},
+	"ranges": {"seed": 0, "frequency": 0.0007, "octaves": 3, "ridged": true},
+	"island": {"seed": 0, "frequency": 0.0015, "octaves": 2, "ridged": false},
+	"coast": {"seed": 0, "frequency": 0.001, "octaves": 5, "ridged": false},
+}
+
+# The home valley centerline (empty = no authored valley) and its cut
+# shape, loaded from LANDFORM_PATH. Read-only after _ready (workers sample
+# valley_factor via height()).
+var _valley_path := PackedVector2Array()
+var _valley_inner := VALLEY_INNER_DEFAULT
+var _valley_outer := VALLEY_OUTER_DEFAULT
+var _wall_height := WALL_HEIGHT_DEFAULT
+var _noise_cfg: Dictionary = NOISE_DEFAULT
 
 # Authored edit layer: a float heightmap sculpted in the Toolkit (and later
 # paintable externally), added on top of the base noise. World-anchored,
@@ -361,6 +391,7 @@ var _coast := FastNoiseLite.new()  # multi-octave: ragged coastlines
 
 func _ready() -> void:
 	_clock = get_node_or_null("/root/GameClock")
+	_load_landform()
 	_load_water()
 	_load_regions()
 	_load_biomes()
@@ -378,29 +409,66 @@ func _ready() -> void:
 	RenderingServer.global_shader_parameter_set("home_rect", Vector4(
 		_home_rect.position.x, _home_rect.position.y,
 		_home_rect.end.x, _home_rect.end.y))
-	_island.seed = 91
-	_island.frequency = 0.0015
-	_island.fractal_octaves = 2
-	_coast.seed = 55
-	_coast.frequency = 0.001
-	_coast.fractal_octaves = 5
-	_hills.seed = 7
-	_hills.frequency = 0.0025
-	_hills.fractal_octaves = 4
-	_dunes.seed = 40
-	_dunes.frequency = 0.03
-	# Real distant mountains ("if you can see it, you can go there"):
-	# ridged ranges that stay out of the home valley and rise beyond it.
-	_ranges.seed = 23
-	_ranges.frequency = 0.0007
-	_ranges.fractal_type = FastNoiseLite.FRACTAL_RIDGED
-	_ranges.fractal_octaves = 3
+	_configure_noise()
 	if FileAccess.file_exists(EDIT_PATH):
 		_edits = Image.load_from_file(ProjectSettings.globalize_path(EDIT_PATH))
 		_edits.convert(Image.FORMAT_RF)
 	else:
 		_edits = Image.create(EDIT_SIZE, EDIT_SIZE, false, Image.FORMAT_RF)
 	_init_kernel()
+
+
+# The procedural draft's parameters from data/world/landform.json, if a
+# game ships one — else the neutral defaults above stand (content-empty
+# boot law, FW1). Each field is independently overridable; a missing or
+# malformed field just leaves its default. Parsed directly (not via
+# Records) because Terrain autoloads before Records — the _load_water
+# idiom.
+func _load_landform() -> void:
+	if not FileAccess.file_exists(LANDFORM_PATH):
+		return
+	var cfg: Variant = JSON.parse_string(FileAccess.get_file_as_string(LANDFORM_PATH))
+	if not (cfg is Dictionary):
+		push_error("[terrain] bad landform record (not a dict): " + LANDFORM_PATH)
+		return
+	var v: Variant = cfg.get("valley")
+	if v is Dictionary:
+		if v.get("path") is Array:
+			var pts := PackedVector2Array()
+			for n in v["path"]:
+				if n is Array and (n as Array).size() == 2:
+					pts.append(Vector2(float(n[0]), float(n[1])))
+			_valley_path = pts
+		if typeof(v.get("inner")) in [TYPE_INT, TYPE_FLOAT]:
+			_valley_inner = float(v["inner"])
+		if typeof(v.get("outer")) in [TYPE_INT, TYPE_FLOAT]:
+			_valley_outer = float(v["outer"])
+		if typeof(v.get("wall_height")) in [TYPE_INT, TYPE_FLOAT]:
+			_wall_height = float(v["wall_height"])
+	if typeof(cfg.get("seabed")) in [TYPE_INT, TYPE_FLOAT]:
+		_seabed = float(cfg["seabed"])
+	if cfg.get("noise") is Dictionary:
+		_noise_cfg = cfg["noise"]
+
+
+# Apply the loaded noise config to the five FastNoiseLite fields. Setting
+# each property to its record value (octaves 5 / FBM being the engine
+# default) is a no-op where the record matches the default, so valley's
+# record reproduces the old hardcoded seeds bit-for-bit.
+func _configure_noise() -> void:
+	_apply_noise(_hills, _noise_cfg.get("hills", {}))
+	_apply_noise(_dunes, _noise_cfg.get("dunes", {}))
+	_apply_noise(_ranges, _noise_cfg.get("ranges", {}))
+	_apply_noise(_island, _noise_cfg.get("island", {}))
+	_apply_noise(_coast, _noise_cfg.get("coast", {}))
+
+
+func _apply_noise(n: FastNoiseLite, cfg: Dictionary) -> void:
+	n.seed = int(cfg.get("seed", 0))
+	n.frequency = float(cfg.get("frequency", 0.01))
+	n.fractal_octaves = int(cfg.get("octaves", 3))
+	n.fractal_type = FastNoiseLite.FRACTAL_RIDGED if bool(cfg.get("ridged", false)) \
+		else FastNoiseLite.FRACTAL_FBM
 
 
 # Load and configure the native kernel (no-op off macOS or without the
@@ -428,10 +496,10 @@ func _init_kernel() -> void:
 	kernel.set_coast(_coast)
 	kernel.set_base(_hills, _dunes, _ranges, _island, _edits,
 		float(EDIT_SIZE), EDIT_M_PER_PX, flat,
-		PackedVector2Array(VALLEY_PATH),
-		VALLEY_INNER, VALLEY_OUTER, WALL_HEIGHT)
+		_valley_path,
+		_valley_inner, _valley_outer, _wall_height)
 	kernel.set_home(_home_rect.position, _home_rect.end,
-		HOME_GUARD_IN, HOME_GUARD_OUT, sea_level, SEABED)
+		HOME_GUARD_IN, HOME_GUARD_OUT, sea_level, _seabed)
 	var lc := PackedVector2Array()
 	# Float64: lake records are read as doubles in GDScript; a float32
 	# hop here moved the pond by 5e-8 m and broke bit-parity.
@@ -484,7 +552,7 @@ func preview_tile(rec: Dictionary, p_sea_level: float) -> bool:
 		# kernel here was a torn-Ref crash under the auto-preview loop.)
 		kernel.set_tiles(_tiles)
 		kernel.set_home(_home_rect.position, _home_rect.end,
-			HOME_GUARD_IN, HOME_GUARD_OUT, sea_level, SEABED)
+			HOME_GUARD_IN, HOME_GUARD_OUT, sea_level, _seabed)
 	edited.emit(Rect2(tile.x0, tile.z0, tile.size, tile.size))
 	print("[terrain] preview tile worn (in memory): %s" % rec["heightmap"])
 	return true
@@ -570,14 +638,14 @@ func home_guard(x: float, z: float) -> float:
 func valley_factor(x: float, z: float) -> float:
 	var p := Vector2(x, z)
 	var d := 1e12
-	for i in VALLEY_PATH.size() - 1:
-		d = minf(d, _segment_distance(p, VALLEY_PATH[i], VALLEY_PATH[i + 1]))
-	return smoothstep(VALLEY_INNER, VALLEY_OUTER, d)
+	for i in _valley_path.size() - 1:
+		d = minf(d, _segment_distance(p, _valley_path[i], _valley_path[i + 1]))
+	return smoothstep(_valley_inner, _valley_outer, d)
 
 
 func height(x: float, z: float) -> float:
 	var floor_h := _hills.get_noise_2d(x, z) * 3.0 + _dunes.get_noise_2d(x, z) * 0.6
-	var wall_h := WALL_HEIGHT + _hills.get_noise_2d(x, z) * 22.0
+	var wall_h := _wall_height + _hills.get_noise_2d(x, z) * 22.0
 	var h := lerpf(floor_h, wall_h, valley_factor(x, z))
 	# Mountain ranges: absent near home, real and walkable beyond ~1.2km.
 	var range_envelope := smoothstep(1200.0, 2400.0, Vector2(x, z).length())
@@ -587,7 +655,7 @@ func height(x: float, z: float) -> float:
 	# endless mountains), and authored islands rise from records.
 	var guard := home_guard(x, z)
 	if guard > 0.0:
-		var seabed := SEABED + _hills.get_noise_2d(x, z) * 4.0 \
+		var seabed := _seabed + _hills.get_noise_2d(x, z) * 4.0 \
 			+ _dunes.get_noise_2d(x, z) * 1.5
 		h = lerpf(h, seabed, guard)
 		range_term *= 1.0 - guard

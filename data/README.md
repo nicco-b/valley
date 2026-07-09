@@ -27,6 +27,15 @@ used (`data/npcs/` comes back when inhabitants are rebuilt on the Strata
 world). Behavior emerges from needs × activities. Inspect live:
 Toolkit → RMB on an agent.
 
+## villagers/ — a named person with a daily life
+One file per villager: `{id, name, home, body_scene, schedule}` — an
+`AgentSim` mind (the wildlife pattern) that lives by the CLOCK, walking its
+`schedule` between placed markers or raw XZ, examinable by name. The
+`VillagerManager` autoload raises them; content-empty by default (valley
+ships none yet). Marker targets (`{"marker": "<record-id>"}`) resolve at
+schedule time with an honest fall-back-to-home if the marker is gone. See
+`data/villagers/README.md`.
+
 ## items/ — item definitions
 `{id, name, desc}`. Inventory lives in WorldState (`player.inventory`).
 World pickups are `game/items/pickup.tscn` instances with `item_id` + a

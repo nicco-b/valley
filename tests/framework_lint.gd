@@ -63,6 +63,11 @@ const ALLOWLIST: Array[Dictionary] = [
 	{"path": "game/world/terrain.gd", "rule": "content-id",
 		"literal": "sea",
 		"reason": "schema field key (water-body bool flag), not an id reference"},
+	{"path": "game/villagers/villager_manager.gd", "rule": "content-id",
+		"literal": "home",
+		"reason": "villager-record schema field key (spawn/rest position), not an id "
+			+ "reference — coincides with a watershed record id; the wildlife SCHEMA "
+			+ "uses the same key but rides as content (unscanned)"},
 	{"path": "game/player/player.gd", "rule": "asset-preload",
 		"literal": "res://assets/audio/steps",
 		"reason": "content marked in place — Q1 wants character records (none exist "

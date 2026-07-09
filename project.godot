@@ -67,6 +67,7 @@ Settings="*res://game/ui/settings.gd"
 PauseMenu="*res://game/ui/pause_menu.gd"
 Skills="*res://game/skills/skills.gd"
 Story="*res://game/story/story.gd"
+VillagerManager="*res://game/villagers/villager_manager.gd"
 
 [navigation]
 

@@ -71,6 +71,11 @@ func _load_card(path: String, base: String) -> void:
 		# freedom 1 (the shader's `hang` uniform).
 		"wind": str(rec.get("wind", "")),
 		"wind_hang": float(rec.get("wind_hang", 1.0)),
+		# The marker vocabulary (PLAN_CREATION_LIBRARY §4c: "a marker is a
+		# card with a keyword") — idle/furniture markers AI packages target
+		# ("something tends here"). "" for ordinary props; "marker" flags a
+		# placeable point a schedule can name (CREATION_KIT_REVIEW_V2 #3).
+		"keyword": str(rec.get("keyword", "")),
 	}
 	for f in files:
 		_by_file[f] = slot
@@ -90,6 +95,20 @@ func has(id: String) -> bool:
 ## object finds its card again (the fabric override needs its flags).
 func entry_for_file(path: String) -> Dictionary:
 	return _slots.get(_by_file.get(path, ""), {})
+
+
+## The keyword a placed file's card carries ("" when none) — the marker
+## vocabulary (§4c). Placement stores resolved files, so a placed record
+## finds its card's keyword through the same door the fabric flags use.
+func keyword_for_file(path: String) -> String:
+	return str(entry_for_file(path).get("keyword", ""))
+
+
+## Is the card that owns this placed file a marker (a schedule target)?
+## The palette/desk filter for "which cards are markers", and the honest
+## check behind a schedule pointing at a placed record.
+func is_marker(path: String) -> bool:
+	return keyword_for_file(path) == "marker"
 
 
 ## Slots whose card flags them for the wind-fabric override (F1).

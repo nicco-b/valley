@@ -33,6 +33,12 @@ var rng_stream := "npc"
 ## through its territory as a group.
 var roam_center := Vector2.INF
 var cohesion_radius := 30.0
+## Marker targeting (CREATION_KIT_REVIEW_V2 #3, schedules): an activity may
+## name a placed marker by its stable record id instead of a raw XZ; the
+## owning manager (VillagerManager, over CellRecords) wires this to turn
+## that id into the marker's live position. Left unset (wildlife, plain
+## agents) a marker target simply falls back to home — no coupling, no crash.
+var marker_resolver := Callable()  # (String id) -> Vector2 world XZ; INF if gone
 
 var needs_def: Dictionary = {}  # need -> drain weight
 var needs: Dictionary = {}  # need -> 0..100 (100 = content)
@@ -131,9 +137,22 @@ func _hours_gate(a: Dictionary) -> float:
 
 
 func resolve_at(a: Dictionary) -> Vector2:
-	if a.get("at") is Dictionary:
-		return Vector2(a.at.x, a.at.z)
-	if a.get("at") == "roam":
+	var at: Variant = a.get("at")
+	if at is Dictionary:
+		# A marker target (schedules #3): the activity names a placed marker
+		# by its stable cell-record id; the owner's resolver turns it into the
+		# marker's live XZ. Resolution happens HERE — at schedule time, when a
+		# new activity is chosen — so a marker the hand moved is honoured on
+		# the next decision. A marker that's GONE (deleted), or an agent with
+		# no resolver (wildlife), falls back to home: honest, never a crash.
+		if at.has("marker"):
+			if marker_resolver.is_valid():
+				var p: Vector2 = marker_resolver.call(String(at.marker))
+				if p.is_finite():
+					return p
+			return home
+		return Vector2(at.x, at.z)
+	if at == "roam":
 		var rng := Rng.stream(rng_stream)
 		var center := home
 		var radius := roam_range

@@ -324,6 +324,9 @@ func _test_toolkit_verbs(peer: StreamPeerTCP) -> void:
 	Toolkit.set_biome(5)
 	Toolkit.active = false
 	Toolkit.set_hud_visible(true)  # hud_on stays true; overlay dark (inactive)
+	# Leave the group NOW — queue_free is deferred, and the power probe
+	# next door must not find this ghost when it asserts "no player".
+	player.remove_from_group("player")
 	player.queue_free()
 
 

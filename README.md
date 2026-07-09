@@ -1,5 +1,7 @@
 # Valley (working title)
 
+[![ci](https://github.com/nicco-b/valley/actions/workflows/ci.yml/badge.svg)](https://github.com/nicco-b/valley/actions/workflows/ci.yml)
+
 An open-world RPG made by two people: a vast, seamless, lived-in world rendered
 in hand-painted illustration, built in Godot 4.
 

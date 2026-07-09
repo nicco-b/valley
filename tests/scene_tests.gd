@@ -2298,15 +2298,15 @@ func _test_flora() -> void:
 	var was_wet: float = Climate.wetness
 	Climate.wetness = 0.0
 	FloraLife.vitality = 0.1
-	WorldState.set_value("valley.parched", false)
-	WorldState.set_value("valley.bloom", false)
+	WorldState.set_value("flora.parched", false)
+	WorldState.set_value("flora.bloom", false)
 	FloraLife._hourly(0)
-	_check(WorldState.has_flag("valley.parched"), "dry + starved flora -> parched flag")
+	_check(WorldState.has_flag("flora.parched"), "dry + starved flora -> parched flag")
 	Climate.wetness = 1.0
 	FloraLife.vitality = 0.9
 	FloraLife._hourly(0)
-	_check(WorldState.has_flag("valley.bloom"), "soaked + thriving flora -> bloom flag")
-	_check(not WorldState.has_flag("valley.parched"), "recovery clears parched")
+	_check(WorldState.has_flag("flora.bloom"), "soaked + thriving flora -> bloom flag")
+	_check(not WorldState.has_flag("flora.parched"), "recovery clears parched")
 	# v2 — species records: loaded, validated, art slots fall back to grow.
 	_check(FloraLife.species.size() >= 6, "species records loaded")
 	var tuft: Dictionary = {}
@@ -2363,8 +2363,8 @@ func _test_flora() -> void:
 		FloraLife._regrow()
 	FloraLife.vitality = was_v
 	Climate.wetness = was_wet
-	WorldState.set_value("valley.bloom", false)
-	WorldState.set_value("valley.parched", false)
+	WorldState.set_value("flora.bloom", false)
+	WorldState.set_value("flora.parched", false)
 
 
 ## Moon phase: real synodic cycle, stateless in real time.
@@ -2808,7 +2808,7 @@ func _test_conditions_v2() -> void:
 
 
 ## The Dry Spell v2 end-to-end THROUGH THE REAL SIM (Q1's "done means"):
-## FloraLife mints valley.parched from real vitality, Story latches the
+## FloraLife mints flora.parched from real vitality, Story latches the
 ## root off the mirror; forced storms rain the valley green through real
 ## advance_hours catch-up, the terminal latches, and both memoir entries
 ## read in the J screen. The only pokes are sanctioned doors: the save
@@ -2823,7 +2823,7 @@ func _test_story_dry_spell_real() -> void:
 	for k: String in snap:
 		if not k.begins_with("journal.") and not k.begins_with("choice."):
 			clean[k] = snap[k]
-	clean["valley.parched"] = false
+	clean["flora.parched"] = false
 	clean["flora.vitality"] = 0.18
 	WorldState.restore(clean)
 	FloraLife.load_state()
@@ -2832,8 +2832,8 @@ func _test_story_dry_spell_real() -> void:
 	# Drought: the REAL hourly flora path mints the flag with hysteresis.
 	var day_before := int(WorldState.get_value("time.day", 0))
 	GameClock.advance_hours(2.0)
-	_check(WorldState.has_flag("valley.parched"),
-		"FloraLife mints valley.parched from real vitality")
+	_check(WorldState.has_flag("flora.parched"),
+		"FloraLife mints flora.parched from real vitality")
 	_check(Story.cycle_count("dry_spell") == 1, "the errand opens off the real mirror")
 	_check(Story.reached("dry_spell", "open"), "open latched")
 	_check(not Story.reached("dry_spell", "rains"), "rains waits for the weather")
@@ -2852,7 +2852,7 @@ func _test_story_dry_spell_real() -> void:
 	for i in 20:
 		Weather.force_kind("storm")
 		GameClock.advance_hours(24.0)
-		if not WorldState.has_flag("valley.parched"):
+		if not WorldState.has_flag("flora.parched"):
 			healed = true
 			break
 	_check(healed, "twenty storm days green the valley (vitality %.2f)" % FloraLife.vitality)

@@ -1,0 +1,35 @@
+{
+	"comment": "Weather's mood: the kind taxonomy (bundle of continuous properties per named kind) and the spawn chain between them (kind -> [[next kind, probability], ...], windward). Valley's own values, moved out of game/world/weather.gd's KINDS/TRANSITIONS (a desert default) per FW4. A content-empty game falls back to weather.gd's built-in desert kinds.",
+	"kinds": {
+		"calm": {"wind": 0.12, "rain": 0.0, "cloud": 0.08, "dust": 0.05,
+			"menace": 0.0, "speed": 2.2, "width": [7000.0, 16000.0]},
+		"overcast": {"wind": 0.22, "rain": 0.0, "cloud": 0.75, "dust": 0.0,
+			"menace": 0.15, "speed": 2.6, "width": [6000.0, 12000.0]},
+		"drizzle": {"wind": 0.3, "rain": 0.3, "cloud": 0.9, "dust": 0.0,
+			"menace": 0.3, "speed": 2.8, "width": [4000.0, 9000.0]},
+		"windy": {"wind": 0.55, "rain": 0.0, "cloud": 0.3, "dust": 0.35,
+			"menace": 0.2, "speed": 3.2, "width": [4000.0, 9000.0]},
+		"gale": {"wind": 0.85, "rain": 0.0, "cloud": 0.2, "dust": 0.9,
+			"menace": 0.55, "speed": 3.8, "width": [2800.0, 6000.0]},
+		"squall": {"wind": 0.95, "rain": 0.85, "cloud": 0.9, "dust": 0.1,
+			"menace": 0.9, "speed": 5.5, "width": [1100.0, 2400.0]},
+		"storm": {"wind": 1.0, "rain": 1.0, "cloud": 1.0, "dust": 0.05,
+			"menace": 1.0, "speed": 4.0, "width": [2600.0, 6500.0]}
+	},
+	"transitions": {
+		"calm": [["calm", 0.5], ["overcast", 0.16], ["windy", 0.16],
+			["gale", 0.08], ["drizzle", 0.05], ["squall", 0.02], ["storm", 0.03]],
+		"overcast": [["overcast", 0.28], ["calm", 0.22], ["drizzle", 0.24],
+			["storm", 0.12], ["squall", 0.06], ["windy", 0.08]],
+		"drizzle": [["overcast", 0.32], ["drizzle", 0.28], ["storm", 0.2],
+			["calm", 0.2]],
+		"windy": [["windy", 0.3], ["calm", 0.3], ["gale", 0.18],
+			["overcast", 0.12], ["squall", 0.1]],
+		"gale": [["calm", 0.34], ["gale", 0.26], ["windy", 0.22],
+			["squall", 0.18]],
+		"squall": [["calm", 0.3], ["overcast", 0.3], ["windy", 0.22],
+			["squall", 0.18]],
+		"storm": [["overcast", 0.36], ["drizzle", 0.24], ["storm", 0.2],
+			["calm", 0.2]]
+	}
+}

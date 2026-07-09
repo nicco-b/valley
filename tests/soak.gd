@@ -126,8 +126,8 @@ func _fingerprint(wildlife: Node) -> int:
 		str(Hydrology.lake_level),
 		str(Hydrology.river_storage),
 		GameClock.day,
-		WorldState.has_flag("valley.bloom"),
-		WorldState.has_flag("valley.parched"),
+		WorldState.has_flag("flora.bloom"),
+		WorldState.has_flag("flora.parched"),
 	]
 	for herd in wildlife.herds:
 		for ind in herd.individuals:

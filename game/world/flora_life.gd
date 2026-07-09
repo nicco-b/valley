@@ -23,7 +23,7 @@ extends Node
 ##                  wounds that haven't healed.
 ##
 ## Published as the flora_vitality global shader param (billboards tint
-## toward straw as it falls). Writes valley.bloom / valley.parched with
+## toward straw as it falls). Writes flora.bloom / flora.parched with
 ## hysteresis — sim-authored story-seed hooks ("The Dry Spell").
 ##
 ## Placeholder: stage art slots all point at the grow painting until her
@@ -180,8 +180,8 @@ func depletion_digest() -> String:
 func summary() -> String:
 	return "vitality=%.2f species=%d gathered_cells=%d%s%s" % [
 		vitality, species.size(), _cells.size(),
-		"  BLOOM" if WorldState.has_flag("valley.bloom") else "",
-		"  PARCHED" if WorldState.has_flag("valley.parched") else ""]
+		"  BLOOM" if WorldState.has_flag("flora.bloom") else "",
+		"  PARCHED" if WorldState.has_flag("flora.parched") else ""]
 
 
 func _hourly(_h: int) -> void:
@@ -192,18 +192,18 @@ func _hourly(_h: int) -> void:
 		vitality + (target - vitality) * EASE_PER_HOUR, 0.0, 1.0), 0.001)
 	WorldState.set_value("flora.vitality", vitality)
 	# Hysteresis on the flags so a boundary flicker can't spam story-seeds.
-	if vitality >= 0.8 and not WorldState.has_flag("valley.bloom"):
-		WorldState.set_value("valley.bloom", true)
+	if vitality >= 0.8 and not WorldState.has_flag("flora.bloom"):
+		WorldState.set_value("flora.bloom", true)
 		HUD.notify("the valley is blooming")
 		print("[flora] bloom (vitality %.2f)" % vitality)
-	elif vitality < 0.7 and WorldState.has_flag("valley.bloom"):
-		WorldState.set_value("valley.bloom", false)
-	if vitality <= 0.25 and not WorldState.has_flag("valley.parched"):
-		WorldState.set_value("valley.parched", true)
+	elif vitality < 0.7 and WorldState.has_flag("flora.bloom"):
+		WorldState.set_value("flora.bloom", false)
+	if vitality <= 0.25 and not WorldState.has_flag("flora.parched"):
+		WorldState.set_value("flora.parched", true)
 		HUD.notify("the valley is parched")
 		print("[flora] parched (vitality %.2f)" % vitality)
-	elif vitality > 0.35 and WorldState.has_flag("valley.parched"):
-		WorldState.set_value("valley.parched", false)
+	elif vitality > 0.35 and WorldState.has_flag("flora.parched"):
+		WorldState.set_value("flora.parched", false)
 	_regrow()
 
 

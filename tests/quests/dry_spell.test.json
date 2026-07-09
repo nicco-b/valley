@@ -1,19 +1,19 @@
 {
-	"comment": "The Dry Spell full arc (its one ending) + the un-complete regression: the harness fakes FloraLife by writing the mirror key it owns (valley.parched); a latched stage must survive the underlying fact reverting — nothing un-happens. Cooldown/re-arm mechanics ride cooldown_cycles.test.json (a harness-owned key, so long advances can't collide with the real flora sim).",
+	"comment": "The Dry Spell full arc (its one ending) + the un-complete regression: the harness fakes FloraLife by writing the mirror key it owns (flora.parched); a latched stage must survive the underlying fact reverting — nothing un-happens. Cooldown/re-arm mechanics ride cooldown_cycles.test.json (a harness-owned key, so long advances can't collide with the real flora sim).",
 	"quest": "dry_spell",
 	"script": [
 		{ "expect_cycles": 0 },
-		{ "set": { "valley.parched": true } },
+		{ "set": { "flora.parched": true } },
 		{ "expect_reached": "open" },
 		{ "expect_cycles": 1 },
 		{ "expect_not_reached": "rains" },
-		{ "set": { "valley.parched": false } },
+		{ "set": { "flora.parched": false } },
 		{ "expect_objective": ["open", "wait"] },
 		{ "expect_reached": "rains" },
-		{ "set": { "valley.parched": true } },
+		{ "set": { "flora.parched": true } },
 		{ "expect_reached": "rains" },
 		{ "expect_reached": "open" },
 		{ "expect_cycles": 1 },
-		{ "set": { "valley.parched": false } }
+		{ "set": { "flora.parched": false } }
 	]
 }

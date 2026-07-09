@@ -51,6 +51,7 @@ func _ready() -> void:
 	_test_edit_flush()
 	_test_budget()
 	await _test_threshold()
+	await _test_interior_hand()
 	_test_map()
 	_test_pause_esc_routing()
 	_test_embedded_pane_posture()
@@ -3735,6 +3736,190 @@ func _test_threshold() -> void:
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(cpath))
 	player.remove_from_group("player")
 	player.queue_free()
+
+
+## I2 — the hand inside (PLAN_INTERIORS §4). InteriorRecords is the
+## Chronicle's second book: while the player stands in a pocket the
+## Toolkit's place/select/move/delete/undo funnel targets THAT interior's
+## records (the active-book seam, toolkit `_book()`), the mementos carry
+## which store they touched so Z reverses across the threshold, and the
+## JSON on disk is the room (local coords, no ground_dy, y absolute).
+## Drives everything headless over a THROWAWAY interior so the hand-typed
+## smugglers' cellar is never clobbered.
+func _test_interior_hand() -> void:
+	var tid := "test_interior_hand"
+	var tpath := "%s/%s.json" % [InteriorRecords.DIR, tid]
+	# A throwaway interior: one exit-door row is enough to enter and leave.
+	var seed := {
+		"id": tid, "name": "the test cell", "light": "dark_warm",
+		"ambience": "", "placements": [
+			{"id": "ex", "kit": "res://assets/models/arch/village/door_01.glb",
+				"x": 0.0, "y": 0.0, "z": 2.0, "yaw": 0.0, "scale": 1.0,
+				"door": {"exit": true}}]}
+	var pre_existed := FileAccess.file_exists(tpath)
+	var f0 := FileAccess.open(tpath, FileAccess.WRITE)
+	f0.store_string(JSON.stringify(seed, "\t"))
+	f0.close()
+
+	# The definition loads through the book's own loader (the records-desk
+	# validate verb rides this) and answers {} for a missing id.
+	_check(not InteriorRecords._definition(tid).is_empty(),
+		"the interior book loads its definition")
+
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	# Enter the pocket far from anything; the door XZ sets the pocket origin.
+	var dx := 918.0 * 128.0
+	var dz := 918.0 * 128.0
+	var door_pos := Vector3(dx, Terrain.height(dx, dz), dz)
+	player.global_position = door_pos
+	Interiors.fade_seconds = 0.02
+	await Interiors.enter(tid, door_pos, 0.0, player)
+	_check(Interiors.inside and Interiors.interior_id == tid,
+		"the player crosses into the test interior")
+	var origin: Vector3 = Interiors._pocket.position
+
+	# The active book: inside, the hand's funnel points at InteriorRecords.
+	_check(Toolkit._book() == InteriorRecords, "inside, _book() is the interior book")
+	_check(InteriorRecords.active() == tid, "the book is focused on the interior")
+
+	Toolkit._enter()
+	Toolkit._tool = Toolkit.Tool.PLACE
+	Toolkit._snap_grid = false
+	Toolkit._snap_ground = false
+	Toolkit._snap_normal = false
+	ToolkitHistory.clear()
+	# A card slot, never a prefab entry (those append after the cards).
+	Toolkit._place_index = 0
+	if Toolkit._palette.is_empty() or Toolkit._palette[0].has("prefab"):
+		print("  interior hand: SKIP place (no card palette)")
+	else:
+		var world_cell: Vector2i = CellRecords.cell_of(door_pos)
+		var cells_before: int = CellRecords.records(world_cell).size()
+		var rows_before: int = InteriorRecords.records(Vector2i.ZERO).size()
+		# Place INSIDE at a floor hit — the record lands in the interior
+		# book, in WORLD coords, with no terrain seating (no ground_dy).
+		var hit := origin + Vector3(3.0, 0.5, 1.0)
+		Toolkit._place_at(hit)
+		var rows_after: int = InteriorRecords.records(Vector2i.ZERO).size()
+		_check(rows_after == rows_before + 1,
+			"place inside lands in the interior book (%d -> %d)" % [rows_before, rows_after])
+		_check(CellRecords.records(world_cell).size() == cells_before,
+			"place inside NEVER touches the world cells")
+		var placed: Dictionary = InteriorRecords.records(Vector2i.ZERO).back()
+		var pid := String(placed["id"])
+		_check(not placed.has("ground_dy"),
+			"an interior record carries no ground_dy (no terrain to anchor)")
+		_check(absf(float(placed.y) - hit.y) < 0.001,
+			"y is the raycast hit (snap-to-hit inside), absolute")
+
+		# Z undoes the interior place — in the interior book.
+		Toolkit._undo()
+		_check(InteriorRecords.record(Vector2i.ZERO, pid).is_empty(),
+			"Z removes the placed interior record")
+		_check(InteriorRecords.records(Vector2i.ZERO).size() == rows_before,
+			"the book is back to its before-count")
+
+		# Move + rotate a piece inside, then Z each — the edit funnels ride
+		# the active book, mementos and all.
+		Toolkit._place_at(origin + Vector3(-2.0, 0.5, -1.0))
+		var mid := String(InteriorRecords.records(Vector2i.ZERO).back()["id"])
+		Toolkit._pick_at(origin + Vector3(-2.0, 0.0, -1.0))
+		_check(Toolkit._sel_id == mid, "RMB picks the interior record")
+		var yaw0 := float(InteriorRecords.record(Vector2i.ZERO, mid).yaw)
+		Toolkit._sel_rotate(1.0)
+		_check(absf(float(InteriorRecords.record(Vector2i.ZERO, mid).yaw)
+				- wrapf(yaw0 + Toolkit.SEL_YAW_STEP, 0.0, TAU)) < 0.001,
+			"R turns the interior record")
+		Toolkit._sel_move_to(origin + Vector3(4.0, 0.7, 4.0))
+		var moved: Dictionary = InteriorRecords.record(Vector2i.ZERO, mid)
+		_check(absf(float(moved.x) - (origin.x + 4.0)) < 0.001
+				and absf(float(moved.y) - (origin.y + 0.7)) < 0.001,
+			"G moves the interior record to the floor hit (world coords)")
+		Toolkit._undo()  # undo the move
+		Toolkit._undo()  # undo the rotate
+		Toolkit._undo()  # undo the place
+		_check(InteriorRecords.record(Vector2i.ZERO, mid).is_empty(),
+			"three Z walk the interior edits all the way back")
+
+		# --- Undo ACROSS the threshold (the honest cross-store Z): place
+		# inside, step out, place in the world, then Z the world place and Z
+		# the interior place — each lands in the store it touched.
+		Toolkit._place_at(origin + Vector3(1.0, 0.4, 1.0))
+		var inside_id := String(InteriorRecords.records(Vector2i.ZERO).back()["id"])
+		await Interiors.exit(player)
+		_check(not Interiors.inside, "stepped back out to the world")
+		_check(Toolkit._book() == CellRecords, "outside, _book() is the world cells")
+		Toolkit._deselect()
+		var wcell: Vector2i = CellRecords.cell_of(door_pos)
+		var wbefore: int = CellRecords.records(wcell).size()
+		Toolkit._place_at(Vector3(dx, Terrain.height(dx, dz), dz))
+		_check(CellRecords.records(wcell).size() == wbefore + 1,
+			"place outside lands in the world cells")
+		var world_id := String(CellRecords.records(wcell).back()["id"])
+		Toolkit._undo()  # the newest action: the world place
+		_check(CellRecords.record(wcell, world_id).is_empty(),
+			"the first Z reverses the WORLD place (CellRecords)")
+		_check(not InteriorRecords.record(Vector2i.ZERO, inside_id).is_empty(),
+			"the interior record still stands (untouched by the world undo)")
+		Toolkit._undo()  # the older action: the interior place, from outside
+		_check(InteriorRecords.record(Vector2i.ZERO, inside_id).is_empty(),
+			"the second Z reaches BACK across the threshold to the interior book")
+
+	# --- The JSON on disk is the room: add a record, flush, and read the
+	# file back — LOCAL coords (world minus the pocket origin), header kept,
+	# no ground_dy. Then a fresh focus restores world coords.
+	InteriorRecords.focus(tid, origin)  # re-point (exit left the book intact)
+	var rec: Dictionary = InteriorRecords.add(
+		origin + Vector3(5.0, 0.25, -3.0), "kit_iface", 1.5, 1.1)
+	var rid := String(rec["id"])
+	InteriorRecords.flush()
+	_check(not InteriorRecords.has_dirty(), "flush clears the interior dirty ledger")
+	var on_disk: Variant = Records.load_json(tpath)
+	_check(on_disk is Dictionary and String((on_disk as Dictionary).get("name", ""))
+			== "the test cell", "the interior header survives a save")
+	var disk_rows: Array = (on_disk as Dictionary).get("placements", [])
+	var disk_rec: Dictionary = {}
+	for row: Dictionary in disk_rows:
+		if String(row.get("id", "")) == rid:
+			disk_rec = row
+	_check(not disk_rec.is_empty(), "the added record reached disk")
+	_check(absf(float(disk_rec.get("x", 1e9)) - 5.0) < 0.001
+			and absf(float(disk_rec.get("y", 1e9)) - 0.25) < 0.001
+			and absf(float(disk_rec.get("z", 1e9)) + 3.0) < 0.001,
+		"disk coords are LOCAL to the pocket origin (world minus origin)")
+	_check(not disk_rec.has("ground_dy"),
+		"the interior file carries no ground_dy (no terrain)")
+	# A fresh focus reads local off disk and restores world coords in memory.
+	InteriorRecords.focus(tid, origin)
+	var reread: Dictionary = InteriorRecords.record(Vector2i.ZERO, rid)
+	_check(not reread.is_empty()
+			and absf(float(reread.x) - (origin.x + 5.0)) < 0.001,
+		"a fresh focus restores world coords from the local file")
+
+	# Leave no trace: release the hand (Toolkit._exit wants the real player
+	# rig — release by hand as the other toolkit tests do), leave the pocket
+	# if still standing, restore the fade pace, drop the temp file + player.
+	Toolkit.set_tool("sculpt")  # restore the boot defaults later probes read
+	Toolkit.set_brush_m(12.0)
+	Toolkit.set_biome(5)
+	Toolkit._place_index = 0
+	Toolkit.active = false
+	Toolkit.set_process(false)
+	if Interiors.inside:
+		await Interiors.exit(player)
+	Interiors.fade_seconds = 0.35
+	if not pre_existed and FileAccess.file_exists(tpath):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(tpath))
+	var wcpath := "%s/cell_%d_%d.json" % [
+		CellRecords.DIR, CellRecords.cell_of(door_pos).x, CellRecords.cell_of(door_pos).y]
+	if FileAccess.file_exists(wcpath):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(wcpath))
+	player.remove_from_group("player")
+	player.queue_free()
+
+
 ## Conditions v2 (DESIGN_QUESTS §5): composition, the new predicates,
 ## flag-truthiness over latch dictionaries, mechanical key extraction,
 ## and the closed-table lint. The language is closed — these rows are

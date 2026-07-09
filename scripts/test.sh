@@ -27,6 +27,15 @@ echo "$QUEST_OUT" | grep -E "QUEST-HARNESS|LINT|FAIL|SCRIPT ERROR"
 echo "$QUEST_OUT" | grep -q "SCRIPT ERROR" && exit 1
 echo "$QUEST_OUT" | grep -q "QUEST-HARNESS PASS" || exit 1
 
+echo "== framework manifest lint (the fence, PLAN_FRAMEWORK FW5) =="
+# Static text scan over every file framework.json lists: no preloading
+# res://assets/ (content), no naming a data/ record's id, no writing an
+# un-namespaced valley.* shader-global key. No scene/autoloads needed —
+# same `godot -s` shape as the unit-tests pass above. Known pre-FW5 hits
+# ride in ALLOWLIST (branch-pending or residue, see tests/framework_lint.gd);
+# anything new fails for real.
+godot --headless -s tests/framework_lint.gd || exit 1
+
 # Filter: engine banners, benign exit-time audio warnings, and our own
 # "[system]" log lines (anything bracket-prefixed is intentional logging).
 FILTER="^Godot Engine|^Dummy|^\[|leaked|still in use|object.cpp|resource.cpp"

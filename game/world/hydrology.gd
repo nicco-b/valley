@@ -119,6 +119,16 @@ func _ready() -> void:
 			region_qref[r.id] = _region_qref(r))
 
 
+func _exit_tree() -> void:
+	# Reap the boot-time routing task before the tree (and the autoloads it
+	# reads — Terrain above all) tears down under it. A quit that lands
+	# inside the task's ~1s window otherwise aborts the process at exit —
+	# caught by the unit runner the moment unrelated boot timing shifted.
+	if _catch_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_catch_task)
+		_catch_task = -1
+
+
 func _ensure_catchments() -> void:
 	if _catchments_built:
 		return

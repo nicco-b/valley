@@ -116,7 +116,9 @@ func advance_hours(total: float) -> void:
 func _arm_determinism(on: bool) -> void:
 	_det_armed = on
 	if _det_available:
-		Engine.set_deterministic_section(on)
+		# call() not a direct call: stock GDScript REJECTS unknown methods on
+		# native singletons at PARSE time — has_method can't guard a parse error.
+		Engine.call(&"set_deterministic_section", on)
 
 
 ## Bracket GameClock's own real-world clock read: while the trap is armed,
@@ -125,12 +127,12 @@ func _arm_determinism(on: bool) -> void:
 ## nondeterminism the trap hunts (a sim handler reading the wall clock).
 func _clock_read_begin() -> void:
 	if _det_available and _det_armed:
-		Engine.set_deterministic_section(false)
+		Engine.call(&"set_deterministic_section", false)
 
 
 func _clock_read_end() -> void:
 	if _det_available and _det_armed:
-		Engine.set_deterministic_section(true)
+		Engine.call(&"set_deterministic_section", true)
 
 
 func _advance(dh: float) -> void:

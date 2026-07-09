@@ -156,6 +156,18 @@ func _process(delta: float) -> void:
 					_thread_build_terrain.bind(c, _terrain_res.get(c, TERRAIN_RES)))
 
 
+func _exit_tree() -> void:
+	# WorkerThreadPool ids must be waited on before the pool tears down.
+	# In-flight _thread_build_terrain/_thread_visual_mesh tasks touch
+	# _results_mutex, which dies with this node (the exit lock-on-null).
+	for c in _terrain_pending:
+		WorkerThreadPool.wait_for_task_completion(_terrain_pending[c])
+	_terrain_pending.clear()
+	for c in _visual_pending:
+		WorkerThreadPool.wait_for_task_completion(_visual_pending[c])
+	_visual_pending.clear()
+
+
 func _on_terrain_edited(world_rect: Rect2) -> void:
 	var c0 := Vector2i(roundi(world_rect.position.x / CELL_SIZE), roundi(world_rect.position.y / CELL_SIZE))
 	var c1 := Vector2i(roundi(world_rect.end.x / CELL_SIZE), roundi(world_rect.end.y / CELL_SIZE))

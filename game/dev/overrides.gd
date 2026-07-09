@@ -24,6 +24,14 @@ extends Node
 ##       "cell": [int, int]             # the cell file it lives in
 ##     }, ...
 ##   },
+##   "scatter": {                       # P4 scatter half (strata M4): the hand's
+##     "<id>": {                        #   edits to BAKED-scatter instances,
+##       "op": "move" | "delete",       #   keyed by their seed-independent id.
+##       "x": float, "y": float, "z": float,   # move payload (absolute meters)
+##       "yaw": float, "scale": float,
+##       "cat": String, "pick": float   # so a re-roll that rejects the candidate
+##     }, ...                           #   can still force-add it (Strata's
+##   },                                 #   scatter export replays these last)
 ##   "terrain": {
 ##     "layers": [                      # additive hand-work layers, meters,
 ##       {                              #   composited over the blessed bake
@@ -74,18 +82,25 @@ func _ready() -> void:
 func emit() -> Dictionary:
 	var placements := _gather_placements()
 	var layers := _gather_layers()
+	# The hand's baked-scatter edits (ScatterHand's own store) ride the seam
+	# artifact so Strata replays them on the next re-bake. Absent (no baked
+	# scatter, or none edited) the key is omitted — pre-M4 artifacts unchanged.
+	var scatter: Dictionary = ScatterHand.deltas().duplicate(true)
 	var doc := {
 		"format": FORMAT,
 		"placements": placements,
 		"terrain": {"layers": layers},
 	}
+	if not scatter.is_empty():
+		doc["scatter"] = scatter
 	var text := JSON.stringify(doc, "\t", true) + "\n"
 	# Unchanged content skips the write: no mtime churn, no git noise.
 	if FileAccess.get_file_as_string(FILE) != text:
 		DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(DIR))
 		_write_atomic(FILE, text.to_utf8_buffer())
 	pending = false
-	return {"placements": placements.size(), "layers": layers.size()}
+	return {"placements": placements.size(), "layers": layers.size(),
+		"scatter": scatter.size()}
 
 
 ## One status line for the link verb (`overrides status`) — Strata's UI
@@ -102,8 +117,9 @@ func status_line() -> String:
 	var n_layers := 0
 	if parsed is Dictionary:
 		n_layers = (parsed.get("terrain", {}) as Dictionary).get("layers", []).size()
-	return "overrides placements=%d layers=%d pending=%s last_write=%s file=%s" % [
-		n_placements, n_layers, "yes" if pending else "no", last,
+	var n_scatter := ScatterHand.deltas().size()
+	return "overrides placements=%d layers=%d scatter=%d pending=%s last_write=%s file=%s" % [
+		n_placements, n_layers, n_scatter, "yes" if pending else "no", last,
 		FILE.trim_prefix("res://")]
 
 

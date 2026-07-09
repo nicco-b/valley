@@ -165,6 +165,13 @@ func _init() -> void:
 			else out_dir
 	var hydro_counts := _import_hydrology(world_dir, water_out, manifest)
 
+	# --- baked scatter (strata M4): copy world_vN/scatter/ into the game so
+	# the streamer instances Strata's frozen, id-stable props instead of
+	# rolling. Absent (pre-M4 export) leaves the game on its runtime roll. ---
+	var scatter_out := ProjectSettings.globalize_path("res://data/scatter/baked") if not scratch \
+			else out_dir.path_join("scatter")
+	var scatter_cells := _import_scatter(world_dir, scatter_out)
+
 	# Sync the game sea to the manifest's sea level (the ONE sea-level
 	# source) so the shallows read as water, not land.
 	if not scratch:
@@ -187,6 +194,10 @@ func _init() -> void:
 			hydro_counts.x, hydro_counts.y, hydro_counts.z])
 	else:
 		print("  no hydrology.json (pre-P2 export) — water records cleared, world loads as before")
+	if scatter_cells >= 0:
+		print("  scatter: %d baked cell(s) — streamer instances Strata's props" % scatter_cells)
+	else:
+		print("  no scatter/ (pre-M4 export) — baked scatter cleared, runtime roll dresses the world")
 	print("  the world is live (running game hot-reloads the tile). Walk it: ./scripts/run.sh")
 
 	# --- the completion stamp (strata post-bless atomicity) ---
@@ -533,6 +544,60 @@ func _import_hydrology(world_dir: String, out_dir: String, manifest: Dictionary)
 		}
 		_write_json(out_dir.path_join("%s.json" % rec["id"]), rec)
 	return Vector3i(rivers.size(), lakes.size(), falls_total)
+
+
+## Copy Strata's baked scatter (world_vN/scatter/) into the game's cache dir
+## (data/scatter/baked/), byte-for-byte, each cell file's sha256 verified
+## against the scatter manifest. Cleared first so the baked props always match
+## the tile beside them. A pre-M4 export (no scatter/) just clears and returns
+## -1 (the world dresses itself via the runtime roll, exactly as before).
+## Returns the number of baked cell files written. `out` is an ABSOLUTE dir
+## (data/scatter/baked or the scratch mirror), never res:// — DirAccess wants
+## globalized paths here.
+func _import_scatter(world_dir: String, out: String) -> int:
+	_clear_scatter(out)
+	var man_path := world_dir.path_join("scatter/manifest.json")
+	if not FileAccess.file_exists(man_path):
+		return -1
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(man_path))
+	if not (parsed is Dictionary and (parsed as Dictionary).has("cells")):
+		push_error("bad scatter manifest — refusing")
+		return -1
+	var manifest: Dictionary = parsed
+	DirAccess.make_dir_recursive_absolute(out)
+	var written := 0
+	for cell: Variant in manifest.get("cells", []):
+		if not (cell is Dictionary):
+			continue
+		var file: String = cell.get("file", "")
+		var src := world_dir.path_join("scatter/" + file)
+		if not FileAccess.file_exists(src):
+			push_error("scatter cell missing: %s — refusing" % file)
+			return -1
+		var want: String = cell.get("sha256", "")
+		if not want.is_empty() and FileAccess.get_sha256(src) != want:
+			push_error("scatter cell %s sha256 mismatch — refusing" % file)
+			return -1
+		if DirAccess.copy_absolute(src, out.path_join(file)) != OK:
+			push_error("copy scatter cell %s failed" % file)
+			return -1
+		written += 1
+	# The manifest last — its presence is what has_baked() keys on.
+	if DirAccess.copy_absolute(man_path, out.path_join("manifest.json")) != OK:
+		push_error("copy scatter manifest failed")
+		return -1
+	return written
+
+
+## Wipe the baked-scatter cache dir (manifest + cell files) so a re-import or a
+## pre-M4 export never leaves stale props behind.
+func _clear_scatter(dir_path: String) -> void:
+	var dir := DirAccess.open(dir_path)
+	if dir == null:
+		return
+	for f in dir.get_files():
+		if f == "manifest.json" or (f.begins_with("cell_") and f.ends_with(".json")):
+			dir.remove(f)
 
 
 ## Delete hyd_*.json from one directory (imported-water cache invalidation).

@@ -61,6 +61,21 @@ extends Node
 ##                               may carry spaces (slot is one token, the
 ##                               rest is the path). "ok thumbnail <slot>
 ##                               <w>x<h> <path>" on success.
+##   flyover <s> <pattern>    -> the world as a FRAME SEQUENCE (Strata's
+##                               Export Flyover…): the Toolkit's orbit rig
+##                               frames the whole tile and sweeps one full
+##                               turn while every step is captured to
+##                               <pattern> (a printf %d slot, e.g.
+##                               fly_%04d.png; path may carry spaces).
+##                               <s> is the ASSEMBLED length in seconds at
+##                               12 fps (frames = s×12, capped 600) — an
+##                               honest v1: frames on disk + an ffmpeg
+##                               note, never a fake video container. Async
+##                               like thumbnail (each frame awaits a real
+##                               draw); the view mode is restored after.
+##                               "ok flyover <n> frames <w>x<h> <pattern>";
+##                               errs headless (dummy renderer), toolkit
+##                               inactive, bad pattern, or unwritable path.
 ##   weather <kind>           -> Weather.force_kind (calm/storm/... )
 ##   time +<hours>            -> advance the clock by float hours
 ##   time <0..24>             -> advance FORWARD to the next occurrence of
@@ -256,7 +271,7 @@ const PROTOCOL := 1
 ## The scene tests assert this list matches the dispatcher's match arms
 ## exactly, both ways: add a verb there and it MUST land here too.
 const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "reload_world",
-	"teleport", "screenshot", "thumbnail", "meshstats", "weather", "time",
+	"teleport", "screenshot", "thumbnail", "flyover", "meshstats", "weather", "time",
 	"preview_world", "preview_mesh", "preview_shared", "render_device",
 	"camera", "view", "view_layer", "probe",
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
@@ -328,6 +343,12 @@ func _process(_delta: float) -> void:
 			if line == "thumbnail" or line.begins_with("thumbnail "):
 				_rendering = true
 				reply = await _thumbnail_command(line)
+				_rendering = false
+			elif line == "flyover" or line.begins_with("flyover "):
+				# The other async verb: the sweep spans many frames; the
+				# same fence holds _process off while frames land.
+				_rendering = true
+				reply = await _flyover_command(line)
 				_rendering = false
 			else:
 				reply = _execute(line)
@@ -406,6 +427,14 @@ func _execute(line: String) -> String:
 			if parts.size() < 3:
 				return "err thumbnail needs <slot> <path>"
 			return "err thumbnail renders async — send it over the link"
+		"flyover":
+			# The flyover sweep is ASYNC too (frames land across many draws)
+			# — the socket path routes full commands through _flyover_command;
+			# this arm answers the arg check (the `verbs` live-probe sends it
+			# bare) and directs a direct caller to the coroutine.
+			if parts.size() < 3:
+				return "err flyover needs <seconds> <out.png-pattern>"
+			return "err flyover renders async — send it over the link"
 		"meshstats":
 			# Drop-time sanity (audit R6): the game reads the slot's resolved
 			# glb natively — Strata can't — so it answers tri count, surface
@@ -1308,6 +1337,68 @@ func _thumbnail_command(line: String) -> String:
 	var slot: String = parts[1]
 	var path := line.substr(len("thumbnail") + 1 + len(slot) + 1).strip_edges()
 	return await _thumbnail(slot, path)
+
+
+## Parse and serve a `flyover <seconds> <pattern>` line (the map+flyover
+## wave). Seconds is one token; everything after it is the frame pattern
+## (paths may carry spaces). Awaits the whole sweep; one reply line.
+func _flyover_command(line: String) -> String:
+	var parts := line.split(" ", false)
+	if parts.size() < 3:
+		return "err flyover needs <seconds> <out.png-pattern>"
+	if not parts[1].is_valid_float():
+		return "err flyover seconds must be a number"
+	var seconds := clampf(float(parts[1]), 1.0, 50.0)
+	var pattern := line.substr(len("flyover") + 1 + len(parts[1]) + 1).strip_edges()
+	if pattern.count("%") != 1 or not pattern.ends_with(".png"):
+		return "err flyover pattern needs one %d frame slot ending .png (e.g. fly_%04d.png)"
+	return await _flyover(seconds, pattern)
+
+
+## The flyover itself: assert the orbit posture (the rig frames the whole
+## tile — the viewer's boot look), sweep azimuth one full turn, and save
+## the main viewport after every REAL draw. 12 fps of assembled time: the
+## honest v1 ships frames + an ffmpeg line, not a video container. The
+## view mode the user held is restored on every exit path.
+func _flyover(seconds: float, pattern: String) -> String:
+	if DisplayServer.get_name() == "headless":
+		return "err flyover no image (headless dummy renderer draws nothing — needs the live pane)"
+	if not Toolkit.active:
+		return "err toolkit not active"
+	var frames := clampi(int(seconds * 12.0), 12, 600)
+	var was_orbit: bool = Toolkit.orbit
+	Toolkit.set_view_mode(true)
+	var start_az: float = Toolkit.flyover_azimuth()
+	var w := 0
+	var h := 0
+	for i in frames:
+		Toolkit.flyover_pose(start_az + TAU * float(i) / float(frames))
+		# One processed frame seats the rig on the camera; the post-draw
+		# beat guarantees the read-back sees THIS frame (the thumbnail
+		# lesson — and never awaited headless, where it would wedge).
+		await get_tree().process_frame
+		await RenderingServer.frame_post_draw
+		var img := get_viewport().get_texture().get_image()
+		if img == null or img.is_empty():
+			_flyover_restore(was_orbit)
+			return "err flyover no viewport image at frame %d" % i
+		var err := img.save_png(pattern % i)
+		if err != OK:
+			_flyover_restore(was_orbit)
+			return "err flyover save_png %d -> %s" % [err, pattern % i]
+		w = img.get_width()
+		h = img.get_height()
+	_flyover_restore(was_orbit)
+	return "ok flyover %d frames %dx%d %s" % [frames, w, h, pattern]
+
+
+## Hand the view back after a sweep: the orbit posture re-frames the tile
+## (undoing the cinematic pose); a fly-mode user gets the fly camera back.
+func _flyover_restore(was_orbit: bool) -> void:
+	if was_orbit:
+		Toolkit.set_view_mode(true)  # frame_tile resets the rig
+	else:
+		Toolkit.set_view_mode(false)
 
 
 ## Render one slot's resolved art to a transparent PNG (audit R6). A slot

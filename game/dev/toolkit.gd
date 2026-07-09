@@ -272,6 +272,25 @@ func set_view_mode(p_orbit: bool) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+## The flyover's steering doors (StrataLink `flyover`). The orbit
+## _process seats the camera every frame, so the sweep only turns these
+## dials. flyover_pose is the CINEMATIC look — lower and closer than the
+## chart posture (the steep frame_tile angle reads as a survey, not a
+## flight); the caller restores the posture after (set_view_mode(true)
+## re-frames the tile).
+func flyover_azimuth() -> float:
+	return _orbit.azimuth
+
+
+func flyover_pose(azimuth: float) -> void:
+	_orbit.azimuth = azimuth
+	_orbit.elevation = 0.42
+	var size := Terrain.world_tile_size()
+	if size <= 0.0:
+		size = 16384.0
+	_orbit.distance = clampf(size * 0.7, _orbit.min_distance, _orbit.max_distance)
+
+
 ## Dress the orbit camera in the chart air (the world's air minus the
 ## fogs — OrbitRig.chart_environment) so time-of-day and weather read
 ## without the tile-distance haze whiting the whole view to a beige slab.

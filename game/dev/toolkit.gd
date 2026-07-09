@@ -53,6 +53,14 @@ const GRID_STEP_DEFAULT := 4.0
 const NORMAL_EPS := 1.0       # metres east/north for the finite-difference normal
 const DUP_NUDGE := 3.0        # in-place duplicate offset (the `duplicate` link verb)
 
+# PREFAB capture (§2.1): the hand picks ONE piece of a composed place, then
+# K sweeps up everything within this reach of it and saves the cluster as a
+# reusable record. A proximity gather is the v1 that fits CURRENT main's
+# single selection — a box-select set (the gizmos sibling's work) supersedes
+# it the moment it lands (capture_prefab already takes an explicit record
+# list; only the gather in front of it changes).
+const PREFAB_CAPTURE_M := 8.0
+
 enum Tool { SCULPT, PLACE, TERRAIN, BIOME, RIVER }
 const TOOL_NAMES: Array[String] = ["sculpt", "place", "terrain", "biome", "river"]
 
@@ -203,7 +211,7 @@ func _ready() -> void:
 		# without needing a strata_link probe.
 		print("[toolkit] DisplayServer.get_name()=%s cmdline_args=%s embedded_pane()=%s" % [
 			DisplayServer.get_name(), OS.get_cmdline_args(), embedded_pane()])
-	_palette = Cards.placeable()  # card-driven PLACE palette (the Kit from cards)
+	_rebuild_palette()  # the Kit: cards + captured prefabs (§2.1)
 	hud_on = not viewer_requested()  # the viewer posture boots dark (P8)
 	if launch_requested():
 		if get_tree().get_first_node_in_group("player") != null:
@@ -445,6 +453,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			and event.physical_keycode == KEY_N:
 		# Navmesh overlay: see what the world thinks is walkable.
 		NavigationServer3D.set_debug_enabled(not NavigationServer3D.get_debug_enabled())
+	elif _tool == Tool.PLACE and event is InputEventKey and event.pressed \
+			and not event.echo and event.physical_keycode == KEY_K:
+		# K — keep the selection's cluster as a prefab (§2.1). Quick capture
+		# auto-names; the link's `prefab save <name>` names it.
+		capture_prefab()
 	elif event.is_action_pressed("ui_cancel"):
 		# Esc deselects first; a second Esc releases the mouse as before.
 		if _tool == Tool.PLACE and _sel_id != "":
@@ -575,6 +588,10 @@ func _place_at(hit: Vector3) -> void:
 	if _palette.is_empty():
 		return
 	var slot: Dictionary = _palette[_place_index % _palette.size()]
+	# A prefab entry stamps its whole cluster as ONE undoable action.
+	if slot.has("prefab"):
+		_place_prefab_at(hit, String(slot["prefab"]))
+		return
 	# Store the RESOLVED file (deterministic variant by position),
 	# never the slot — retiring a placeholder can't move it.
 	var file: String = Cards.resolve(slot["slot"],
@@ -595,6 +612,107 @@ func _place_at(hit: Vector3) -> void:
 		rec = CellRecords.record(c, String(rec.id))
 	# undo removes THIS record by id; redo re-lays it (before = {} absent).
 	ToolkitHistory.push(_record_action("place", {}, rec.duplicate()))
+
+
+# --- PREFABS (§2.1: composition as a first-class Creation Kit power). A
+# prefab is a record (data/prefabs/<name>.json); placing it stamps every
+# member as an ordinary cell record — so the overrides law (P4) and undo v2
+# (R3) both hold by construction, no new machinery. The palette carries
+# prefab entries beside the cards (see _rebuild_palette); K captures the
+# selection's cluster into a new one.
+
+
+## Stamp a prefab at a ground hit: every member lands via CellRecords.add
+## (re-seated on the CURRENT ground + its captured ground_dy — the
+## regeneration law), and the whole set pushes ONE ToolkitHistory action so
+## a single Z removes the whole stamp. Empty / unknown prefab is a no-op.
+func _place_prefab_at(hit: Vector3, name: String) -> void:
+	var mem: Array = Prefabs.members(name)
+	if mem.is_empty():
+		return
+	var placed: Array = []
+	for m: Dictionary in mem:
+		var px := hit.x + float(m.get("dx", 0.0))
+		var pz := hit.z + float(m.get("dz", 0.0))
+		var py := Terrain.height(px, pz) + float(m.get("ground_dy", 0.0))
+		var rec: Dictionary = CellRecords.add(Vector3(px, py, pz),
+				String(m.get("kit", "")), float(m.get("yaw", 0.0)),
+				float(m.get("scale", 1.0)))
+		placed.append(rec.duplicate())
+	ToolkitHistory.push(_prefab_action(placed))
+	HUD.notify("placed prefab '%s' (%d pieces) — Z undoes all" % [name, placed.size()])
+
+
+## One undo action for a whole prefab stamp: undo removes every placed
+## member by id, redo re-inserts them exactly (ids and all). Mirrors the
+## single-record place action's write-through, batched.
+func _prefab_action(recs: Array) -> Dictionary:
+	return {"label": "prefab",
+		"undo": func() -> void:
+			for r: Dictionary in recs:
+				CellRecords.remove(
+					CellRecords.cell_of(Vector3(float(r.x), 0.0, float(r.z))),
+					String(r.id)),
+		"redo": func() -> void:
+			for r: Dictionary in recs:
+				CellRecords.insert((r as Dictionary).duplicate())}
+
+
+## Capture the selection's cluster as a prefab (K, and the link's `prefab
+## save`). The v1 gather is proximity: the picked piece anchors a sweep of
+## everything within PREFAB_CAPTURE_M of it (a box-select set supersedes
+## this when it lands — Prefabs.capture already takes an explicit list).
+## An empty name auto-numbers. Returns the member count captured (0 =
+## nothing selected, or the write failed), and rebuilds the palette so the
+## new prefab is immediately placeable.
+func capture_prefab(name := "", radius := PREFAB_CAPTURE_M) -> int:
+	var anchor := _selected()
+	if anchor.is_empty():
+		HUD.notify("prefab: pick a piece first (RMB), then K to save")
+		return 0
+	var cluster := CellRecords.within(
+			Vector3(float(anchor.x), 0.0, float(anchor.z)), radius)
+	if cluster.is_empty():
+		return 0
+	var nm: String = name if name != "" else _auto_prefab_name()
+	var pf: Dictionary = Prefabs.capture(nm, cluster)
+	if pf.is_empty():
+		HUD.notify("prefab: could not save '%s'" % nm)
+		return 0
+	_rebuild_palette()
+	HUD.notify("saved prefab '%s' (%d pieces) — pick it in PLACE" % [nm, cluster.size()])
+	return cluster.size()
+
+
+## First free auto name (prefab_1, prefab_2, …) — the K key's quick capture
+## when the hand can't type a name; the link's `prefab save <name>` names it.
+func _auto_prefab_name() -> String:
+	var n := 1
+	while Prefabs.has("prefab_%d" % n):
+		n += 1
+	return "prefab_%d" % n
+
+
+## The PLACE palette: the card Kit, then the captured prefabs (marked with a
+## `prefab` key the placer branches on). Rebuilt at boot and after each
+## capture so a fresh prefab is placeable at once.
+func _rebuild_palette() -> void:
+	var kept := ""
+	if not _palette.is_empty():
+		kept = String(_palette[_place_index % _palette.size()].get("slot", ""))
+	_palette = Cards.placeable()
+	for name: String in Prefabs.names():
+		_palette.append({
+			"slot": "prefab/" + name, "category": "prefab", "class": "prefab",
+			"variants": Prefabs.members(name).size(),
+			"status": "prefab", "prefab": name,
+		})
+	# Keep the hand on the same slot across a rebuild when it still exists.
+	if kept != "":
+		for i in _palette.size():
+			if String(_palette[i].get("slot", "")) == kept:
+				_place_index = i
+				break
 
 
 ## The selected record, straight from the Chronicle ({} when nothing is
@@ -1627,7 +1745,7 @@ func _update_hud() -> void:
 			if not sel.is_empty():
 				var grp := "  (+%d group: G moves all · Alt+G duplicates)" % extra \
 						if extra > 0 else ""
-				_hud_label.text += "\nSEL %s #%s  yaw %.0f°  ×%.2f%s   |   G move (drag · Alt=dup) · R rotate (Shift back) · , . scale · X delete · Z undo · Esc deselect" % [
+				_hud_label.text += "\nSEL %s #%s  yaw %.0f°  ×%.2f%s   |   G move (drag · Alt=dup) · R rotate (Shift back) · , . scale · X delete · K save prefab · Z undo · Esc deselect" % [
 					String(sel.kit).get_file().get_basename(),
 					String(sel.get("id", "?")), rad_to_deg(float(sel.yaw)),
 					float(sel.get("scale", 1.0)), grp]
@@ -1747,6 +1865,7 @@ func link_keys() -> String:
 		_key_of("snap_grid") + "=snapgrid",
 		"Shift+RMB=box",
 		"Alt+" + _key_of("place_move") + "=duplicate",
+		"K=prefab",
 		"O=panel",
 		"N=navmesh",
 		_key_of("map") + "=map",

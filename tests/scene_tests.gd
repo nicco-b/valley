@@ -45,6 +45,7 @@ func _ready() -> void:
 	await _test_threshold()
 	_test_map()
 	_test_pause_esc_routing()
+	_test_embedded_pane_posture()
 	_test_story_dry_spell_real()
 	await _test_strata_link()
 	if _failures > 0:
@@ -1079,6 +1080,21 @@ func _test_pause_esc_routing() -> void:
 		"open map closes first (standalone)")
 	_check(PauseMenu._esc_action(true, false, true, true) == A.CLOSE_MAP,
 		"open map closes first (embedded)")
+
+
+## TICKET (take 2): `--embedded` doesn't survive to OS.get_cmdline_args()
+## inside the real pane, so Toolkit.embedded_pane() now trusts the display
+## server's own name first. Both injectable params are exercised so the
+## posture is provable without a live embedded boot.
+func _test_embedded_pane_posture() -> void:
+	_check(Toolkit.embedded_pane("embedded", PackedStringArray()),
+		"display server name \"embedded\" reads as the pane, even with no args")
+	_check(not Toolkit.embedded_pane("macOS", PackedStringArray()),
+		"standalone desktop (\"macOS\") is not the pane")
+	_check(not Toolkit.embedded_pane("headless", PackedStringArray()),
+		"a headless probe (\"headless\") is not the pane")
+	_check(Toolkit.embedded_pane("macOS", PackedStringArray(["--embedded"])),
+		"the --embedded arg still counts, as a harmless OR")
 
 
 func _test_placement_reseat() -> void:

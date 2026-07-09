@@ -136,17 +136,38 @@ static func viewer_requested() -> bool:
 
 
 ## The EMBEDDED-PANE posture (ONE_APP P3.5): the game runs INSIDE Strata's
-## live pane on the SwiftGodotKit embedded display driver, which boots the
-## engine with `--embedded` (GodotApp.start, macOS branch). Standalone play
+## live pane on the SwiftGodotKit embedded display driver. Standalone play
 ## — Play (Own Window), a shipped game — never carries it. The pane owns Esc
 ## as a pointer-release back to Strata's chrome, not the Campfire's save/quit
-## menu (that quit would kill an engine libgodot can't restart). An engine
-## arg, so it rides `get_cmdline_args()`, not the game's own `--` user args.
-static func embedded_pane() -> bool:
-	return OS.get_cmdline_args().has("--embedded")
+## menu (that quit would kill an engine libgodot can't restart).
+##
+## TICKET (take 2): `--embedded` is appended to GodotApp.start's engine-arg
+## array, but it doesn't survive to `OS.get_cmdline_args()` inside the pane
+## (lost somewhere between SwiftGodotKit's args array and libgodot's argv
+## parse — still unconfirmed which layer eats it). So the truth now lives in
+## the display server itself, not the args pipeline: libgodot's embedded
+## driver (platform/macos/display_server_macos_embedded.mm, registered via
+## DisplayServerEmbedded::register_embedded_driver in libgodot_macos.mm)
+## returns get_name() == "embedded". Headless probes report "headless"
+## (servers/display/display_server_headless.h); normal desktop play reports
+## "macOS" (platform/macos/display_server_macos.mm). The arg check rides
+## along as a harmless OR — costs nothing, catches it if some future path
+## does thread the flag through.
+##
+## `_display_name` / `_args` are injectable (default to the live engine
+## calls) so tests can drive every posture without a real embedded boot.
+static func embedded_pane(_display_name: String = DisplayServer.get_name(),
+		_args: PackedStringArray = OS.get_cmdline_args()) -> bool:
+	return _display_name == "embedded" or _args.has("--embedded")
 
 
 func _ready() -> void:
+	if OS.is_debug_build():
+		# TICKET (take 2): one-line boot print so the NEXT live embedded
+		# launch confirms embedded_pane()'s signal in Nicco's own log,
+		# without needing a strata_link probe.
+		print("[toolkit] DisplayServer.get_name()=%s cmdline_args=%s embedded_pane()=%s" % [
+			DisplayServer.get_name(), OS.get_cmdline_args(), embedded_pane()])
 	_palette = Cards.placeable()  # card-driven PLACE palette (the Kit from cards)
 	hud_on = not viewer_requested()  # the viewer posture boots dark (P8)
 	if launch_requested():

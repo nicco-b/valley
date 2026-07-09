@@ -25,8 +25,8 @@
 			"game/world/far_terrain.gd",
 			"game/world/nav.gd",
 			"game/shaders/terrain.gdshader",
-			"native/bin/valleykernel.gdext",
-			"native/bin/libvalleykernel.macos.dylib"
+			"native/bin/loomkernel.gdext",
+			"native/bin/libloomkernel.macos.dylib"
 		],
 		"watershed": [
 			"game/world/hydrology.gd",

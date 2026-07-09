@@ -23,6 +23,8 @@ void TerrainKernel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_home", "pos", "end", "in", "out",
 								  "sea", "seabed"),
 			&TerrainKernel::set_home);
+	ClassDB::bind_method(D_METHOD("set_profile", "profile"),
+			&TerrainKernel::set_profile);
 	ClassDB::bind_method(D_METHOD("set_lakes", "center", "radius", "surface",
 								  "basin_r", "basin_d"),
 			&TerrainKernel::set_lakes);
@@ -95,6 +97,53 @@ void TerrainKernel::set_home(const Vector2 &p_pos, const Vector2 &p_end,
 	guard_out = p_out;
 	sea_level = p_sea;
 	seabed = p_seabed;
+}
+
+// Read a scalar key from a Dictionary, leaving *dst untouched when absent
+// or non-numeric — so every profile field independently falls back to its
+// historical default (the GDScript _read_profile_num twin).
+static void profile_num(const Dictionary &d, const char *key, double *dst) {
+	if (d.has(key)) {
+		Variant v = d[key];
+		if (v.get_type() == Variant::FLOAT || v.get_type() == Variant::INT) {
+			*dst = (double)v;
+		}
+	}
+}
+
+void TerrainKernel::set_profile(const Dictionary &p_profile) {
+	Variant fv = p_profile.get("floor", Variant());
+	if (fv.get_type() == Variant::DICTIONARY) {
+		Dictionary f = fv;
+		profile_num(f, "hills", &prof_floor_hills);
+		profile_num(f, "dunes", &prof_floor_dunes);
+	}
+	Variant wv = p_profile.get("wall", Variant());
+	if (wv.get_type() == Variant::DICTIONARY) {
+		Dictionary w = wv;
+		profile_num(w, "hills", &prof_wall_hills);
+	}
+	Variant rv = p_profile.get("range", Variant());
+	if (rv.get_type() == Variant::DICTIONARY) {
+		Dictionary r = rv;
+		profile_num(r, "amp", &prof_range_amp);
+		Variant ev = r.get("envelope", Variant());
+		if (ev.get_type() == Variant::ARRAY) {
+			Array e = ev;
+			if (e.size() == 2) {
+				prof_range_in = (double)e[0];
+				prof_range_out = (double)e[1];
+			}
+		}
+	}
+	Variant sv = p_profile.get("seabed", Variant());
+	if (sv.get_type() == Variant::DICTIONARY) {
+		Dictionary s = sv;
+		profile_num(s, "hills", &prof_seabed_hills);
+		profile_num(s, "dunes", &prof_seabed_dunes);
+	}
+	profile_num(p_profile, "mesa_blend", &prof_mesa_blend);
+	profile_num(p_profile, "volcano_power", &prof_volcano_power);
 }
 
 void TerrainKernel::set_lakes(const PackedVector2Array &p_center,
@@ -373,7 +422,7 @@ double TerrainKernel::region_height(double x, double z,
 			}
 			if (kind == 3) { // volcano: concave flanks + radial ravines
 				double t = 1.0 - gd_smoothstep(0.0, (double)reg_reach[i], d);
-				double profile = Math::pow(t, 1.55);
+				double profile = Math::pow(t, prof_volcano_power);
 				double ang = Math::atan2(z - (double)reg_center[i].y,
 						x - (double)reg_center[i].x);
 				double wob = island->get_noise_2d(
@@ -392,7 +441,7 @@ double TerrainKernel::region_height(double x, double z,
 							(Math::floor(t) +
 									gd_smoothstep(0.15, 0.85, t - Math::floor(t))) /
 							(double)reg_tiers[i];
-					env = gd_lerp(env, stepped, 0.7);
+					env = gd_lerp(env, stepped, prof_mesa_blend);
 				}
 			}
 		}
@@ -434,8 +483,9 @@ double TerrainKernel::home_guard(double x, double z) const {
 
 double TerrainKernel::height(double x, double z) const {
 	double hills_n = hills->get_noise_2d(x, z);
-	double floor_h = hills_n * 3.0 + dunes->get_noise_2d(x, z) * 0.6;
-	double wall_h = wall_height + hills_n * 22.0;
+	double floor_h = hills_n * prof_floor_hills +
+			dunes->get_noise_2d(x, z) * prof_floor_dunes;
+	double wall_h = wall_height + hills_n * prof_wall_hills;
 	// valley_factor
 	Vector2 p(x, z);
 	double d = 1e12;
@@ -449,12 +499,14 @@ double TerrainKernel::height(double x, double z) const {
 	}
 	double vf = gd_smoothstep(valley_inner, valley_outer, d);
 	double h = gd_lerp(floor_h, wall_h, vf);
-	double range_envelope = gd_smoothstep(1200.0, 2400.0, Vector2(x, z).length());
-	double range_term =
-			Math::max(ranges->get_noise_2d(x, z), 0.0f) * 320.0 * range_envelope;
+	double range_envelope =
+			gd_smoothstep(prof_range_in, prof_range_out, Vector2(x, z).length());
+	double range_term = Math::max(ranges->get_noise_2d(x, z), 0.0f) *
+			prof_range_amp * range_envelope;
 	double guard = home_guard(x, z);
 	if (guard > 0.0) {
-		double sb = seabed + hills_n * 4.0 + dunes->get_noise_2d(x, z) * 1.5;
+		double sb = seabed + hills_n * prof_seabed_hills +
+				dunes->get_noise_2d(x, z) * prof_seabed_dunes;
 		h = gd_lerp(h, sb, guard);
 		range_term *= 1.0 - guard;
 		h += region_height(x, z, 0) * guard;

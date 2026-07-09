@@ -817,7 +817,7 @@ LOD, sand patch/base, water-field base, and the hydrology grid all
 sample in C++ now; GDScript keeps the single-sample main-thread API
 and is the fallback where the library isn't built. macOS-only .dylib
 loaded at runtime by Terrain._ready via a custom-suffix
-`native/bin/valleykernel.gdext` (deliberately not `.gdextension`, so
+`native/bin/loomkernel.gdext` (deliberately not `.gdextension`, so
 Linux CI never sees it and falls back clean). Rebuild: clone
 godot-cpp into native/, dump the engine API (commands in
 native/CMakeLists.txt header), `cmake -B native/build -S native &&

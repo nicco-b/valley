@@ -1,11 +1,11 @@
-; Valley native kernel. Deliberately NOT named *.gdextension: the
+; The Loom native kernel. Deliberately NOT named *.gdextension: the
 ; editor's auto-scan would register it on every platform and error
 ; where the library isn't built (Linux CI). Terrain._ready loads it
 ; explicitly via GDExtensionManager on macOS; everywhere else the
 ; GDScript fallback runs.
 [configuration]
-entry_symbol = "valley_kernel_init"
+entry_symbol = "loom_kernel_init"
 compatibility_minimum = "4.7"
 
 [libraries]
-macos = "res://native/bin/libvalleykernel.macos.dylib"
+macos = "res://native/bin/libloomkernel.macos.dylib"

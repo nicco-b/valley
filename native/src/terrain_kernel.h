@@ -38,6 +38,17 @@ class TerrainKernel : public RefCounted {
 	PackedVector2Array valley_path;
 	double valley_inner = 120.0, valley_outer = 220.0, wall_height = 42.0;
 
+	// The amplitude profile: the draft's SHAPE constants, data-driven via
+	// set_profile (landform.json's "profile" block). Defaults are EXACTLY
+	// the historical hardcoded values, so an absent record reproduces
+	// today's world bit-for-bit. Mirror of terrain.gd's PROFILE_DEFAULT;
+	// both interpreters read the same keys with the same fallbacks.
+	double prof_floor_hills = 3.0, prof_floor_dunes = 0.6;
+	double prof_wall_hills = 22.0;
+	double prof_range_amp = 320.0, prof_range_in = 1200.0, prof_range_out = 2400.0;
+	double prof_seabed_hills = 4.0, prof_seabed_dunes = 1.5;
+	double prof_mesa_blend = 0.7, prof_volcano_power = 1.55;
+
 	// Home guard + sea.
 	Vector2 home_pos, home_end;
 	double guard_in = 150.0, guard_out = 550.0;
@@ -106,6 +117,10 @@ public:
 			double p_outer, double p_wall_height);
 	void set_home(const Vector2 &p_pos, const Vector2 &p_end, double p_in,
 			double p_out, double p_sea, double p_seabed);
+	// The amplitude profile (landform.json's "profile" block). Every key
+	// optional; an absent key leaves its historical default, so the empty
+	// dict reproduces today's world exactly.
+	void set_profile(const Dictionary &p_profile);
 	void set_lakes(const PackedVector2Array &p_center,
 			const PackedFloat64Array &p_radius,
 			const PackedFloat64Array &p_surface,

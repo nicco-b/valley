@@ -23,6 +23,7 @@
 		"loom": [
 			"game/world/terrain.gd",
 			"game/world/world_streamer.gd",
+			"game/world/scatter_bake.gd",
 			"game/world/far_terrain.gd",
 			"game/world/nav.gd",
 			"game/shaders/terrain.gdshader",
@@ -91,6 +92,7 @@
 			"game/dev/toolkit.gd",
 			"game/dev/toolkit_history.gd",
 			"game/dev/toolkit_snap.gd",
+			"game/dev/scatter_hand.gd",
 			"game/dev/strata_link.gd",
 			"game/dev/strata_conventions.gd",
 			"game/dev/hot_reload.gd",

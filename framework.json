@@ -80,7 +80,10 @@
 			"game/sim/path_cursor.gd",
 			"game/sim/rng.gd",
 			"game/world/firefly_field.gd",
-			"game/items/firefly.gd"
+			"game/items/firefly.gd",
+			"game/villagers/villager_manager.gd",
+			"game/villagers/villager_body.gd",
+			"game/villagers/villager_body.tscn"
 		],
 		"threshold": [
 			"game/world/interiors.gd"

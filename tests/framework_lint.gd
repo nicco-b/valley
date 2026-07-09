@@ -73,6 +73,11 @@ const ALLOWLIST: Array[Dictionary] = [
 	# (PLAN_AUDIO A1 removed player.gd's res://assets/audio/steps literal —
 	# footsteps are data now, data/audio/footsteps.json — so its
 	# asset-preload allowlist entry retired with it.)
+	{"path": "game/villagers/villager_manager.gd", "rule": "content-id",
+		"literal": "home",
+		"reason": "villager-record schema field key (spawn/rest position), not an id "
+			+ "reference — coincides with a watershed record id; the wildlife SCHEMA "
+			+ "uses the same key but rides as content (unscanned)"},
 	# -- content-id: RESIDUE. Real leaks, no pending rung claims them. --
 	{"path": "game/player/player.gd", "rule": "content-id",
 		"literal": "wayfaring",

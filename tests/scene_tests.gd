@@ -25,6 +25,7 @@ func _ready() -> void:
 	_test_flora()
 	_test_moon()
 	_test_wildlife()
+	_test_villager()
 	_test_fabric_spring()
 	_test_wear()
 	_test_nav()
@@ -3504,6 +3505,131 @@ func _test_wildlife() -> void:
 	_check(noon > dark, "creatures see farther by day than by night")
 	_check(moonlit > dark, "a full moon lends the night some sight")
 	_check(noon > moonlit, "but never as much as the sun")
+
+
+## A person in the world (CREATION_KIT_REVIEW_V2 #3, schedules): a named
+## villager follows a daily SCHEDULE by the clock, walks it across
+## advance_hours, targets a placed MARKER by its record id (falling back to
+## home when it's gone), and counts on the budget's agent axis. The mind is
+## AgentSim (framework); VillagerManager is a framework autoload, so — unlike
+## wildlife — there is no content skip. Records ships none, so the SYNTHETIC
+## villager here is the whole coverage, driven through the real doors.
+func _test_villager() -> void:
+	# The villagers schema registered at boot (the autoload's _load ran
+	# load_dir even over an empty dir) — the records desk validates a villager
+	# edit against it, and can re-read the kind live after a landed write.
+	_check(not Records.schema_for("villagers").is_empty(),
+		"the villagers schema registers (the desk validates edits for free)")
+	_check(Records.schema_for("villagers").has("schedule"),
+		"the schema covers the schedule field")
+	_check(Records.reloader_for("villagers").is_valid(),
+		"the villagers kind registers a live reloader")
+	# Schedule validation beyond the field schema: every activity needs a
+	# string id + satisfies (the mind scores against the need it names).
+	_check(VillagerManager.validate_schedule([
+		{"id": "a", "satisfies": "rest"}]) == "",
+		"a sound schedule validates clean")
+	_check(VillagerManager.validate_schedule([
+		{"id": "a"}]) != "",
+		"an activity missing 'satisfies' is caught")
+	# The marker keyword vocabulary (§4c: a marker is a card with a keyword) —
+	# injected like the records-desk probe, so no marker asset need ship.
+	Cards._slots["probe/marker"] = {"keyword": "marker",
+		"files": ["res://kits/probe_marker.glb"]}
+	Cards._by_file["res://kits/probe_marker.glb"] = "probe/marker"
+	_check(Cards.is_marker("res://kits/probe_marker.glb"),
+		"a card carrying keyword 'marker' reads as a marker")
+	_check(not Cards.is_marker("res://kits/not_a_marker.glb"),
+		"an ordinary card is not a marker")
+	Cards._slots.erase("probe/marker")
+	Cards._by_file.erase("res://kits/probe_marker.glb")
+	# A placed marker the schedule will target (a cell-record with a stable id).
+	var mx := 912.0 * 128.0
+	var mz := 908.0 * 128.0
+	var cell: Vector2i = CellRecords.cell_of(Vector3(mx, 0.0, mz))
+	var marker: Dictionary = CellRecords.add(
+		Vector3(mx, Terrain.height(mx, mz), mz), "res://kits/probe_marker.glb", 0.0, 1.0)
+	var marker_id := String(marker.id)
+	# A synthetic villager whose morning targets the marker, whose night rests.
+	# A LOCAL manager instance (never in the tree) drives the mind directly —
+	# the WildlifeManager test shape — so no autoload frames perturb it.
+	var mgr: Node = load("res://game/villagers/villager_manager.gd").new()
+	var home := Vector2(mx - 60.0, mz)
+	var v: Dictionary = mgr.spawn_villager({
+		"id": "test_villager", "name": "Mara",
+		"home": {"x": home.x, "z": home.y},
+		"body_scene": "res://game/villagers/villager_body.tscn",
+		"schedule": [
+			{"id": "garden", "at": {"marker": marker_id}, "satisfies": "work",
+				"rate": 8.0, "hours": [8.0, 12.0], "note": "tending the garden"},
+			{"id": "rest", "at": {"x": home.x, "z": home.y}, "satisfies": "rest",
+				"rate": 10.0, "hours": [20.0, 6.0]},
+		]})
+	_check(not v.is_empty(), "a villager mind rises from its record")
+	var sim: AgentSim = v.sim
+	# Mid-morning, work depleted: she chooses the garden, and the marker
+	# target resolves to the placed marker's live XZ (not a raw coordinate).
+	GameClock.hours = 9.0
+	sim.needs.work = 5.0
+	sim.needs.rest = 95.0
+	sim.decide()
+	_check(sim.current.id == "garden", "at mid-morning she chooses the garden")
+	_check((sim.target - Vector2(mx, mz)).length() < 1.0,
+		"the marker target resolves to the placed marker's position (%s)" % sim.target)
+	# She walks her schedule across advance_hours (the manager's catch-up path).
+	var start: Vector2 = sim.pos
+	mgr.sim_advance_hours(1.0)
+	_check(sim.pos != start, "she walks her schedule across advance_hours")
+	_check((sim.pos - Vector2(mx, mz)).length() < 14.0,
+		"an hour of schedule-time carries her to the marker")
+	# Honest fallback: delete the marker, and the next resolution is home —
+	# never a dangling reference.
+	CellRecords.remove(cell, marker_id)
+	_check(sim.resolve_at(sim.current) == sim.home,
+		"a deleted marker falls back to home, never a dangling target")
+	# Schedule-following by the CLOCK: at night the rest window wins.
+	GameClock.hours = 22.0
+	sim.needs.work = 95.0
+	sim.needs.rest = 5.0
+	sim.decide()
+	_check(sim.current.id == "rest", "by night she keeps to the rest window")
+	# Persistence: the mind survives a save/restore roundtrip.
+	mgr._save_state()
+	var saved: Dictionary = WorldState.get_value("villager.test_villager", {})
+	_check(not saved.is_empty(), "the villager persists to WorldState")
+	# The embodied presence (deliverable 4): a body wears the name and answers
+	# an examine with "<name> — <what she's doing>", no dialogue. Instantiated
+	# and freed synchronously, so no physics frame runs (no nav, no crash).
+	var body: Node = load("res://game/villagers/villager_body.tscn").instantiate()
+	body.villager_name = "Mara"
+	add_child(body)
+	var presences := body.find_children("*", "Interactable", true, false)
+	_check(presences.size() == 1 and (presences[0] as Interactable).prompt == "Mara",
+		"the villager body carries one examinable presence, prompt = her name")
+	body.set_activity({"id": "garden", "note": "tending the garden"})
+	body._on_examined(null)  # the walker examines her
+	_check(HUD._line.text == "Mara — tending the garden",
+		"examine speaks her name and her activity, no dialogue (got %s)" % HUD._line.text)
+	HUD._line.visible = false  # leave the say label as we found it
+	body.free()
+	mgr.free()  # after every mgr use — a freed Node here cost wildlife a long bisect
+	# The budget's agent axis: a villager on the SHIPPED autoload counts (it
+	# registered its population with the meter at boot). Add one, read the
+	# meter, leave no trace.
+	var before: int = Budget.agent_count()
+	var counted: Dictionary = VillagerManager.spawn_villager({
+		"id": "budget_probe", "name": "Probe",
+		"home": {"x": 0.0, "z": 0.0},
+		"body_scene": "res://game/villagers/villager_body.tscn",
+		"schedule": [{"id": "idle", "at": "roam", "satisfies": "wander"}]})
+	_check(Budget.agent_count() == before + 1,
+		"an embodied-or-not villager counts on the budget's agent axis")
+	VillagerManager.villagers.erase(counted)
+	_check(Budget.agent_count() == before, "removing the villager clears the count")
+	# Leave no trace on disk: drop the marker's cell file.
+	var cell_path := "%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]
+	if FileAccess.file_exists(cell_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(cell_path))
 
 
 ## F2 fabric: spring bones are presentation-tier. Headless, the gate

@@ -141,6 +141,23 @@ func record(cell: Vector2i, id: String) -> Dictionary:
 	return {}
 
 
+## The placed record carrying this id ANYWHERE in the Chronicle, as
+## {cell, rec} — the marker-target resolver's lookup (schedules #3: a
+## schedule's activity names a marker by its stable id, and we find where
+## that marker currently stands). {} when no record holds the id — the
+## caller's honest "the marker is gone" signal (it was deleted). O(total
+## records), but called only when a schedule picks a new activity, and
+## markers are few.
+func find_record(id: String) -> Dictionary:
+	if id.is_empty():
+		return {}
+	for cell: Vector2i in _cells:
+		for rec: Dictionary in _cells[cell]:
+			if String(rec.get("id", "")) == id:
+				return {"cell": cell, "rec": rec}
+	return {}
+
+
 ## Nearest record within `radius` meters (XZ) of a world position — the
 ## Toolkit's pick. The audit's fork survey verified editor-grade picking
 ## needs no engine work: the records already know where they stand.

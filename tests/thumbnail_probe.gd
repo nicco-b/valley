@@ -60,6 +60,21 @@ func _run() -> void:
 	var png_slot := _first_slot_of_class("billboard_png")
 	print("[thumb] mesh slot=", mesh_slot, " png slot=", png_slot)
 
+	# -- meshstats (drop-time sanity), headless-proof: pure resource read --
+	var ms_unknown := StrataLink._execute("meshstats no/such/slot")
+	_ok(ms_unknown.begins_with("err meshstats unknown slot"), "meshstats unknown slot errs")
+	if mesh_slot != "":
+		var ms := StrataLink._execute("meshstats %s" % mesh_slot)
+		print("[thumb] meshstats mesh -> ", ms)
+		_ok(ms.begins_with("ok meshstats ") and ms.contains("kind=mesh")
+			and ms.contains("tris=") and ms.contains("collision="),
+			"meshstats mesh reports tris + collision")
+	if png_slot != "":
+		var msp := StrataLink._execute("meshstats %s" % png_slot)
+		print("[thumb] meshstats png -> ", msp)
+		_ok(msp.contains("kind=billboard") and msp.contains("collision=no"),
+			"meshstats billboard is tri-free, collision-free")
+
 	for pair in [["mesh", mesh_slot], ["png", png_slot]]:
 		var kind: String = pair[0]
 		var slot: String = pair[1]

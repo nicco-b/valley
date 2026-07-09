@@ -236,9 +236,10 @@ const PROTOCOL := 1
 ## The scene tests assert this list matches the dispatcher's match arms
 ## exactly, both ways: add a verb there and it MUST land here too.
 const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
-	"teleport", "screenshot", "thumbnail", "weather", "time", "preview_world",
-	"preview_mesh", "camera", "view", "view_layer", "probe", "toolkit", "hud",
-	"panel", "inspect", "notices", "overrides", "state", "undo", "redo"]
+	"teleport", "screenshot", "thumbnail", "meshstats", "weather", "time",
+	"preview_world", "preview_mesh", "camera", "view", "view_layer", "probe",
+	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
+	"undo", "redo"]
 
 ## Thumbnail render target size (square). The pane renders this offscreen;
 ## Strata caches the PNG by card sha and downsamples in its grid.
@@ -378,6 +379,14 @@ func _execute(line: String) -> String:
 			if parts.size() < 3:
 				return "err thumbnail needs <slot> <path>"
 			return "err thumbnail renders async — send it over the link"
+		"meshstats":
+			# Drop-time sanity (audit R6): the game reads the slot's resolved
+			# glb natively — Strata can't — so it answers tri count, surface
+			# count, and collision-node presence for the import caption. Pure
+			# resource inspection, no render: works headless too.
+			if parts.size() < 2:
+				return "err meshstats needs <slot>"
+			return _meshstats(parts[1])
 		"weather":
 			if parts.size() < 2:
 				return "err weather needs a kind"
@@ -712,6 +721,42 @@ func _focus() -> Vector2:
 	var player: Node3D = get_tree().get_first_node_in_group("player")
 	return Vector2(player.global_position.x, player.global_position.z) \
 			if player else Vector2.ZERO
+
+
+## Mesh sanity for one slot (audit R6, drop-time): tri count, surface count,
+## and whether the resolved scene carries collision (a "-col" mesh node, a
+## CollisionShape3D, or a PhysicsBody) — the truth Strata can't read out of a
+## glb itself, for the import caption's declared-vs-actual line. A billboard
+## (.png) has no scene: it answers tris=0 collision=no, kind=billboard.
+func _meshstats(slot: String) -> String:
+	if not Cards.has(slot):
+		return "err meshstats unknown slot '%s'" % slot
+	var file: String = Cards.resolve(slot, 0)
+	if file == "":
+		return "err meshstats slot '%s' resolves no file" % slot
+	if file.get_extension().to_lower() == "png":
+		return "ok meshstats %s kind=billboard tris=0 surfaces=1 collision=no" % slot
+	var scene := Kit.scene_for(file)
+	if scene == null:
+		return "err meshstats cannot load a scene from '%s'" % file
+	var inst: Node = scene.instantiate()
+	var tris := 0
+	var surfaces := 0
+	var collision := false
+	for node in inst.find_children("*", "MeshInstance3D", true, false):
+		var mi := node as MeshInstance3D
+		if mi.name.ends_with("-col"):
+			collision = true
+			continue
+		if mi.mesh != null:
+			surfaces += mi.mesh.get_surface_count()
+			tris += mi.mesh.get_faces().size() / 3
+	if not collision:
+		collision = not inst.find_children("*", "CollisionShape3D", true, false).is_empty() \
+			or not inst.find_children("*", "PhysicsBody3D", true, false).is_empty()
+	inst.free()
+	return "ok meshstats %s kind=mesh tris=%d surfaces=%d collision=%s" % [
+		slot, tris, surfaces, "yes" if collision else "no"]
 
 
 ## Parse and serve a `thumbnail <slot> <path>` line (the socket's async

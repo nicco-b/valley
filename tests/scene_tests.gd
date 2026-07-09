@@ -129,6 +129,7 @@ func _test_strata_link() -> void:
 	await _test_toolkit_power(peer)
 	await _test_panel_verb(peer)
 	await _test_inspect_notices(peer)
+	await _test_pulse(peer)
 	peer.disconnect_from_host()
 
 
@@ -529,6 +530,94 @@ func _test_inspect_notices(peer: StreamPeerTCP) -> void:
 	Toolkit.active = false
 	player.remove_from_group("player")
 	player.queue_free()
+
+
+## The batched heartbeat (native-embed F2): `pulse` answers the WHOLE 2s
+## mirror poll — toolkit status, panel, inspect, notices, status — in ONE
+## reply instead of five. Each nested section must be the VERBATIM line its
+## own verb gives (one truth, no drift), the sections framed by the record
+## separator (0x1e). Also MEASURES the win: one pulse round-trip vs five
+## separate sends, wall time printed for the ledger. Strata's GamePulse
+## parser pins this grammar — change both or neither.
+func _test_pulse(peer: StreamPeerTCP) -> void:
+	var RS := char(30)  # ASCII record separator, the pulse section frame
+	# The five verbs the heartbeat used to send, in the pulse's own order.
+	var verbs := ["toolkit status", "panel", "inspect", "notices", "status"]
+	var keys := ["toolkit", "panel", "inspect", "notices", "status"]
+	# pulse advertised (discovery pins it, but assert here too — the fallback
+	# on Strata's side gates on exactly this).
+	var vr := await _link_send(peer, ["verbs"])
+	_check(vr.size() == 1 and "pulse" in String(vr[0]).split(" "),
+		"verbs advertises pulse (got %s)" % str(vr))
+	# One pulse: one reply line, framed into the five named sections.
+	var pr := await _link_send(peer, ["pulse"])
+	_check(pr.size() == 1, "pulse answers in ONE reply line (got %d)" % pr.size())
+	if pr.size() != 1:
+		return
+	var line := String(pr[0])
+	_check(line.begins_with("ok pulse"), "pulse answers ok (got %s)" % line.substr(0, 40))
+	var chunks := line.split(RS)
+	_check(chunks[0] == "ok pulse", "pulse header is the first section frame")
+	var got := {}
+	for i in range(1, chunks.size()):
+		var c := String(chunks[i])
+		var eq := c.find("=")
+		if eq > 0:
+			got[c.substr(0, eq)] = c.substr(eq + 1)
+	for k in keys:
+		_check(got.has(k), "pulse carries the '%s' section" % k)
+	# The identical-surface law: each nested section is the standalone verb's
+	# reply, gathered the old five-send way in the same instant. `toolkit`
+	# and `inspect` are STATE lines (no per-poll churn) — byte-identical.
+	# `panel` and `status` carry per-poll counters (LINK's served, fps) that
+	# tick between two sends, exactly the fields Strata's mirror already
+	# ignores (SimClock reads only the clock; the panel's stable rows drive
+	# publish-on-change) — so those two are checked by SHAPE, not bytes.
+	var singles := await _link_send(peer, verbs)
+	_check(singles.size() == verbs.size(),
+		"the five verbs answer for the comparison (got %d)" % singles.size())
+	if singles.size() == verbs.size():
+		_check(got["toolkit"] == String(singles[0]),
+			"pulse toolkit section == the standalone verb (%s vs %s)"
+				% [got["toolkit"], singles[0]])
+		_check(got["inspect"] == String(singles[2]),
+			"pulse inspect section == the standalone verb (%s vs %s)"
+				% [got["inspect"], singles[2]])
+		# panel: same section frame as the standalone (HERE first, LINK last),
+		# the churning LINK served aside.
+		_check(String(got["panel"]).begins_with("ok panel HERE=")
+				and String(singles[1]).begins_with("ok panel HERE="),
+			"pulse panel section is the world panel (got %s)" % String(got["panel"]).substr(0, 24))
+		_check(String(got["panel"]).split("\t").size()
+				== String(singles[1]).split("\t").size(),
+			"pulse panel carries every section the standalone does")
+		# status: the clock + focus shape (served/fps churn, like the mirror
+		# ignores them).
+		_check(String(got["status"]).begins_with("ok ")
+				and "focus=" in got["status"] and "h focus" in got["status"],
+			"pulse status section carries the clock + focus (got %s)" % got["status"])
+		# notices: the pulse above already drained, so the standalone re-read
+		# is legitimately empty now — assert the pulse section is a drain reply.
+		_check(String(got["notices"]).begins_with("ok notices "),
+			"pulse notices section is a drain reply (got %s)" % got["notices"])
+	# MEASURE (native-embed F2 ledger): one pulse vs five sends, wall time.
+	# Same in-process peer, so this times the game-side compute + wire, not
+	# the per-connection cost that dominates Strata's LiveLink (one connect/
+	# write/read/close per send) — there the win is 5 sockets/tick -> 1.
+	var reps := 40
+	var t0 := Time.get_ticks_usec()
+	for r in reps:
+		await _link_send(peer, ["pulse"])
+	var pulse_us := Time.get_ticks_usec() - t0
+	t0 = Time.get_ticks_usec()
+	for r in reps:
+		await _link_send(peer, verbs)
+	var five_us := Time.get_ticks_usec() - t0
+	print("  [pulse] MEASURE over %d ticks: pulse %.3fms/tick (1 round-trip) vs "
+		% [reps, pulse_us / 1000.0 / reps]
+		+ "five-verb %.3fms/tick (5 round-trips) — round-trips/tick 5 -> 1"
+		% [five_us / 1000.0 / reps])
+	_check(true, "pulse measurement recorded (see [pulse] MEASURE line)")
 
 
 ## preview_world (ONE_APP P8, the viewer): the game wears a Strata export

@@ -10,6 +10,26 @@ extends Node
 ## per command ("ok ..." / "err ...").
 ##   ping                     -> ok pong <protocol>
 ##   status                   -> ok <hours>h focus=(x,z) fps=<n>
+##   pulse                    -> the WHOLE 2s heartbeat in ONE reply
+##                               (native-embed F2): the fields Strata's
+##                               poll used to gather in FIVE round trips —
+##                               `toolkit status`, `panel`, `inspect`, the
+##                               `notices` drain, and `status` — batched.
+##                               "ok pulse<RS>toolkit=<line><RS>panel=<line>
+##                                <RS>inspect=<line><RS>notices=<line>
+##                                <RS>status=<line>", <RS> the ASCII record
+##                               separator (0x1e). Each nested <line> is the
+##                               EXACT reply its own verb gives (ok/err
+##                               prefix and internal tabs intact) — one
+##                               truth, no drift, and Strata reuses the same
+##                               sub-parsers. Additive: the hub gates on
+##                               `pulse` via the `verbs` list and falls back
+##                               to the five verbs on older games, so this
+##                               does NOT bump PROTOCOL. New heartbeat fields
+##                               append as fresh <RS> sections (old hubs
+##                               ignore unknown names). Strata's GamePulse
+##                               parser pins this grammar — change both or
+##                               neither.
 ##   verbs                    -> every verb this link speaks, one line,
 ##                               space-separated, machine-readable:
 ##                               "ok verbs ping status reload_world ..."
@@ -235,7 +255,7 @@ const PROTOCOL := 1
 ## Every verb _execute answers — the `verbs` discovery reply (audit QW7).
 ## The scene tests assert this list matches the dispatcher's match arms
 ## exactly, both ways: add a verb there and it MUST land here too.
-const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
+const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "reload_world",
 	"teleport", "screenshot", "thumbnail", "meshstats", "weather", "time",
 	"preview_world", "preview_mesh", "preview_shared", "render_device",
 	"camera", "view", "view_layer", "probe",
@@ -342,6 +362,10 @@ func _execute(line: String) -> String:
 			return "ok %.2fh focus=(%.0f, %.0f) fps=%d served=%d" % [
 				GameClock.hours, focus.x, focus.y,
 				Engine.get_frames_per_second(), _served]
+		"pulse":
+			# The batched heartbeat (native-embed F2): five verbs, one
+			# reply, nested behind the record separator. See _pulse.
+			return _pulse()
 		"verbs":
 			return "ok verbs " + " ".join(VERBS)
 		"reload_world":
@@ -501,6 +525,33 @@ func _execute(line: String) -> String:
 			return "ok redo %s" % (redone if redone != "" else "nothing")
 		_:
 			return "err unknown verb '%s'" % parts[0]
+
+
+## The pulse section separator: ASCII RECORD SEPARATOR (0x1e). It never
+## appears in any nested payload — panel/inspect/notices flatten newlines
+## to " | " and turn tabs into spaces, the rest are numeric/id fields — so
+## it frames the sections unambiguously while the reply stays ONE line
+## (\n-terminated like every other reply). Pinned by Strata's GamePulse
+## parser: change both or neither.
+const PULSE_SEP := "\u001e"  # ASCII record separator (0x1e)
+
+
+## The batched heartbeat (native-embed F2): Strata's 2s poll gathered five
+## fields in five connect/write/read/close round trips — `toolkit status`,
+## `panel`, `inspect`, the `notices` drain, and `status`. `pulse` answers
+## all five in ONE reply. It re-DISPATCHES each verb through _execute, so
+## the nested lines are byte-identical to the standalone replies (one
+## truth, zero drift — the batch cannot skew from what the hub sees on the
+## fallback path). Sections ride behind PULSE_SEP; new heartbeat fields
+## append as fresh sections (old hubs ignore names they don't know). Note
+## `notices` DRAINS once here, exactly as it did as its own poll line.
+func _pulse() -> String:
+	var out := "ok pulse"
+	# key -> verb line; keys are Strata's GamePulse section names.
+	for pair: Array in [["toolkit", "toolkit status"], ["panel", "panel"],
+			["inspect", "inspect"], ["notices", "notices"], ["status", "status"]]:
+		out += "%s%s=%s" % [PULSE_SEP, pair[0], _execute(pair[1])]
+	return out
 
 
 ## The Toolkit verbs (ONE_APP P9·C): Strata's native toolbar drives the

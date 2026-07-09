@@ -335,6 +335,18 @@ the framework's first honest test; let it pull.
 
 ## Open questions (kitchen table) ★
 
+*2026-07-09, Nicco: all defaults; mygame is FW1's guinea pig.* (The
+DESIGN_QUESTS §15 pattern — the leans below are the rulings. Where a
+lean wasn't written, FW1 took the smallest honest posture: 1:1 clock
+is the house physics; no name yet — "the framework" until something
+sings; on this machine Strata reads the live `~/code/valley` checkout
+(env `STRATA_FRAMEWORK_DIR` overrides; a pinned dist snapshot is the
+ship posture, not the dev one); the machine visibly lives — the
+firefly field rides FW1 as the hello-world agents until a creature
+record lands; valley's gouache look is the default look; the firefly
+ships as framework machinery; mygame is retemplated under the new
+scaffold as FW1's acceptance test.)
+
 - ★ **The 1:1 clock, for every game?** The sim contract ships as the
   framework's constitution regardless (catch-up, hour_tick, the soak
   law). But "time is 1:1, always" was a *valley* decision — is it

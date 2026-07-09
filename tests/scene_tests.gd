@@ -42,6 +42,7 @@ func _ready() -> void:
 	_test_edit_flush()
 	await _test_threshold()
 	_test_map()
+	_test_pause_esc_routing()
 	_test_story_dry_spell_real()
 	await _test_strata_link()
 	if _failures > 0:
@@ -1046,6 +1047,36 @@ func _test_map() -> void:
 	_check(not MapScreen.active, "map closes")
 	_check(player.is_physics_processing(), "close returns the hand")
 	player.queue_free()
+
+
+## The Esc precedence (TICKET: Esc in the embedded pane must not pop the
+## Campfire). PauseMenu._esc_action is pure, so both paths test without
+## live key events: standalone Esc TOGGLEs the save/quit menu; the pane
+## RELEASEs the pointer to Strata's chrome instead. Higher-precedence
+## states (no player, Toolkit flying, map open) win first, in both postures.
+func _test_pause_esc_routing() -> void:
+	var A := PauseMenu.EscAction
+	# Standalone (own window / shipped game): Esc opens the Campfire.
+	_check(PauseMenu._esc_action(true, false, false, false) == A.TOGGLE,
+		"standalone Esc toggles the pause menu")
+	# Embedded in Strata's pane: Esc releases the pointer, never the menu.
+	_check(PauseMenu._esc_action(true, false, false, true) == A.RELEASE,
+		"embedded pane Esc releases the pointer, not the menu")
+	# No player is the title screen — Esc is ignored in either posture.
+	_check(PauseMenu._esc_action(false, false, false, false) == A.IGNORE,
+		"title screen ignores Esc (standalone)")
+	_check(PauseMenu._esc_action(false, false, false, true) == A.IGNORE,
+		"title screen ignores Esc (embedded)")
+	# The Toolkit owns Esc while flying — even embedded (its own release wins).
+	_check(PauseMenu._esc_action(true, true, false, false) == A.IGNORE,
+		"Toolkit owns Esc while flying (standalone)")
+	_check(PauseMenu._esc_action(true, true, false, true) == A.IGNORE,
+		"Toolkit owns Esc while flying (embedded)")
+	# The map closes first, before either the menu or the pane release.
+	_check(PauseMenu._esc_action(true, false, true, false) == A.CLOSE_MAP,
+		"open map closes first (standalone)")
+	_check(PauseMenu._esc_action(true, false, true, true) == A.CLOSE_MAP,
+		"open map closes first (embedded)")
 
 
 func _test_placement_reseat() -> void:

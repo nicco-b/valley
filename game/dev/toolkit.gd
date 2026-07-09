@@ -132,6 +132,17 @@ static func viewer_requested() -> bool:
 		or OS.get_cmdline_args().has("--viewer"))
 
 
+## The EMBEDDED-PANE posture (ONE_APP P3.5): the game runs INSIDE Strata's
+## live pane on the SwiftGodotKit embedded display driver, which boots the
+## engine with `--embedded` (GodotApp.start, macOS branch). Standalone play
+## — Play (Own Window), a shipped game — never carries it. The pane owns Esc
+## as a pointer-release back to Strata's chrome, not the Campfire's save/quit
+## menu (that quit would kill an engine libgodot can't restart). An engine
+## arg, so it rides `get_cmdline_args()`, not the game's own `--` user args.
+static func embedded_pane() -> bool:
+	return OS.get_cmdline_args().has("--embedded")
+
+
 func _ready() -> void:
 	_palette = Cards.placeable()  # card-driven PLACE palette (the Kit from cards)
 	hud_on = not viewer_requested()  # the viewer posture boots dark (P8)

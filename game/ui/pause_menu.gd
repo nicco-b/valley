@@ -3,8 +3,14 @@ extends CanvasLayer
 ## WORLD KEEPS RUNNING underneath (no tree pause — a 1:1 world doesn't
 ## stop for a menu; only the player's body freezes, like the map). Panel
 ## offers resume, settings, save & quit. Esc in the map closes the map;
-## the Toolkit keeps its own Esc behavior. Wears UITheme; Resume grabs
-## focus on open so the gamepad can walk the menu.
+## the Toolkit keeps its own Esc behavior. Inside Strata's embedded pane
+## Esc releases the pointer instead — the save/quit chrome belongs to
+## standalone play. Wears UITheme; Resume grabs focus on open so the
+## gamepad can walk the menu.
+
+## What Esc should do given the world's posture. Split from the input
+## handler so scene_tests can drive every branch without live key events.
+enum EscAction { IGNORE, CLOSE_MAP, RELEASE, TOGGLE }
 
 var paused := false
 
@@ -25,14 +31,36 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not event.is_action_pressed("ui_cancel"):
 		return
-	if get_tree().get_first_node_in_group("player") == null:
-		return  # title screen
-	if Toolkit.active:
-		return  # the Toolkit owns Esc while flying
-	if MapScreen.active:
-		MapScreen._close()
-		return
-	toggle()
+	match _esc_action(
+			get_tree().get_first_node_in_group("player") != null,
+			Toolkit.active, MapScreen.active, Toolkit.embedded_pane()):
+		EscAction.IGNORE:
+			return
+		EscAction.CLOSE_MAP:
+			MapScreen._close()
+		EscAction.RELEASE:
+			# Embedded in Strata's pane: hand the pointer back to the chrome
+			# (mirrors the Toolkit's own Esc-release) — never the Campfire.
+			Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		EscAction.TOGGLE:
+			toggle()
+
+
+## The Esc precedence, pure so both the embedded (RELEASE) and standalone
+## (TOGGLE) paths are unit-testable. No player is the title screen; the
+## Toolkit owns Esc while flying; the map closes first; the embedded pane
+## releases the pointer; otherwise the Campfire toggles.
+static func _esc_action(has_player: bool, toolkit_active: bool,
+		map_active: bool, embedded: bool) -> EscAction:
+	if not has_player:
+		return EscAction.IGNORE
+	if toolkit_active:
+		return EscAction.IGNORE
+	if map_active:
+		return EscAction.CLOSE_MAP
+	if embedded:
+		return EscAction.RELEASE
+	return EscAction.TOGGLE
 
 
 func toggle() -> void:

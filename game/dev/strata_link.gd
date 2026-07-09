@@ -240,7 +240,7 @@ const VERBS: Array[String] = ["ping", "status", "verbs", "reload_world",
 	"preview_world", "preview_mesh", "preview_shared", "render_device",
 	"camera", "view", "view_layer", "probe",
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
-	"undo", "redo"]
+	"records", "undo", "redo"]
 
 ## Thumbnail render target size (square). The pane renders this offscreen;
 ## Strata caches the PNG by card sha and downsamples in its grid.
@@ -462,6 +462,13 @@ func _execute(line: String) -> String:
 			if parts.size() < 4 or parts[1] != "set":
 				return "err state needs set <key> <value>"
 			return _state_set(parts[2], line.split(" ", false, 3)[3])
+		"records":
+			# The records desk's write path (Strata R5): the game judges
+			# an edited record with its OWN loader schema before the desk
+			# commits, and re-reads a kind live after a landed write. The
+			# framework stays game-agnostic — Records holds the schema and
+			# reloader registries; the game's loaders fill them.
+			return _records(parts, line)
 		"hud":
 			if parts.size() < 2 or not (parts[1] in ["on", "off"]):
 				return "err hud needs on|off"
@@ -627,6 +634,73 @@ func _state_set(key: String, raw: String) -> String:
 		value = raw  # a bare word is a string
 	WorldState.set_value(key, value)
 	return "ok state %s=%s" % [key, JSON.stringify(value)]
+
+
+## The records desk (Strata R5): three subverbs over the SAME loader truth.
+##   records validate <kind> <json>  -> judge one record by the game's own
+##                                       loader schema for that kind. <json>
+##                                       is the whole record object (spaces
+##                                       allowed — it's the rest of the
+##                                       line). "ok validate <kind>" when it
+##                                       would load; "err validate <kind>:
+##                                       <the game's words>" when it wouldn't
+##                                       (a missing field, a wrong type) — the
+##                                       desk surfaces that verbatim and never
+##                                       lands the write.
+##   records reload <kind>            -> re-read that kind's records and rebind
+##                                       them live (the reloader the owning
+##                                       system registered). "ok reload <kind>
+##                                       <n>" naming how many records now load;
+##                                       a kind with no live reloader answers
+##                                       "ok reload <kind> <n> no-rebind
+##                                       (restart to apply)" — honest, never a
+##                                       silent no-op.
+##   records schema <kind>            -> the required-field type hints the
+##                                       loader trusts, so the desk marks which
+##                                       scalars are typed: "ok schema <kind>
+##                                       field:Type ..." ("-" when the kind has
+##                                       no registered schema).
+## Data, not hand state: answers in every posture (the desk edits with or
+## without the Toolkit up). Grammar pinned by Strata's RecordReport parser.
+func _records(parts: PackedStringArray, line: String) -> String:
+	if parts.size() < 3:
+		return "err records needs validate|reload|schema <kind> ..."
+	var kind := parts[2]
+	match parts[1]:
+		"validate":
+			# The record object is the rest of the line after the kind — JSON
+			# with spaces (nested objects, arrays) travels intact.
+			var toks := line.split(" ", false, 3)
+			if toks.size() < 4:
+				return "err records validate needs <kind> <json>"
+			var parsed: Variant = JSON.parse_string(toks[3])
+			if not (parsed is Dictionary):
+				return "err validate %s: not a JSON object" % kind
+			var msg := Records.validate_kind(kind, parsed)
+			if msg != "":
+				return "err validate %s: %s" % [kind, msg]
+			return "ok validate %s" % kind
+		"reload":
+			var reloader := Records.reloader_for(kind)
+			# Count what the kind now loads (the desk shows the fresh tally);
+			# the dir is data/<kind>, the same place the desk scanned it from.
+			var loaded: Dictionary = Records.load_dir("res://data/" + kind,
+				Records.schema_for(kind))
+			if not reloader.is_valid():
+				return "ok reload %s %d no-rebind (restart to apply)" % [
+					kind, loaded.size()]
+			reloader.call()
+			return "ok reload %s %d" % [kind, loaded.size()]
+		"schema":
+			var schema := Records.schema_for(kind)
+			if schema.is_empty():
+				return "ok schema %s -" % kind
+			var toks := PackedStringArray()
+			for field: String in schema:
+				toks.append("%s:%s" % [field, type_string(int(schema[field]))])
+			return "ok schema %s %s" % [kind, " ".join(toks)]
+		_:
+			return "err records needs validate|reload|schema <kind> ..."
 
 
 ## Advance the clock for the hub — always FORWARD, always through

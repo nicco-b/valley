@@ -49,8 +49,27 @@ var _last_hour := -1
 var _last_unix := 0.0
 var _daylight := Vector2(6.0, 18.0)  # today's (sunrise, sunset), civil game-hours
 
+## Determinism trap (fork engine only — a no-op on stock Godot).
+## The fork's Engine.set_deterministic_section(true) arms a trap: while
+## armed, any draw on the global unseeded RNG (bare randf/randi/…) or any
+## real-world clock read (Time.*_from_system) raises a script error WITH a
+## stack trace. We arm it around advance_hours — the one door every skipped
+## stretch of sim time flows through — so a sim handler that sneaks
+## nondeterminism (a bare randf() instead of Rng.stream(), a Time system
+## read) names itself instead of quietly forking the fingerprint.
+##
+## GameClock is the SANCTIONED real-world clock: valley runs 1:1 with real
+## time BY DESIGN (season, daylight, moon phase follow the real calendar and
+## the player's real location — DECISIONS 2026-07-02). So GameClock's OWN
+## clock reads are the honest exception — lifted from the trap via
+## _clock_read_begin/end — while everything the tick DRIVES stays guarded.
+## Engine.has_method keeps all of this inert on an engine without the fork.
+var _det_available := false
+var _det_armed := false  # true while inside advance_hours' guarded section
+
 
 func _ready() -> void:
+	_det_available = Engine.has_method(&"set_deterministic_section")
 	hours = civil_now()  # new world: the valley wakes at your local time
 	refresh_daylight()   # (Settings loads after us and pokes this again)
 	WorldState.set_value("time.hour", int(solar_hours()))  # B9 mirror, from boot
@@ -81,11 +100,37 @@ func hours_delta(delta: float) -> float:
 ## member of the "sim_advance" group, so agents live the skipped hours
 ## instead of waking up stale.
 func advance_hours(total: float) -> void:
+	var was_armed := _det_armed
+	_arm_determinism(true)
 	while total > 0.0:
 		var chunk := minf(total, 1.0)
 		total -= chunk
 		_advance(chunk)
 		get_tree().call_group("sim_advance", "sim_advance_hours", chunk)
+	_arm_determinism(was_armed)  # restore, so a nested call can't disarm early
+
+
+## Arm/disarm the fork's determinism trap around the sim tick. No-op on
+## stock Godot. Tracks _det_armed so GameClock's own sanctioned clock reads
+## (see _clock_read_begin/end) can lift the trap and restore it exactly.
+func _arm_determinism(on: bool) -> void:
+	_det_armed = on
+	if _det_available:
+		Engine.set_deterministic_section(on)
+
+
+## Bracket GameClock's own real-world clock read: while the trap is armed,
+## lift it just for the sanctioned read, then re-arm. valley is 1:1 with
+## real time by design — the clock consulting the world is INPUT, not the
+## nondeterminism the trap hunts (a sim handler reading the wall clock).
+func _clock_read_begin() -> void:
+	if _det_available and _det_armed:
+		Engine.set_deterministic_section(false)
+
+
+func _clock_read_end() -> void:
+	if _det_available and _det_armed:
+		Engine.set_deterministic_section(true)
 
 
 func _advance(dh: float) -> void:
@@ -108,7 +153,9 @@ func _advance(dh: float) -> void:
 
 ## The real local civil time as fractional hours.
 func civil_now() -> float:
+	_clock_read_begin()
 	var t := Time.get_time_dict_from_system()
+	_clock_read_end()
 	return float(t.hour) + float(t.minute) / 60.0 + float(t.second) / 3600.0
 
 
@@ -183,7 +230,12 @@ static func equation_of_time(doy: int) -> float:
 ## player's real location. Called hourly, at boot, and by Settings when the
 ## location resolves.
 func refresh_daylight() -> void:
+	# GameClock's sanctioned real-world reads, bracketed together (see
+	# _clock_read_begin): the trap is lifted only for the wall-clock reads.
+	_clock_read_begin()
 	var date := Time.get_date_dict_from_system()
+	var tz_hours: float = Time.get_time_zone_from_system().bias / 60.0
+	_clock_read_end()
 	var doy := day_of_year(date)
 	var lat := 45.0
 	var lon := 0.0
@@ -194,7 +246,6 @@ func refresh_daylight() -> void:
 	WorldState.set_value("sky.moon_phase", snappedf(moon_phase(), 0.01))
 	var dl := daylight_hours_for(doy, lat)
 	# Solar noon in civil time: timezone meridian vs. real longitude + EoT.
-	var tz_hours: float = Time.get_time_zone_from_system().bias / 60.0
 	var noon := 12.0 + tz_hours - lon / 15.0 - equation_of_time(doy)
 	_daylight = Vector2(noon - dl * 0.5, noon + dl * 0.5)
 	var s := season_for(date, lat < 0.0)
@@ -215,7 +266,12 @@ static func moon_phase_at(unix: float) -> float:
 
 
 func moon_phase() -> float:
-	return moon_phase_at(Time.get_unix_time_from_system())
+	# Reachable inside a sim tick (wildlife perception reads moon_light);
+	# GameClock's sanctioned wall-clock read, lifted from the trap.
+	_clock_read_begin()
+	var unix := Time.get_unix_time_from_system()
+	_clock_read_end()
+	return moon_phase_at(unix)
 
 
 ## Illuminated fraction of the moon, 0 (new) .. 1 (full) — how bright the

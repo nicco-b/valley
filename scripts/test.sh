@@ -36,6 +36,28 @@ echo "== framework manifest lint (the fence, PLAN_FRAMEWORK FW5) =="
 # anything new fails for real.
 godot --headless -s tests/framework_lint.gd || exit 1
 
+echo "== determinism trap (fork engine only) =="
+# The fork's Engine.set_deterministic_section arms a trap around the sim tick
+# (game_clock.gd advance_hours). determinism_trap_probe plants an unseeded
+# randf() and a raw wall-clock read in a sim_advance handler; the trap must
+# NAME each one with a GDScript backtrace. Stock Godot has no trap → the probe
+# prints SKIP and this stanza passes. Assertion is on captured stderr, exactly
+# like the scene tests. (Innocence — the whole sim clean under the armed trap
+# — is the rest of this script + soak.sh going green.)
+DET_OUT=$(godot --headless --quit-after 400 res://tests/determinism_trap_probe.tscn 2>&1)
+if echo "$DET_OUT" | grep -q "DET-TRAP SKIP"; then
+	echo "  SKIP (stock engine — no determinism trap)"
+elif echo "$DET_OUT" | grep -q "DET-TRAP PASS" \
+		&& echo "$DET_OUT" | grep -q "Determinism trap: randf() draws from the global unseeded RNG" \
+		&& echo "$DET_OUT" | grep -q "Determinism trap: Time.get_unix_time_from_system() reads the real-world wall clock" \
+		&& echo "$DET_OUT" | grep -q "sim_advance_hours (res://tests/determinism_trap_probe.gd"; then
+	echo "  trap named both crimes with a backtrace"
+else
+	echo "$DET_OUT"
+	echo "DET-TRAP FAIL: trap did not name the planted crimes"
+	exit 1
+fi
+
 # Filter: engine banners, benign exit-time audio warnings, and our own
 # "[system]" log lines (anything bracket-prefixed is intentional logging).
 FILTER="^Godot Engine|^Dummy|^\[|leaked|still in use|object.cpp|resource.cpp"

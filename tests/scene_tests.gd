@@ -1608,11 +1608,17 @@ func _test_conditions() -> void:
 
 
 func _test_skills() -> void:
-	_check(Skills.defs().size() >= 4, "skill records load")
-	WorldState.set_value("player.dist_walked", 1300.0)
-	_check(Skills.level("wayfaring") == 2, "wayfaring level from distance")
-	WorldState.set_value("player.dist_walked", 0.0)
-	_check(Skills.level("wayfaring") == 0, "level derives, never sticks")
+	# Skill records are game content (data/skills); a content-empty game
+	# ships none. The derivation machinery — an unknown skill is level 0 —
+	# is framework and always holds.
+	if Skills.defs().is_empty():
+		print("  skills: SKIP (no skill records — content-empty game)")
+	else:
+		_check(Skills.defs().size() >= 4, "skill records load")
+		WorldState.set_value("player.dist_walked", 1300.0)
+		_check(Skills.level("wayfaring") == 2, "wayfaring level from distance")
+		WorldState.set_value("player.dist_walked", 0.0)
+		_check(Skills.level("wayfaring") == 0, "level derives, never sticks")
 	_check(Skills.level("nonexistent") == 0, "unknown skill is level 0")
 
 
@@ -1684,6 +1690,13 @@ func _test_water() -> void:
 	# a world Strata dressed without hand-placed lakes/rivers.
 	_check(Terrain.water_bodies is Array, "water_bodies is a valid (maybe empty) list")
 	_check(Terrain.rivers is Array, "rivers is a valid (maybe empty) list")
+	# A content-empty game has no sea record — the Watershed's guard/surface
+	# geometry below is a property of a LOADED world (a sea level, an
+	# imported lake). The Watershed machinery is proven by _test_hydrology /
+	# _test_strata_water; here we need a world to stand in.
+	if Terrain.sea_level <= -1e11:
+		print("  water: SKIP (no sea record — content-empty game)")
+		return
 	# The world sea level loads from the record.
 	_check(Terrain.sea_level > -1e11, "the world sea level loads from the record")
 	# The home valley is guarded OUT of the open sea (home_guard is 0 in the
@@ -2301,8 +2314,14 @@ func _test_climate_v2() -> void:
 	GameClock.hours = fposmod(span2.x - 1.0, 24.0)  # ~solar 5: the dew window
 	Climate.wetness = 0.75
 	Climate._hourly(0)
-	_check(Climate.wetness > 0.76,
-		"pre-dawn saturated air dews the ground (%.3f)" % Climate.wetness)
+	# Dew needs a humidity source upwind — the sea. A content-empty world
+	# has no sea to breathe moisture, so the ground can't dew; the humidity
+	# machinery above is proven synthetically regardless.
+	if Terrain.sea_level > -1e11:
+		_check(Climate.wetness > 0.76,
+			"pre-dawn saturated air dews the ground (%.3f)" % Climate.wetness)
+	else:
+		print("  climate dew: SKIP (no sea to source humidity — content-empty game)")
 	GameClock.hours = was_hours
 	Weather._wind_angle = was_angle2
 	Weather.wind_dir = Vector2.from_angle(was_angle2)
@@ -2338,38 +2357,44 @@ func _test_flora() -> void:
 	FloraLife._hourly(0)
 	_check(WorldState.has_flag("valley.bloom"), "soaked + thriving flora -> bloom flag")
 	_check(not WorldState.has_flag("valley.parched"), "recovery clears parched")
-	# v2 — species records: loaded, validated, art slots fall back to grow.
-	_check(FloraLife.species.size() >= 6, "species records loaded")
-	var tuft: Dictionary = {}
-	for def: Dictionary in FloraLife.species:
-		if str(def.id) == "bloom_tuft":
-			tuft = def
-	_check(not tuft.is_empty(), "bloom_tuft record exists")
-	_check(FloraLife.stage_art(tuft, "bloom") == FloraLife.stage_art(tuft, "grow"),
-		"missing stage art falls back to grow (same placeholder slots)")
-	_check(str(tuft.get("yields", "")) == "dried_bloom", "bloom_tuft yields dried_bloom")
-	# Lifecycle stages are a pure function of season + vitality.
+	# Lifecycle stages are a pure function of season + vitality (framework).
 	_check(FloraLife.stage_for("spring", 0.9) == "bloom", "lush spring blooms")
 	_check(FloraLife.stage_for("spring", 0.4) == "sprout", "lean spring sprouts")
 	_check(FloraLife.stage_for("autumn", 0.7) == "seed", "autumn seeds")
 	_check(FloraLife.stage_for("summer", 0.2) == "dry", "parched flora reads dry")
-	# Species composition: biome weights + the moisture gate.
-	_check(FloraLife.species_weight(tuft, "oasis_green", 0.8) > 0.0,
-		"tufts grow in the oasis")
-	_check(FloraLife.species_weight(tuft, "bare_peak", 0.8) == 0.0,
-		"no tufts on bare peaks")
-	_check(FloraLife.species_weight(tuft, "oasis_green", 0.8)
-			> FloraLife.species_weight(tuft, "oasis_green", 0.0),
-		"drought gates the thirsty species down")
-	# Spatial vitality is stateless: it tracks the live moisture field, so
-	# the same point reads greener when the ground is wet than when it's dry.
-	FloraLife.vitality = 0.5
-	Climate.wetness = 0.1
-	var dry_v: float = FloraLife.vitality_at(0.0, 0.0)
-	Climate.wetness = 0.9
-	var wet_v: float = FloraLife.vitality_at(0.0, 0.0)
-	_check(wet_v >= dry_v and is_finite(wet_v) and wet_v > 0.0 and wet_v <= 1.0,
-		"spatial vitality tracks local moisture (%.3f dry -> %.3f wet)" % [dry_v, wet_v])
+	# v2 — species records: game content (data/flora). A content-empty
+	# game has no species, so composition and moisture-varied spatial
+	# vitality (which read the species table) can't be asserted. The
+	# vitality FIELD math is proven by the harvest block below.
+	if not FloraLife.species.is_empty():
+		_check(FloraLife.species.size() >= 6, "species records loaded")
+		var tuft: Dictionary = {}
+		for def: Dictionary in FloraLife.species:
+			if str(def.id) == "bloom_tuft":
+				tuft = def
+		_check(not tuft.is_empty(), "bloom_tuft record exists")
+		_check(FloraLife.stage_art(tuft, "bloom") == FloraLife.stage_art(tuft, "grow"),
+			"missing stage art falls back to grow (same placeholder slots)")
+		_check(str(tuft.get("yields", "")) == "dried_bloom", "bloom_tuft yields dried_bloom")
+		# Species composition: biome weights + the moisture gate.
+		_check(FloraLife.species_weight(tuft, "oasis_green", 0.8) > 0.0,
+			"tufts grow in the oasis")
+		_check(FloraLife.species_weight(tuft, "bare_peak", 0.8) == 0.0,
+			"no tufts on bare peaks")
+		_check(FloraLife.species_weight(tuft, "oasis_green", 0.8)
+				> FloraLife.species_weight(tuft, "oasis_green", 0.0),
+			"drought gates the thirsty species down")
+		# Spatial vitality tracks the live moisture field: the same point
+		# reads greener when the ground is wet than when it's dry.
+		FloraLife.vitality = 0.5
+		Climate.wetness = 0.1
+		var dry_v: float = FloraLife.vitality_at(0.0, 0.0)
+		Climate.wetness = 0.9
+		var wet_v: float = FloraLife.vitality_at(0.0, 0.0)
+		_check(wet_v >= dry_v and is_finite(wet_v) and wet_v > 0.0 and wet_v <= 1.0,
+			"spatial vitality tracks local moisture (%.3f dry -> %.3f wet)" % [dry_v, wet_v])
+	else:
+		print("  flora species: SKIP (no species records — content-empty game)")
 	# Honest harvest: gathering wounds the cell, hours heal it, and a
 	# healed cell is forgotten (the save only remembers open wounds).
 	var cell := Vector2i(0, -3)  # floor((70,-310)/128)
@@ -2413,6 +2438,12 @@ func _test_moon() -> void:
 
 ## Wildlife tier-3: pure-data animals live full days without a body.
 func _test_wildlife() -> void:
+	# WildlifeManager + the body are game content (the hound), not
+	# framework — a content-empty scaffolded game has neither. AgentSim
+	# (the generic mind) rides the framework and is proven elsewhere.
+	if not ResourceLoader.exists("res://game/wildlife/wildlife_manager.gd"):
+		print("  wildlife: SKIP (no WildlifeManager — content-empty game)")
+		return
 	var mgr: Node = load("res://game/wildlife/wildlife_manager.gd").new()
 	var herd: Dictionary = mgr.spawn_herd({
 		"id": "test_herd", "count": 2.0,
@@ -2465,25 +2496,29 @@ func _test_wildlife() -> void:
 ## (right bones, right joint counts, gouache damping) on both shipped
 ## rigs. Both halves proved here, meaningfully, under the dummy display.
 func _test_fabric_spring() -> void:
-	var hound: Node = load("res://game/wildlife/hound_body.tscn").instantiate()
-	add_child(hound)
-	var model: Node = hound.get_node("Body/Model")
-	_check(FabricSpring.adopt(model) == null, "headless adopt refuses")
-	_check(hound.find_children("*", "SpringBoneSimulator3D", true, false).is_empty(),
-		"headless hound body carries no simulator")
-	var skel: Skeleton3D = model.find_children("*", "Skeleton3D", true, false)[0]
-	var fs: FabricSpring = FabricSpring.build(skel)
-	_check(fs != null, "builder assembles the windowed node")
-	if fs != null:
-		_check(fs.setting_count == 1, "hound adopts one chain (the tail)")
-		_check(fs.get_root_bone_name(0) == "tail.1"
-			and fs.get_end_bone_name(0) == "tail_star",
-			"tail chain spans tail.1..tail_star")
-		_check(fs.get_joint_count(0) == 5, "five tail joints ride the chain (got %d)"
-			% fs.get_joint_count(0))
-		_check(fs.get_drag(0) >= 0.5, "gouache tuning: heavily damped, never jiggly")
-		_check(fs.wind_scale > 0.0, "the tail hears the wind at all")
-	hound.queue_free()
+	# The hound body is game content — proven only where it ships. The
+	# fox (the framework's default-look body) proves the same builder
+	# below, so a content-empty game keeps real fabric coverage.
+	if ResourceLoader.exists("res://game/wildlife/hound_body.tscn"):
+		var hound: Node = load("res://game/wildlife/hound_body.tscn").instantiate()
+		add_child(hound)
+		var model: Node = hound.get_node("Body/Model")
+		_check(FabricSpring.adopt(model) == null, "headless adopt refuses")
+		_check(hound.find_children("*", "SpringBoneSimulator3D", true, false).is_empty(),
+			"headless hound body carries no simulator")
+		var skel: Skeleton3D = model.find_children("*", "Skeleton3D", true, false)[0]
+		var fs: FabricSpring = FabricSpring.build(skel)
+		_check(fs != null, "builder assembles the windowed node")
+		if fs != null:
+			_check(fs.setting_count == 1, "hound adopts one chain (the tail)")
+			_check(fs.get_root_bone_name(0) == "tail.1"
+				and fs.get_end_bone_name(0) == "tail_star",
+				"tail chain spans tail.1..tail_star")
+			_check(fs.get_joint_count(0) == 5, "five tail joints ride the chain (got %d)"
+				% fs.get_joint_count(0))
+			_check(fs.get_drag(0) >= 0.5, "gouache tuning: heavily damped, never jiggly")
+			_check(fs.wind_scale > 0.0, "the tail hears the wind at all")
+		hound.queue_free()
 	# The fox: ears are LEAF bones — each one-bone chain must grow a
 	# virtual tip or there is no lever for the wind to push.
 	var fox: Node = load("res://assets/models/creatures/biped_fox.glb").instantiate()
@@ -2613,13 +2648,19 @@ func _test_sand_sim() -> void:
 ## only — binaries are untracked cache and the loader tolerates them
 ## missing, so no GLB is loaded here.
 func _test_fabric() -> void:
+	# The fabric CARDS are game content (valley's textiles); a content-
+	# empty game has none. The shader wiring below is framework and always
+	# rides. `entry_for_file` on an unknown path is machinery too.
 	var slots: Array = Cards.fabric_slots()
-	for s in ["props/textile", "props/textile/banner", "props/camp/tent", "props/nautical/net"]:
-		_check(slots.has(s), "fabric flag on " + s)
-	var f: String = Cards.resolve("props/textile/banner", 0)
-	var e: Dictionary = Cards.entry_for_file(f)
-	_check(String(e.get("wind", "")) == "fabric", "resolved file finds its fabric card")
-	_check(float(e.get("wind_hang", 0.0)) > 0.0, "wind_hang rides the card")
+	if not slots.is_empty():
+		for s in ["props/textile", "props/textile/banner", "props/camp/tent", "props/nautical/net"]:
+			_check(slots.has(s), "fabric flag on " + s)
+		var f: String = Cards.resolve("props/textile/banner", 0)
+		var e: Dictionary = Cards.entry_for_file(f)
+		_check(String(e.get("wind", "")) == "fabric", "resolved file finds its fabric card")
+		_check(float(e.get("wind_hang", 0.0)) > 0.0, "wind_hang rides the card")
+	else:
+		print("  fabric cards: SKIP (no fabric slots — content-empty game)")
 	_check(Cards.entry_for_file("res://nope.glb").is_empty(), "unknown file yields {}")
 	var sh: Shader = load("res://game/shaders/fabric_wind.gdshader")
 	_check(sh != null, "fabric_wind shader loads")
@@ -2638,6 +2679,14 @@ func _test_fabric() -> void:
 func _test_threshold() -> void:
 	# The interior record loads and carries its one way home.
 	var def: Dictionary = Interiors.definition("smugglers_cellar")
+	# The cellar is valley content; a content-empty game has no interiors.
+	# The machinery's ground truth — a missing interior answers {} — still
+	# holds and is the fallback every game leans on, so prove that much.
+	if def.is_empty():
+		_check(Interiors.definition("no_such_interior").is_empty(),
+			"a missing interior answers {} (the fallback's ground truth)")
+		print("  threshold: SKIP crossing (no interior records — content-empty game)")
+		return
 	_check(not def.is_empty(), "smugglers_cellar record loads")
 	var exits := 0
 	for row: Dictionary in def.get("placements", []):
@@ -2846,6 +2895,13 @@ func _test_conditions_v2() -> void:
 ## door (flora.vitality + load_state) and the dev weather door
 ## (force_kind — the Y key's path).
 func _test_story_dry_spell_real() -> void:
+	# dry_spell is a shipped VALLEY quest, not framework. The Story
+	# machinery it exercises is proven synthetically in the quest harness
+	# (tests/quests/*.test.json, inline records) — so a content-empty game
+	# keeps real Story coverage without this valley record.
+	if not Story.quests.has("dry_spell"):
+		print("  dry spell: SKIP (quest not shipped — content-empty game)")
+		return
 	_check(Story.quests.has("dry_spell"), "the dry spell record loads")
 	# Hermetic slate: drop any journal state earlier tests minted and let
 	# Story re-derive (the save door — restore emits no signals).

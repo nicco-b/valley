@@ -23,8 +23,15 @@ func _ready() -> void:
 	# The living systems under soak: wildlife (weather, climate, flora,
 	# rumors are autoloads already ticking on hour_tick). The authored
 	# inhabitants retired with the old valley — Strata is the world now.
-	var wildlife: Node = load("res://game/wildlife/wildlife_manager.gd").new()
-	add_child(wildlife)
+	# WildlifeManager is game content (the hound), not framework: a
+	# content-empty scaffolded game soaks its autoload sims alone. When the
+	# manager is absent the fingerprint simply carries no herd digest — and
+	# valley (manager present) stays bit-identical, since a herdless world
+	# would contribute nothing either way.
+	var wildlife: Node = null
+	if ResourceLoader.exists("res://game/wildlife/wildlife_manager.gd"):
+		wildlife = load("res://game/wildlife/wildlife_manager.gd").new()
+		add_child(wildlife)
 
 	var t0 := Time.get_ticks_msec()
 	GameClock.advance_hours(24.0 * DAYS)
@@ -77,7 +84,7 @@ func _invariants(wildlife: Node) -> void:
 		var taken := float(gathered[k])
 		_check(is_finite(taken) and taken > 0.0 and taken <= 1.0,
 			"flora cell %s wound in (0,1]" % k)
-	for herd in wildlife.herds:
+	for herd in (wildlife.herds if wildlife != null else []):
 		for ind in herd.individuals:
 			var sim: AgentSim = ind.sim
 			_check(sim.pos.is_finite(), "%s animal position finite" % herd.species)
@@ -129,7 +136,7 @@ func _fingerprint(wildlife: Node) -> int:
 		WorldState.has_flag("valley.bloom"),
 		WorldState.has_flag("valley.parched"),
 	]
-	for herd in wildlife.herds:
+	for herd in (wildlife.herds if wildlife != null else []):
 		for ind in herd.individuals:
 			var sim: AgentSim = ind.sim
 			parts.append("%.1f,%.1f" % [sim.pos.x, sim.pos.y])

@@ -40,10 +40,18 @@ if [ -n "$OUT" ]; then
 fi
 
 echo "== smoke test: world (240 frames) =="
-OUT=$(godot --headless --quit-after 240 res://game/world/valley.tscn 2>&1 | grep -vE "$FILTER")
-if [ -n "$OUT" ]; then
-	echo "$OUT"
-	echo "SMOKE FAIL (world): unexpected output above"
-	exit 1
-fi
+# The world scene lives at a project-chosen path: valley's own
+# game/world/valley.tscn, a Strata-scaffolded game's main.tscn. Smoke
+# whichever THIS project ships (the SKIP-when-absent pattern the tests
+# use — the framework file rides every game unchanged).
+for cand in game/world/valley.tscn main.tscn; do
+	[ -f "$cand" ] || continue
+	OUT=$(godot --headless --quit-after 240 "res://$cand" 2>&1 | grep -vE "$FILTER")
+	if [ -n "$OUT" ]; then
+		echo "$OUT"
+		echo "SMOKE FAIL (world $cand): unexpected output above"
+		exit 1
+	fi
+	break
+done
 echo "smoke clean"

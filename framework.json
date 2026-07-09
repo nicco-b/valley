@@ -2,8 +2,8 @@
 	"format": 1,
 	"framework": "valley",
 	"born": "2026-07-09",
-	"plan": "docs/PLAN_FRAMEWORK.md (FW1 — the world spine)",
-	"note": "The framework manifest v0: the file set a scaffolded game copies (copy + provenance + offered updates, the library pattern). The rev is COMPUTED, never stored: sha256 over the sorted 'path sha256' lines of every file below, truncated to 12 hex — derivable from the filesystem on both sides (scripts/framework_dist.sh prints it). Scope is FW1's world spine (Chronicle + Almanac + Loom + Elements + the whole Watershed) PLUS the parse-time closure that set honestly drags in (GDScript resolves autoload names at compile time, so the spine's scripts pull the Toolkit, the link, the Campfire spine, items/skills/UI and the player). Marked exclusions are content: valley.tscn, the title, the hound and wildlife, the kit placeholder scenes, quest_lint (test harness, rides FW3), and all of data/ except the default biome palette the importer paints against. The autoload column and the framework sections of project.godot (display, autoload, navigation, shader_globals, input, physics) are copied from THIS repo's project.godot at scaffold time — the column IS the table of contents.",
+	"plan": "docs/PLAN_FRAMEWORK.md (FW3 — the whole machine rides, pane parity)",
+	"note": "The framework manifest: the file set a scaffolded game copies (copy + provenance + offered updates, the library pattern). The rev is COMPUTED, never stored: sha256 over the sorted 'path sha256' lines of every file below, truncated to 12 hex — derivable from the filesystem on both sides (scripts/framework_dist.sh prints it). FW3 grows v0's world spine to the FULL Q1 table: the Toolkit + link + overrides (Strata's hand in every game), the Campfire (save/story/quest_lint), the Threshold, fabric, the map, skills, items, interact, the whole UI (hud/settings/pause/title/ui_theme), the player machinery — AND the verification discipline (scripts/test.sh + soak.sh + the dev scripts, tests/run_tests + scene_tests + quest_harness + soak, the 4 SYNTHETIC quest fixtures). A scaffolded game verifies itself like valley does. Marked exclusions stay content: valley.tscn, the hound and wildlife (wildlife_manager/body + hound_body.tscn + star_hounds.json), the kit placeholder scenes, dry_spell.test.json (drives a SHIPPED valley quest), and all of data/ + assets/ except the default biome palette and the fox model (the default-look placeholder body player.tscn embeds — FW4 moves it to a character record). The test harnesses SKIP their content-dependent probes when the content is absent (the tile/card SKIP pattern, extended); the soak runs its autoload sims content-empty and folds wildlife in only when the manager exists. The autoload column and the framework sections of project.godot are copied from THIS repo's project.godot at scaffold time — the column IS the table of contents.",
 	"project_sections": ["display", "autoload", "navigation", "shader_globals", "input", "physics"],
 	"systems": {
 		"chronicle": [
@@ -83,7 +83,8 @@
 		],
 		"campfire": [
 			"game/story/story.gd",
-			"game/story/journal_ui.gd"
+			"game/story/journal_ui.gd",
+			"game/story/quest_lint.gd"
 		],
 		"toolkit_link": [
 			"game/dev/toolkit.gd",
@@ -101,7 +102,9 @@
 			"game/ui/hud.gd",
 			"game/ui/ui_theme.gd",
 			"game/ui/settings.gd",
-			"game/ui/pause_menu.gd"
+			"game/ui/pause_menu.gd",
+			"game/ui/title.gd",
+			"game/ui/title.tscn"
 		],
 		"items_skills_interact": [
 			"game/items/items.gd",
@@ -128,6 +131,24 @@
 		"strata_seam": [
 			"tools/strata/import_and_bake.sh",
 			"tools/strata/import_world.gd"
+		],
+		"verification": [
+			"scripts/test.sh",
+			"scripts/soak.sh",
+			"scripts/run.sh",
+			"scripts/toolkit.sh",
+			"scripts/reimport.sh",
+			"tests/run_tests.gd",
+			"tests/scene_tests.gd",
+			"tests/scene_tests.tscn",
+			"tests/quest_harness.gd",
+			"tests/quest_harness.tscn",
+			"tests/soak.gd",
+			"tests/soak.tscn",
+			"tests/quests/catchup_since.test.json",
+			"tests/quests/cooldown_cycles.test.json",
+			"tests/quests/fork_gave.test.json",
+			"tests/quests/fork_kept.test.json"
 		],
 		"defaults": [
 			"data/world/biomes.json"

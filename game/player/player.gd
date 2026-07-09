@@ -34,11 +34,10 @@ const FABRIC_CHAINS: Array[Dictionary] = [
 # above (FW5: Q1 marks fox model + footstep audio as content-via-character-
 # records; no such record system exists yet — deliberately, see the fence —
 # so this stays one named, existence-guarded constant instead of speculative
-# machinery). Built from parts so the framework file never spells a
-# complete res://assets/... literal outright; _make_footsteps() below
-# already tolerates the folder being empty/absent (content-empty boots
-# silent, no error).
-const FOOTSTEP_AUDIO_DIR := "res://assets" + "/audio/steps"
+# machinery). The lint OBSERVEs it by name — an honest allowlist entry,
+# not a dodge. _make_footsteps() below already tolerates the folder being
+# empty/absent (content-empty boots silent, no error).
+const FOOTSTEP_AUDIO_DIR := "res://assets/audio/steps"
 
 var _sitting := false
 # Underwater swim state (2026-07-04 water review, step 1). PROVISIONAL

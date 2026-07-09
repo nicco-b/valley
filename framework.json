@@ -88,6 +88,7 @@
 		],
 		"toolkit_link": [
 			"game/dev/toolkit.gd",
+			"game/dev/toolkit_history.gd",
 			"game/dev/strata_link.gd",
 			"game/dev/strata_conventions.gd",
 			"game/dev/hot_reload.gd",

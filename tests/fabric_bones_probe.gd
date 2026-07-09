@@ -24,7 +24,7 @@ const SETTLE := 90   # frames for the springs to find a state
 const SAMPLE := 60   # frames averaged per measurement
 # The fox ear is a leaf bone: its origin never moves, only its rotation.
 # Its measured tip is the FabricSpring virtual lever (rest direction
-# from the head, PRESETS extend length).
+# from the head, the ear chain's "extend" length).
 const EAR_LEVER := Vector3(0.062, 0.258962, -0.023743)
 
 var _world: Node
@@ -75,6 +75,10 @@ func _run() -> void:
 		player.global_position = stage + Vector3(-2.0, 0.0, 16.0)
 		creature = load("res://game/wildlife/hound_body.tscn").instantiate()
 		creature.species = "probe_hound"
+		# The real record's chains (FW4: no PRESETS left in fabric_spring.gd
+		# to fall back on) — the probe rides content, not a private copy.
+		var hound_rec: Dictionary = Records.load_json("res://data/wildlife/star_hounds.json")
+		creature.fabric_chains = hound_rec.fabric
 		add_child(creature)
 		creature.global_position = stage + Vector3(0, 0.4, 0)
 		creature.set_target(Vector2(stage.x, stage.z))  # stay; idle

@@ -19,22 +19,19 @@ extends SpringBoneSimulator3D
 ## bone poses revert after the skin upload, so read results inside
 ## `skeleton_updated` (see fabric_bones_probe.gd).
 
-## Chain presets, gouache-tuned: damped and chunky, never AAA-jiggly
-## (art bible — motion reads painterly; a wag is a brushstroke). A rig
-## adopts every preset whose root bone it carries. `wind` scales
-## Weather's force per chain class, calibrated against the solver
-## (2026-07-08 sweep): a storm leans the hound's ~0.7 m tail ~0.27 m
-## downwind while calm barely breathes it (~0.04 m); a gale flicks the
-## ears ~17 degrees, calm ~3. Leaf bones (ears) extend a virtual tip so
-## a one-bone chain still has a lever to swing.
-const PRESETS: Array[Dictionary] = [
-	{"root": "tail.1", "end": "tail_star", "stiffness": 2.4, "drag": 0.7,
-		"gravity": 0.1, "radius": 0.05, "wind": 0.4},
-	{"root": "ear.L", "end": "ear.L", "stiffness": 3.2, "drag": 0.8,
-		"gravity": 0.05, "radius": 0.03, "wind": 1.2, "extend": 0.14},
-	{"root": "ear.R", "end": "ear.R", "stiffness": 3.2, "drag": 0.8,
-		"gravity": 0.05, "radius": 0.03, "wind": 1.2, "extend": 0.14},
-]
+## Chain configs are per-creature content, never the framework's to know
+## (FW4: `PRESETS` used to hardcode hound/fox bone names here — moved
+## out). The caller supplies its own chain dicts (each: root/end bone
+## names, stiffness, drag, gravity, radius, wind, optional extend for
+## leaf bones); a rig adopts every chain whose root bone it actually
+## carries, so the same call is safe against a rig missing some chains.
+## Gouache tuning stays the art bible either way: damped and chunky,
+## never AAA-jiggly (a wag is a brushstroke). `wind` scales Weather's
+## force per chain class — calibrated against the solver (2026-07-08
+## sweep): a storm leans the hound's ~0.7 m tail ~0.27 m downwind while
+## calm barely breathes it (~0.04 m); a gale flicks the ears ~17
+## degrees, calm ~3. Leaf bones (ears) extend a virtual tip so a
+## one-bone chain still has a lever to swing.
 
 # Distance fade (plan LOD stance): influence eases to 0 well inside the
 # Understory's ~170 m body dissolve, so a chain never outlives its read.
@@ -51,35 +48,37 @@ var _was_faded_out := false  # reset() on re-entry so no stale-state pop
 var _feed_us := 0.0          # our per-frame feed cost (not the C++ solve)
 
 
-## The public door: adopt whatever danglable chains this model's skeleton
-## carries. Headless gate first (house pattern, sea_swell.gd) — no
-## window, no simulator EXISTS, so soak and tests never meet spring
-## state. Returns null when gated or when the rig has nothing to dangle.
-static func adopt(model_root: Node) -> FabricSpring:
+## The public door: adopt whatever of the given chains this model's
+## skeleton actually carries. Headless gate first (house pattern,
+## sea_swell.gd) — no window, no simulator EXISTS, so soak and tests
+## never meet spring state. Returns null when gated, when `chains` is
+## empty (a creature record with nothing to dangle), or when the rig
+## carries none of the requested root bones.
+static func adopt(model_root: Node, chains: Array[Dictionary]) -> FabricSpring:
 	if DisplayServer.get_name() == "headless":
 		return null
 	var skels := model_root.find_children("*", "Skeleton3D", true, false)
 	if skels.is_empty():
 		return null
-	return build(skels[0])
+	return build(skels[0], chains)
 
 
 ## Gate-free construction — split out so the scene test can prove the
 ## windowed path assembles correct chains while itself running headless.
 ## Only adopt() (gated) and tests should call this.
-static func build(skeleton: Skeleton3D) -> FabricSpring:
-	var chains: Array[Dictionary] = []
-	for p in PRESETS:
+static func build(skeleton: Skeleton3D, chains: Array[Dictionary]) -> FabricSpring:
+	var adopted: Array[Dictionary] = []
+	for p in chains:
 		if skeleton.find_bone(String(p.root)) >= 0:
-			chains.append(p)
-	if chains.is_empty():
+			adopted.append(p)
+	if adopted.is_empty():
 		return null
 	var fs := FabricSpring.new()
 	fs.name = "FabricSpring"
 	skeleton.add_child(fs)
-	fs.setting_count = chains.size()
-	for i in chains.size():
-		var c: Dictionary = chains[i]
+	fs.setting_count = adopted.size()
+	for i in adopted.size():
+		var c: Dictionary = adopted[i]
 		fs.set_root_bone_name(i, String(c.root))
 		fs.set_end_bone_name(i, String(c.end))
 		if c.has("extend"):

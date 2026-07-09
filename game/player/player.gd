@@ -20,6 +20,16 @@ const SIT_EASE := 3.0
 # scales with real discharge). Measured by tests/current_probe.
 const CURRENT_PUSH := 10.0
 
+# Fabric F2: the fox's own chains — content, not framework (FW4: these
+# used to live in fabric_spring.gd's PRESETS alongside the hound's).
+# Leaf-bone ears extend a virtual tip so a one-bone chain has a lever.
+const FABRIC_CHAINS: Array[Dictionary] = [
+	{"root": "ear.L", "end": "ear.L", "stiffness": 3.2, "drag": 0.8,
+		"gravity": 0.05, "radius": 0.03, "wind": 1.2, "extend": 0.14},
+	{"root": "ear.R", "end": "ear.R", "stiffness": 3.2, "drag": 0.8,
+		"gravity": 0.05, "radius": 0.03, "wind": 1.2, "extend": 0.14},
+]
+
 var _sitting := false
 # Underwater swim state (2026-07-04 water review, step 1). PROVISIONAL
 # binding: dive = Ctrl / gamepad B (kitchen-table review pending). No
@@ -64,7 +74,7 @@ func _ready() -> void:
 	CharacterPaint.apply($Body/Model)
 	# F2 fabric: the fox's ears answer the wind and lag a sprint turn —
 	# spring bones, headless-gated (PLAN_FABRIC determinism stance).
-	FabricSpring.adopt($Body/Model)
+	FabricSpring.adopt($Body/Model, FABRIC_CHAINS)
 	_sand_puff = _make_sand_puff()
 	_scuff = _make_scuff()
 	_steps = _make_footsteps()

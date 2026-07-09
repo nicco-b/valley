@@ -1,21 +1,21 @@
 extends Node
 ## WildlifeManager: creatures with daily lives on the third simulation
 ## tier. Each animal is an AgentSim (the shared mind — SIM_ROADMAP P1)
-## living as pure data; a body (hound_body.tscn) is spawned only when the
-## focus comes near and freed when it leaves. Embodiment is presentation;
-## the simulation never changes shape. Wildlife lives by the sun
-## (solar-gated activities): drink at dawn, shade at noon, prowl between.
+## living as pure data; a body is spawned only when the focus comes near
+## and freed when it leaves. Embodiment is presentation; the simulation
+## never changes shape. Wildlife lives by the sun (solar-gated
+## activities): drink at dawn, shade at noon, prowl between.
 ##
-## Records: data/wildlife/*.json — home/range plus NPC-shaped activities.
-## Placeholder: bodies reuse the star hound glb until canon names the
-## valley's creatures (STATUS ledger).
+## Records: data/wildlife/*.json — home/range, activities, the body
+## scene path, and the fabric chains its rig dangles (FW4: both used to
+## be hardcoded in framework code — `BODY_SCENE`'s preload here and
+## `PRESETS` in fabric_spring.gd — now per-creature record fields).
 ##
 ## Sim contract: stateful; advanced by live ticks and by the sim_advance
 ## group during catch-up; persisted hourly to WorldState
 ## ("wildlife.<species>"); world_state_reader group. Observability: the
 ## Toolkit right-click a body → sim_debug, like NPCs.
 
-const BODY_SCENE := preload("res://game/wildlife/hound_body.tscn")
 const EMBODY_DISTANCE := 130.0
 const DISSOLVE_DISTANCE := 165.0  # hysteresis so the border doesn't flap
 const LIVE_TICK := 0.5  # real seconds between live data ticks
@@ -31,6 +31,7 @@ func _ready() -> void:
 	var records: Dictionary = Records.load_dir("res://data/wildlife", {
 		"id": TYPE_STRING, "count": TYPE_FLOAT,
 		"home": TYPE_DICTIONARY, "activities": TYPE_ARRAY,
+		"body_scene": TYPE_STRING,
 	})
 	for key in records:
 		spawn_herd(records[key])
@@ -42,6 +43,8 @@ func spawn_herd(data: Dictionary) -> Dictionary:
 	var herd := {
 		"species": data.id,
 		"activities": data.activities,
+		"body_scene": data.body_scene,
+		"fabric": data.get("fabric", []),
 		"individuals": [],
 	}
 	var rng := Rng.stream("wildlife")
@@ -134,8 +137,13 @@ func _focus_position() -> Vector2:
 
 func _embody(herd: Dictionary, ind: Dictionary) -> void:
 	var sim: AgentSim = ind.sim
-	var body := BODY_SCENE.instantiate()
+	# Loaded, not preloaded (FW4): the body scene is a record field, so
+	# a content-empty game with no wildlife records never touches a
+	# missing path, and each record can point at its own body.
+	var scene: PackedScene = load(herd.body_scene)
+	var body := scene.instantiate()
 	body.species = herd.species
+	body.fabric_chains = herd.fabric
 	body.sim = sim  # shared reference: the inspector reads the live mind
 	add_child(body)
 	body.global_position = Vector3(

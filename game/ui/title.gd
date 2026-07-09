@@ -4,19 +4,26 @@ extends Control
 ## Wears UITheme; first button grabs focus so gamepad navigation works
 ## from the first frame.
 
-const WORLD_SCENE := "res://game/world/valley.tscn"
+## Framework default; each game points this project setting at its own
+## world scene (valley's own value lives in project.godot's [application]
+## section, `game/world_scene`).
+const WORLD_SCENE_SETTING := "application/config/world_scene"
+const WORLD_SCENE_FALLBACK := "res://game/world/valley.tscn"
 
+var _world_scene: String
 var _new_button: Button
 var _confirm_armed := false
 
 
 func _ready() -> void:
+	_world_scene = ProjectSettings.get_setting(WORLD_SCENE_SETTING, WORLD_SCENE_FALLBACK)
+
 	# Boot posture: `--toolkit` skips the campfire and lands in the editor
 	# over the live world (Continue semantics — an existing save restores).
 	# Deferred: changing scene inside _ready would remove_child() while the
 	# tree is busy setting up children (engine error on every --viewer boot).
 	if Toolkit.launch_requested():
-		get_tree().change_scene_to_file.call_deferred(WORLD_SCENE)
+		get_tree().change_scene_to_file.call_deferred(_world_scene)
 		return
 
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
@@ -66,7 +73,7 @@ func _ready() -> void:
 		var cont := Button.new()
 		cont.text = "Continue"
 		cont.pressed.connect(func() -> void:
-			get_tree().change_scene_to_file(WORLD_SCENE))
+			get_tree().change_scene_to_file(_world_scene))
 		vbox.add_child(cont)
 		first = cont
 
@@ -91,7 +98,7 @@ func _on_new_journey(has_save: bool) -> void:
 		_new_button.text = "Erase the old journey?"
 		return
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(SaveGame.PATH))
-	get_tree().change_scene_to_file(WORLD_SCENE)
+	get_tree().change_scene_to_file(_world_scene)
 
 
 func _spacer(h: float) -> Control:

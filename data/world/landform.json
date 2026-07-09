@@ -1,5 +1,14 @@
 {
-	"comment": "The procedural draft: the noise-driven base world Terrain.height() builds UNDER the blessed Strata tile (which replaces it where present). Valley's archipelago, moved out of game/world/terrain.gd's VALLEY_PATH/WALL_HEIGHT/SEABED consts and hardcoded noise seeds per FW4. A content-empty game ships no landform and falls back to terrain.gd's neutral defaults (no home valley, flat walls, generic noise). The draft's fixed amplitude profile (floor/wall/range/seabed multipliers) is the interpreter's shape and stays in terrain.gd + the native kernel — this record carries only the per-game parameters the kernel already takes via set_base/set_home.",
+	"comment": "The procedural draft: the noise-driven base world Terrain.height() builds UNDER the blessed Strata tile (which replaces it where present). Valley's archipelago, moved out of game/world/terrain.gd's VALLEY_PATH/WALL_HEIGHT/SEABED consts and hardcoded noise seeds per FW4. A content-empty game ships no landform and falls back to terrain.gd's neutral defaults (no home valley, flat walls, generic noise). The amplitude 'profile' block below carries the draft's SHAPE constants (floor/wall/range/seabed multipliers + region shape) — data-driven so 800m alps or 5m dunes need no recompile; its DEFAULTS in terrain.gd/the kernel are exactly these values, so an absent block reproduces today's world. The per-game valley/seabed/noise parameters ride the kernel's existing set_base/set_home boundary.",
+	"profile": {
+		"comment": "Valley's amplitude profile — the historical hardcoded shape, now data. floor: base rolling ground; wall: valley-wall hill gain; range: mountain amplitude + [in,out] envelope (m); seabed: archipelago-floor texture; mesa_blend: mesa terrace lerp (0..1); volcano_power: volcanic flank concavity.",
+		"floor": {"hills": 3.0, "dunes": 0.6},
+		"wall": {"hills": 22.0},
+		"range": {"amp": 320.0, "envelope": [1200.0, 2400.0]},
+		"seabed": {"hills": 4.0, "dunes": 1.5},
+		"mesa_blend": 0.7,
+		"volcano_power": 1.55
+	},
 	"valley": {
 		"comment": "Home valley centerline (behind spawn, past the pond, to the shrine); floor stays low and dense, walls rise into an enclosing ridge plateau.",
 		"path": [

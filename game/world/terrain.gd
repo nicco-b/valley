@@ -345,6 +345,41 @@ const NOISE_DEFAULT := {
 	"coast": {"seed": 0, "frequency": 0.001, "octaves": 5, "ridged": false},
 }
 
+# The amplitude PROFILE: the draft's fixed SHAPE constants, lifted out of
+# height()/_region_height() into data so 800m alps or 5m dunes need no
+# recompile (FW4). Sourced from landform.json's optional "profile" block;
+# the DEFAULTS below are EXACTLY the historical hardcoded values, so an
+# absent block (or a content-empty game) reproduces today's world
+# bit-for-bit. The native kernel mirrors this schema key-for-key in
+# set_profile — the two interpreters must read every field identically.
+#   floor: base rolling ground (hills+dunes multipliers)
+#   wall:  the valley wall's hill-noise gain (added to wall_height)
+#   range: mountain amplitude + the [in,out] distance envelope (m)
+#   seabed: the archipelago floor's hill+dune texture
+#   mesa_blend: how far mesa terraces lerp toward stepped (0..1)
+#   volcano_power: the volcanic flank's concavity exponent
+const PROFILE_DEFAULT := {
+	"floor": {"hills": 3.0, "dunes": 0.6},
+	"wall": {"hills": 22.0},
+	"range": {"amp": 320.0, "envelope": [1200.0, 2400.0]},
+	"seabed": {"hills": 4.0, "dunes": 1.5},
+	"mesa_blend": 0.7,
+	"volcano_power": 1.55,
+}
+var _prof_floor_hills := 3.0
+var _prof_floor_dunes := 0.6
+var _prof_wall_hills := 22.0
+var _prof_range_amp := 320.0
+var _prof_range_in := 1200.0
+var _prof_range_out := 2400.0
+var _prof_seabed_hills := 4.0
+var _prof_seabed_dunes := 1.5
+var _prof_mesa_blend := 0.7
+var _prof_volcano_power := 1.55
+# The raw profile block as loaded (empty = all defaults); pushed to the
+# kernel in _init_kernel.
+var _profile_cfg: Dictionary = {}
+
 # The home valley centerline (empty = no authored valley) and its cut
 # shape, loaded from LANDFORM_PATH. Read-only after _ready (workers sample
 # valley_factor via height()).
@@ -449,6 +484,49 @@ func _load_landform() -> void:
 		_seabed = float(cfg["seabed"])
 	if cfg.get("noise") is Dictionary:
 		_noise_cfg = cfg["noise"]
+	# The amplitude profile block: absent leaves every default (today's
+	# world). Applied to the GDScript fields now; pushed to the kernel in
+	# _init_kernel once it exists (apply_profile no-ops the kernel push
+	# while kernel is null).
+	if cfg.get("profile") is Dictionary:
+		_profile_cfg = cfg["profile"]
+		apply_profile(_profile_cfg)
+
+
+# Apply an amplitude-profile dict (landform.json's "profile" schema) to
+# the GDScript reference fields AND, if it exists, the live native kernel,
+# so the two interpreters stay in lockstep. Every key is optional; an
+# absent key leaves the current value untouched. Used by _load_landform at
+# boot and by the parity gate to drive a NON-DEFAULT profile through both
+# paths (the defaults match trivially, so only a distinct profile proves
+# the two readers agree).
+func apply_profile(prof: Dictionary) -> void:
+	var floor_d: Variant = prof.get("floor")
+	if floor_d is Dictionary:
+		_prof_floor_hills = _profile_num(floor_d, "hills", _prof_floor_hills)
+		_prof_floor_dunes = _profile_num(floor_d, "dunes", _prof_floor_dunes)
+	var wall_d: Variant = prof.get("wall")
+	if wall_d is Dictionary:
+		_prof_wall_hills = _profile_num(wall_d, "hills", _prof_wall_hills)
+	var range_d: Variant = prof.get("range")
+	if range_d is Dictionary:
+		_prof_range_amp = _profile_num(range_d, "amp", _prof_range_amp)
+		var env: Variant = range_d.get("envelope")
+		if env is Array and (env as Array).size() == 2:
+			_prof_range_in = float(env[0])
+			_prof_range_out = float(env[1])
+	var seabed_d: Variant = prof.get("seabed")
+	if seabed_d is Dictionary:
+		_prof_seabed_hills = _profile_num(seabed_d, "hills", _prof_seabed_hills)
+		_prof_seabed_dunes = _profile_num(seabed_d, "dunes", _prof_seabed_dunes)
+	_prof_mesa_blend = _profile_num(prof, "mesa_blend", _prof_mesa_blend)
+	_prof_volcano_power = _profile_num(prof, "volcano_power", _prof_volcano_power)
+	if kernel:
+		kernel.set_profile(prof)
+
+
+func _profile_num(d: Dictionary, key: String, fallback: float) -> float:
+	return float(d[key]) if typeof(d.get(key)) in [TYPE_INT, TYPE_FLOAT] else fallback
 
 
 # Apply the loaded noise config to the five FastNoiseLite fields. Setting
@@ -500,6 +578,10 @@ func _init_kernel() -> void:
 		_valley_inner, _valley_outer, _wall_height)
 	kernel.set_home(_home_rect.position, _home_rect.end,
 		HOME_GUARD_IN, HOME_GUARD_OUT, sea_level, _seabed)
+	# The amplitude profile: empty dict = every kernel default (today's
+	# world); a shipped block overrides per key. Kernel defaults already
+	# equal these, so this is a no-op for a game with no profile record.
+	kernel.set_profile(_profile_cfg)
 	var lc := PackedVector2Array()
 	# Float64: lake records are read as doubles in GDScript; a float32
 	# hop here moved the pond by 5e-8 m and broke bit-parity.
@@ -644,19 +726,20 @@ func valley_factor(x: float, z: float) -> float:
 
 
 func height(x: float, z: float) -> float:
-	var floor_h := _hills.get_noise_2d(x, z) * 3.0 + _dunes.get_noise_2d(x, z) * 0.6
-	var wall_h := _wall_height + _hills.get_noise_2d(x, z) * 22.0
+	var floor_h := _hills.get_noise_2d(x, z) * _prof_floor_hills \
+		+ _dunes.get_noise_2d(x, z) * _prof_floor_dunes
+	var wall_h := _wall_height + _hills.get_noise_2d(x, z) * _prof_wall_hills
 	var h := lerpf(floor_h, wall_h, valley_factor(x, z))
 	# Mountain ranges: absent near home, real and walkable beyond ~1.2km.
-	var range_envelope := smoothstep(1200.0, 2400.0, Vector2(x, z).length())
-	var range_term := maxf(_ranges.get_noise_2d(x, z), 0.0) * 320.0 * range_envelope
+	var range_envelope := smoothstep(_prof_range_in, _prof_range_out, Vector2(x, z).length())
+	var range_term := maxf(_ranges.get_noise_2d(x, z), 0.0) * _prof_range_amp * range_envelope
 	# The archipelago: outside the home guard the plateau sinks to the
 	# seabed, the ranges fade with it (the sea bounds the world — no
 	# endless mountains), and authored islands rise from records.
 	var guard := home_guard(x, z)
 	if guard > 0.0:
-		var seabed := _seabed + _hills.get_noise_2d(x, z) * 4.0 \
-			+ _dunes.get_noise_2d(x, z) * 1.5
+		var seabed := _seabed + _hills.get_noise_2d(x, z) * _prof_seabed_hills \
+			+ _dunes.get_noise_2d(x, z) * _prof_seabed_dunes
 		h = lerpf(h, seabed, guard)
 		range_term *= 1.0 - guard
 		h += _region_height(x, z) * guard
@@ -1472,7 +1555,7 @@ func _region_height(x: float, z: float, over_bay_phase: int = 0) -> float:
 				# radial ravines — strongest mid-flank, fading at the
 				# summit plateau and the coast. Drainage for free.
 				var t := 1.0 - smoothstep(0.0, _reg_reach[i], d)
-				var profile := pow(t, 1.55)
+				var profile := pow(t, _prof_volcano_power)
 				var ang := atan2(z - _reg_center[i].y, x - _reg_center[i].x)
 				var wob := _island.get_noise_2d(
 					_reg_center[i].x + cos(ang) * 900.0,
@@ -1491,7 +1574,7 @@ func _region_height(x: float, z: float, over_bay_phase: int = 0) -> float:
 					var t := env * _reg_tiers[i]
 					var stepped := (floorf(t) + smoothstep(0.15, 0.85, t - floorf(t))) \
 						/ _reg_tiers[i]
-					env = lerpf(env, stepped, 0.7)
+					env = lerpf(env, stepped, _prof_mesa_blend)
 		if detail == 1e12:
 			detail = _island.get_noise_2d(x, z)
 		total += _reg_height[i] * (env + detail * 0.06 * env)

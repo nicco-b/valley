@@ -53,5 +53,28 @@ func _init() -> void:
 		if absf(a - b) > 1e-4 and not (a < -1e11 and b < -1e11):
 			ok = false
 			print("  water mismatch at ", s, ": ", a, " vs ", b)
+	# Amplitude-profile parity: the defaults match trivially on both sides,
+	# so drive a DISTINCT profile (floor/wall/range/seabed/mesa/volcano all
+	# moved) through apply_profile — which updates the GDScript fields AND
+	# the live kernel via set_profile — then re-run the world sweep. This is
+	# what proves the two interpreters read landform.json's "profile" block
+	# identically (a porting bug in either set_profile would show here).
+	t.apply_profile({
+		"floor": {"hills": 5.0, "dunes": 2.0},
+		"wall": {"hills": 40.0},
+		"range": {"amp": 500.0, "envelope": [800.0, 3000.0]},
+		"seabed": {"hills": 8.0, "dunes": 3.0},
+		"mesa_blend": 0.4,
+		"volcano_power": 2.1,
+	})
+	var pblock: PackedFloat32Array = t.kernel.height_block(
+		-6000.0, -6000.0, wstep, wn, wn)
+	var pworst := 0.0
+	for iz in wn:
+		for ix in wn:
+			var ref := float(t.height(-6000.0 + ix * wstep, -6000.0 + iz * wstep))
+			pworst = maxf(pworst, absf(pblock[iz * wn + ix] - ref))
+	print("profiled world sweep worst |diff|: %.9f m" % pworst)
+	ok = ok and pworst < 1e-3
 	print("PARITY PASS" if ok else "PARITY FAIL")
 	quit()

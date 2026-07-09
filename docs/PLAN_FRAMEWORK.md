@@ -264,6 +264,25 @@ rivers that foam over knickpoints and lakes with fetch-scaled storm
 chop; wading rings the water; the static Sea plane no longer exists.
 `test.sh` green in the fresh game AND in valley.
 
+**✅ LANDED 2026-07-09 (both halves, same night).** Valley:
+`framework.json` v0 (90 files / 18 systems; rev computed, never
+stored) + `scripts/framework_dist.sh` (`3a41f44`), and the
+content-empty seams — kit placeholder scenes, scatter tables, the
+watershed record, swarm paintings all optional; valley bit-identical,
+fingerprint 2814434129 unmoved (`3a41f44` + `c80026d`). Strata
+(`b00ba04`): the 1600-line string-writer is DEAD — the scaffold copies
+the real framework set from `STRATA_FRAMEWORK_DIR` or the live
+checkout, stamps `framework.lock.json`, and `strata-cli framework
+update` ships with v0 semantics (added/updated/current/modified;
+modified reported and kept; retemplate is an alias). mygame
+retemplated as the acceptance test (lock rev `aad981f8ef1e` at
+stamping — the rev floats with valley edits by design): the strata E2E
+imports a 16384m export through the framework's importer, the
+Watershed carries hyd_r1/hyd_l1, the walker stands on 60m relief. The
+by-hand half of the ✓ (the water TOUR) sits in ONE_APP's queue. Known
+FW2 freight: the offer UX, the spawn-in-deep-sea fill-in, the GUI-Send
+godot-PATH wrinkle.
+
 **FW2 · The lock and the offer (retemplate dies).**
 `framework.lock.json` stamped at scaffold; `strata-cli framework
 update` with the three honest states (clean / modified / custom);

@@ -12,7 +12,87 @@ update it when things change. The doc map: [DESIGN.md](DESIGN.md) = what the gam
 the human-made shopping list · [lore/](lore/) = canon (axioms pending) ·
 `/CLAUDE.md` = conventions + gotchas for AI sessions.*
 
-## ⭐ Session handoff — resume here (2026-07-08, end of day): THE GAME GREW A STORY LAYER, INTERIORS, AND FABRIC
+## ⭐ Session handoff — resume here (2026-07-09, the late arc): THE FRAMEWORK ERA + THE WATER RINGS AND REMEMBERS
+
+**This extends the 2026-07-08 roof below — read this first, then that
+one; the handoffs under them are the rooms.** `strata/docs/ONE_APP.md`
+stays the cross-repo spine (its late-arc progress log + rewritten next
+steps are the full ledger); this is the valley-side view of what landed
+after the day officially closed.
+
+- **S1 · everything that moves rings the water** (commit `8e6897c`,
+  PLAN_SUBSTANCES's first rung): wildlife rings fords with the same
+  stride that stamps sand (one water query per stride, 0.24µs), wading
+  past belly depth throws the big splash, the swimming player tows a
+  V-wake by stride parity (no RNG anywhere in the rung), rain rides
+  per-m² rates so a calm sky rings nothing. Window doubled
+  (128m @1024², texels stay 12.5cm, 0.070ms/step measured);
+  `ring_posterize` paints the field read into bands. **S2 · foam
+  memory** (commit `7ebf153` — Nicco's own session): the field is
+  rg16f now — R height, G foam history; deposits past a 0.004m floor,
+  TIME-based decay by law (6s is 6s at any frame rate), advection
+  along swell + focus drift (breaker foam rides ashore, rivers tow
+  their foam), the breaker band importance-sampled through SeaSwell's
+  surf mirror. The flagged eyesores fixed: foam fades to painted
+  stillness with camera distance; river mouths feather into their
+  lakes. Both rungs presentation-tier; **soak fingerprint 2814434129
+  unmoved, deterministic twice.** Next rung: **S3 floaters** (analytic
+  buoyancy, 7.6µs each, never sim-coupled).
+- **The map-zoom engine deadlock — found, fixed on BOTH sides, both
+  upstream-worthy.** Forensics (commit `ebc2354`'s message is the
+  writeup): `create_trimesh_shape()` on a streamer worker re-fetched
+  arrays via a RenderingServer cross-thread `push_and_ret`; a zoom
+  burst parks enough builders to fill the WorkerThreadPool
+  low-priority lane (threads×0.3 = 5 on this machine); main, freeing
+  a streamed-out material, waits on its pipeline-compile task queued
+  LOW behind the saturated lane — waiter needs the lane, lane needs
+  main's flush. Valley fix: build the ConcavePolygonShape3D straight
+  from the arrays in hand (zero RS involvement; regression probe
+  `tests/stream_deadlock_probe.tscn` hangs pre-fix, passes post-fix;
+  plus `6c2e5ad` — `_exit_tree` waits out in-flight worker ids).
+  Engine fix: a **24-line WorkerThreadPool patch** (fork
+  `d6462352f3`: a hard wait on a task starving in the low-priority
+  admission queue promotes it). **Strata's shipped pane engine is the
+  `fork/pane-4.7` build now** (F1 + presentsWithTransaction + WTP);
+  the `.pre-wtp` and `.pre-f1` xcframework rollbacks sit gitignored
+  beside it — deleted after the M5 soak week.
+- **FW1 · the framework era** ([PLAN_FRAMEWORK.md](PLAN_FRAMEWORK.md)
+  is the plan AND carries the ★ rulings — 2026-07-09, Nicco: all
+  defaults; mygame the guinea pig): **valley IS the engine.**
+  `framework.json` v0 names the world spine — **90 files across 18
+  systems** (Chronicle/Almanac/Loom/Elements/the whole Watershed + the
+  parse-time closure); `scripts/framework_dist.sh` audits (census +
+  rev) or exports a dist tree. Strata's scaffold now COPIES these real
+  files (the 1600-line string-writer died, strata `b00ba04`), stamps
+  `framework.lock.json`, and **`strata-cli framework update <dir>`
+  exists** (retemplate is an alias): added/updated/current/modified
+  per the lock — modified files reported and kept, never clobbered.
+  Two content-empty seams fixed so the machine boots with empty rooms
+  (`3a41f44`, `c80026d` — kit placeholder scenes, scatter tables,
+  watershed record, swarm paintings all optional; valley behavior
+  identical, fingerprint unmoved). `~/Desktop/mygame` is the first
+  child — retemplated as the acceptance test, its already-shipped
+  hydrology.json now real rivers/lakes with the walker standing on
+  60m relief (the strata E2E boots it headless).
+- **The rev FLOATS — that's the design, not a bug:** the framework
+  rev is computed (sha256 over sorted path+sha lines, 12 hex), never
+  stored, so **the live checkout's value moves with every hand edit
+  or commit to a manifest file** — it was `c1cb32b19219` at FW1's
+  commit, `aad981f8ef1e` when mygame was stamped, and derives
+  differently again today. The invariant is stability across runs on
+  the same tree (`framework_dist.sh` always derives the same rev from
+  the same files, both sides of the seam) — never a pinned number.
+  Compare lock-vs-live by running the audit, not by quoting a rev
+  from a log entry. (Same law as the soak fingerprint: floats with
+  live edits, deterministic per state.)
+- **Housekeeping:** `~/code/valley-p2` is REMOVED — the parked P2
+  eye-check fixture is obsolete now that the water is live in games
+  (mygame's water tour, in ONE_APP's queue, absorbs those checks).
+  The spawn-on-land test wart below is still open
+  (`agent/spawn-on-land`, unmerged). This roof supersedes the
+  2026-07-08 roof's "in flight: substances" and valley-p2 lines.
+
+## ⭐ Session handoff (2026-07-08, end of day): THE GAME GREW A STORY LAYER, INTERIORS, AND FABRIC
 
 **This note is the day's roof — the handoffs below it are the rooms.**
 The Q1+Q2 handoff (next section) has the Teller's full detail; what

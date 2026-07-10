@@ -63,6 +63,19 @@ var _water_meshes: Dictionary = {}  # slot -> Mesh (billboard or flat pad)
 
 var _dirty: Dictionary = {}
 var _rebuild_cooldown := 0.0
+
+## The near-ring-settled CONFIRM (PLAN_LIVING_PREVIEW M6a §3): fires on the
+## falling edge where every terrain-rebuild queue has DRAINED — the real
+## walkable+scattered ground now stands where a reshape (a preview_world
+## re-tile, an edited-rect dirty, a sculpt) churned it. The living preview
+## rides this to CROSSFADE: strata_link leaves the drape one confirm beat
+## after a resolve, so the operator never sees a frame of stale ground under
+## a lifted photograph. Productionizes the memo's _dirty/_stale/
+## _terrain_pending poll as a signal (no busy-wait, no per-frame probe). A
+## pure observability edge — Weather/Climate/Hydrology never hear it (law 5),
+## so the soak fingerprint is unmoved.
+signal near_ring_settled
+var _was_settled := true  # start settled: the sync first fill (_ready) has no pending
 # Sculpt-feedback split: while the brush is active only the VISUAL mesh
 # rebuilds (cheap, instant — the clay must move under the cursor); the
 # expensive cell rebuild — trimesh collision, flora scatter, ground
@@ -160,6 +173,25 @@ func _process(delta: float) -> void:
 				# cell (collision, scatter, cover, navmesh) when it lands.
 				_terrain_pending[c] = WorkerThreadPool.add_task(
 					_thread_build_terrain.bind(c, _terrain_res.get(c, TERRAIN_RES)))
+
+	# M6a — the near-ring-settled CONFIRM (§3): emit once on the busy->idle
+	# edge, after this frame's drains, so a listener hears "the rebuild is
+	# done" exactly when the walkable ground has landed.
+	var settled := _is_near_ring_settled()
+	if settled and not _was_settled:
+		near_ring_settled.emit()
+	_was_settled = settled
+
+
+## True when every terrain-rebuild queue has drained: the memo's poll
+## (_dirty/_stale/_terrain_pending) plus the two internal rebuild queues
+## that gate the same work (the visual mesh in flight, the finish budget's
+## backlog). Authored-content loads (_pending) are deliberately excluded —
+## the confirm is about GROUND (collision + scatter), not scene props.
+func _is_near_ring_settled() -> bool:
+	return _dirty.is_empty() and _stale.is_empty() \
+		and _terrain_pending.is_empty() and _visual_pending.is_empty() \
+		and _finish_queue.is_empty()
 
 
 func _exit_tree() -> void:

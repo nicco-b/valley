@@ -1365,8 +1365,42 @@ func _preview_world(dir: String) -> String:
 		"height_min": 0.0, "height_max": 1.0}
 	if not Terrain.preview_tile(rec, float(world.get("sea_level_m", Terrain.sea_level))):
 		return "err could not load %s" % rec["heightmap"]
+	# M6a — the RESOLVE (PLAN_LIVING_PREVIEW §3): when a drape is currently
+	# worn (the living preview's sub-0.4s drag proxy), preview_world PROMOTES
+	# it to the real world — the kernel now carries the shape (Walk Here lands
+	# true, §6), and the near ring rebuilds real ground behind the drape. Mark
+	# the kernel resolved and arm the crossfade so the drape lifts one
+	# near-ring-settled beat later, no stale-ground flash. With no drape worn
+	# this is the plain walk-it viewer, exactly as before.
+	if _preview != null and _preview.worn:
+		_drape_resolved = true
+		_arm_drape_crossfade()
 	return "ok preview %.0fm sea=%.1fm (in memory — Send persists)" % [
 		size, Terrain.sea_level]
+
+
+## M6a — the living-preview CROSSFADE (§3): after a resolve re-tiles the
+## kernel behind a worn drape, wait for the near ring to rebuild the real
+## ground, THEN leave the drape — one confirm beat, no stale-ground flash.
+## One-shot: the first near_ring_settled after the resolve lifts the
+## photograph. No streamer in the tree (a bare test scene) → the drape stays
+## until the next explicit preview_mesh off, the honest fallback.
+func _arm_drape_crossfade() -> void:
+	var streamer := get_tree().get_first_node_in_group("world_streamer")
+	if streamer == null or not streamer.has_signal("near_ring_settled"):
+		return
+	if not streamer.near_ring_settled.is_connected(_on_near_ring_settled_crossfade):
+		streamer.near_ring_settled.connect(
+			_on_near_ring_settled_crossfade, CONNECT_ONE_SHOT)
+
+
+func _on_near_ring_settled_crossfade() -> void:
+	# Only lift a drape that is STILL the resolved one. If the operator resumed
+	# dragging during the crossfade window, a fresh preview_mesh re-wore the
+	# drape UNRESOLVED (the kernel lacks the new shape) — leaving it here would
+	# flash stale ground. That new drag's own resolve re-arms the crossfade.
+	if _preview != null and _preview.worn and _drape_resolved:
+		_preview.leave()
 
 
 ## The M2 fast path: one PreviewTerrain grid, created on demand under the
@@ -1376,6 +1410,11 @@ func _preview_world(dir: String) -> String:
 ## preview and the streamed world returns exactly as recorded. In memory
 ## only, like preview_world — the checkout never changes.
 var _preview: PreviewTerrain = null
+# M6a (§6): true when a preview_world has re-tiled the kernel UNDER the
+# currently worn drape — i.e. the ground you see is the ground you can walk.
+# A fresh wear clears it (the drape shows a shape the kernel lacks); a resolve
+# sets it; leaving the drape makes it moot. Gates Walk Here honesty.
+var _drape_resolved := false
 
 
 func _preview_mesh(dir: String) -> String:
@@ -1389,6 +1428,9 @@ func _preview_mesh(dir: String) -> String:
 	var line := _preview.wear(dir)
 	if line.begins_with("err"):
 		return line
+	# A fresh drape is UNRESOLVED (§6): the grid shows a shape the live kernel
+	# does not carry yet, so Walk Here refuses until the pause resolves it.
+	_drape_resolved = false
 	return "ok preview_mesh %s (in memory — off restores)" % line
 
 
@@ -1493,6 +1535,13 @@ func _teleport(x: float, z: float) -> String:
 	if Toolkit.active and Toolkit.has_camera():
 		Toolkit.move_to(Vector2(x, z))
 		return "ok toolkit cam -> (%.0f, %.0f)" % [x, z]
+	# M6a — Walk Here honesty (§6): the player body drops onto Terrain.height
+	# (the KERNEL). While a drape is worn but UNRESOLVED, the kernel still
+	# carries the old ground under the photograph — you cannot walk a
+	# photograph. Refuse until the pause resolves it (a preview_world re-tile).
+	# The fly-cam branch above is unaffected — framing the shape needs no floor.
+	if _preview != null and _preview.worn and not _drape_resolved:
+		return "err resolve first (stop dragging — Walk Here needs shaped ground)"
 	var player: Node = get_tree().get_first_node_in_group("player")
 	if player == null:
 		return "err no player in tree"

@@ -75,6 +75,7 @@ func _ready() -> void:
 	_test_save_migration()
 	await _test_strata_link()
 	_test_contour()
+	_test_conditions_contour()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -6631,3 +6632,87 @@ func _contour_eq(a: Variant, b: Variant) -> bool:
 				return false
 		return true
 	return a == b
+
+
+## The FIRST Contour system under the sim (PLAN_ENGINE E2): the Campfire's four
+## pure leaf statics (Conditions.latch_day/_truthy/_loose_eq/_one_of) routed
+## through the native Lattice VM behind STRATA_CONTOUR=1. Two halves:
+##   (1) parity — the VM answers game/state/conditions.ct bit-identically to the
+##       certified spec (the datum Plumb corpus values), in-game. SKIP if the
+##       native kernel is absent (framework file rides every game / platform).
+##   (2) wiring — Conditions.contour_status() reflects the boot flag, and when
+##       ENGAGED (STRATA_CONTOUR=1 + kernel) a real Conditions.eval() drives the
+##       VM (the answered-call counter climbs) — PROOF the sim path routed, not a
+##       silent GDScript fallback. Flag OFF: the counter stays 0 (byte-identical
+##       twin). This half runs on every configuration; test.sh runs it BOTH ways.
+func _test_conditions_contour() -> void:
+	# --- (2) wiring: contour_status reflects the flag, on every config ---------
+	var st: Dictionary = Conditions.contour_status()
+	if bool(st.engaged):
+		var before: int = int(Conditions.contour_status().calls)
+		WorldState.set_value("test.contour.route", true)
+		# An eval touching three leaves: flag -> _truthy, eq -> _loose_eq,
+		# season -> _one_of. Each answered by the VM increments the counter.
+		Conditions.eval({"flag": "test.contour.route"})
+		Conditions.eval({"eq": ["test.contour.route", true]})
+		Conditions.eval({"season": "summer"})
+		var after: int = int(Conditions.contour_status().calls)
+		_check(after > before,
+			"conditions: STRATA_CONTOUR=1 routes Conditions.eval through the Contour VM (calls %d->%d, no silent fallback)" % [before, after])
+		WorldState.set_value("test.contour.route", null)
+		print("  conditions: routing ENGAGED — the sim's leaf helpers answered by the Lattice VM (%d calls)" % after)
+	else:
+		# Flag off (mode 1) or refused (mode -1) — never a silent VM route.
+		_check(int(st.mode) == 1 or int(st.mode) == -1,
+			"conditions: unresolved-safe routing mode (%d)" % int(st.mode))
+		var before: int = int(st.calls)
+		Conditions.eval({"flag": "test.contour.route2"})
+		_check(int(Conditions.contour_status().calls) == before,
+			"conditions: flag-off Conditions.eval stays on the GDScript twin (no silent routing)")
+		print("  conditions: routing OFF (mode %d) — GDScript twin, byte-identical" % int(st.mode))
+
+	# --- (1) parity: the VM answers conditions.ct bit-identical to the spec ----
+	if not Contour.available():
+		print("  conditions: SKIP VM-parity (no native kernel — GDScript twin only)")
+		return
+	var vm := Contour.new()
+	var err := vm.compile_file("res://game/state/conditions.ct")
+	_check(err == "", "conditions: conditions.ct compiles (%s)" % err)
+	if err != "":
+		return
+	# The certified corpus values (datum plumb/corpus/conditions_*.jsonl), asserted
+	# in-game against the native VM. `==` is an exact compare; a divergence here is
+	# a marshalling or VM regression, loud.
+	var latch := [
+		[[{"day": 5}], 5], [[{"day": 3.0}], 3], [[{"day": 0}], 0],
+		[[{"season": "summer"}], -1], [[{}], -1],
+		[[7], 7], [[0], 0], [[4.9], 4], [[-2.5], -2],
+		["x", -1], [[true], -1], [[null], -1],
+	]
+	for c in latch:
+		var got: Variant = vm.call_fn("latch_day", c[0] if c[0] is Array else [c[0]])
+		_check(got == c[1], "conditions.ct latch_day(%s) == %s (got %s)" % [c[0], c[1], got])
+	var truthy := [
+		[null, false], [false, false], [true, true], [0, true], [5, true],
+		[1.5, true], [0.0, true], ["hi", true], ["", true], [{"day": 2}, true], [{}, true],
+	]
+	for c in truthy:
+		_check(vm.call_fn("_truthy", [c[0]]) == c[1],
+			"conditions.ct _truthy(%s) == %s" % [c[0], c[1]])
+	var eqs := [
+		[[1, 1.0], true], [[2, 3], false], [[5, 5], true],
+		[[1.0, 1.000001], true], [[1.0, 1.1], false],
+		[["a", "a"], true], [["a", "b"], false], [["1", 1], false],
+	]
+	for c in eqs:
+		_check(vm.call_fn("_loose_eq", c[0]) == c[1],
+			"conditions.ct _loose_eq(%s) == %s" % [c[0], c[1]])
+	var ones := [
+		[["summer", ["summer", "winter"]], true],
+		[["spring", ["summer", "winter"]], false],
+		[["storm", []], false], [["storm", "storm"], true], [["storm", "rain"], false],
+	]
+	for c in ones:
+		_check(vm.call_fn("_one_of", c[0]) == c[1],
+			"conditions.ct _one_of(%s) == %s" % [c[0], c[1]])
+	print("  conditions: %d spec cases bit-identical to conditions.ct via the native Lattice VM" % (latch.size() + truthy.size() + eqs.size() + ones.size()))

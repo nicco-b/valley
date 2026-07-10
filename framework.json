@@ -16,6 +16,7 @@
 		"chronicle": [
 			"game/state/world_state.gd",
 			"game/state/conditions.gd",
+			"game/state/conditions.ct",
 			"game/data/records.gd",
 			"game/world/names.gd",
 			"game/data/cards.gd",

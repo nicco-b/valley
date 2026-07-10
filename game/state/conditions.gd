@@ -228,6 +228,10 @@ static func lint(c: Variant, context: String) -> Array[String]:
 ## The day sealed into a latch value: latches store {day, ...}; a bare
 ## int is accepted (a mirror that stores days directly). -1 = no latch.
 static func latch_day(value: Variant) -> int:
+	var vm := _route()
+	if vm != null:
+		_contour_calls += 1
+		return int(vm.call_fn("latch_day", [value]))
 	if value is Dictionary and (value as Dictionary).has("day"):
 		return int(value.day)
 	if value is int or value is float:
@@ -238,16 +242,89 @@ static func latch_day(value: Variant) -> int:
 ## "Set" for condition purposes: present and not false. Latch values are
 ## dictionaries (the memoir rides in the save) and still read as flags.
 static func _truthy(value: Variant) -> bool:
+	var vm := _route()
+	if vm != null:
+		_contour_calls += 1
+		return bool(vm.call_fn("_truthy", [value]))
 	return value != null and not (value is bool and value == false)
 
 
 static func _loose_eq(a: Variant, b: Variant) -> bool:
+	var vm := _route()
+	if vm != null:
+		_contour_calls += 1
+		return bool(vm.call_fn("_loose_eq", [a, b]))
 	if (a is int or a is float) and (b is int or b is float):
 		return is_equal_approx(float(a), float(b))
 	return a == b
 
 
 static func _one_of(value: Variant, allowed: Variant) -> bool:
+	var vm := _route()
+	if vm != null:
+		_contour_calls += 1
+		return bool(vm.call_fn("_one_of", [value, allowed]))
 	if allowed is Array:
 		return value in (allowed as Array)
 	return value == allowed
+
+
+# --- Contour routing (PLAN_ENGINE E2: the first Contour system under the soak) --
+## The four pure leaf helpers above (latch_day/_truthy/_loose_eq/_one_of) are the
+## honestly-PURE statics of the Campfire language — certified bit-identical to
+## their Lattice twin by datum's Plumb harness (conditions_*.jsonl corpora, over
+## the byte-identical vendored conditions.gd). When STRATA_CONTOUR=1 — a boot-time
+## sim flag, read once, DevMode-independent, default OFF — these call sites route
+## through the native Contour VM (game/state/conditions.ct via game/sim/contour.gd)
+## instead of the GDScript below. Flag OFF is byte-identical GDScript.
+##
+## NO SILENT FALLBACK (the honesty law): flag ON with the kernel absent (not
+## macOS / no dylib) or a module that will not compile is a LOUD refusal
+## (push_error, mode -1), never a quiet GDScript pass — so a soak that believes
+## it exercised the VM cannot secretly be running the twin. The routed helpers
+## carry a call counter (contour_status) so a scene test can prove the VM
+## actually answered, flag-on.
+const _CONTOUR_MODULE := "res://game/state/conditions.ct"
+
+## 0 unresolved · 1 off (flag unset) · 2 engaged (VM live) · -1 refused (flag
+## set but kernel/module unavailable — loud, not silent).
+static var _contour_mode := 0
+static var _contour_vm: Contour = null
+static var _contour_calls := 0   # VM-answered leaf calls (the engaged-path probe)
+
+## The live VM when routing is engaged, else null (flag off, or refused). Resolves
+## once at first touch (boot); pure — no WorldState side effects, so flag-off is
+## byte-identical to the un-routed code.
+static func _route() -> Contour:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return _contour_vm
+
+
+static func _contour_resolve() -> void:
+	if OS.get_environment("STRATA_CONTOUR") != "1":
+		_contour_mode = 1   # flag off — the GDScript twin, forever byte-identical
+		return
+	# Flag ON: engage the VM, or REFUSE loudly (never a silent GDScript pass).
+	if not Contour.available():
+		push_error("[conditions] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
+			+ "(not macOS / dylib absent) — refusing to silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	var vm := Contour.new()
+	var err := vm.compile_file(_CONTOUR_MODULE)
+	if err != "":
+		push_error("[conditions] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	_contour_vm = vm
+	_contour_mode = 2
+
+
+## Routing introspection for the scene test (proves the VM answered, not a silent
+## fallback): the resolved mode, whether it engaged, and the answered-call count.
+static func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}

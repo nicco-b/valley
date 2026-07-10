@@ -1,0 +1,58 @@
+# Contour port of valley game/state/conditions.gd :: Conditions
+#
+# The Campfire condition language's honestly-PURE leaf statics — the helpers
+# that read only their arguments. These four are the FIRST Contour code to run
+# inside valley's shipping sim (PLAN_ENGINE E2): game/state/conditions.gd routes
+# latch_day/_truthy/_loose_eq/_one_of here when STRATA_CONTOUR=1 (a boot-time
+# sim flag, DevMode-independent, default OFF). Flag OFF is byte-identical
+# GDScript; flag ON answers the SAME call from the Lattice VM through the native
+# ContourKernel extension. The soak proves it: the fingerprint is unmoved.
+#
+# PROVENANCE: verbatim from datum plumb/ports/conditions.ct (datum main ca0b83f),
+# certified bit-identical to the GDScript twin by the Plumb harness over
+# plumb/corpus/conditions_{latch_day,truthy,loose_eq,one_of}.jsonl. The vendored
+# twin (plumb/vendor/conditions.gd, sha 3673117…) is byte-identical to valley's
+# shipping game/state/conditions.gd — the port certifies the EXACT statics below.
+#
+# eval/keys_of/custom_names/lint are a later rung (they read WorldState/Items or
+# iterate dict keys + match + %-format). The four leaves are exactly the pure
+# statics the current operator surface (is / in / float / is_equal_approx)
+# reaches — the minimalism law.
+#
+# The one structural change vs GDScript: GDScript `and` short-circuits, Contour's
+# is eager, so latch_day's `value is Dictionary and value.has("day")` becomes a
+# NESTED if (the .has() would error on a non-dict under eager evaluation). The
+# computed answer is identical (Plumb proves it).
+
+
+# The day sealed into a latch value: latches store {day, ...}; a bare int/float
+# is accepted (a mirror that stores days directly). -1 = no latch.
+sim func latch_day(value) -> int:
+	if value is Dictionary:
+		if value.has("day"):
+			return int(value.day)
+	if value is int or value is float:
+		return int(value)
+	return -1
+
+
+# "Set" for condition purposes: present and not false. Latch values are
+# dictionaries (the memoir rides in the save) and still read as flags.
+sim func _truthy(value) -> bool:
+	return value != null and not (value is bool and value == false)
+
+
+# Loose equality: two numbers compare with is_equal_approx (the int->float
+# tower's approximate compare); anything else compares structurally.
+sim func _loose_eq(a, b) -> bool:
+	if (a is int or a is float) and (b is int or b is float):
+		return is_equal_approx(float(a), float(b))
+	return a == b
+
+
+# Membership sugar: an array `allowed` is an OR over its elements; a bare value
+# is an equality. (season/weather predicates spell their allow-list either way.)
+sim func _one_of(value, allowed) -> bool:
+	if allowed is Array:
+		return value in allowed
+	return value == allowed

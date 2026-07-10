@@ -86,6 +86,85 @@ var _journal_ui: CanvasLayer = null
 var _hooks: Dictionary = {}  # quest id -> QuestHooks or null
 var _runs: Dictionary = {}   # quest id -> QuestRun
 
+# --- Contour routing (PLAN_ENGINE E2, Mission D1e: the Teller's latch/index rules) --
+## The pure RULES tier of the Teller — the index construction (_cond_index_keys), the
+## §3 stage DAG (_parents/_stage), $role substitution into prose + conditions
+## (_subst_str/_subst_cond), and Q4's deterministic role order + prefer-ranked fill
+## (_roles_ordered/_role_fill_when/_rank_by_matrix) — is certified bit-identical to
+## its Lattice twin by datum's Plumb harness (story_*.jsonl corpora, over the
+## byte-identical vendored bodies). When STRATA_CONTOUR=1 — a boot-time sim flag, read
+## once, DevMode-independent, default OFF — these call sites route through the native
+## Contour VM (game/story/story.ct via game/sim/contour.gd) instead of the GDScript
+## below. Flag OFF is byte-identical GDScript. This is the LATCH PATH: a journal
+## latch's TIMING (the index — which key settles which quest), STRUCTURE (the DAG),
+## PROSE ($role-resolved memoir), and ROLE binding all resolve through these, and
+## journal latches ARE the soak fingerprint's story section (C1's precedent squared).
+##
+## NO SILENT FALLBACK (the honesty law): flag ON with the kernel absent (not macOS /
+## no dylib) or a module that will not compile is a LOUD refusal (push_error, mode
+## -1), never a quiet GDScript pass — so a soak that believes it exercised the VM
+## cannot secretly be running the twin. The routed functions carry a call counter
+## (contour_status) so the scene test / soak can prove the VM actually answered.
+##
+## The GLUE stays valley-side: the fixpoint _settle loop + its Conditions.eval calls
+## (eval reads the WorldState mirror + dispatches the hook resolver — a Callable), the
+## QuestHooks .gd dispatch, _subst_map (reads player.region + role bindings from
+## WorldState), the candidate SCAN + require/prefer MATCH (mirror reads — the match
+## matrix is precomputed here, then handed to the pure _rank_by_matrix).
+const _CONTOUR_MODULE := "res://game/story/story.ct"
+## 0 unresolved · 1 off (flag unset) · 2 engaged (VM live) · -1 refused (flag set
+## but kernel/module unavailable — loud, not silent).
+var _contour_mode := 0
+var _contour_vm: Contour = null
+var _contour_calls := 0   # VM-answered rule calls (the engaged-path probe)
+
+
+## The live VM when routing is engaged, else null (flag off, or refused). Resolves
+## once at first touch (boot); pure — no WorldState side effects, so flag-off is
+## byte-identical to the un-routed code.
+func _route_contour() -> Contour:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return _contour_vm
+
+
+func _contour_resolve() -> void:
+	if OS.get_environment("STRATA_CONTOUR") != "1":
+		_contour_mode = 1   # flag off — the GDScript twin, forever byte-identical
+		return
+	# Flag ON: engage the VM, or REFUSE loudly (never a silent GDScript pass).
+	if not Contour.available():
+		push_error("[story] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
+			+ "(not macOS / dylib absent) — refusing to silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	var vm := Contour.new()
+	var err := vm.compile_file(_CONTOUR_MODULE)
+	if err != "":
+		push_error("[story] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	_contour_vm = vm
+	_contour_mode = 2
+
+
+## Routing introspection for the scene test / soak (proves the VM answered, not a
+## silent fallback): the resolved mode, whether it engaged, and the answered-call count.
+func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}
+
+
+## Coerce a VM-returned Array to a typed Array[String] (call_fn returns an untyped
+## Array; the ported functions' GDScript signatures type it).
+func _ctr_strings(v: Variant) -> Array[String]:
+	var out: Array[String] = []
+	for e in v:
+		out.append(String(e))
+	return out
+
 
 func _ready() -> void:
 	add_to_group("world_state_reader")
@@ -166,28 +245,28 @@ func _build_index() -> void:
 	_index.clear()
 	for qid: String in quests:
 		var q: Dictionary = quests[qid]
-		var keys: Array[String] = []
 		var smap := _subst_map(q)  # resolve $role/$built-in keys after fill (§5)
-		var conds: Array = [q.get("start_if", {})]
-		if q.has("repeatable"):
-			keys.append("time.day")  # cooldown re-arm rides the day tick
-		if q.has("roles"):
-			keys.append("time.day")  # a HELD role retries on the day tick (§4)
-		for stage: Dictionary in q.stages:
-			conds.append(stage.get("advance_when", {}))
-			for obj: Dictionary in stage.get("objectives", []):
-				conds.append(obj.get("done_if", {}))
+		# The condition-derived index keys — the CERTIFIED pure rule, routed behind
+		# STRATA_CONTOUR: keys_of ∘ _subst_cond over start_if + every stage
+		# advance_when + every objective done_if, plus time.day for repeatable/roles.
+		# $role keys index after fill, on the binding's latch (§5): the substituted
+		# key (npc.wanderer.met) is what a changed touch settles.
+		var keys := _cond_index_keys(q, smap)
+		# A custom predicate's index keys come from the record's `watch` (folded into
+		# keys_of above) AND, if a hook is present, whatever it declares in code via
+		# custom_keys — the §6 "records may also declare watch" completion, so a
+		# code-declared watch still re-evaluates event-driven, never polled. This
+		# merge stays valley-side (it reaches the game's hook .gd, a Callable); the
+		# _index is a SET keyed by watched key, so the pure keys and the hook keys
+		# compose to the same index regardless of append order.
 		var hook := _hook_of(q)
-		for cond: Dictionary in conds:
-			# $role keys index after fill, on the binding's latch (§5): the
-			# substituted key (npc.wanderer.met) is what a changed touch settles.
-			keys.append_array(Conditions.keys_of(_subst_cond(cond, smap)))
-			# A custom predicate's index keys come from the record's `watch`
-			# (via keys_of above) AND, if a hook is present, whatever it
-			# declares in code via custom_keys — the §6 "records may also
-			# declare watch" completion, so a code-declared watch still
-			# re-evaluates event-driven, never polled.
-			if hook != null:
+		if hook != null:
+			var conds: Array = [q.get("start_if", {})]
+			for stage: Dictionary in q.stages:
+				conds.append(stage.get("advance_when", {}))
+				for obj: Dictionary in stage.get("objectives", []):
+					conds.append(obj.get("done_if", {}))
+			for cond: Dictionary in conds:
 				for name: String in Conditions.custom_names(cond):
 					keys.append_array(hook.custom_keys(name))
 		for key in keys:
@@ -195,6 +274,32 @@ func _build_index() -> void:
 				_index[key] = []
 			if not (_index[key] as Array).has(qid):
 				(_index[key] as Array).append(qid)
+
+
+## The condition-derived index keys a quest watches — the pure core of _build_index
+## (CERTIFIED bit-identical by Plumb, routed behind STRATA_CONTOUR). keys_of ∘
+## _subst_cond over start_if + every stage advance_when + every objective done_if,
+## plus the day-tick re-arm keys for repeatable/roles. The hook-declared custom_keys
+## merge stays valley-side (see _build_index) — a Callable dispatch, never a Contour
+## semantic; the index is a set keyed by watched key, so the split is lossless.
+func _cond_index_keys(q: Dictionary, subst: Dictionary) -> Array[String]:
+	var vm := _route_contour()
+	if vm != null:
+		_contour_calls += 1
+		return _ctr_strings(vm.call_fn("_cond_index_keys", [q, subst]))
+	var keys: Array[String] = []
+	if q.has("repeatable"):
+		keys.append("time.day")  # cooldown re-arm rides the day tick
+	if q.has("roles"):
+		keys.append("time.day")  # a HELD role retries on the day tick (§4)
+	var conds: Array = [q.get("start_if", {})]
+	for stage: Dictionary in q.stages:
+		conds.append(stage.get("advance_when", {}))
+		for obj: Dictionary in stage.get("objectives", []):
+			conds.append(obj.get("done_if", {}))
+	for cond: Dictionary in conds:
+		keys.append_array(Conditions.keys_of(_subst_cond(cond, subst)))
+	return keys
 
 
 func _on_changed(key: String, _value: Variant) -> void:
@@ -335,6 +440,10 @@ func _reach_passes(q: Dictionary, stage: Dictionary) -> bool:
 ## Implicit DAG (§3): a stage's parents are every earlier non-terminal
 ## stage, unless it names "after" explicitly.
 func _parents(q: Dictionary, stage: Dictionary) -> Array[String]:
+	var vm := _route_contour()
+	if vm != null:
+		_contour_calls += 1
+		return _ctr_strings(vm.call_fn("_parents", [q, stage]))
 	var out: Array[String] = []
 	if stage.has("after"):
 		for pid: String in stage.after:
@@ -628,13 +737,38 @@ func _candidates(kind: String) -> Array[String]:
 ## of sort stability.
 func _rank(q: Dictionary, cands: Array[String], prefer: Array,
 		kind: String, known: Dictionary) -> Array[String]:
+	# Precompute the prefer-match MATRIX (the mirror reads _match makes — those stay
+	# glue), then rank through the certified pure sort (_rank_by_matrix, routed).
+	# Precomputing each _match ONCE (vs the comparator's re-evaluations) is
+	# bit-identical — _match is pure over the world — and the id-sort tiebreak keeps
+	# the order total, so the selection sort and GDScript's introsort agree.
+	var matrix: Dictionary = {}
+	for id: String in cands:
+		var row: Array = []
+		for cond: Dictionary in prefer:
+			row.append(_match(cond, _match_ctx(q, kind, id, known)))
+		matrix[id] = row
+	return _ctr_strings(_rank_by_matrix(cands, matrix))
+
+
+## Rank passing candidates over a PRECOMPUTED prefer-match matrix (matrix[id] = the
+## array of `prefer`-row booleans, computed valley-side by _match). The pure sort core
+## of _rank (CERTIFIED bit-identical by Plumb, routed behind STRATA_CONTOUR): `prefer`
+## rows are ordered tie-breakers (first discriminating wins — a passer sorts ahead of
+## a failer); the final, TOTAL tie-break is the id sort, deterministic regardless of
+## sort stability.
+func _rank_by_matrix(cands: Array, matrix: Dictionary) -> Array:
+	var vm := _route_contour()
+	if vm != null:
+		_contour_calls += 1
+		return vm.call_fn("_rank_by_matrix", [cands, matrix])
 	var ranked := cands.duplicate()
 	ranked.sort_custom(func(a: String, b: String) -> bool:
-		for cond: Dictionary in prefer:
-			var pa := _match(cond, _match_ctx(q, kind, a, known))
-			var pb := _match(cond, _match_ctx(q, kind, b, known))
-			if pa != pb:
-				return pa
+		var ma: Array = matrix[a]
+		var mb: Array = matrix[b]
+		for r in ma.size():
+			if ma[r] != mb[r]:
+				return ma[r]
 		return a < b)
 	return ranked
 
@@ -724,6 +858,15 @@ func _subst_map(q: Dictionary) -> Dictionary:
 ## Only $[a-z_]+ tokens with a binding are replaced; anything else is left
 ## verbatim (a literal $ in prose survives).
 func _subst_str(text: String, subst: Dictionary) -> String:
+	var vm := _route_contour()
+	if vm != null:
+		# The memoir prose resolution — routed. Every latched stage's `prose` field
+		# (journal.<q>.<stage>.prose, IN the soak fingerprint's story section) is
+		# Contour-authored when the flag is on. Via the _abi adapter: the embed C ABI
+		# marshals a string only inside a composite, so the rule's string result rides
+		# a 1-element array (unwrapped [0]) — the RULE is the certified _subst_str.
+		_contour_calls += 1
+		return String((vm.call_fn("_subst_str_abi", [text, subst]) as Array)[0])
 	if not text.contains("$"):
 		return text
 	var re := RegEx.create_from_string("\\$([a-z_]+)")
@@ -774,6 +917,10 @@ func _eval_cond(q: Dictionary, cond: Dictionary) -> bool:
 ## role may reference the authored cast regardless of name — then queried,
 ## each alphabetical.
 func _roles_ordered(q: Dictionary) -> Array[String]:
+	var vm := _route_contour()
+	if vm != null:
+		_contour_calls += 1
+		return _ctr_strings(vm.call_fn("_roles_ordered", [q]))
 	var pinned: Array[String] = []
 	var queried: Array[String] = []
 	for rn: String in q.get("roles", {}):
@@ -788,6 +935,10 @@ func _roles_ordered(q: Dictionary) -> Array[String]:
 
 ## When a role fills: "on_start" (default) or "on_stage:<id>".
 func _role_fill_when(spec: Dictionary) -> String:
+	var vm := _route_contour()
+	if vm != null:
+		_contour_calls += 1
+		return String((vm.call_fn("_role_fill_when_abi", [spec]) as Array)[0])
 	return String(spec.get("fill", "on_start"))
 
 

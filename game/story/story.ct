@@ -1,0 +1,352 @@
+# Contour port of valley game/story/story.gd :: Story — "the Teller" (the Campfire,
+# DESIGN_QUESTS §0/§3/§4/§5/§10). The quest engine's runtime is 975 lines, but its
+# CENTRE OF GRAVITY IS GLUE (record-load IO, WorldState write-through, the hook .gd
+# Callable dispatch, journal signals, scene requests, HUD notify) — none of which is
+# sim-tier and none of which ports. What crosses here is the honestly-PURE RULES
+# tier the Port Ledger names "latch/index rules": four families, each a map over its
+# record + binding arguments, each Plumb-certified bit-identical to real headless
+# Godot, each routed behind STRATA_CONTOUR in the valley twin (the latch path — a
+# journal latch's TIMING, STRUCTURE, PROSE, and ROLE binding all resolve through
+# these functions, and journal latches ARE the soak fingerprint's story section).
+#
+# THE HONEST SPLIT (enumerated before porting; the valley twin keeps the GLUE):
+#   PORTED (this file):
+#     * index construction   — _cond_index_keys: the seed index over a quest's
+#                              conditions (keys_of ∘ _subst_cond over start_if +
+#                              every stage advance_when + every objective done_if,
+#                              plus the day-tick re-arm keys), $role-substituted.
+#     * latch decision (structural) — _parents: the §3 implicit/explicit DAG the
+#                              eligibility + reach + frontier tests all read.
+#     * role-filler ranking   — _roles_ordered + _rank_by_matrix: Q4's deterministic
+#                              candidate order (pinned-then-queried, each id-sorted)
+#                              and the prefer-ranked sort over a PRECOMPUTED match
+#                              matrix — pure over mirrors, no RNG, id sort is total.
+#     * memoir prose          — _subst_str / _subst_value / _subst_cond: $role
+#                              substitution into strings, conditions, and arrays.
+#   STAYS GLUE (the valley twin, calling INTO the certified logic above):
+#     * record loading (Records.load_dir), WorldState write-through (set_value), the
+#       fixpoint _settle loop + its Conditions.eval calls (eval reads the WorldState
+#       mirror + dispatches the hook Callable — the resolver stays valley-side), the
+#       QuestHooks .gd dispatch (on_start/on_stage/on_objective/on_resolve/on_fill/
+#       custom + custom_keys), the cycle bookkeeping, journal signals, scene requests.
+#     * _subst_map (reads player.region + the latched role bindings from WorldState).
+#     * the candidate SCAN (_candidates reads WorldState.snapshot) and the require/
+#       prefer MATCH (_match reads tagged/near mirrors + delegates to Conditions.eval)
+#       — the valley twin computes the boolean match MATRIX from the live mirror and
+#       hands the pure sort (_rank_by_matrix) the answers, so no world read crosses.
+#
+# The faithful STRUCTURAL rewrites (Contour is a boring GDScript subset: value-
+# semantic arrays built by `+`, no `break`/`continue`, no ternary, no `String()`
+# cast, no `.sort()`/`.sort_custom()`/RegEx). Each preserves the computed answer
+# BIT-FOR-BIT (Plumb proves it, over corpora that walk every branch):
+#   * `arr.append(x)` / `arr.append_array(b)`      → `arr = arr + [x]` / `arr = arr + b`.
+#   * `_parents`' `break`                          → a `stop` guard (per quest_lint.ct).
+#   * `.sort()` (lexicographic)                    → _sorted_strs, a selection sort
+#     over `<` — a TOTAL order on distinct ids, so bit-identical to GDScript's sort.
+#   * `_rank`'s `sort_custom(comparator)`          → _rank_by_matrix, the same
+#     selection sort; the comparator's `_match` calls are PRECOMPUTED into `matrix`
+#     valley-side (the world read stays glue), and the id tiebreak keeps it total.
+#   * `_subst_str`'s RegEx `\$([a-z_]+)` + search_all + substr-splice → a left-to-
+#     right char scan: at a `$`, read a maximal [a-z_]+ name; a NON-EMPTY name WITH
+#     a binding substitutes (advance past it), else the `$` is copied verbatim and we
+#     advance one char — exactly what the regex's "match, then replace only bound
+#     names, leave the rest" yields (search_all matches the ORIGINAL text and an
+#     inserted value is never re-scanned, so the L-to-R scan is equivalent).
+#   * `_subst_value`'s `Variant` return                → an untyped return (the value's
+#     own kind carries through — String/Dict/Array recurse, everything else passes).
+
+
+# ============================================================================
+# INDEX CONSTRUCTION (the seed index — pure over records + bindings)
+# ============================================================================
+
+# Mechanical key extraction — the seed of Story's condition index (byte-identical
+# to plumb/ports/conditions.ct :: keys_of, already certified vs valley Conditions).
+# A .ct is standalone, so the certified copy is carried here; the valley twin's
+# _cond_index_keys delegates to the real Conditions.keys_of, and the corpus proves
+# the two agree row-for-row. Total because the language is closed (§14 fence).
+sim func keys_of(c) -> array:
+	var keys = []
+	for key in c:
+		match key:
+			"all", "any":
+				for sub in c[key]:
+					keys = keys + keys_of(sub)
+			"not":
+				keys = keys + keys_of(c["not"])
+			"flag":
+				keys = keys + [c.flag]
+			"not_flag":
+				keys = keys + [c.not_flag]
+			"eq":
+				keys = keys + [c.eq[0]]
+			"gte":
+				keys = keys + [c.gte[0]]
+			"lte":
+				keys = keys + [c.lte[0]]
+			"item", "item_tag":
+				keys = keys + ["player.inventory"]
+			"season":
+				keys = keys + ["time.season"]
+			"time_between":
+				keys = keys + ["time.hour"]
+			"since":
+				keys = keys + [c.since[0]]
+				keys = keys + ["time.day"]
+			"knows":
+				keys = keys + ["npc.%s.knows.%s" % [c.knows[0], c.knows[1]]]
+			"weather":
+				keys = keys + ["weather.state"]
+			"custom":
+				for k in c.get("watch", []):
+					keys = keys + [k]
+	return keys
+
+
+# The condition-derived index keys a quest watches — the pure core of _build_index's
+# inner loop. Every key `keys_of` extracts from the quest's start_if + each stage's
+# advance_when + each objective's done_if, after $role/$built-in substitution (so a
+# key like npc.$hauler.arrived indexes on npc.reed.arrived, the binding's latch —
+# §5). A repeatable errand's cooldown re-arm and a HELD role's retry both ride the
+# day tick, so time.day joins the watched set for those quests. The hook-declared
+# custom_keys (Conditions.custom_names + QuestHooks.custom_keys) are NOT here — that
+# reaches the game's hook .gd (a Callable), so the valley twin merges those keys
+# beside these; the merged set is a SET keyed by watched key, so order never matters.
+sim func _cond_index_keys(q, subst) -> array:
+	var keys = []
+	if q.has("repeatable"):
+		keys = keys + ["time.day"]
+	if q.has("roles"):
+		keys = keys + ["time.day"]
+	var conds = [q.get("start_if", {})]
+	for stage in q.stages:
+		conds = conds + [stage.get("advance_when", {})]
+		for obj in stage.get("objectives", []):
+			conds = conds + [obj.get("done_if", {})]
+	for cond in conds:
+		keys = keys + keys_of(_subst_cond(cond, subst))
+	return keys
+
+
+# ============================================================================
+# LATCH DECISION — the §3 stage DAG (structural, pure over the record)
+# ============================================================================
+
+# Implicit DAG (§3): a stage's parents are every earlier NON-terminal stage, unless
+# it names `after` explicitly. (Story's _parents has no start-guard — a start stage
+# rides _try_start, never _reach_passes; _eligible guards start separately.) The
+# GDScript `break` becomes a `stop` flag (Contour has no break).
+sim func _parents(q, stage) -> array:
+	var out = []
+	if stage.has("after"):
+		for pid in stage.after:
+			out = out + [pid]
+		return out
+	var stop = false
+	for other in q.stages:
+		if not stop:
+			if other.id == stage.id:
+				stop = true
+			else:
+				if not other.get("terminal", false):
+					out = out + [other.id]
+	return out
+
+
+# The stage record with id `stage_id`, else {} — the "does this stage exist" probe
+# _stage/hook_latch/reach-by-parents share. A total scan over q.stages.
+sim func _stage(q, stage_id) -> dict:
+	for stage in q.stages:
+		if stage.id == stage_id:
+			return stage
+	return {}
+
+
+# ============================================================================
+# MEMOIR PROSE / condition substitution ($role — everywhere strings meet the system)
+# ============================================================================
+
+# Substitute $tokens in a string against a binding map ($self/$role/$player_region/
+# $hook/$player). Only $[a-z_]+ tokens WITH a binding are replaced; anything else
+# (an unbound token, a literal `$`, a `$` before a digit) is left verbatim. The
+# GDScript RegEx `\$([a-z_]+)` + search_all + substr-splice is rewritten as a faithful
+# left-to-right char scan — equivalent because search_all matches the ORIGINAL text
+# and never re-scans an inserted value (see the header). `"$" in text` is the
+# `text.contains("$")` early-out (skips the scan when there is nothing to do).
+sim func _subst_str(text, subst) -> string:
+	if not ("$" in text):
+		return text
+	var out = ""
+	var i = 0
+	var n = text.length()
+	while i < n:
+		var c = text[i]
+		if c == "$":
+			var j = i + 1
+			var name = ""
+			var scanning = true
+			while scanning and j < n:
+				var d = text[j]
+				if (d >= "a" and d <= "z") or d == "_":
+					name = name + d
+					j = j + 1
+				else:
+					scanning = false
+			if name.length() > 0 and subst.has(name):
+				out = out + subst[name]
+				i = j
+			else:
+				out = out + c
+				i = i + 1
+		else:
+			out = out + c
+			i = i + 1
+	return out
+
+
+# Substitute $tokens in every string position of a value (keys are predicate names —
+# never substituted; values + nested conditions + array elements are). The GDScript
+# `Variant` return is an untyped Contour return: a String recurses through _subst_str,
+# a Dictionary through _subst_cond, an Array element-wise, everything else passes.
+sim func _subst_value(v, subst):
+	if v is String:
+		return _subst_str(v, subst)
+	if v is Dictionary:
+		return _subst_cond(v, subst)
+	if v is Array:
+		var arr = []
+		for e in v:
+			arr = arr + [_subst_value(e, subst)]
+		return arr
+	return v
+
+
+# Deep-copy a condition with $tokens substituted in every string position. Total
+# over the closed language + the role predicates. (Keys — predicate names — are
+# copied verbatim; only values recurse through _subst_value.)
+sim func _subst_cond(cond, subst) -> dict:
+	var out = {}
+	for key in cond:
+		out[key] = _subst_value(cond[key], subst)
+	return out
+
+
+# ============================================================================
+# ROLE-FILLER RANKING (Q4's deterministic candidate sort — pure over mirrors)
+# ============================================================================
+
+# Ascending string sort — the port of Array[String].sort() (lexicographic by code
+# point, ASCII-exact for the id/role vocabulary). A selection sort over `<`; on the
+# DISTINCT ids/role-names it runs over, `<` is a total order, so the result is
+# bit-identical to GDScript's introsort regardless of sort stability. `used` marks
+# each source index picked once, so duplicates (if any) are preserved in count.
+sim func _sorted_strs(items) -> array:
+	var out = []
+	var used = {}
+	var n = items.size()
+	var count = 0
+	while count < n:
+		var best_i = -1
+		var have = false
+		var k = 0
+		while k < n:
+			if not used.has(k):
+				if not have:
+					best_i = k
+					have = true
+				else:
+					if items[k] < items[best_i]:
+						best_i = k
+				k = k + 1
+			else:
+				k = k + 1
+		used[best_i] = true
+		out = out + [items[best_i]]
+		count = count + 1
+	return out
+
+
+# Declared roles in a deterministic order: pinned (`is`) first — so a queried role
+# may reference the authored cast regardless of name — then queried, each
+# alphabetical. `for rn in q.get("roles", {})` walks the roles dict in insertion
+# order (Contour law), matching GDScript; the two lists are then id-sorted.
+sim func _roles_ordered(q) -> array:
+	var pinned = []
+	var queried = []
+	for rn in q.get("roles", {}):
+		if q.roles[rn].has("is"):
+			pinned = pinned + [rn]
+		else:
+			queried = queried + [rn]
+	return _sorted_strs(pinned) + _sorted_strs(queried)
+
+
+# When a role fills: "on_start" (default) or "on_stage:<id>". (The GDScript String()
+# cast is dropped — a role spec's `fill` is already a string; the corpus honours it.)
+sim func _role_fill_when(spec) -> string:
+	return spec.get("fill", "on_start")
+
+
+# --- ABI adapters (valley routing only; NOT rules) --------------------------
+# The embed C ABI marshals composites (array/dict) and scalar int/float/bool, but
+# NOT a top-level scalar STRING result (a string only crosses INSIDE a composite).
+# These wrap a string-returning rule's result in a 1-element array so the valley twin
+# can route it (unwrapping `[0]`); the RULE is unchanged (Plumb certifies _subst_str /
+# _role_fill_when DIRECTLY — these are pure pass-throughs, never on the corpus). The
+# array-returning rules (_parents / _cond_index_keys / _roles_ordered / _rank_by_matrix)
+# route straight, no adapter. (A future top-level-string ABI increment retires these.)
+sim func _subst_str_abi(text, subst) -> array:
+	return [_subst_str(text, subst)]
+
+
+sim func _role_fill_when_abi(spec) -> array:
+	return [_role_fill_when(spec)]
+
+
+# The comparator of _rank's sort_custom, over a PRECOMPUTED match matrix. `matrix[id]`
+# is the array of `prefer`-row booleans (row r = does candidate id pass prefer[r]),
+# computed valley-side by _match against the live mirror (that world read stays glue).
+# `prefer` rows are ordered tie-breakers: the first row where a and b differ decides
+# (a passer sorts ahead of a failer); the final, TOTAL tiebreak is the id sort.
+sim func _rank_less(a, b, matrix) -> bool:
+	var ma = matrix[a]
+	var mb = matrix[b]
+	var r = 0
+	var n = ma.size()
+	while r < n:
+		if ma[r] != mb[r]:
+			return ma[r]
+		r = r + 1
+	return a < b
+
+
+# Rank passing candidates by `prefer` (ordered tie-breakers) then id sort — Q4's
+# deterministic fill order (no RNG; every candidate list is SORTED before it is
+# ranked, so it never trusts a mirror's insertion order — the fork determinism trap).
+# The selection sort picks the candidate that sorts first each pass; on distinct ids
+# the order is total, so it is bit-identical to GDScript's sort_custom. `cands` is
+# the require-passing, id-sorted candidate list; `matrix` the precomputed prefer grid.
+sim func _rank_by_matrix(cands, matrix) -> array:
+	var out = []
+	var used = {}
+	var n = cands.size()
+	var count = 0
+	while count < n:
+		var best_i = -1
+		var have = false
+		var k = 0
+		while k < n:
+			if not used.has(k):
+				if not have:
+					best_i = k
+					have = true
+				else:
+					if _rank_less(cands[k], cands[best_i], matrix):
+						best_i = k
+				k = k + 1
+			else:
+				k = k + 1
+		used[best_i] = true
+		out = out + [cands[best_i]]
+		count = count + 1
+	return out

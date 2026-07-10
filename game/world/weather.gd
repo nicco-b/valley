@@ -125,6 +125,26 @@ var wind_dir := Vector2(1.0, 0.35).normalized()
 
 var _wind_angle := atan2(0.35, 1.0)
 
+# --- Contour routing (PLAN_ENGINE E2, Mission C2a: weather's front chain) -------
+## The hourly front evolution (_transition's march/spawn/decay + wind drift) is a
+## SYSTEM-TIER port routed through the native Contour §6 `Weather` system
+## (game/world/weather.ct, via game/sim/contour_bridge.gd) when STRATA_CONTOUR=1
+## — a boot-time sim flag, read once, DevMode-independent, default OFF. Flag OFF
+## is byte-identical GDScript. NO SILENT FALLBACK (the honesty law): flag ON with
+## the kernel absent / the module uncompilable / a refused tick is a LOUD
+## push_error, never a quiet twin. The system consumes the SEEDED pcg stream
+## (the RNG rung) threaded through weather.rng, seeded from — and written back to
+## — Rng.stream("weather").state, so both paths advance the SAME stream in
+## lockstep (pcg_* is bit-exact to RandomPCG). Engine-bound reads stay GDScript
+## (the split: _biome_scale/_orographic terrain, fog, the _process ease). The
+## routed ticks carry a counter (contour_status) so the soak proves the system
+## actually ran inside the fingerprinted window.
+const _CONTOUR_MODULE := "res://game/world/weather.ct"
+## 0 unresolved · 1 off (flag unset) · 2 engaged (bridge live) · -1 refused.
+var _contour_mode := 0
+var _contour_bridge: ContourBridge = null
+var _contour_calls := 0   # system ticks answered by Contour (the engaged-path probe)
+
 
 ## Ground fog right now, 0..1. Dew term: wet air, cold morning, still
 ## wind. Solar gate: builds after ~1am, peaks ~5:30, burned off by
@@ -167,6 +187,43 @@ func vernier_set_fog_override(v: float) -> void:
 
 func vernier_fog_override() -> float:
 	return fog_override
+
+
+## The live systems bridge when routing is engaged, else null (flag off, or a
+## loud refusal). Resolves once at first tick (boot); flag-off is pure GDScript.
+func _route_contour() -> ContourBridge:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return _contour_bridge
+
+
+func _contour_resolve() -> void:
+	if OS.get_environment("STRATA_CONTOUR") != "1":
+		_contour_mode = 1   # flag off — the GDScript twin, forever byte-identical
+		return
+	# Flag ON: engage the bridge, or REFUSE loudly (never a silent GDScript pass).
+	if not ContourBridge.available():
+		push_error("[weather] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
+			+ "(not macOS / dylib absent) — refusing to silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	var bridge := ContourBridge.new(WorldState)
+	var err := bridge.compile_file(_CONTOUR_MODULE)
+	if err != "":
+		push_error("[weather] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	_contour_bridge = bridge
+	_contour_mode = 2
+
+
+## Routing introspection for the soak (proves the system ran, not a silent
+## fallback): the resolved mode, whether it engaged, and the tick count.
+func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}
 
 
 func _ready() -> void:
@@ -402,6 +459,21 @@ func _transition(_hour: int) -> void:
 	# holds the weather across the whole skipped stretch.
 	if held:
 		return
+	# Flag ON (STRATA_CONTOUR=1): the Contour §6 `Weather` system owns the front
+	# chain (march + spawn/decay + wind drift), consuming the SAME seeded stream.
+	# The presentation-snapshot writes (state/wind) + the twin's persist shape
+	# (snapped wind_angle, deep-copied fronts) stay identical, so flag-ON is
+	# byte-identical to the twin below (the four-run matrix's bar).
+	var bridge := _route_contour()
+	if bridge != null:
+		if not _transition_contour(bridge):
+			return  # a refused tick already push_error'd — never a silent twin
+		WorldState.set_value("weather.state", state)
+		WorldState.set_value("weather.wind", wind)
+		WorldState.set_value("weather.wind_angle", snappedf(_wind_angle, 0.001))
+		WorldState.set_value("weather.fronts", fronts.duplicate(true))
+		return
+	# --- GDScript twin (flag OFF, default — forever byte-identical) ---
 	# March every front one hour along its own heading; drop the spent.
 	for f in fronts:
 		f.edge = float(f.edge) + float(f.speed) * 3600.0
@@ -420,6 +492,57 @@ func _transition(_hour: int) -> void:
 	WorldState.set_value("weather.wind", wind)
 	WorldState.set_value("weather.wind_angle", snappedf(_wind_angle, 0.001))
 	WorldState.set_value("weather.fronts", fronts.duplicate(true))
+
+
+## The flag-ON hour tick: hand the front chain to the Contour `Weather` system.
+## Seeds the SAME content + focus the twin reads (kinds/transitions/biases,
+## season/storminess), the persistent state it owns (fronts/wind_angle/last_kind),
+## and the SEEDED stream state pulled off Rng.stream("weather") — so the system
+## draws from the identical stream and, on write-back, we thread the advanced
+## state BACK into Rng.stream so the autoload persists it and both paths stay in
+## lockstep (pcg_* is bit-exact to RandomPCG). Returns false on a refused tick
+## (loud — never a silent GDScript pass).
+func _transition_contour(bridge: ContourBridge) -> bool:
+	var stream := Rng.stream("weather")
+	var inputs := {
+		"weather.season": GameClock.season,
+		"weather.storminess": storminess,
+		"weather.kinds": KINDS,
+		"weather.transitions": TRANSITIONS,
+		"weather.wet_kinds": WET_KINDS,
+		"weather.storm_bias": SEASON_STORM_BIAS,
+		"weather.gale_bias": SEASON_GALE_BIAS,
+		"weather.fronts": fronts,
+		"weather.wind_angle": _wind_angle,
+		"weather.last_kind": _last_kind,
+		"weather.rng": int(stream.state),
+	}
+	_contour_calls += 1
+	if not bridge.tick_seeded(inputs, 3600.0):
+		push_error("[weather] STRATA_CONTOUR=1 but the Weather system tick was refused"
+			+ " — refusing to silently run the GDScript twin")
+		return false
+	# Read back the system's declared writes; thread the advanced stream state
+	# back into the autoload so it persists and the next tick continues it.
+	fronts = _fronts_from(WorldState.get_value("weather.fronts", []))
+	_wind_angle = float(WorldState.get_value("weather.wind_angle", _wind_angle))
+	_last_kind = String(WorldState.get_value("weather.last_kind", _last_kind))
+	stream.state = int(WorldState.get_value("weather.rng", int(stream.state)))
+	wind_dir = Vector2.from_angle(_wind_angle)
+	return true
+
+
+## Rebuild a typed Array[Dictionary] of fronts from a Variant array (the bridge
+## returns them as untyped dicts) — the load_state reconstruction shape.
+func _fronts_from(v: Variant) -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	if v is Array:
+		for f: Variant in v:
+			if f is Dictionary and f.has("kind") and f.has("edge"):
+				out.append({"kind": String(f.kind), "dx": float(f.dx),
+					"dz": float(f.dz), "edge": float(f.edge),
+					"width": float(f.width), "speed": float(f.speed)})
+	return out
 
 
 ## True while the newest front has fully entered the world circle —

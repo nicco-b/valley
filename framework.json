@@ -72,6 +72,7 @@
 		],
 		"elements": [
 			"game/world/weather.gd",
+			"game/world/weather.ct",
 			"game/world/climate.gd",
 			"game/world/atmosphere.gd",
 			"game/world/day_night.gd",

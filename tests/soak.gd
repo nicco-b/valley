@@ -59,6 +59,13 @@ func _ready() -> void:
 		var cs: Dictionary = FloraLife.contour_status()
 		print("SOAK CONTOUR mode=%d engaged=%s flora_ticks=%d"
 			% [int(cs.get("mode", 0)), str(cs.get("engaged", false)), int(cs.get("calls", 0))])
+	# Weather's front chain (Mission C2a) — same engaged-path proof: mode=2 +
+	# weather_ticks climbing means the fingerprinted Weather.state/wind_dir this
+	# run were the Contour §6 system's, not a silent GDScript fallback.
+	if Weather.has_method("contour_status"):
+		var ws: Dictionary = Weather.contour_status()
+		print("SOAK CONTOUR mode=%d engaged=%s weather_ticks=%d"
+			% [int(ws.get("mode", 0)), str(ws.get("engaged", false)), int(ws.get("calls", 0))])
 	get_tree().quit(1 if _failures > 0 else 0)
 
 

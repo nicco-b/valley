@@ -4256,7 +4256,18 @@ func _test_weather_lock() -> void:
 	_check(off == "ok weather_lock off", "weather_lock off answers the state (got %s)" % off)
 	_check(not Weather.held, "weather_lock off frees the weather")
 	Weather._transition(0)
-	_check(float(front.edge) > edge_before, "a freed sky marches again")
+	# Re-read the march off the LIVE array, not the by-ref dict: under
+	# STRATA_CONTOUR the §6 Weather system rebuilds the fronts array (fresh dict
+	# objects), so a stale pointer wouldn't see the march. A front dict's OBJECT
+	# IDENTITY is not the sim contract — its CONTENTS are (the soak fingerprint
+	# pins those, flag-ON == flag-OFF). The full-cover storm marches to
+	# edge_before + speed*3600 and is never dropped; a fresh spawn sits windward
+	# at -WORLD_R (< edge_before), so a storm past edge_before is the marched one.
+	var marched := false
+	for f: Dictionary in Weather.fronts:
+		if String(f.kind) == "storm" and float(f.edge) > edge_before:
+			marched = true
+	_check(marched, "a freed sky marches again")
 	_check(StrataLink._execute("weather_lock wobble").begins_with("err weather_lock"),
 		"weather_lock rejects a bad arg")
 	# Leave no trace.

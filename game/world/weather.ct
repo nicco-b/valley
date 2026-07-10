@@ -1,0 +1,133 @@
+# Contour port of valley game/world/weather.gd :: Weather — the hourly front
+# chain (_transition + _spawn_front + _door_open + _weight), as a Contour §6
+# system consuming the SEEDED RNG stream (the pcg_* surface, this wave's rung).
+#
+# WHAT PORTS (the fingerprinted sim tick): the front array evolves one hour —
+# every band marches along its own heading (edge += speed*3600), the spent ones
+# (fully leeward of the world circle) drop, new bands spawn windward while the
+# door is open (the weighted TRANSITIONS chain, seasonally biased, consuming the
+# stream), and the wind angle wanders (a stream draw scaled by storminess). The
+# writes are exactly weather.gd's _transition writes: fronts, wind_angle,
+# last_kind, and the advanced rng state.
+#
+# WHAT STAYS GDSCRIPT (engine-bound, enumerated — the honest split, flora's
+# precedent): everything SPATIAL / presentation. _process's per-frame ease of
+# wind/rain/cloud/dust at the focus; _biome_scale + _orographic (Terrain.height
+# reads — the rain shadow); fog_amount (Climate.humidity + GameClock.solar_hours);
+# _focus_xz (Toolkit / player position); the weather.state/weather.wind SNAPSHOT
+# writes (presentation-eased focus values, not tick outputs). Those read the
+# engine and are not part of this system's write set.
+#
+# THE SEEDED-READS SHAPE: the tick's content (KINDS/TRANSITIONS taxonomy, the
+# season biases, WET_KINDS) is a game's data (data/climate/weather.json) — so it
+# is HANDED IN as declared reads (weather.kinds / .transitions / .wet_kinds /
+# .storm_bias / .gale_bias), not baked here, keeping the system framework-
+# agnostic. The live focus values it reads (season, storminess) arrive the same
+# way (flora's env precedent). The persistent state it owns round-trips through
+# its declared writes.
+#
+# STATUS: authored + compiles clean under the cold gate; its two engine
+# primitives (Vector2.from_angle, fposmod) and the whole draw sequence
+# (pcg_randf/pcg_randf_range) are Plumb-proven bit-exact vs real Godot. Its
+# in-situ proof is the valley FOUR-RUN SOAK MATRIX (weather is heavily
+# fingerprinted) — the remaining rung (see docs/PORT_LEDGER.md weather row).
+
+const WORLD_R = 13000.0
+
+
+# _weight: WET kinds scale with the season's storm bias, the gale with its own
+# dry-season bias, everything else unbiased.
+sim func weight(kind, base, wet_kinds, storm_bias, gale_bias, season) -> float:
+	if kind in wet_kinds:
+		return base * storm_bias.get(season, 1.0)
+	if kind == "gale":
+		return base * gale_bias.get(season, 1.0)
+	return base
+
+
+# _door_open: room windward for another system behind the newest front.
+sim func door_open(fronts) -> bool:
+	var n = fronts.size()
+	if n == 0:
+		return true
+	if n >= 6:
+		return false
+	var last = fronts[n - 1]
+	return last.edge - last.width >= 0.0 - WORLD_R
+
+
+# _spawn_front: the weighted TRANSITIONS walk (two passes, exactly like the
+# twin — total, then the roll's accumulate-until), the width draw, the new band
+# windward. Returns the extended fronts, the new last_kind, and the advanced
+# rng. Two stream draws (randf for the kind roll, randf_range for the width).
+sim func spawn_one(fronts, last, angle, rng, kinds, transitions, wet_kinds, storm_bias, gale_bias, season) -> dict:
+	var chain = transitions.get(last, [])
+	var total = 0.0
+	var i = 0
+	while i < chain.size():
+		var t = chain[i]
+		total = total + weight(t[0], t[1], wet_kinds, storm_bias, gale_bias, season)
+		i = i + 1
+	var dr = pcg_randf(rng)
+	var rng2 = dr.state
+	var roll = dr.value * total
+	var acc = 0.0
+	var kind = last
+	var chosen = false
+	i = 0
+	while i < chain.size():
+		var t = chain[i]
+		acc = acc + weight(t[0], t[1], wet_kinds, storm_bias, gale_bias, season)
+		if roll <= acc and not chosen:
+			kind = t[0]
+			chosen = true
+		i = i + 1
+	var kd = kinds[kind]
+	var wrange = kd.width
+	var dw = pcg_randf_range(rng2, wrange[0], wrange[1])
+	var travel = vec2_from_angle(angle)
+	var front = {"kind": kind, "dx": travel.x, "dz": travel.y, "edge": 0.0 - WORLD_R, "width": dw.value, "speed": kd.speed}
+	return {"fronts": fronts.append(front), "last_kind": kind, "rng": dw.state}
+
+
+system Weather:
+	reads: weather.season, weather.storminess, weather.kinds, weather.transitions, weather.wet_kinds, weather.storm_bias, weather.gale_bias, weather.fronts, weather.wind_angle, weather.last_kind, weather.rng
+	writes: weather.fronts, weather.wind_angle, weather.last_kind, weather.rng
+	sim func step():
+		var fronts0 = weather.fronts
+		var kinds = weather.kinds
+		var transitions = weather.transitions
+		var wet_kinds = weather.wet_kinds
+		var storm_bias = weather.storm_bias
+		var gale_bias = weather.gale_bias
+		var season = weather.season
+		var rng = weather.rng
+		var angle = weather.wind_angle
+		var last = weather.last_kind
+		var marched = []
+		var i = 0
+		while i < fronts0.size():
+			var f = fronts0[i]
+			f.edge = f.edge + f.speed * 3600.0
+			marched = marched.append(f)
+			i = i + 1
+		var fronts = []
+		i = 0
+		while i < marched.size():
+			var g = marched[i]
+			if g.edge - g.width < WORLD_R:
+				fronts = fronts.append(g)
+			i = i + 1
+		while door_open(fronts):
+			var res = spawn_one(fronts, last, angle, rng, kinds, transitions, wet_kinds, storm_bias, gale_bias, season)
+			fronts = res.fronts
+			last = res.last_kind
+			rng = res.rng
+		var swing = 0.15 + 0.5 * weather.storminess
+		var drift = pcg_randf_range(rng, 0.0 - swing, swing)
+		rng = drift.state
+		angle = fposmod(angle + drift.value, TAU())
+		weather.fronts = fronts
+		weather.wind_angle = angle
+		weather.last_kind = last
+		weather.rng = rng

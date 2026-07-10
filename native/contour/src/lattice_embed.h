@@ -43,7 +43,11 @@ extern "C" {
  * CompositeCodec wire format (documented at the bottom of this file — the
  * single source of truth for the layout). Before the composite-marshalling
  * rung a composite result yielded LAT_ERR; now every one of the twelve ported
- * functions is callable, composite args and composite results included. */
+ * functions is callable, composite args and composite results included.
+ * A bare top-level STRING result crosses as LAT_STR: raw UTF-8 bytes in
+ * buf/buflen (NOT NUL-terminated, NOT CompositeCodec-framed) — the same
+ * ownership rules as a LAT_BUF result. (A string ARG still rides a LAT_BUF
+ * as a top-level CC_STR — the shape existing hosts already send.) */
 #define LAT_INT   0  /* i */
 #define LAT_FLOAT 1  /* f */
 #define LAT_BOOL  2  /* i (0/1) */
@@ -52,24 +56,26 @@ extern "C" {
 #define LAT_NULL  5
 #define LAT_ERR   6  /* result-only: call failed; see err buffer */
 #define LAT_BUF   7  /* composite (array/dict/basis/record): buf + buflen, see below */
+#define LAT_STR   8  /* result-only: bare string; buf + buflen = raw UTF-8 (no NUL) */
 
 /* A tagged value on the wire. Scalars use `i`/`f`; vec2/vec3 use `x,y,z`
  * (components are double but represent Godot real_t/float32 — the Swift side
  * narrows on the way in, matching Vector3(double,double,double), and widens on
  * the way out, matching reading v.x as a Variant float, so bit-parity with
  * GDScript is preserved). A LAT_BUF carries a CompositeCodec byte buffer in
- * `buf` (length `buflen`); the flat scalar/vector fields are then unused. */
+ * `buf` (length `buflen`); a LAT_STR result carries raw UTF-8 bytes in the
+ * same two fields; the flat scalar/vector fields are then unused. */
 typedef struct {
     int32_t tag;
     int64_t i;
     double  f;
     double  x, y, z;
-    const uint8_t *buf;    /* LAT_BUF only: CompositeCodec bytes (format at file end) */
-    int64_t        buflen; /* LAT_BUF only: byte count of `buf` */
+    const uint8_t *buf;    /* LAT_BUF: CompositeCodec bytes (format at file end); LAT_STR: raw UTF-8 */
+    int64_t        buflen; /* LAT_BUF / LAT_STR only: byte count of `buf` */
 } LatValue;
 
-/* Free a LAT_BUF buffer that lattice_call allocated for a *result* (out->buf).
- * NULL is a no-op. See the OWNERSHIP note on lattice_call. */
+/* Free a LAT_BUF or LAT_STR buffer that lattice_call allocated for a *result*
+ * (out->buf). NULL is a no-op. See the OWNERSHIP note on lattice_call. */
 void lattice_buf_free(const uint8_t *buf);
 
 /* Compile a Contour module from UTF-8 source. Returns an opaque handle, or
@@ -86,15 +92,16 @@ void lattice_module_destroy(void *handle);
  * HOT path — no Foundation; the only heap traffic beyond the interpreter's own
  * is the single result buffer of a LAT_BUF result (see OWNERSHIP).
  *
- * OWNERSHIP of LAT_BUF buffers:
+ * OWNERSHIP of LAT_BUF / LAT_STR buffers:
  *   • ARGUMENT buffers (argv[k].buf, tag LAT_BUF) are owned by the CALLER. They
  *     need only stay valid for the duration of this call; Lattice copies what
  *     it decodes. The caller frees them (they are typically caller-side scratch,
  *     e.g. a std::vector<uint8_t>). Do NOT pass them to lattice_buf_free.
- *   • A RESULT buffer (out->buf when out->tag == LAT_BUF) is owned by LATTICE:
- *     it is freshly allocated here. The caller MUST hand it to lattice_buf_free
- *     exactly once after decoding it. On any error path out->tag is LAT_ERR (or
- *     a scalar) and out->buf is left NULL — nothing to free. */
+ *   • A RESULT buffer (out->buf when out->tag == LAT_BUF or LAT_STR) is owned by
+ *     LATTICE: it is freshly allocated here. The caller MUST hand it to
+ *     lattice_buf_free exactly once after decoding it. On any error path
+ *     out->tag is LAT_ERR (or a scalar) and out->buf is left NULL — nothing to
+ *     free. */
 int32_t lattice_call(void *handle, const char *fn,
                      const LatValue *argv, int32_t argc,
                      LatValue *out, char *err, int32_t errcap);

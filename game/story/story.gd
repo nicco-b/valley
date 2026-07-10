@@ -862,11 +862,11 @@ func _subst_str(text: String, subst: Dictionary) -> String:
 	if vm != null:
 		# The memoir prose resolution — routed. Every latched stage's `prose` field
 		# (journal.<q>.<stage>.prose, IN the soak fingerprint's story section) is
-		# Contour-authored when the flag is on. Via the _abi adapter: the embed C ABI
-		# marshals a string only inside a composite, so the rule's string result rides
-		# a 1-element array (unwrapped [0]) — the RULE is the certified _subst_str.
+		# Contour-authored when the flag is on. Routed DIRECT: the embed ABI's
+		# LAT_STR result kind carries the rule's bare string result across the C
+		# boundary (the wrap-in-array _abi adapter is retired).
 		_contour_calls += 1
-		return String((vm.call_fn("_subst_str_abi", [text, subst]) as Array)[0])
+		return String(vm.call_fn("_subst_str", [text, subst]))
 	if not text.contains("$"):
 		return text
 	var re := RegEx.create_from_string("\\$([a-z_]+)")
@@ -938,7 +938,7 @@ func _role_fill_when(spec: Dictionary) -> String:
 	var vm := _route_contour()
 	if vm != null:
 		_contour_calls += 1
-		return String((vm.call_fn("_role_fill_when_abi", [spec]) as Array)[0])
+		return String(vm.call_fn("_role_fill_when", [spec]))
 	return String(spec.get("fill", "on_start"))
 
 

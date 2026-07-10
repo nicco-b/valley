@@ -6729,6 +6729,24 @@ func _test_contour() -> void:
 			"contour: %s bit-identical to ToolkitSnap.%s (twin=%s got=%s)" % [fn, fn, twin, got])
 	print("  contour: %d calls (scalar/vec/basis/dict) bit-identical to the GDScript twin — native VM in-process" % cases.size())
 
+	# --- the LAT_STR rung: a bare top-level string result crosses DIRECT ------
+	# (Before this increment a `-> string` result was the documented LAT_ERR —
+	# "result kind 'string' not marshalable" — and string-returning ports rode
+	# wrap-in-array _abi adapters, unwrapped [0] valley-side. Retired.)
+	var svm := Contour.new()
+	var serr := svm.compile("sim func subst(text, subst) -> string:\n\tif subst.has(\"who\"):\n\t\treturn text + subst[\"who\"]\n\treturn text\n")
+	_check(serr == "", "contour: string-result module compiles (%s)" % serr)
+	if serr == "":
+		var s: Variant = svm.call_fn("subst", ["hello ", {"who": "valley"}])
+		_check(s is String and s == "hello valley",
+			"contour: a bare string result crosses the ABI directly (LAT_STR), got %s" % [s])
+		var empty: Variant = svm.call_fn("subst", ["", {}])
+		_check(empty is String and empty == "",
+			"contour: an empty string result round-trips (buflen 0)")
+		var uni: Variant = svm.call_fn("subst", ["héllo ☂ ", {"who": "çà"}])
+		_check(uni is String and uni == "héllo ☂ çà",
+			"contour: a multi-byte UTF-8 string result crosses byte-exact")
+
 
 # Exact structural equality for a Contour result vs its GDScript twin. `==` on
 # floats/vectors is a bit compare; dicts compare key-by-key so a Variant `==`

@@ -287,20 +287,10 @@ sim func _role_fill_when(spec) -> string:
 	return spec.get("fill", "on_start")
 
 
-# --- ABI adapters (valley routing only; NOT rules) --------------------------
-# The embed C ABI marshals composites (array/dict) and scalar int/float/bool, but
-# NOT a top-level scalar STRING result (a string only crosses INSIDE a composite).
-# These wrap a string-returning rule's result in a 1-element array so the valley twin
-# can route it (unwrapping `[0]`); the RULE is unchanged (Plumb certifies _subst_str /
-# _role_fill_when DIRECTLY — these are pure pass-throughs, never on the corpus). The
-# array-returning rules (_parents / _cond_index_keys / _roles_ordered / _rank_by_matrix)
-# route straight, no adapter. (A future top-level-string ABI increment retires these.)
-sim func _subst_str_abi(text, subst) -> array:
-	return [_subst_str(text, subst)]
-
-
-sim func _role_fill_when_abi(spec) -> array:
-	return [_role_fill_when(spec)]
+# (The `_subst_str_abi` / `_role_fill_when_abi` wrap-in-array adapters that
+# once lived here are RETIRED: the embed ABI's LAT_STR increment carries a
+# bare top-level string result directly, so the valley twin routes
+# _subst_str / _role_fill_when straight — see lattice_embed.h.)
 
 
 # The comparator of _rank's sort_custom, over a PRECOMPUTED match matrix. `matrix[id]`

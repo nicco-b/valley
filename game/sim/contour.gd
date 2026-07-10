@@ -80,9 +80,10 @@ func compile_file(path: String) -> String:
 func is_ready() -> bool:
 	return _kernel != null and _kernel.is_loaded()
 
-## Call `fn` with `args` (int/float/bool/Vector2/Vector3/Array/Dictionary/Basis
-## in, the same kinds out); returns the result Variant, or null when the VM
-## isn't ready or the call errors. HOT path — the VM runs in-process on the
+## Call `fn` with `args` (int/float/bool/String/Vector2/Vector3/Array/
+## Dictionary/Basis in, the same kinds out — a bare String result crosses
+## directly via the ABI's LAT_STR kind); returns the result Variant, or null
+## when the VM isn't ready or the call errors. HOT path — the VM runs in-process on the
 ## caller's thread (one handle per thread; the valley sim tick is single-
 ## threaded, so one Contour per tick consumer is the model).
 func call_fn(fn: String, args: Array) -> Variant:

@@ -159,7 +159,22 @@ func summary() -> String:
 	return "\n".join(lines)
 
 
+## Vernier setter/getter. A named method, NOT a lambda — see
+## WaterField.get_fill_channels()'s doc.
+func vernier_set_fog_override(v: float) -> void:
+	fog_override = v
+
+
+func vernier_fog_override() -> float:
+	return fog_override
+
+
 func _ready() -> void:
+	# Vernier (P4): passive registration (reads -1.0 once; never calls the
+	# setter on its own) — a Toolkit knob nothing ever wired a UI to yet.
+	Vernier.register("weather.fog_override", TYPE_FLOAT, -1.0,
+		Callable(self, "vernier_set_fog_override"), Callable(self, "vernier_fog_override"),
+		"Pins ground fog 0..1; < 0 lets Climate/time-of-day drive it.")
 	_load_climate_records()
 	add_to_group("world_state_reader")  # SaveGame re-calls load_state post-restore
 	load_state()

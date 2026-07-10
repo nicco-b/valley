@@ -65,7 +65,37 @@ var direction := Vector2(1.0, 0.0)  # live eased travel direction
 var source := "wind"       # what owns the swell right now (Toolkit line)
 
 
+## Vernier setter/getter pairs. Named methods, NOT lambdas — see
+## WaterField.get_fill_channels()'s doc: a GDScript lambda Callable
+## stored in Vernier's static (process-lifetime) registry crashes the
+## engine's shutdown ordering; a bound-method Callable does not.
+func vernier_set_force_amp(v: float) -> void:
+	force_amp = v
+
+
+func vernier_force_amp() -> float:
+	return force_amp
+
+
+func vernier_set_force_surf(v: float) -> void:
+	force_surf = v
+
+
+func vernier_force_surf() -> float:
+	return force_surf
+
+
 func _ready() -> void:
+	# Vernier (P4): registered before the headless gate below (a pair of
+	# Toolkit knobs nothing ever wired a UI to yet) so the tunables exist
+	# in every posture, including the scene tests — passive (reads -1.0
+	# once; never calls the setter on its own).
+	Vernier.register("sea.force_amp", TYPE_FLOAT, -1.0,
+		Callable(self, "vernier_set_force_amp"), Callable(self, "vernier_force_amp"),
+		"Pins the sea's swell amplitude (m); < 0 lets the weather drive it.")
+	Vernier.register("sea.force_surf", TYPE_FLOAT, -1.0,
+		Callable(self, "vernier_set_force_surf"), Callable(self, "vernier_force_surf"),
+		"Pins the breaker foam boost; < 0 lets it default to 1.0.")
 	# Same gate as the GPU water tiers: headless has no swell to show.
 	if DisplayServer.get_name() == "headless":
 		set_process(false)

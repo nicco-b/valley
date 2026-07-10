@@ -285,6 +285,22 @@ extends Node
 ##   marker clear all        -> remove every marker wholesale (the
 ##                               collab-off / all-peers-gone case).
 ##                               "ok marker clear all"
+##   vernier list             -> every registered live tunable (P4 — the
+##                               cvar registry, game/dev/vernier.gd), one
+##                               line: "ok vernier list <n>[\t<name>:
+##                               <type>:<default>:<current>:<provenance>
+##                               ...]", TAB-separated, sorted by name.
+##   vernier get <name>       -> "ok vernier get <name>=<value> type=<t>
+##                               provenance=<p>"; an unknown name answers
+##                               "err vernier: no such tunable: <name>".
+##   vernier set <name> <val> -> parses <val> as JSON like `state set`
+##                               (true/1/0.5/"text"/null; a bare word
+##                               lands as a String), coerces it to the
+##                               tunable's declared type, calls its real
+##                               setter, and stamps provenance "link":
+##                               "ok vernier set <name>=<value that
+##                               landed>". Unknown name/missing args
+##                               error honestly, never silently no-op.
 ##
 ## summary() feeds the Toolkit world panel (systems it can't see are debt).
 
@@ -302,7 +318,7 @@ const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "reload_world"
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
 	"records", "budget", "undo", "redo", "prefab",
 	"save_anchor", "restore_anchor", "anchors", "journal", "scrub",
-	"play_sound", "audio", "name", "names", "marker"]
+	"play_sound", "audio", "name", "names", "marker", "vernier"]
 
 ## Thumbnail render target size (square). The pane renders this offscreen;
 ## Strata caches the PNG by card sha and downsamples in its grid.
@@ -593,6 +609,15 @@ func _execute(line: String) -> String:
 			# per live peer off the roster (`marker set`), and clears it on
 			# expiry/collab-off (`marker clear`/`marker clear all`).
 			return _marker(parts, line)
+		"vernier":
+			# P4 — the cvar registry (game/dev/vernier.gd): list/get/set
+			# every tunable a game file registered by name. SURGICAL: this
+			# one arm is the whole wire surface; the registry itself never
+			# touches the socket or DevMode — it rides the SAME single gate
+			# every other verb here does (this whole file's _ready() never
+			# listens without DevMode.active()), so "DevMode off" already
+			# means this arm, like every other, is simply never reached.
+			return _vernier(parts, line)
 		"records":
 			# The records desk's write path (Strata R5): the game judges
 			# an edited record with its OWN loader schema before the desk
@@ -960,6 +985,50 @@ func _state_set(key: String, raw: String) -> String:
 		value = raw  # a bare word is a string
 	WorldState.set_value(key, value)
 	return "ok state %s=%s" % [key, JSON.stringify(value)]
+
+
+## P4 — the cvar registry's dispatcher (game/dev/vernier.gd). `list`
+## renders every registered tunable TAB-separated, sorted by name; `get`/
+## `set` name one by its registered name — an unknown name errs honestly
+## from BOTH, the same "no such tunable" line, rather than a silent no-op
+## or an engine crash on a null Entry. `set` parses its value like `state
+## set` (JSON, bare word -> String) so the wire grammar stays one shape
+## across both forcing doors, then stamps provenance "link" — Vernier's
+## own set_value() does the coercion-to-declared-type + the real setter
+## call; this function only renders the wire text.
+func _vernier(parts: PackedStringArray, line: String) -> String:
+	if parts.size() < 2:
+		return "err vernier needs list|get <name>|set <name> <value>"
+	match parts[1]:
+		"list":
+			var toks := PackedStringArray()
+			for e: Vernier.Entry in Vernier.list():
+				toks.append("%s:%s:%s:%s:%s" % [e.name, Vernier.type_name(e.type),
+					JSON.stringify(e.default), JSON.stringify(e.current), e.provenance])
+			return "ok vernier list %d" % toks.size() + (
+				"\t" + "\t".join(toks) if not toks.is_empty() else "")
+		"get":
+			if parts.size() < 3:
+				return "err vernier get needs <name>"
+			if not Vernier.has(parts[2]):
+				return "err vernier: no such tunable: %s" % parts[2]
+			var e: Vernier.Entry = Vernier.get_entry(parts[2])
+			return "ok vernier get %s=%s type=%s provenance=%s" % [
+				e.name, JSON.stringify(Vernier.get_value(e.name)),
+				Vernier.type_name(e.type), e.provenance]
+		"set":
+			if parts.size() < 4:
+				return "err vernier set needs <name> <value>"
+			if not Vernier.has(parts[2]):
+				return "err vernier: no such tunable: %s" % parts[2]
+			var raw := line.split(" ", false, 3)[3]
+			var value: Variant = JSON.parse_string(raw)
+			if value == null and raw != "null":
+				value = raw  # a bare word is a string
+			var landed: Variant = Vernier.set_value(parts[2], value, "link")
+			return "ok vernier set %s=%s" % [parts[2], JSON.stringify(landed)]
+		_:
+			return "err vernier needs list|get <name>|set <name> <value>"
 
 
 ## COLLAB §3c ghost markers — the `marker` verb's dispatcher. `set` places

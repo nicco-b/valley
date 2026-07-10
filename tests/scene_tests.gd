@@ -387,6 +387,7 @@ func _test_strata_link() -> void:
 	await _test_records_desk(peer)
 	await _test_names_verbs(peer)
 	await _test_marker_verbs(peer)
+	await _test_vernier_verb(peer)
 	await _test_audio_verbs(peer)
 	peer.disconnect_from_host()
 
@@ -1844,6 +1845,70 @@ func _test_marker_verbs(peer: StreamPeerTCP) -> void:
 	var wiped_again := await _link_send(peer, ["marker clear all"])
 	_check(wiped_again.size() == 1 and String(wiped_again[0]) == "ok marker clear all",
 		"marker clear all: idempotent at zero markers")
+
+
+## P4 — the cvar registry's link verb (game/dev/vernier.gd + StrataLink's
+## `vernier` dispatcher arm). The registry's OWN mechanics (passive
+## registration, duplicate refusal, type coercion) are unit-tested
+## headless in tests/run_tests.gd; this pins the WIRE + the REAL wiring:
+## `list` answers the actual tunables water_field.gd/sea_swell.gd/
+## weather.gd registered (not a synthetic fixture set), `get`/`set` name
+## one by its registered name, an unknown name errs honestly from BOTH
+## (never a silent no-op), and `set` flips the REAL live var — not a
+## shadow copy Vernier keeps for itself — with provenance landing "link".
+## Each `_link_send` call is awaited to completion before the next is
+## sent, so a later assertion never races an earlier command's effect.
+func _test_vernier_verb(peer: StreamPeerTCP) -> void:
+	var list_r := await _link_send(peer, ["vernier list"])
+	_check(list_r.size() == 1 and String(list_r[0]).begins_with("ok vernier list "),
+		"vernier list answers ok (got %s)" % str(list_r))
+	if list_r.size() == 1:
+		var lr := String(list_r[0])
+		for want in ["water.fill_channels:bool:", "sea.force_amp:float:",
+				"sea.force_surf:float:", "weather.fog_override:float:"]:
+			_check(want in lr, "vernier list carries the real wired tunable %s" % want)
+
+	var bad := await _link_send(peer,
+		["vernier", "vernier get bogus.name", "vernier set bogus.name 1"])
+	_check(bad.size() == 3, "vernier bad-arg replies land (got %d)" % bad.size())
+	if bad.size() == 3:
+		_check(String(bad[0]) == "err vernier needs list|get <name>|set <name> <value>",
+			"a bare vernier verb errs with the contract line")
+		_check(String(bad[1]) == "err vernier: no such tunable: bogus.name",
+			"vernier get on an unknown name errs honestly")
+		_check(String(bad[2]) == "err vernier: no such tunable: bogus.name",
+			"vernier set on an unknown name errs honestly (never a silent no-op)")
+
+	var boot := await _link_send(peer, ["vernier get water.fill_channels"])
+	_check(boot.size() == 1 and "provenance=boot" in String(boot[0]),
+		"a never-touched tunable answers provenance=boot (got %s)" % str(boot))
+
+	var flip_before := WaterField.fill_channels
+	var set_r := await _link_send(peer, ["vernier set water.fill_channels on"])
+	_check(set_r.size() == 1 and String(set_r[0]) == "ok vernier set water.fill_channels=true",
+		"vernier set flips a bool tunable (got %s)" % str(set_r))
+	_check(WaterField.fill_channels == true,
+		"the REAL WaterField.fill_channels flipped, not a shadow copy")
+
+	var after := await _link_send(peer, ["vernier get water.fill_channels"])
+	_check(after.size() == 1 and "provenance=link" in String(after[0]),
+		"provenance says link after a `vernier set` (got %s)" % str(after))
+
+	var fset := await _link_send(peer, ["vernier set sea.force_amp 0.42"])
+	_check(fset.size() == 1 and String(fset[0]) == "ok vernier set sea.force_amp=0.42",
+		"vernier set lands a float tunable (got %s)" % str(fset))
+	_check(is_equal_approx(SeaSwell.force_amp, 0.42),
+		"the REAL SeaSwell.force_amp flipped")
+	var fget := await _link_send(peer, ["vernier get sea.force_amp"])
+	_check(fget.size() == 1
+			and String(fget[0]) == "ok vernier get sea.force_amp=0.42 type=float provenance=link",
+		"vernier get reads the landed value back (got %s)" % str(fget))
+
+	# Leave no residue: restore both to their pre-test state (other
+	# probes assume WaterField/SeaSwell sit at their natural defaults).
+	await _link_send(peer,
+		["vernier set water.fill_channels %s" % ("on" if flip_before else "off")])
+	await _link_send(peer, ["vernier set sea.force_amp -1"])
 
 
 func _link_send(peer: StreamPeerTCP, commands: Array) -> Array:

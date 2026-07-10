@@ -65,6 +65,7 @@ func _ready() -> void:
 	await _test_interior_hand()
 	_test_map()
 	_test_map_travel()
+	await _test_bless_posture()
 	_test_pause_esc_routing()
 	_test_embedded_pane_posture()
 	_test_story_dry_spell_real()
@@ -2390,6 +2391,133 @@ func _test_map_travel() -> void:
 	_check(MapScreen.ray_to_terrain(org, Vector3(0.0, 1.0, 0.0), sampler) == Vector3.INF,
 		"map travel: a skyward ray finds no surface")
 	cam.queue_free()
+
+
+## THE STUCK POSTURE (Mission V2): after a bless the builder must land in a
+## ground-adjacent World view that WASD moves — not stranded at the orbit's
+## whole-tile framing altitude (~13km), where "World" reads as a second map
+## screen and M just toggles between two whole-world views. The root cause:
+## entering orbit (frame_tile) overwrites the fly camera's position with the
+## tile ride and the orbit _process re-seats it every frame, so leaving orbit
+## could not "return the fly camera where it stands" — it left it in the sky.
+## This pins the three ways out of orbit all land ground-adjacent, and M
+## toggles cleanly. Fails on baseline: the fly→orbit→fly restore and the
+## spawn-less bless both stranded the camera at the tile-framing altitude.
+func _test_bless_posture() -> void:
+	if not Terrain.has_world_tile():
+		print("  bless posture: SKIP (no baked tile cache)")
+		return
+	# Ground-adjacent means a survey crane (~60m); the orbit tile frame is
+	# ~13km up. 500m is the honest boundary between the two.
+	const GROUND_ADJACENT := 500.0
+	var frame_alt: float = Terrain.world_tile_size()  # the ~13km strand, roughly
+
+	# The full player rig (the _test_map shape): _enter/_exit re-seat it.
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	var cam_rig := Node3D.new()
+	cam_rig.name = "CameraRig"
+	var arm := SpringArm3D.new()
+	arm.name = "SpringArm3D"
+	var pcam := Camera3D.new()
+	pcam.name = "Camera3D"
+	arm.add_child(pcam)
+	cam_rig.add_child(arm)
+	player.add_child(cam_rig)
+	add_child(player)
+	# Seat the player on a recorded-spawn-agnostic spot with real ground.
+	player.global_position = Vector3(0.0, Terrain.height(0.0, 0.0) + 1.2, 0.0)
+
+	Toolkit._enter()  # fly camera live over the player (survey crane)
+	_check(Toolkit.active and not Toolkit.orbit, "toolkit enters in fly")
+	var fly_alt := Toolkit._cam.global_position.y - Terrain.height(
+		Toolkit._cam.global_position.x, Toolkit._cam.global_position.z)
+	_check(fly_alt < GROUND_ADJACENT, "fly boot is ground-adjacent (%.0fm)" % fly_alt)
+
+	# (A) The fly→orbit→fly peek: glance at the whole tile, come back where you
+	# stood. Baseline lost the pose (orbit clobbered it, nothing restored it)
+	# and left the camera up at the tile-framing altitude.
+	var stood := Toolkit._cam.global_position
+	Toolkit.set_view_mode(true)  # orbit: the camera rides ~13km up
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var orbit_alt := Toolkit._cam.global_position.y - Terrain.height(
+		Toolkit._cam.global_position.x, Toolkit._cam.global_position.z)
+	_check(orbit_alt > frame_alt * 0.3,
+		"orbit rides at the whole-tile altitude (%.0fm)" % orbit_alt)
+	Toolkit.set_view_mode(false)  # view fly: must return to where we stood
+	await get_tree().process_frame
+	var back := Toolkit._cam.global_position
+	_check(back.distance_to(stood) < 5.0,
+		"leaving orbit returns the fly camera where it stood (%.1fm off)"
+		% back.distance_to(stood))
+	var world_alt := back.y - Terrain.height(back.x, back.z)
+	_check(world_alt < GROUND_ADJACENT,
+		"World view is ground-adjacent after the peek (%.0fm, not the sky)" % world_alt)
+
+	# (B) THE SPAWN-LESS BLESS: reload_world adopts the tile and reseat finds no
+	# recorded spawn (a content-empty or spawn-less world), so nothing is
+	# deferred — yet leaving orbit must STILL land ground-adjacent, never the
+	# strand. Guard the spawn record (gitignored, regenerable) and put it back.
+	var spawn_path: String = Terrain.SPAWN_RECORD_PATH
+	var had_spawn := FileAccess.file_exists(spawn_path)
+	var spawn_bytes := FileAccess.get_file_as_bytes(spawn_path) if had_spawn \
+		else PackedByteArray()
+	if had_spawn:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(spawn_path))
+	_check(not (Terrain.recorded_spawn() is Vector2),
+		"the spawn-less precondition holds (no recorded spawn)")
+	Toolkit.set_view_mode(true)  # back into orbit (the shaping viewer posture)
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var reloaded := Terrain.reload_world()  # the in-session-bless verb
+	var reseated := Toolkit.reseat_after_bless()  # returns false: no spawn
+	_check(reloaded == "reloaded" and not reseated,
+		"spawn-less bless: tile adopted, nothing to reseat over")
+	Toolkit.set_view_mode(false)  # view fly (the engageBuilderPosture delta)
+	await get_tree().process_frame
+	var bpos := Toolkit._cam.global_position
+	var bless_alt := bpos.y - Terrain.height(bpos.x, bpos.z)
+	_check(not Toolkit.orbit and bless_alt < GROUND_ADJACENT,
+		"spawn-less bless lands a ground-adjacent World view (%.0fm, not %.0fm sky)"
+		% [bless_alt, orbit_alt])
+	# Restore the guarded spawn record.
+	if had_spawn:
+		var f := FileAccess.open(spawn_path, FileAccess.WRITE)
+		f.store_buffer(spawn_bytes)
+		f.close()
+
+	# (C) The World view is a MOVABLE fly camera: a manual step sticks (the
+	# orbit rig is no longer clobbering _cam every frame — the classic stuck
+	# cause). In fly, _process drives rotation + WASD only; a nudge holds.
+	var pre_move := Toolkit._cam.global_position
+	Toolkit._cam.global_position += Vector3(40.0, 0.0, 0.0)
+	await get_tree().process_frame
+	_check(Toolkit._cam.global_position.distance_to(pre_move) > 1.0,
+		"fly camera holds a move — not clobbered by the orbit rig")
+
+	# (D) M toggles map↔world cleanly: the map is the whole-tile framing; the
+	# World view it returns to is NOT.
+	MapScreen._open()
+	await get_tree().process_frame
+	_check(MapScreen.active, "M opens the map")
+	_check(MapScreen._rig.distance > frame_alt * 0.5,
+		"the map is the whole-tile framing (%.0fm)" % MapScreen._rig.distance)
+	MapScreen._close()
+	await get_tree().process_frame
+	_check(not MapScreen.active, "M closes the map")
+	var wpos := Toolkit._cam.global_position
+	var closed_alt := wpos.y - Terrain.height(wpos.x, wpos.z)
+	_check(closed_alt < GROUND_ADJACENT,
+		"closing M returns to the ground-adjacent World view, not the map (%.0fm)"
+		% closed_alt)
+
+	# Teardown: hand the world back, leave no player behind.
+	Toolkit.set_view_mode(false)
+	Toolkit.active = false
+	Toolkit.set_process(false)
+	player.remove_from_group("player")
+	player.queue_free()
 
 
 ## The Esc precedence (TICKET: Esc in the embedded pane must not pop the

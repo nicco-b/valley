@@ -1,0 +1,6 @@
+# Reproducible build artifacts — rebuild via CMakeLists.txt + the datum
+# scripts/build_embed.sh. Source, CMake, manifests, and the probe are tracked.
+build/
+bin/*.dylib
+lib/*.a
+probe/bin/*.dylib

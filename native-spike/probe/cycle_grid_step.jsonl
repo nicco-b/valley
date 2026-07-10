@@ -1,0 +1,36 @@
+# cycle_grid_step(current: float, dir: int) — full ladder + edges.
+# Each line: [ {float|fhex current}, {int dir} ]. '#' lines are comments.
+# --- on every rung, coarsen (+1) then refine (-1): exercises both wrap ends ---
+[{"float":1.0},{"int":1}]
+[{"float":2.0},{"int":1}]
+[{"float":4.0},{"int":1}]
+[{"float":8.0},{"int":1}]
+[{"float":16.0},{"int":1}]
+[{"float":1.0},{"int":-1}]
+[{"float":2.0},{"int":-1}]
+[{"float":4.0},{"int":-1}]
+[{"float":8.0},{"int":-1}]
+[{"float":16.0},{"int":-1}]
+# --- dir 0: identity-to-nearest-rung ---
+[{"float":1.0},{"int":0}]
+[{"float":16.0},{"int":0}]
+# --- off-ladder: round-half-up ties (3->4, 1.5->2, 6->8, 12->16) ---
+[{"float":3.0},{"int":1}]
+[{"float":3.0},{"int":-1}]
+[{"float":1.5},{"int":1}]
+[{"float":6.0},{"int":0}]
+[{"float":12.0},{"int":0}]
+[{"float":0.5},{"int":1}]
+# --- degenerate: zero, negative, far-past-the-top ---
+[{"float":0.0},{"int":1}]
+[{"float":-5.0},{"int":1}]
+[{"float":100.0},{"int":-1}]
+[{"float":10.0},{"int":1}]
+# --- multi-step and full-wrap dir values through wrapi ---
+[{"float":1.0},{"int":2}]
+[{"float":1.0},{"int":-2}]
+[{"float":16.0},{"int":5}]
+[{"float":4.0},{"int":-7}]
+# --- inexact input via exact IEEE-754 bits: 0.1 (nearest rung 1.0) ---
+[{"fhex":"9a9999999999b93f"},{"int":1}]
+[{"fhex":"9a9999999999b93f"},{"int":-1}]

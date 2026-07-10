@@ -1,0 +1,7 @@
+; Probe-local manifest (probe project root). Loaded explicitly by probe.gd.
+[configuration]
+entry_symbol = "contour_spike_init"
+compatibility_minimum = "4.7"
+
+[libraries]
+macos = "res://bin/libcontourspike.macos.dylib"

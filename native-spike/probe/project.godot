@@ -1,0 +1,8 @@
+config_version=5
+
+[application]
+config/name="ContourEmbedProbe"
+config/features=PackedStringArray("4.7", "Forward Plus")
+
+[debug]
+gdscript/warnings/enable=false

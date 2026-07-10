@@ -21,6 +21,8 @@ func _ready() -> void:
 	_test_shoaling()
 	_test_hydrology()
 	_test_strata_water()
+	_test_river_drape()
+	_test_region_reseed()
 	_test_water_field()
 	_test_wave_sources()
 	_test_foam_memory()
@@ -3367,6 +3369,140 @@ func _test_strata_water() -> void:
 			"%s answers water at its fill elevation" % w.id)
 		_check(float(w.basin_depth) == 0.0,
 			"%s never re-carves the tile (the depression is already in it)" % w.id)
+
+
+## The river ribbon must HUG the valley floor, not float above it: the drape
+## (water_bodies._drape) clamps its downstream pooling to the local ground so
+## the water surface never hangs over the dips and meanders that fall between
+## the coarse (~48m) record nodes. Two synthetic profiles pin both halves of
+## the fix, then the real imported bake proves the regression on live data.
+func _test_river_drape() -> void:
+	var WB: GDScript = load("res://game/world/water_bodies.gd")
+	var depth := 1.2
+	var eps := 1e-3
+
+	# (1) Open dip: the ground itself dips between two record nodes. The old
+	# unbounded max-scan lifted the dip to the downstream node's level —
+	# floating meters over the floor. The clamp holds it at the ground.
+	var open_pos: Array = [Vector2(0, 0), Vector2(48, 0), Vector2(96, 0)]
+	var open_surf := PackedFloat32Array([8.0, 3.0, 8.0])  # record line ~ ground
+	var open_ground := func(x: float, _z: float) -> float:
+		return [8.0, 3.0, 8.0][int(round(x / 48.0))]
+	var open: PackedFloat32Array = WB._drape(open_pos, open_surf, depth, open_ground)
+	_check(open[1] <= 3.0 + depth + eps,
+		"drape hugs an open dip (mid surf %.2f <= ground+depth %.2f)" % [
+			open[1], 3.0 + depth])
+
+	# (2) Contained pool: the SAME dip, but inside a gorge whose banks rise
+	# well above the water. Here the pool SHOULD fill flat behind the lip —
+	# the clamp allows it because the ground contains it.
+	var deep_ground := func(_x: float, _z: float) -> float: return 20.0
+	var pooled: PackedFloat32Array = WB._drape(open_pos, open_surf, depth, deep_ground)
+	_check(is_equal_approx(pooled[1], 8.0),
+		"drape pools a contained dip flat behind the lip (mid surf %.2f ~ 8)" % pooled[1])
+	for v in pooled:
+		_check(v <= 20.0 + depth + eps, "a contained pool never tops its banks")
+
+	# (3) Real imported bake: for a live hyd_ river, resample its polyline the
+	# way _ribbon does and drape it against the REAL terrain. The new drape
+	# must hug everywhere; the OLD max-scan must have floated somewhere — the
+	# regression, proven on the shipped data (SKIP with no import on disk).
+	var river: Dictionary = {}
+	for r in Terrain.rivers:
+		if String(r.id).begins_with("hyd_") and (r.nodes as Array).size() >= 2:
+			river = r
+			break
+	if river.is_empty():
+		print("  river drape: SKIP real-bake hug (no hyd_* river imported)")
+		return
+	var step := 1.8  # water_bodies.RIBBON_STEP
+	var rd: float = river.depth
+	var row_pos: Array = []
+	var row_surf := PackedFloat32Array()
+	var nodes: Array = river.nodes
+	var carry := 0.0
+	for i in nodes.size() - 1:
+		var a: Dictionary = nodes[i]
+		var b: Dictionary = nodes[i + 1]
+		var pa: Vector2 = a.pos
+		var ab: Vector2 = b.pos - pa
+		var seg := ab.length()
+		if seg < 1e-4:
+			continue
+		var s := carry
+		while s < seg:
+			var f := s / seg
+			row_pos.append(pa + ab * f)
+			row_surf.append(lerpf(a.surface, b.surface, f))
+			s += step
+		carry = s - seg
+	var last: Dictionary = nodes[nodes.size() - 1]
+	row_pos.append(last.pos)
+	row_surf.append(float(last.surface))
+	var dr5: PackedFloat32Array = WB._drape(row_pos, row_surf, rd, Terrain.height)
+	# Old behaviour, reconstructed: drape then an UNCLAMPED downstream max-scan.
+	var old := PackedFloat32Array(); old.resize(row_pos.size())
+	for i in row_pos.size():
+		var p: Vector2 = row_pos[i]
+		old[i] = minf(row_surf[i], Terrain.height(p.x, p.y) + rd)
+	for i in range(old.size() - 2, -1, -1):
+		old[i] = maxf(old[i], old[i + 1])
+	var new_float := -1e9
+	var old_float := -1e9
+	for i in row_pos.size():
+		var p: Vector2 = row_pos[i]
+		var ceil_s := Terrain.height(p.x, p.y) + rd
+		new_float = maxf(new_float, dr5[i] - ceil_s)
+		old_float = maxf(old_float, old[i] - ceil_s)
+	_check(new_float <= eps,
+		"%s: draped ribbon hugs the real bake (max float %.3fm)" % [river.id, new_float])
+	print("  river drape: %s old max-scan floated %.2fm, clamped drape floats %.4fm" % [
+		river.id, old_float, new_float])
+
+
+## Zero-flow regression: a river imported WHILE the game runs (reload_world /
+## Strata import) must be seeded on the region tier, or it idles at "0 m3/h,
+## norm 0.00". _reseed_region_water runs the same baseflow seed _ready does —
+## for newcomers ONLY: a river already breathing keeps its live storage across
+## an unrelated reload.
+func _test_region_reseed() -> void:
+	var river: Dictionary = {}
+	for r in Terrain.rivers:
+		if String(r.id).begins_with("hyd_"):
+			river = r
+			break
+	if river.is_empty():
+		print("  region reseed: SKIP (no hyd_* river imported)")
+		return
+	var id: String = river.id
+	var had_storage: bool = Hydrology.region_storage.has(id)
+	var saved_storage: float = float(Hydrology.region_storage.get(id, 0.0))
+	var saved_qref: float = float(Hydrology.region_qref.get(id, 0.0))
+
+	# Import-while-running: the reservoir is missing → discharge reads zero.
+	Hydrology.region_storage.erase(id)
+	Hydrology.region_qref.erase(id)
+	_check(Hydrology.discharge(id) == 0.0, "unseeded imported river reads zero discharge")
+	# The honest signal re-seeds it at baseflow: idle flow_norm lands on the
+	# tier's design line (~0.35).
+	Terrain.water_reloaded.emit()
+	_check(Hydrology.region_storage.has(id), "reload re-seeds the imported river")
+	_check(Hydrology.discharge(id) > 0.0, "re-seeded river flows (%.0f m3/h)" % Hydrology.discharge(id))
+	_check(absf(Hydrology.flow_norm(id) - 0.35) < 0.01,
+		"re-seeded river idles at baseflow (norm %.3f ~ 0.35)" % Hydrology.flow_norm(id))
+
+	# Reload again with the river now "playing" at a distinct storage: an
+	# unrelated reload must NOT reset it.
+	var live_val: float = float(Hydrology.region_storage[id]) * 3.7 + 123.0
+	Hydrology.region_storage[id] = live_val
+	Terrain.water_reloaded.emit()
+	_check(is_equal_approx(float(Hydrology.region_storage[id]), live_val),
+		"a live river's storage survives an unrelated reload")
+
+	# Restore whatever the boot seed left, so later tests see an untouched tier.
+	if had_storage:
+		Hydrology.region_storage[id] = saved_storage
+		Hydrology.region_qref[id] = saved_qref
 
 
 func _test_water_field() -> void:

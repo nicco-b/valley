@@ -119,6 +119,28 @@ func _ready() -> void:
 	Hydrology.levels_changed.connect(_on_levels_changed)
 	# The map river pen adds rivers at runtime; give each its ribbon.
 	Terrain.river_added.connect(_build_river_mesh)
+	# A whole-water reload (reload_world / import) swaps the river set out from
+	# under us — rebuild every ribbon so imported rivers render (and drop the
+	# meshes of any that the reload removed). Hydrology re-seeds first (it
+	# connects earlier, as an autoload), so the fresh ribbons read live flow.
+	Terrain.water_reloaded.connect(_rebuild_rivers)
+
+
+## Rebuild all river ribbons after a whole-water reload: free the meshes of
+## rivers that no longer exist, then (re)build every current one. Keyed by id,
+## so a river that survived the reload keeps its node but gets fresh geometry.
+func _rebuild_rivers() -> void:
+	var live := {}
+	for r in Terrain.rivers:
+		live[r.id] = true
+	for id in _river_meshes.keys():
+		if not live.has(id):
+			_river_meshes[id].queue_free()
+			_river_meshes.erase(id)
+			_river_mats.erase(id)
+			_river_built_level.erase(id)
+	for r in Terrain.rivers:
+		_build_river_mesh(r)
 
 
 ## Build (or rebuild) one river's ribbon mesh + flow material — shared by
@@ -431,17 +453,45 @@ func _disc(radius: float, step: float = DISC_STEP) -> ArrayMesh:
 	return st.commit()
 
 
+# The ground-hugging water surface for a resampled ribbon (pure geometry,
+# so it is unit-testable with a synthetic terrain sampler). `row_pos` are
+# the per-row world XZ points, `row_surf` the node-lerped record waterline
+# at each, `height_fn(x, z) -> float` samples the terrain. Returns the
+# per-row water surface (record level, relative to the whole-ribbon base).
+#
+# Two constraints, reconciled: the surface must not run visibly uphill
+# (pool flat behind lips) AND must not float above the ground between the
+# coarse record nodes. Draping under `terrain + depth` gives the second;
+# a downstream max-scan gives the first — but the max-scan is CLAMPED back
+# under the local drape ceiling so a pool never rises above the ground
+# that would contain it. Contained channels still pool; open dips and
+# meander shortcuts step down and hug the floor.
+static func _drape(row_pos: Array, row_surf: PackedFloat32Array,
+		depth: float, height_fn: Callable) -> PackedFloat32Array:
+	var n := row_pos.size()
+	var ceil_surf := PackedFloat32Array(); ceil_surf.resize(n)
+	var surf := PackedFloat32Array(); surf.resize(n)
+	for i in n:
+		var p: Vector2 = row_pos[i]
+		ceil_surf[i] = float(height_fn.call(p.x, p.y)) + depth
+		surf[i] = minf(row_surf[i], ceil_surf[i])
+	for i in range(n - 2, -1, -1):
+		surf[i] = minf(maxf(surf[i], surf[i + 1]), ceil_surf[i])
+	return surf
+
+
 # A dense ribbon: the spline resampled every RIBBON_STEP meters with
 # RIBBON_ACROSS verts per cross-section. World-space (seam-free with the
 # pond under the shared world-reading shader).
-# The DRAPE (2026-07-05): record nodes carry one surface each and the
-# terrain undulates between them, so a node-lerped surface either floats
-# over dips or bridges spurs. Instead every row takes
+# The DRAPE (2026-07-05, ground-clamped 2026-07-09): record nodes carry
+# one surface each and the terrain undulates between them, so a node-lerped
+# surface either floats over dips or bridges spurs. Every row takes
 # min(node-lerped surface, carved centerline ground + depth) — identical
-# to the record waterline on normal spans (the carve puts the bed
-# exactly depth below it), but following the terrain down through dips —
-# then a backward max-scan from the mouth makes the surface monotone
-# downstream, pooling flat behind lips instead of running uphill.
+# to the record waterline on normal spans (the carve puts the bed exactly
+# depth below it), but following the terrain down through dips — then the
+# downstream pooling max-scan (see _drape) makes the surface monotone
+# WHERE the ground contains it, clamped to the drape ceiling so it never
+# lifts a row into the air over the coarse-node dips (the float bug).
 # Steep row-to-row drops are written into COLOR.r → shader rapids foam.
 # `mouth` (S2): {level: lake's live surface (absolute), span: meters} —
 # the last span of the ribbon feathers into its lake: COLOR.a ramps 1→0
@@ -474,15 +524,24 @@ func _ribbon(nodes: Array, level: float, depth: float,
 	var prev: Dictionary = nodes[nodes.size() - 2]
 	rows.append([last.pos, float(last.half), float(last.surface),
 		(Vector2(last.pos) - Vector2(prev.pos)).normalized()])
-	# Drape, then pool: the max-scan can only raise a row toward the
-	# record waterlines upstream of it, so the surface stays inside the
-	# carved channel everywhere (record surfaces are monotone downstream).
-	var surf := PackedFloat32Array(); surf.resize(rows.size())
+	# Drape, then pool WITHIN the ground. The old max-scan lifted every row
+	# to the highest waterline downstream of it (pooling flat behind lips) —
+	# but the polyline's nodes are ~48m apart, and between them the terrain
+	# dips and meanders below the straight record line. An unbounded lift
+	# bridged those dips into the air: the ribbon floated meters above the
+	# valley floor (the reported bug). The lift is now CLAMPED to the drape
+	# ceiling (terrain + depth) at each row, so a pool can rise only as high
+	# as its own banks — where terrain contains it (a cut channel) the water
+	# still pools flat behind a lip, and where it does not (an open dip or a
+	# meander shortcut) the surface steps DOWN into the dip and hugs the
+	# floor instead of hanging over it. The drape samples terrain per row
+	# (RIBBON_STEP ~1.8m), so min() follows the ground at fine resolution.
+	var row_pos: Array = []
+	var row_surf := PackedFloat32Array(); row_surf.resize(rows.size())
 	for i in rows.size():
-		var p: Vector2 = rows[i][0]
-		surf[i] = minf(rows[i][2], Terrain.height(p.x, p.y) + depth)
-	for i in range(rows.size() - 2, -1, -1):
-		surf[i] = maxf(surf[i], surf[i + 1])
+		row_pos.append(rows[i][0])
+		row_surf[i] = rows[i][2]
+	var surf := _drape(row_pos, row_surf, depth, Terrain.height)
 	# Seam fixes (2026-07-05, the Skyrim lessons — bed and surface must
 	# AGREE, and where they can't, hide the disagreement):
 	#  - tangents smoothed over ±2 rows so cross-sections stop crossing

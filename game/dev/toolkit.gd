@@ -53,6 +53,17 @@ const GRID_STEP_DEFAULT := 4.0
 const NORMAL_EPS := 1.0       # metres east/north for the finite-difference normal
 const DUP_NUDGE := 3.0        # in-place duplicate offset (the `duplicate` link verb)
 
+# Kit-bashing sockets (L11): a dropped/moved piece whose card declares sockets
+# MATES the nearest compatible socket of an already-placed neighbour — position
+# AND orientation snap, so `ruins/*` + `under/*` pieces click into a corridor,
+# inside a pocket or out (the funnel rides _book()). SOCKET_REACH is how near
+# (XZ) the cursor must be to a socket to mate it; SOCKET_GATHER is how far out
+# to collect neighbours whose sockets might reach. The math is pure
+# (ToolkitSnap); this gesture only gathers world sockets and applies the
+# returned pose, so undo v2 covers it exactly like grid/ground snap.
+const SOCKET_REACH := 3.0
+const SOCKET_GATHER := 16.0
+
 # PREFAB capture (§2.1): the hand picks ONE piece of a composed place, then
 # K sweeps up everything within this reach of it and saves the cluster as a
 # reusable record. A proximity gather is the v1 that fits CURRENT main's
@@ -115,6 +126,7 @@ var _snap_grid := false
 var _grid_step := GRID_STEP_DEFAULT
 var _snap_ground := false   # seat flush on the terrain (ground_dy = 0)
 var _snap_normal := false   # lie against the slope (store a `tilt` normal)
+var _snap_socket := false   # click onto a compatible socket of a placed piece (L11)
 
 # Drag-move state (audit R1 polish): press place_move over a selection to begin
 # a drag; the gizmo previews at the cursor while held; release commits ONE
@@ -443,6 +455,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		_snap_normal = not _snap_normal
 		_reseat_selection()
 		_update_hud()
+	elif _tool == Tool.PLACE and event.is_action_pressed("snap_socket"):
+		# J toggles socket snap — a placement-time aid (the next drop / move
+		# mates a compatible socket), so there is nothing to reseat now.
+		_snap_socket = not _snap_socket
+		_update_hud()
 	elif _tool == Tool.PLACE and event.is_action_pressed("place_rotate"):
 		_sel_rotate(-1.0 if Input.is_action_pressed("sprint") else 1.0)
 	elif _tool == Tool.PLACE and event.is_action_pressed("place_grow"):
@@ -654,26 +671,40 @@ func _place_at(hit: Vector3) -> void:
 			Cards.variant_for(slot["slot"], hit))
 	if file == "":
 		return
-	# Snap the drop point: grid lands the XZ, ground/normal ride as record
-	# fields patched right after the add (add mints the id + ground_dy from
-	# the seat, the snap fields refine it — one funnel, undo covers it).
-	var p := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
-	# Inside a pocket the raycast hit on the floor pieces IS the seat
-	# (snap-to-ground means snap-to-hit; no terrain, no ground_dy) — else
-	# the ground plane (snap on) or the raw drop height (snap off).
-	var seat_y: float
-	if Interiors.inside:
-		seat_y = p.y
-	elif _snap_ground:
-		seat_y = Terrain.height(p.x, p.z)
-	else:
-		seat_y = p.y
+	var scale := randf_range(0.85, 1.15)
+	var yaw := randf() * TAU
 	var book: Variant = _book()
-	var rec: Dictionary = book.add(Vector3(p.x, seat_y, p.z), file,
-			randf() * TAU, randf_range(0.85, 1.15))
-	var extra := _snap_fields(p.x, p.z)
+	# Socket snap (L11) takes precedence when the piece has sockets and a
+	# compatible one sits within reach of the cursor: it mates the exact frame
+	# (full position AND yaw), so the grid/ground/normal overlay is bypassed —
+	# a click is a click, not a lattice landing. {} when nothing clicks, and
+	# then placement is EXACTLY as before (the zero-regression floor).
+	var snapped := _socket_snap(file, hit, scale, "")
+	var pos: Vector3
+	var extra: Dictionary = {}
+	if not snapped.is_empty():
+		pos = snapped["pos"]
+		yaw = float(snapped["yaw"])
+	else:
+		# Snap the drop point: grid lands the XZ, ground/normal ride as record
+		# fields patched right after the add (add mints the id + ground_dy from
+		# the seat, the snap fields refine it — one funnel, undo covers it).
+		var p := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
+		# Inside a pocket the raycast hit on the floor pieces IS the seat
+		# (snap-to-ground means snap-to-hit; no terrain, no ground_dy) — else
+		# the ground plane (snap on) or the raw drop height (snap off).
+		var seat_y: float
+		if Interiors.inside:
+			seat_y = p.y
+		elif _snap_ground:
+			seat_y = Terrain.height(p.x, p.z)
+		else:
+			seat_y = p.y
+		pos = Vector3(p.x, seat_y, p.z)
+		extra = _snap_fields(p.x, p.z)
+	var rec: Dictionary = book.add(pos, file, yaw, scale)
 	if not extra.is_empty():
-		var c: Variant = book.update(book.cell_of(Vector3(p.x, 0.0, p.z)),
+		var c: Variant = book.update(book.cell_of(Vector3(pos.x, 0.0, pos.z)),
 				String(rec.id), extra)
 		rec = book.record(c, String(rec.id))
 	# undo removes THIS record by id; redo re-lays it (before = {} absent).
@@ -830,14 +861,22 @@ func _sel_move_to(hit: Vector3) -> void:
 	if hit == Vector3.INF:
 		return
 	var before := rec.duplicate()
-	# Grid snap lands the XZ on the lattice (off = the raw hit). The height
-	# offset covers every record vintage — snap-to-ground forces 0, else
-	# seat_y is the one truth for where it rides today (ground-relative law).
-	var p := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
-	# Inside, snap to the floor hit at the new spot (abs y = p.y); outside,
-	# the ground-relative standoff rides the move.
-	var dy: float = _move_dy(rec, p.y)
-	_sel_cell = _book().update(_sel_cell, _sel_id, _move_fields(p.x, p.z, dy))
+	# Socket snap (L11) first: if the moved piece has sockets and a compatible
+	# one of ANOTHER placed piece is within reach, mate the exact frame (its
+	# own socket excluded so it never clicks onto itself). Else the grid path.
+	var snapped := _socket_snap(String(rec.get("kit", "")), hit,
+			float(rec.get("scale", 1.0)), _sel_id)
+	if not snapped.is_empty():
+		_sel_cell = _book().update(_sel_cell, _sel_id, _socket_fields(snapped["pos"], float(snapped["yaw"])))
+	else:
+		# Grid snap lands the XZ on the lattice (off = the raw hit). The height
+		# offset covers every record vintage — snap-to-ground forces 0, else
+		# seat_y is the one truth for where it rides today (ground-relative law).
+		var p := ToolkitSnap.snap_to_grid(hit, _grid_step) if _snap_grid else hit
+		# Inside, snap to the floor hit at the new spot (abs y = p.y); outside,
+		# the ground-relative standoff rides the move.
+		var dy: float = _move_dy(rec, p.y)
+		_sel_cell = _book().update(_sel_cell, _sel_id, _move_fields(p.x, p.z, dy))
 	_push_edit(before)
 	_flush_quiet = 0.0
 	_update_hud()
@@ -964,6 +1003,90 @@ func _snap_fields(x: float, z: float) -> Dictionary:
 	if _snap_normal and not Interiors.inside:
 		return {"tilt": _ground_normal_arr(x, z)}
 	return {}
+
+
+# --- Kit-bashing sockets (L11): the thin gesture over ToolkitSnap's pure math.
+# The card declares sockets; this gathers the world sockets of nearby placed
+# pieces, asks ToolkitSnap for the incoming pose that mates the nearest
+# compatible one, and hands it to the same book.add / book.update funnels the
+# other snaps use — so undo v2, overrides, and the interior book all cover it
+# for free. Every edit still lands as ONE record op; nothing here is a mode.
+
+
+## A socket's local position ([x, y, z] on the card) as a Vector3 (ZERO when
+## the array is malformed — a bad card never crashes the hand).
+func _socket_local_pos(s: Dictionary) -> Vector3:
+	var p: Array = s.get("pos", [])
+	if p.size() >= 3:
+		return Vector3(float(p[0]), float(p[1]), float(p[2]))
+	return Vector3.ZERO
+
+
+## The incoming piece's sockets (from its card) as [{type, pos:Vector3, yaw}] —
+## the local frames ToolkitSnap.best_socket_snap tries to mate. [] when the
+## card declares none (an ordinary prop never snaps).
+func _incoming_sockets(file: String) -> Array:
+	var out: Array = []
+	for s: Dictionary in Cards.sockets_for_file(file):
+		out.append({"type": String(s.get("type", "")),
+			"pos": _socket_local_pos(s), "yaw": float(s.get("yaw", 0.0))})
+	return out
+
+
+## Every world socket of the placed pieces near `cursor` (within SOCKET_GATHER,
+## XZ), as [{type, pos:Vector3, yaw}] — the candidates a dropped piece can click
+## onto. `exclude_id` drops the piece being moved so it never mates itself. The
+## seated world position (book.seat_y) anchors each socket, so a ground-relative
+## record's sockets ride the real terrain, and an interior record's ride its
+## absolute floor.
+func _socket_candidates(cursor: Vector3, exclude_id: String) -> Array:
+	var out: Array = []
+	var book: Variant = _book()
+	for rec: Dictionary in book.within(cursor, SOCKET_GATHER):
+		if String(rec.get("id", "")) == exclude_id:
+			continue
+		var socks: Array = Cards.sockets_for_file(String(rec.get("kit", "")))
+		if socks.is_empty():
+			continue
+		var ppos := Vector3(float(rec.get("x", 0.0)), book.seat_y(rec), float(rec.get("z", 0.0)))
+		var pyaw := float(rec.get("yaw", 0.0))
+		var pscale := float(rec.get("scale", 1.0))
+		for s: Dictionary in socks:
+			var w: Dictionary = ToolkitSnap.socket_world(ppos, pyaw, pscale,
+					_socket_local_pos(s), float(s.get("yaw", 0.0)))
+			out.append({"type": String(s.get("type", "")),
+				"pos": w["pos"], "yaw": float(w["yaw"])})
+	return out
+
+
+## The mate pose for a piece (`file`, `scale`) dropped at `cursor`, or {} when
+## socket snap is off, the piece has no sockets, or no compatible socket is in
+## reach — {} is the caller's "place as usual" signal (zero regression). Pure
+## math does the mating; this only gathers and asks.
+func _socket_snap(file: String, cursor: Vector3, scale: float, exclude_id: String) -> Dictionary:
+	if not _snap_socket:
+		return {}
+	var ins := _incoming_sockets(file)
+	if ins.is_empty():
+		return {}
+	var cands := _socket_candidates(cursor, exclude_id)
+	if cands.is_empty():
+		return {}
+	return ToolkitSnap.best_socket_snap(cursor, ins, cands, SOCKET_REACH, scale)
+
+
+## The field patch that seats a MATED record at the socket's exact frame
+## (full position + yaw). A mate is authoritative: it clears any prior slope
+## `tilt`, and outside it anchors ground_dy to the mate height so the record
+## re-seats there through the regeneration law. Inside a pocket, y is absolute
+## (no terrain, no ground_dy).
+func _socket_fields(pos: Vector3, yaw: float) -> Dictionary:
+	if Interiors.inside:
+		return {"x": pos.x, "y": pos.y, "z": pos.z, "yaw": yaw}
+	return {
+		"x": pos.x, "z": pos.z, "y": pos.y, "yaw": yaw,
+		"ground_dy": pos.y - Terrain.height(pos.x, pos.z), "tilt": null,
+	}
 
 
 ## A batched record action over `pairs` ({before, after} per member) — the ONE
@@ -1844,10 +1967,11 @@ func _update_hud() -> void:
 					slot["category"], nm, int(slot["variants"]), syn,
 					_place_index + 1, _palette.size(), " ".join(tabs)]
 			# The snap line: which snaps are live and the keys that toggle
-			# them (B ground · K normal · H grid · Shift+H step).
-			_hud_label.text += "\nSNAP  %s ground(B) · %s normal(K) · %s grid(H) %dm[Shift+H]" % [
+			# them (B ground · K normal · H grid · Shift+H step · J socket).
+			_hud_label.text += "\nSNAP  %s ground(B) · %s normal(K) · %s grid(H) %dm[Shift+H] · %s socket(J)" % [
 				"ON " if _snap_ground else "off", "ON " if _snap_normal else "off",
-				"ON " if _snap_grid else "off", int(_grid_step)]
+				"ON " if _snap_grid else "off", int(_grid_step),
+				"ON " if _snap_socket else "off"]
 			# The selection's own line: what is picked, exactly as data
 			# (id, yaw, scale), and the keys that edit it. A group shows its size.
 			var sel := _selected()
@@ -1952,6 +2076,7 @@ func link_state() -> Dictionary:
 		"sel_count": _selection_set().size(),
 		"snap_grid": _snap_grid, "grid_step": _grid_step,
 		"snap_ground": _snap_ground, "snap_normal": _snap_normal,
+		"snap_socket": _snap_socket,
 	}
 
 
@@ -1984,6 +2109,7 @@ func link_keys() -> String:
 		_key_of("snap_ground") + "=snapground",
 		_key_of("snap_normal") + "=snapnormal",
 		_key_of("snap_grid") + "=snapgrid",
+		_key_of("snap_socket") + "=snapsocket",
 		"Shift+RMB=box",
 		"Alt+" + _key_of("place_move") + "=duplicate",
 		"K=prefab",
@@ -2064,6 +2190,10 @@ func set_snap(kind: String, on: bool) -> int:
 		"normal":
 			_snap_normal = on
 			_reseat_selection()
+		"socket":
+			# A placement-time aid: the next drop/move mates a socket. No
+			# reseat — the current selection is not re-clicked on toggle.
+			_snap_socket = on
 		_:
 			return -1
 	_update_hud()

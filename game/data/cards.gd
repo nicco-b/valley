@@ -76,6 +76,13 @@ func _load_card(path: String, base: String) -> void:
 		# ("something tends here"). "" for ordinary props; "marker" flags a
 		# placeable point a schedule can name (CREATION_KIT_REVIEW_V2 #3).
 		"keyword": str(rec.get("keyword", "")),
+		# Kit-bashing sockets (PLAN_CREATION_LIBRARY §4b / L11): the points
+		# where this piece CLICKS onto another, as plain card data — each a
+		# {name, type, pos:[x,y,z], yaw} in the mesh's local frame. The
+		# Toolkit reads these, transforms them to world (ToolkitSnap), and
+		# mates a dropped piece to a compatible one. [] for ordinary props
+		# (the zero-regression floor — no sockets, no snap).
+		"sockets": rec.get("sockets", []),
 	}
 	for f in files:
 		_by_file[f] = slot
@@ -102,6 +109,15 @@ func entry_for_file(path: String) -> Dictionary:
 ## finds its card's keyword through the same door the fabric flags use.
 func keyword_for_file(path: String) -> String:
 	return str(entry_for_file(path).get("keyword", ""))
+
+
+## The kit-bashing sockets a placed file's card declares (the L11 snap
+## points), or [] when the card has none / the file is unknown. Placement
+## stores resolved files, so a placed piece finds its sockets through the
+## same door the fabric flags and keyword ride — the Toolkit transforms
+## them to world and mates a dropped piece to a compatible one.
+func sockets_for_file(path: String) -> Array:
+	return entry_for_file(path).get("sockets", [])
 
 
 ## Is the card that owns this placed file a marker (a schedule target)?

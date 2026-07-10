@@ -79,3 +79,75 @@ static func cycle_grid_step(current: float, dir: int) -> float:
 		if absf(GRID_STEPS[i] - current) <= absf(GRID_STEPS[best] - current):
 			best = i
 	return GRID_STEPS[wrapi(best + dir, 0, GRID_STEPS.size())]
+
+
+# --- Kit-bashing sockets (L11). A socket is DATA on a card: a local point
+# (`pos`) and a facing (`yaw`, radians about +Y) where a piece clicks onto
+# another, plus a `type` tag that decides compatibility (two sockets mate iff
+# their types match). Snapping is pure math here — the Toolkit reads a card's
+# sockets, transforms the placed pieces' sockets to world, and asks these
+# functions where the incoming piece must sit so its socket MATES a nearby one
+# (positions coincident, facings opposed — the "click together" law). Planar
+# by design: kit pieces carry a yaw + scale, never a full tilt, so a socket is
+# an (XZ-position, Y, yaw) frame and every function below is closed over
+# Vector3 + float + arrays — no engine state, unit-testable like the grid math.
+
+
+## A socket carried from a piece's LOCAL frame into the world, given the
+## piece's planar pose (position, yaw about +Y, uniform scale). The local
+## offset rides the piece's scale then its yaw; the socket's facing is the
+## piece yaw plus the socket's own local yaw. Returns {pos: Vector3, yaw:
+## float}. Pure: pose + local socket in, world socket out.
+static func socket_world(piece_pos: Vector3, piece_yaw: float, piece_scale: float,
+		local_pos: Vector3, local_yaw: float) -> Dictionary:
+	var wpos := piece_pos + (Basis(Vector3.UP, piece_yaw) * (local_pos * piece_scale))
+	return {"pos": wpos, "yaw": wrapf(piece_yaw + local_yaw, 0.0, TAU)}
+
+
+## The pose an incoming piece must take so ITS socket (local `in_local_pos` /
+## `in_local_yaw`, at scale `in_scale`) mates a TARGET world socket (`target_pos`
+## / `target_yaw`): the two socket points coincide and the incoming socket faces
+## OPPOSITE the target (yaw + PI — two ends clicking face to face). Returns the
+## incoming piece's {pos: Vector3, yaw: float}. The exact inverse of
+## socket_world: feed this result back through socket_world(in_local_*) and the
+## world socket returns to `target_pos` facing `target_yaw + PI`. Pure.
+static func snap_to_socket(target_pos: Vector3, target_yaw: float,
+		in_local_pos: Vector3, in_local_yaw: float, in_scale: float) -> Dictionary:
+	var piece_yaw := wrapf(target_yaw + PI - in_local_yaw, 0.0, TAU)
+	var piece_pos := target_pos - (Basis(Vector3.UP, piece_yaw) * (in_local_pos * in_scale))
+	return {"pos": piece_pos, "yaw": piece_yaw}
+
+
+## The best socket mate for a piece dropped at `cursor`: among `candidates`
+## (world sockets of the pieces already placed nearby, each {type, pos, yaw}),
+## find the one NEAREST the cursor in XZ — within `radius` — that shares a type
+## with any of the incoming piece's `in_sockets` (local {type, pos, yaw}), and
+## return the incoming pose (from snap_to_socket) that mates it. {} when no
+## compatible socket is in reach — the caller then places exactly as it would
+## with socket snap off (the zero-regression floor). Ties resolve to the LAST
+## equal-distance candidate (mirrors find_at); the caller passes candidates in a
+## deterministic order. Pure: the cursor + the two socket lists in, a pose out.
+static func best_socket_snap(cursor: Vector3, in_sockets: Array, candidates: Array,
+		radius: float, in_scale: float) -> Dictionary:
+	var best_d := radius
+	var best: Dictionary = {}
+	for cand: Dictionary in candidates:
+		var ctype := String(cand.get("type", ""))
+		if ctype == "":
+			continue
+		# The first incoming socket of the same type (deterministic by the
+		# incoming list's order — a card's socket order is stable).
+		var isock: Dictionary = {}
+		for s: Dictionary in in_sockets:
+			if String(s.get("type", "")) == ctype:
+				isock = s
+				break
+		if isock.is_empty():
+			continue
+		var cpos: Vector3 = cand["pos"]
+		var d := Vector2(cpos.x - cursor.x, cpos.z - cursor.z).length()
+		if d <= best_d:
+			best_d = d
+			best = snap_to_socket(cpos, float(cand.get("yaw", 0.0)),
+				isock["pos"], float(isock.get("yaw", 0.0)), in_scale)
+	return best

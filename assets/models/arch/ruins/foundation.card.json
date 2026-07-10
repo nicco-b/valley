@@ -11,5 +11,11 @@
  "generator": "gen_meshes.py",
  "collision": "-col convex hull node included",
  "clips": "none \u2014 static placeholder",
- "gated": false
+ "gated": false,
+ "sockets": [
+  {"name": "east", "type": "floor", "pos": [2.0, 0.0, 0.0], "yaw": 0.0},
+  {"name": "west", "type": "floor", "pos": [-2.0, 0.0, 0.0], "yaw": 3.14159265},
+  {"name": "north", "type": "floor", "pos": [0.0, 0.0, 2.0], "yaw": 1.57079633},
+  {"name": "south", "type": "floor", "pos": [0.0, 0.0, -2.0], "yaw": 4.71238898}
+ ]
 }

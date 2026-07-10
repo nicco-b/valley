@@ -92,6 +92,11 @@ func _exit_tree() -> void:
 	_run = false
 	if _thread and _thread.is_started():
 		_thread.wait_to_finish()
+	# Reap the GPU driver's RD resources (5 Texture RIDs + sampler + buffer
+	# + shaders/pipelines) while the RenderingDevice is still alive — after
+	# the sim thread is joined so no concurrent RD use races the free.
+	if _gpu != null:
+		_gpu.teardown()
 
 
 ## --- shapes (unsigned pressure, 0..1) ------------------------------------

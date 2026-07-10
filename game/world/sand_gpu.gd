@@ -97,6 +97,31 @@ func setup(masks: Array) -> bool:
 	return true
 
 
+## Free every RID this driver created — 5 Texture RIDs (_tex ping/pong,
+## _display, _base, _mask_atlas), the sampler, the ops buffer, and the
+## three shader+pipeline pairs. See WaterGpu.teardown for why RefCounted
+## needs an explicit free called from the owner's _exit_tree: RD resources
+## are manual and leak across an engine-restart destroy otherwise.
+func teardown() -> void:
+	if not _ok or rd == null:
+		return
+	_ok = false
+	if display_texture != null:
+		display_texture.texture_rd_rid = RID()
+		display_texture = null
+	for t in [_tex[0], _tex[1], _display, _base, _mask_atlas]:
+		if t.is_valid():
+			rd.free_rid(t)
+	if _sampler.is_valid():
+		rd.free_rid(_sampler)
+	if _ops_buffer.is_valid():
+		rd.free_rid(_ops_buffer)
+	for entry in _pipeline.values():
+		rd.free_rid(entry[1])  # pipeline before its shader
+		rd.free_rid(entry[0])
+	_pipeline.clear()
+
+
 func update_base(heights: PackedFloat32Array) -> void:
 	if _ok:
 		rd.texture_update(_base, 0, heights.to_byte_array())

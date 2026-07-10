@@ -90,6 +90,42 @@ func setup() -> bool:
 	return true
 
 
+## Free every RID this driver created — 7 Texture RIDs (_depth ping/pong,
+## _base, _sink, _source, _flux, _display), the sampler, the probe buffer,
+## and the four shader+pipeline pairs. RefCounted has no _exit_tree, and a
+## GDScript object refcounting to zero does NOT reclaim the RD resources it
+## created (they are manual, RenderingDevice-owned), so an engine-restart
+## destroy would otherwise leak them into the next boot's RenderingDevice
+## (the "16 RIDs of type Texture were leaked" warning = 7 here + 5 sand +
+## 4 wave). The owning WaterField calls this from its _exit_tree while the
+## RenderingDevice is still alive — the RD-resource sibling of the
+## teardown-reap law.
+func teardown() -> void:
+	if not _ok or rd == null:
+		return
+	_ok = false
+	# Drop the Texture2DRD wrappers' hold on _display/_base before freeing
+	# the underlying RIDs (a live wrapper over a freed rid warns), and null
+	# them so the wrapper Objects (held via global shader params) release.
+	if display_texture != null:
+		display_texture.texture_rd_rid = RID()
+		display_texture = null
+	if base_texture != null:
+		base_texture.texture_rd_rid = RID()
+		base_texture = null
+	for t in [_depth[0], _depth[1], _base, _sink, _source, _flux, _display]:
+		if t.is_valid():
+			rd.free_rid(t)
+	if _sampler.is_valid():
+		rd.free_rid(_sampler)
+	if _probe_buffer.is_valid():
+		rd.free_rid(_probe_buffer)
+	for entry in _pipeline.values():
+		rd.free_rid(entry[1])  # pipeline before its shader
+		rd.free_rid(entry[0])
+	_pipeline.clear()
+
+
 ## Overwrite the live depth field (the fill experiment pre-seeds river
 ## channels to their waterline so they never start dry).
 func set_depth(depths: PackedFloat32Array) -> void:

@@ -688,6 +688,105 @@ func reload_tile(image_path: String) -> String:
 	return "no-tile"
 
 
+## In-session bless / import (strata ONE_APP, 2026-07-09): become the
+## freshly-imported world by RE-READING it off disk exactly as a cold boot
+## would — the fix for the empty-scene-after-bless bug. reload_tile only
+## REFRESHES a tile already in _tiles; but the FIRST bless of a session
+## lands a tile the pane booted WITHOUT (the shaping viewer boots
+## content-empty: no tile record on disk yet, sea_level = -1e12, no biome
+## map). reload_tile then finds no matching path and answers "no-tile",
+## leaving the pane on the empty defaults until a relaunch re-reads the
+## checkout. So the blessed tile must be ADOPTED when absent — not just
+## refreshed — and the sea level, water records, and biome map the importer
+## wrote must be re-read too (a viewer booted dry stays dry, and its M map
+## frames a zero-size tile as the flat shaping-era chart, otherwise).
+##
+## Mirrors _ready's disk reads for exactly the world layers the importer
+## rewrites (data/regions tile records, data/water, data/world/biome_map).
+## Returns "reloaded" when a blessed tile is live afterward, "no-tile" when
+## no tile record exists on disk to adopt, "failed" when a record names a
+## heightmap that will not re-read (the OLD world stays live, untouched —
+## the audit-QW3 honesty contract, now covering water/biomes too).
+func reload_world() -> String:
+	var status := _reload_world_tiles()
+	if status == "failed":
+		return "failed"  # tiles + water + biomes all left as they were
+	_reload_water()
+	reload_biomes()
+	return status
+
+
+## Re-scan the region records for tile-kind entries and make _tiles match
+## disk: refresh a tile already loaded (fresh heightmap, override re-seated),
+## ADOPT one that appeared since boot (the in-session-bless case). One atomic
+## kernel swap at the end so worker threads never see a torn set. Returns
+## "reloaded" when at least one tile record is live, "no-tile" when the
+## region dir holds none, "failed" (leaving _tiles untouched) when a named
+## tile's heightmap will not re-read — a failed reload never tears down a
+## working world.
+func _reload_world_tiles() -> String:
+	var dir := DirAccess.open(REGION_DIR)
+	if dir == null:
+		return "no-tile"
+	var files := dir.get_files()
+	files.sort()  # deterministic, like _load_regions
+	var found_tile := false
+	var new_tiles := _tiles.duplicate()
+	for f in files:
+		if not f.ends_with(".json"):
+			continue
+		var path := REGION_DIR + "/" + f
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+		if not (parsed is Dictionary and parsed.get("kind", "") == "tile"):
+			continue
+		found_tile = true
+		var rec: Dictionary = parsed
+		var fresh := _load_tile(rec, f.trim_suffix(".json"))
+		if fresh.is_empty():
+			return "failed"  # a named tile that will not re-read — keep the old world
+		# Re-seat the live override on the fresh tile (unsaved pen strokes
+		# survive a re-import landing underneath them), same as reload_tile.
+		var composited := _composited_tile(fresh, _override_rect)
+		if not composited.is_empty():
+			fresh = composited
+		var idx := -1
+		for i in new_tiles.size():
+			if new_tiles[i].path == fresh.path:
+				idx = i
+				break
+		if idx >= 0:
+			new_tiles[idx] = fresh  # refresh in place
+		else:
+			new_tiles.append(fresh)  # adopt the newly-blessed tile
+			print("[terrain] tile adopted (in-session bless): ", fresh.id)
+	if not found_tile:
+		return "no-tile"
+	_tiles = new_tiles
+	if kernel:
+		kernel.set_tiles(_tiles)  # atomic swap inside; workers unharmed
+	# A world swap invalidates the whole frame — cells and the far quadtree
+	# rebuild against the new ground.
+	edited.emit(Rect2(-WORLD_FRAME_M * 0.5, -WORLD_FRAME_M * 0.5,
+		WORLD_FRAME_M, WORLD_FRAME_M))
+	return "reloaded"
+
+
+## Re-read the water layer off disk. The importer rewrites data/water/sea.json
+## (the ONE sea-level source) and the hyd_* river/lake records; a viewer
+## booted content-empty holds sea_level = -1e12 and no bodies until this
+## re-runs _ready's water loads. Clears the live water first so a re-import
+## to a drier/wetter world never keeps stale bodies, then re-indexes rivers
+## from scratch (each river carries its own spatial grid — clearing the
+## array is enough).
+func _reload_water() -> void:
+	sea_level = -1e12
+	water_bodies.clear()
+	lake_levels = PackedFloat32Array()
+	rivers.clear()
+	river_levels = PackedFloat32Array()
+	_load_water()
+
+
 ## Bulk height samples, row-major nz rows of nx — THE call worker-thread
 ## builders must use (never per-sample GDScript height() off-main).
 func height_block(ox: float, oz: float, step: float, nx: int, nz: int) -> PackedFloat32Array:

@@ -37,12 +37,15 @@ extends Node
 ##                               hardcoded list; the scene tests pin it to
 ##                               the dispatcher's own arms so a new verb
 ##                               cannot ship unlisted.
-##   reload_world             -> re-reads the baked tile + biome map NOW
+##   reload_world             -> re-reads the world off disk NOW — tile,
+##                               sea level, water bodies, biome map — the way
+##                               a cold boot does, ADOPTING a tile the pane
+##                               booted without (the in-session-bless fix).
 ##                               (HotReload would catch it within 1s; this
 ##                               makes Send-to-Game synchronous). Replies
 ##                               "ok reloaded tile=<yes|no-tile> biomes"
-##                               (no-tile: no baked tile is loaded, nothing
-##                               to reload). A tile that IS loaded but will
+##                               (no-tile: no tile record on disk to adopt).
+##                               A tile that IS present but will
 ##                               not re-read (missing/unreadable/non-square
 ##                               exr) answers "err reload failed: tile did
 ##                               not reload (old tile stays live)" — never
@@ -395,10 +398,16 @@ func _execute(line: String) -> String:
 			# Honest reload (audit QW3): the re-read can FAIL — say so
 			# instead of "ok" over a world that didn't change. The old
 			# tile stays live either way (Terrain never tears it down).
-			var tile := Terrain.reload_tile(StrataConventions.BAKED_TILE_PATH)
+			#
+			# reload_world (not reload_tile) RE-READS the world off disk the
+			# way a cold boot does: it ADOPTS a tile the pane booted without
+			# (the in-session-bless fix — the shaping viewer boots
+			# content-empty, so reload_tile alone answered "no-tile" and the
+			# scene stayed empty until a relaunch), and re-reads the sea level
+			# + biome map the importer wrote. See Terrain.reload_world.
+			var tile := Terrain.reload_world()
 			if tile == "failed":
 				return "err reload failed: tile did not reload (old tile stays live)"
-			Terrain.reload_biomes()
 			# The undo stack's mementos point at the world that just changed
 			# under them — a reverted stroke over a fresh tile would be
 			# garbage. Disk is the truth across a reload; the stream restarts.

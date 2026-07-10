@@ -337,6 +337,7 @@ func _test_strata_link() -> void:
 	await _test_link_discovery(peer)
 	await _test_state_verb(peer)
 	await _test_reload_honesty(peer)
+	await _test_reload_adopt(peer)
 	await _test_preview_world(peer)
 	await _test_preview_mesh(peer)
 	await _test_camera_verb(peer)
@@ -431,6 +432,51 @@ func _test_reload_honesty(peer: StreamPeerTCP) -> void:
 		"reload_world recovers once the tile returns (got %s)" % str(back))
 	_check(Terrain.height(3000.0, 3000.0) == h0,
 		"recovered reload reads bit-identical ground")
+
+
+## In-session bless ADOPTS a tile the pane booted without (strata ONE_APP,
+## 2026-07-09 — the empty-scene-after-bless fix). The shaping viewer boots
+## content-empty (no tile record on disk yet, sea=-1e12); the bless writes
+## the tile + record + sea.json, then the app drives `reload_world`. Before
+## the fix reload_world only REFRESHED a tile already in _tiles, so it
+## answered "no-tile" over the freshly-written world and the scene stayed
+## empty until a relaunch. This simulates that boot state (drop the live
+## tile + sea the way a content-empty viewer holds them, with the record
+## still on disk as the importer just wrote it) and asserts one reload_world
+## makes the world TILE-backed with a real sea level — no relaunch.
+func _test_reload_adopt(peer: StreamPeerTCP) -> void:
+	if not Terrain.has_world_tile():
+		print("  reload adopt: SKIP (no baked tile cache)")
+		return
+	var full_size: float = Terrain.world_tile_size()
+	var real_sea: float = Terrain.sea_level
+	_check(full_size > 1000.0 and real_sea > -1e11,
+		"a baked world starts tile-backed with a real sea (%.0fm, sea=%.1fm)" % [full_size, real_sea])
+	# Mimic the content-empty viewer boot: no tile loaded, sea unset. The
+	# tile record + sea.json remain on disk (the importer wrote them).
+	var stash := Terrain._tiles.duplicate()
+	Terrain._tiles = []
+	if Terrain.kernel:
+		Terrain.kernel.set_tiles(Terrain._tiles)
+	Terrain.sea_level = -1e12
+	_check(not Terrain.has_world_tile(),
+		"content-empty boot: no world tile before the bless reload")
+	# The exact verb the in-session bless drives — adopt, don't just refresh.
+	var reply := await _link_send(peer, ["reload_world"])
+	_check(reply.size() == 1 and String(reply[0]) == "ok reloaded tile=yes biomes",
+		"reload_world ADOPTS the freshly-blessed tile (got %s)" % str(reply))
+	_check(Terrain.has_world_tile(),
+		"the world is tile-backed after one reload_world (no relaunch)")
+	_check(absf(Terrain.world_tile_size() - full_size) < 0.5,
+		"the adopted tile carries the full world frame (%.0fm)" % Terrain.world_tile_size())
+	_check(Terrain.sea_level > -1e11,
+		"the imported sea level is live after adopt (sea=%.1fm, not -1e12)" % Terrain.sea_level)
+	# Leave the world as the suite found it (a real tile), so later tests
+	# that lean on has_world_tile() are unaffected.
+	if not stash.is_empty() and Terrain._tiles.is_empty():
+		Terrain._tiles = stash
+		if Terrain.kernel:
+			Terrain.kernel.set_tiles(Terrain._tiles)
 
 
 ## The toolkit verbs (ONE_APP P9·C): Strata's native toolbar drives the

@@ -538,6 +538,31 @@ mooring; shore props (nets, buoys someday) opt in via card field.
 ✓ The raft bobs and leans with storm swell and sits flat at dawn calm;
 30 floaters cost <0.25 ms (bench pinned); soak untouched. Riding
 waits for the table ★.
+*DONE 2026-07-10 (worktree agent).* `SeaSwell.surface_at(x,z,t)` +
+`probe_at` (slope for lean) replay water.gdshader's DEEP-water Gerstner
+sum — LSC/ASC/ROT/TROCHOID(3.0)/GRAV(9.8) held in lockstep with the
+vertex stage (the shoaling-consts precedent) — and INVERT the trochoid's
+horizontal gather (2 fixed-point passes) so the read is the surface at a
+FIXED point, what a moored hull rides. The plan's 216µs/30-floater price
+only held once the per-component rotated()/sqrt/gate were CACHED off the
+eased amp/wavelength/direction (`_prep`, rebuilt on swell change, not per
+call — recomputing them per call DOUBLED it to 0.49ms; the cached path
+measures 5.5µs×1 / 44µs×8 / 171µs×30, buoy_bench, under both laws).
+`FloatBody` (game/world/float_body.gd, added to framework.json; class,
+not autoload) springs a hull to the MEAN of a 5-probe footprint, leans it
+to the footprint's finite-difference slope (clamped 16° — a roll, never a
+capsize), and drifts it along `WaterField.current_at` on a mooring tether
+(the current pulls it downstream, the tether reels it back — RIDING still
+waits ★, so no position ever reaches WorldState). Cards parse a `float`
+block ({footprint, tether, swell}); the `props/nautical/raft` card opts
+in; world_streamer attaches a FloatBody at the record's water-surface
+mooring. **Soak posture: OFF the digest, matched to S1/S2 deliberately —**
+the bob is stateless f(TIME, sim-owned wind/fronts), FloatBody is headless-
+gated like every water tier, and the soak fingerprint 2310507941 (baseline
+a5d5c32) is byte-identical with the diff in. scene_tests `_test_buoyancy`
+pins the mirror (still-water/slope-sign/crest-trough/amp-scaling/inversion
+round-trip/calm gate), the FloatBody (rides a rising level, drifts on the
+tether, leans bounded), and the storm|calm bob A/B through the real mirror.
 
 **S4 · Under the surface is a painting.** Fog keyframe swap +
 underwater palette family in day_night; waterline meniscus band;

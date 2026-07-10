@@ -1,65 +1,80 @@
 extends SceneTree
-## THROWAWAY probe (plan/substances, PLAN_SUBSTANCES measurement).
-## Prices CPU-side analytic buoyancy: evaluating the W1/W2 Gerstner sum
-## (4 components, the shader's math mirrored) at floater probe points,
-## with 2 fixed-point iterations to undo the horizontal Gerstner
-## displacement (height-at-a-fixed-x needs the inverse). Headless-safe.
+## THROWAWAY probe (PLAN_SUBSTANCES S3 measurement — proves the price, not a
+## feature). Prices analytic buoyancy: the 4-component Gerstner sum mirrored
+## from water.gdshader (2 fixed-point inversion passes to undo the horizontal
+## trochoid), sampled at floater probe points. Self-contained and headless-
+## safe — the algorithm here is SeaSwell.surface_at with its per-component
+## cache (whose CORRECTNESS scene_tests._test_buoyancy pins in autoload
+## context; sea_swell can't load under `-s` because its _process names the
+## Weather autoload). Every floater in a frame reads one eased swell, so the
+## rotated()/sqrt/gate work is precomputed ONCE — mirrored here in _init.
+## The law: well under 7.6µs per floater, a 30-floater harbor under 0.25ms.
 ##   godot --headless -s tests/buoy_bench.gd
 
-const COMPONENTS := 4
-const ITERS := 2          # fixed-point inversion passes
-const PROBE_SETS := [1, 8, 30]  # floaters (raft=4 probes + 1 center each)
+# In LOCKSTEP with SeaSwell (LSC/ASC/ROT/SWELL_STEP/TROCHOID/GRAV/iters).
+const LSC := [1.0, 0.62, 0.38, 0.23]
+const ASC := [0.44, 0.28, 0.17, 0.11]
+const ROT := [0.0, 0.35, -0.42, 0.83]
+const SWELL_STEP := 3.0
+const TROCHOID := 3.0
+const GRAV := 9.8
+const INVERT_ITERS := 2
+
+const PROBE_SETS := [1, 8, 30]  # floaters (each: 4 footprint corners + center)
 const PROBES_PER := 5
 const REPS := 2000
 
-var _wl := PackedFloat32Array()
-var _amp := PackedFloat32Array()
-var _dx := PackedFloat32Array()
-var _dz := PackedFloat32Array()
-var _spd := PackedFloat32Array()
+# Plausible storm swell so every component is active (no gate skips).
+var _amp := 0.8
+var _len := 55.0
+var _dir := Vector2(0.72, 0.69).normalized()
+# Per-component cache (SeaSwell._prep's mirror).
+var _n := 0
+var _dx := PackedFloat32Array([0, 0, 0, 0])
+var _dz := PackedFloat32Array([0, 0, 0, 0])
+var _k := PackedFloat32Array([0, 0, 0, 0])
+var _w := PackedFloat32Array([0, 0, 0, 0])
+var _a := PackedFloat32Array([0, 0, 0, 0])
+
 
 func _init() -> void:
-	# Plausible W1 spectrum (values shaped like the shader's bands).
-	var base_dir := Vector2(0.72, 0.69).normalized()
-	for i in COMPONENTS:
-		var wl := 26.0 / (1.0 + 0.7 * i)
-		_wl.append(wl)
-		_amp.append(0.35 / (1.0 + 0.9 * i))
-		var rot := 0.35 * (i - 1.5)
-		var d := base_dir.rotated(rot)
-		_dx.append(d.x)
-		_dz.append(d.y)
-		_spd.append(sqrt(9.81 * wl / TAU))
+	for i in 4:
+		var wl: float = _len * LSC[i]
+		var a: float = _amp * ASC[i] \
+				* smoothstep(SWELL_STEP * 2.0, SWELL_STEP * 3.0, wl)
+		if a < 1e-4:
+			continue
+		var d: Vector2 = _dir.rotated(ROT[i])
+		var k := TAU / wl
+		_dx[_n] = d.x
+		_dz[_n] = d.y
+		_k[_n] = k
+		_w[_n] = sqrt(GRAV * k)
+		_a[_n] = a
+		_n += 1
 	for n_v in PROBE_SETS:
-		var n: int = n_v
-		_bench(n)
+		_bench(int(n_v))
 	quit()
 
+
 func surface_at(x: float, z: float, t: float) -> float:
-	# Invert the horizontal displacement: iterate p so that p + D(p) = x.
 	var px := x
 	var pz := z
-	for _i in ITERS:
-		var ox := 0.0
-		var oz := 0.0
-		for c in COMPONENTS:
-			var k := TAU / _wl[c]
-			var ph := k * (_dx[c] * px + _dz[c] * pz - _spd[c] * t)
-			var s := sin(ph)
-			var q := 0.6 * _amp[c]
-			ox += q * _dx[c] * cos(ph)
-			oz += q * _dz[c] * cos(ph)
-			if _i == ITERS - 1:
-				pass
-			s = s  # keep tight loop shape honest
-		px = x - ox
-		pz = z - oz
+	for _it in INVERT_ITERS:
+		var hx := 0.0
+		var hz := 0.0
+		for j in _n:
+			var c := cos(_k[j] * (_dx[j] * px + _dz[j] * pz) - _w[j] * t)
+			var q: float = TROCHOID * _a[j] * c
+			hx -= _dx[j] * q
+			hz -= _dz[j] * q
+		px = x - hx
+		pz = z - hz
 	var h := 0.0
-	for c in COMPONENTS:
-		var k := TAU / _wl[c]
-		var ph := k * (_dx[c] * px + _dz[c] * pz - _spd[c] * t)
-		h += _amp[c] * sin(ph)
+	for j in _n:
+		h += _a[j] * sin(_k[j] * (_dx[j] * px + _dz[j] * pz) - _w[j] * t)
 	return h
+
 
 func _bench(floaters: int) -> void:
 	var pts := floaters * PROBES_PER

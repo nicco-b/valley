@@ -1010,6 +1010,17 @@ func _add_records(c: Vector2i) -> void:
 		# still an ordinary placement — the key grows the Interactable.
 		if rec.has("door"):
 			Interiors.attach_door(node, rec)
+		# Buoyancy (PLAN_SUBSTANCES S3): a record whose card floats (the raft,
+		# a moored net) rides the water instead of seating on the seabed. The
+		# mooring is the record's XZ at the live water surface; the FloatBody
+		# springs it up from the ground seat on its first frames. Presentation
+		# only — off headless, never saved (RIDING waits for the table ★).
+		var buoy: Dictionary = Cards.float_for_file(rec.kit)
+		if not buoy.is_empty():
+			var wsurf: float = Terrain.water_surface(rec.x, rec.z)
+			var moor_y: float = wsurf if wsurf > -1e11 else node.position.y
+			node.position.y = moor_y
+			FloatBody.attach(node, Vector3(rec.x, moor_y, rec.z), buoy)
 	add_child(container)
 	_records[c] = container
 

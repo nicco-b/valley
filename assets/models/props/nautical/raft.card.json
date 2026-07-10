@@ -10,5 +10,10 @@
  "generator": "gen_meshes.py",
  "collision": "-col convex hull node included",
  "clips": "none \u2014 static placeholder",
- "gated": false
+ "gated": false,
+ "float": {
+  "footprint": 1.6,
+  "tether": 3.0,
+  "swell": true
+ }
 }

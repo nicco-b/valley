@@ -50,6 +50,7 @@
 			"game/world/wave_gpu.gd",
 			"game/world/wave_reference.gd",
 			"game/world/sea_swell.gd",
+			"game/world/float_body.gd",
 			"game/world/water_sheet.gd",
 			"game/shaders/water.gdshader",
 			"game/shaders/water_sheet.gdshader",

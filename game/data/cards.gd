@@ -83,6 +83,11 @@ func _load_card(path: String, base: String) -> void:
 		# mates a dropped piece to a compatible one. [] for ordinary props
 		# (the zero-regression floor — no sockets, no snap).
 		"sockets": rec.get("sockets", []),
+		# Buoyancy opt-in (PLAN_SUBSTANCES S3): a card carrying a `float`
+		# block ({footprint, tether, swell}) rides the water — world_streamer
+		# attaches a FloatBody to a placed record when it finds this. {} for
+		# ordinary props (they seat on the ground; no bob).
+		"float": rec["float"] if rec.get("float") is Dictionary else {},
 	}
 	for f in files:
 		_by_file[f] = slot
@@ -118,6 +123,15 @@ func keyword_for_file(path: String) -> String:
 ## them to world and mates a dropped piece to a compatible one.
 func sockets_for_file(path: String) -> Array:
 	return entry_for_file(path).get("sockets", [])
+
+
+## The buoyancy config a placed file's card declares (PLAN_SUBSTANCES S3),
+## or {} when the card doesn't float / the file is unknown. Placement stores
+## resolved files, so a placed raft finds its `float` block through the same
+## door the fabric flags, keyword, and sockets ride — world_streamer reads
+## it to attach a FloatBody at the record's mooring.
+func float_for_file(path: String) -> Dictionary:
+	return entry_for_file(path).get("float", {})
 
 
 ## Is the card that owns this placed file a marker (a schedule target)?

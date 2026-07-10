@@ -34,6 +34,23 @@ const SHOAL_MAX := 1.7     # Green's-law amplitude gain cap
 const DEPTH_MIN := 0.05    # the water column never divides by zero
 const PRIMARY_SHARE := 0.44  # the primary Gerstner component's amp share
 
+# S3 buoyancy mirror (PLAN_SUBSTANCES) — the four Gerstner components
+# water.gdshader sums in its vertex stage, replayed on the CPU so a floater
+# rides the SAME surface the eye sees: analytic swell, never a GPU readback
+# (a blocking probe costs 0.17ms; this is 7.6µs/floater — buoy_bench). The
+# DEEP-water form (align=0, tanh(kd)->1) — the swell is the meal; a shore
+# floater that ever needs the shoaled height reads shoal_gain() on top.
+# Keep LSC/ASC/ROT/TROCHOID/GRAV in LOCKSTEP with water.gdshader's vertex()
+# (lsc/asc/rot[] + the 3.0 trochoid + sqrt(9.8*k)) or a floater bobs where
+# no wave is painted — the same lockstep the shoaling consts above keep.
+const LSC := [1.0, 0.62, 0.38, 0.23]   # per-component wavelength scale
+const ASC := [0.44, 0.28, 0.17, 0.11]  # per-component amplitude share
+const ROT := [0.0, 0.35, -0.42, 0.83]  # per-component heading rotation (rad)
+const SWELL_STEP := 3.0    # sea-mesh vertex spacing — the shader's grid gate
+const TROCHOID := 3.0      # deep-water horizontal gather (the shader's 3.0)
+const GRAV := 9.8          # the shader's g (NOT 9.81 — mirror the vertex math)
+const INVERT_ITERS := 2    # fixed-point passes to undo the horizontal displace
+
 var enabled := false
 var force_amp := -1.0      # Toolkit knob: >= 0 pins the amplitude (meters)
 var force_surf := -1.0     # Toolkit knob: >= 0 pins the breaker foam boost
@@ -159,14 +176,106 @@ func break_depth(amp_m: float, wavelength_m: float) -> float:
 	return lo
 
 
+## The analytic sea surface at world (x, z) and time `t` seconds: the CPU
+## mirror of water.gdshader's deep-water Gerstner sum (S3 buoyancy). Returns
+## Vector3(slope_x, height, slope_z) — `height` is meters ABOVE mean water
+## (add Terrain.sea_surface() for the absolute Y); the slope pair is the
+## shader's `swell_grad`, the tilt a hull leans into. The horizontal
+## trochoid the shader adds to VERTEX.xz is INVERTED here (INVERT_ITERS
+## fixed-point passes) so the answer is the surface at a FIXED point — what
+## a moored floater actually rides. Pure + deterministic (scene-tested
+## against pinned shader cases); reads the same live eased amp/wavelength/
+## direction the shader's globals carry. Flat (zero) below the shader's
+## 0.001m swell gate, so a dawn-calm sea sits floaters level.
+# Per-component derived cache (dx, dy, k, w, a for each ACTIVE component):
+# every floater in a frame reads the same eased amp/wavelength/direction, so
+# the rotated()/sqrt/gate work is done ONCE per swell change, not 5× per
+# floater. This is what buys the 0.25ms/30-floater law (the plan's 216µs
+# bench precomputed the same way — recomputing them per call doubled it).
+var _cn := 0
+var _cdx := PackedFloat32Array([0, 0, 0, 0])
+var _cdy := PackedFloat32Array([0, 0, 0, 0])
+var _ck := PackedFloat32Array([0, 0, 0, 0])
+var _cw := PackedFloat32Array([0, 0, 0, 0])
+var _ca := PackedFloat32Array([0, 0, 0, 0])
+var _c_amp := -1.0
+var _c_len := -1.0
+var _c_dir := Vector2.INF
+
+
+func _prep() -> void:
+	if amp == _c_amp and wavelength == _c_len and direction == _c_dir:
+		return
+	_c_amp = amp
+	_c_len = wavelength
+	_c_dir = direction
+	_cn = 0
+	for i in 4:
+		var wl: float = wavelength * LSC[i]
+		var a: float = amp * ASC[i] \
+				* smoothstep(SWELL_STEP * 2.0, SWELL_STEP * 3.0, wl)
+		if a < 1e-4:
+			continue  # a component the sea mesh can't carry — the shader's gate
+		var d: Vector2 = direction.rotated(ROT[i])
+		var k := TAU / wl
+		_cdx[_cn] = d.x
+		_cdy[_cn] = d.y
+		_ck[_cn] = k
+		_cw[_cn] = sqrt(GRAV * k)
+		_ca[_cn] = a
+		_cn += 1
+
+
+func probe_at(x: float, z: float, t: float) -> Vector3:
+	if amp < 0.001:
+		return Vector3.ZERO
+	_prep()
+	# Invert the horizontal displacement: find the rest point p whose
+	# displaced world position p + hoff(p) lands on (x, z), so height(p) is
+	# the surface here. hoff(p) = -sum d * TROCHOID * a * cos(phase) — the
+	# shader's `hoff` in the deep, so p = (x,z) - hoff(p) iterated.
+	var px := x
+	var pz := z
+	for _it in INVERT_ITERS:
+		var hx := 0.0
+		var hz := 0.0
+		for j in _cn:
+			var c := cos(_ck[j] * (_cdx[j] * px + _cdy[j] * pz) - _cw[j] * t)
+			var q: float = TROCHOID * _ca[j] * c
+			hx -= _cdx[j] * q
+			hz -= _cdy[j] * q
+		px = x - hx
+		pz = z - hz
+	# Height + surface slope at the resolved rest point.
+	var h := 0.0
+	var gx := 0.0
+	var gz := 0.0
+	for j in _cn:
+		var ph := _ck[j] * (_cdx[j] * px + _cdy[j] * pz) - _cw[j] * t
+		h += _ca[j] * sin(ph)
+		var kac: float = _ck[j] * _ca[j] * cos(ph)
+		gx += _cdx[j] * kac
+		gz += _cdy[j] * kac
+	return Vector3(gx, h, gz)
+
+
+## The swell height (meters above mean water) at world (x, z), time `t` —
+## the buoyancy scalar. See probe_at() for the full surface state.
+func surface_at(x: float, z: float, t: float) -> float:
+	return probe_at(x, z, t).y
+
+
 ## Toolkit: the open sea's state in one line — swell energy plus the
 ## surf band it earns (breakers live shoreward of that depth).
 func summary() -> String:
 	if not enabled:
 		return "off (headless)"
 	var surf := break_depth(amp * PRIMARY_SHARE, wavelength)
-	return "%s  amp=%.2fm  L=%.0fm  dir=(%.2f, %.2f)  surf<=%.1fm%s%s" % [
-		source, amp, wavelength, direction.x, direction.y, surf,
+	# S3 buoyancy hook: how many floaters ride this swell right now (0 until
+	# a raft/net card is placed) — the Toolkit's echo that the mirror is live.
+	var floaters := "" if FloatBody.alive == 0 else "  floaters=%d" % FloatBody.alive
+	return "%s  amp=%.2fm  L=%.0fm  dir=(%.2f, %.2f)  surf<=%.1fm%s%s%s" % [
+		source, amp, wavelength, direction.x, direction.y, surf, floaters,
 		"" if force_amp < 0.0 else "  (FORCED amp)",
 		"" if force_surf < 0.0 else "  (FORCED surf x%.1f)" % force_surf]
 

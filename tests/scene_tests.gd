@@ -19,6 +19,7 @@ func _ready() -> void:
 	_test_water()
 	_test_swell()
 	_test_shoaling()
+	_test_buoyancy()
 	_test_hydrology()
 	_test_strata_water()
 	_test_river_drape()
@@ -3621,6 +3622,161 @@ func _test_shoaling() -> void:
 	_check(SeaSwell.break_depth(storm_a, 60.0)
 			> SeaSwell.break_depth(0.1 * SeaSwell.PRIMARY_SHARE, 30.0),
 		"heavier swell breaks in deeper water — the surf band widens with the storm")
+
+
+## S3 buoyancy: the SeaSwell CPU mirror (surface_at/probe_at) pinned against
+## the shader's deep-water Gerstner math, then a FloatBody driven headless —
+## it rides a rising level up and drifts downstream on its mooring tether.
+## Presentation-only: nothing here touches WorldState or the soak digest.
+func _test_buoyancy() -> void:
+	var was_amp: float = SeaSwell.amp
+	var was_len: float = SeaSwell.wavelength
+	var was_dir: Vector2 = SeaSwell.direction
+	# --- The mirror (surface_at / probe_at) ---
+	SeaSwell.amp = 0.8
+	SeaSwell.wavelength = 55.0
+	SeaSwell.direction = Vector2(1.0, 0.0)
+	# The raw forward map: the un-inverted Gerstner sum at a REST point p,
+	# time t — returns [hoff (the horizontal displacement to its world spot),
+	# height, slope]. probe_at inverts this, so it is the ground truth to
+	# pin against (and reads SeaSwell's own public constants — one lockstep).
+	var raw := func(p: Vector2, t: float) -> Array:
+		var ho := Vector2.ZERO
+		var hh := 0.0
+		var gr := Vector2.ZERO
+		for i in 4:
+			var wl: float = SeaSwell.wavelength * SeaSwell.LSC[i]
+			var a: float = SeaSwell.amp * SeaSwell.ASC[i] * smoothstep(
+				SeaSwell.SWELL_STEP * 2.0, SeaSwell.SWELL_STEP * 3.0, wl)
+			if a < 1e-4:
+				continue
+			var d: Vector2 = SeaSwell.direction.rotated(SeaSwell.ROT[i])
+			var k := TAU / wl
+			var w: float = sqrt(SeaSwell.GRAV * k)
+			var ph := k * (d.x * p.x + d.y * p.y) - w * t
+			var c := cos(ph)
+			hh += a * sin(ph)
+			ho -= d * (SeaSwell.TROCHOID * a * c)
+			gr += d * (k * a * c)
+		return [ho, hh, gr]
+	# At the rest-origin every phase is zero (t=0, dot=0): still water,
+	# sloping along the swell heading. Probe at the WORLD point it displaces
+	# to (its hoff) — the world origin is NOT the rest origin (the trochoid
+	# gathers it aside), which is exactly what probe_at must invert.
+	var r0: Array = raw.call(Vector2.ZERO, 0.0)
+	var o: Vector3 = SeaSwell.probe_at((r0[0] as Vector2).x, (r0[0] as Vector2).y, 0.0)
+	_check(absf(o.y) < 0.02, "buoyancy: still water at the phase origin")
+	_check(o.x > 0.0, "buoyancy: the surface slope points along the swell heading")
+	# A crest and a trough exist, bounded by the summed amplitudes (0.8).
+	var hmax := -1e9
+	var hmin := 1e9
+	for i in 220:
+		var hh: float = SeaSwell.surface_at(55.0 * float(i) / 220.0, 0.0, 0.0)
+		hmax = maxf(hmax, hh)
+		hmin = minf(hmin, hh)
+	_check(hmax > 0.15 and hmin < -0.15,
+		"buoyancy: the swell carries a crest and a trough")
+	_check(hmax < 0.85 and hmin > -0.85,
+		"buoyancy: the crest is bounded by the summed amplitudes")
+	# Height scales with swell energy — a storm rides higher than a breeze.
+	SeaSwell.amp = 0.4
+	var half := -1e9
+	for i in 220:
+		half = maxf(half, SeaSwell.surface_at(55.0 * float(i) / 220.0, 0.0, 0.0))
+	_check(hmax > half * 1.5, "buoyancy: a bigger swell rides higher")
+	SeaSwell.amp = 0.8
+	# The trochoid inversion recovers a known crest: forward-map a rest point
+	# with the raw sum, then surface_at at the displaced world point must
+	# return its height (proves the fixed-point undoes the horizontal gather —
+	# without it the read would be the better part of a meter off).
+	var p0 := Vector2(12.0, -5.0)
+	var tt := 3.7
+	var rr: Array = raw.call(p0, tt)
+	var world: Vector2 = p0 + (rr[0] as Vector2)
+	_check(absf(SeaSwell.surface_at(world.x, world.y, tt) - float(rr[1])) < 0.05,
+		"buoyancy: the trochoid inversion recovers the crest height")
+	# A calm sea (below the 0.001m gate) sits floaters dead flat.
+	SeaSwell.amp = 0.0
+	_check(SeaSwell.probe_at(3.0, 4.0, 1.0) == Vector3.ZERO,
+		"buoyancy: a calm sea sits floaters flat")
+	SeaSwell.amp = was_amp
+	SeaSwell.wavelength = was_len
+	SeaSwell.direction = was_dir
+
+	# --- The FloatBody, driven headless on an injected surface ---
+	var fb := FloatBody.new()
+	var hull := Node3D.new()
+	add_child(hull)
+	fb.target = hull
+	fb.moor = Vector3.ZERO
+	fb.tether = 3.0
+	# A surface that ramps with a level knob and slopes gently along +x, plus
+	# a strong east current — deterministic, no GPU, no wall-clock.
+	var lvl := {"y": 0.0}
+	fb.surface_fn = func(pos: Vector3, _t: float) -> Vector3:
+		return Vector3(0.0, lvl.y + pos.x * 0.05, 0.0)
+	fb.current_fn = func(_pos: Vector3) -> Vector2:
+		return Vector2(5.0, 0.0)
+	for _i in 60:
+		fb.step(0.1, 0.0)
+	_check(absf(hull.position.y) < 0.2, "buoyancy: a floater settles onto the calm surface")
+	# Raise the water — the hull rides the level up.
+	lvl.y = 2.0
+	for _i in 60:
+		fb.step(0.1, 0.0)
+	_check(hull.position.y > 1.5, "buoyancy: a floater rides a rising level up")
+	# The current drifts it downstream; the mooring tethers how far.
+	_check(hull.position.x > 0.15, "buoyancy: the current drifts a floater downstream")
+	_check(hull.position.x <= fb.tether + 1e-3, "buoyancy: the mooring tethers the drift")
+	# It leans into the surface slope, but never rolls over.
+	var lean: float = Vector3.UP.angle_to(hull.basis.y)
+	_check(lean > 0.01, "buoyancy: a floater leans into the surface slope")
+	_check(lean <= FloatBody.LEAN_MAX + 1e-3,
+		"buoyancy: the lean is bounded — a roll, not a capsize")
+	hull.queue_free()
+	fb.free()
+
+	# --- The acceptance A/B: bobs on storm swell, sits flat at dawn calm ---
+	# Drive a FloatBody off the REAL SeaSwell mirror (a hull at a fixed
+	# mooring, no current) and watch its height across time.
+	var bob := FloatBody.new()
+	var hull2 := Node3D.new()
+	add_child(hull2)
+	bob.target = hull2
+	bob.moor = Vector3(20.0, 0.0, -8.0)
+	bob.tether = 0.0   # pin the mooring — only the vertical bob shows
+	bob.current_fn = func(_pos: Vector3) -> Vector2:
+		return Vector2.ZERO
+	bob.surface_fn = func(pos: Vector3, t: float) -> Vector3:
+		return SeaSwell.probe_at(pos.x, pos.z, t)
+	# Storm swell: the hull rolls up and down as the crests pass under it.
+	SeaSwell.amp = 0.8
+	SeaSwell.wavelength = 55.0
+	SeaSwell.direction = Vector2(1.0, 0.0)
+	var ymin := 1e9
+	var ymax := -1e9
+	for i in 240:
+		bob.step(0.05, float(i) * 0.05)
+		if i >= 120:  # let the spring lock on, then measure the swing
+			ymin = minf(ymin, hull2.position.y)
+			ymax = maxf(ymax, hull2.position.y)
+	_check(ymax - ymin > 0.1, "buoyancy: storm swell rolls the hull up and down")
+	# Dawn calm: flatten the sea, let it settle — the bob dies flat.
+	SeaSwell.amp = 0.0
+	for i in 120:
+		bob.step(0.05, 12.0 + float(i) * 0.05)
+	var y_calm: float = hull2.position.y
+	var settled := absf(y_calm) < 0.05
+	for i in 60:
+		bob.step(0.05, 18.0 + float(i) * 0.05)
+		if absf(hull2.position.y - y_calm) > 0.02:
+			settled = false
+	_check(settled, "buoyancy: a dawn-calm sea sits the hull flat")
+	hull2.queue_free()
+	bob.free()
+	SeaSwell.amp = was_amp
+	SeaSwell.wavelength = was_len
+	SeaSwell.direction = was_dir
 
 
 func _test_hydrology() -> void:

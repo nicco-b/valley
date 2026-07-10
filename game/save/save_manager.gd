@@ -115,13 +115,20 @@ func load_into_world() -> void:
 	for candidate in [PATH, PATH + ".bak1", PATH + ".bak2"]:
 		if not FileAccess.file_exists(candidate):
 			continue
-		data = JSON.parse_string(FileAccess.get_file_as_string(candidate))
-		# v1 saves (pre-interiors) load unchanged — v2 only ADDS optional
-		# player.interior fields; nothing was moved or renamed.
-		if data != null and int(data.get("version", 0)) in [1, 2]:
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(candidate))
+		# The save covenant ladder (save_migration.gd): an older save is
+		# migrated up to the format this build reads BEFORE apply_snapshot ever
+		# sees it; a save from a NEWER build refuses honestly and we tell the
+		# player instead of silently starting fresh (PLAN_SHIP §1.7).
+		var result := SaveMigration.migrate(parsed)
+		if result.ok:
+			data = result.data
 			if candidate != PATH:
 				push_warning("[save] live save unreadable — restored %s" % candidate)
 			break
+		if result.refused_newer:
+			push_warning("[save] %s" % result.error)
+			HUD.notify(result.error)
 		data = null
 	if data == null:
 		_spawn_fresh()
@@ -267,8 +274,11 @@ func _read_anchor(name: String) -> Dictionary:
 	if not FileAccess.file_exists(path):
 		return {}
 	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
-	if parsed is Dictionary and int((parsed as Dictionary).get("version", 0)) in [1, 2]:
-		return parsed
+	# Anchors ride the same covenant ladder as the live save (an anchor is a
+	# byte-shaped save v2 snapshot); a newer-format or foreign file yields {}.
+	var result := SaveMigration.migrate(parsed)
+	if result.ok:
+		return result.data
 	return {}
 
 

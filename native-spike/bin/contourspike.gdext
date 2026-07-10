@@ -1,0 +1,9 @@
+; The Contour embed-spike extension (Mission Z2). Loaded EXPLICITLY by the
+; probe boot via GDExtensionManager (like loomkernel), never auto-scanned —
+; hence *.gdext, not *.gdextension. PROBE ONLY, not in framework.json.
+[configuration]
+entry_symbol = "contour_spike_init"
+compatibility_minimum = "4.7"
+
+[libraries]
+macos = "res://native-spike/bin/libcontourspike.macos.dylib"

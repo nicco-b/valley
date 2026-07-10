@@ -1,0 +1,22 @@
+# ground_normal(h_center, h_east, h_north, eps) — finite-difference unit normal.
+# Each line: [ {float h_center}, {float h_east}, {float h_north}, {float eps} ].
+# n = north.cross(east) has n.y = eps*eps >= 0, so the `n.y < 0` re-orient is
+# provably unreachable for the eps > 0 domain; it is still transcribed and the
+# reachable path (plus the eps = 0 degenerate) is proven bit-identical.
+# --- flat ground (all equal): returns exactly (0, 1, 0) at any eps ---
+[{"float":0.0},{"float":0.0},{"float":0.0},{"float":1.0}]
+[{"float":5.0},{"float":5.0},{"float":5.0},{"float":0.5}]
+# --- rising east only / north only / both ---
+[{"float":0.0},{"float":1.0},{"float":0.0},{"float":1.0}]
+[{"float":0.0},{"float":0.0},{"float":1.0},{"float":1.0}]
+[{"float":0.0},{"float":1.0},{"float":1.0},{"float":1.0}]
+# --- falling slopes (negative deltas) ---
+[{"float":2.0},{"float":1.0},{"float":0.5},{"float":1.0}]
+[{"float":0.0},{"float":-1.0},{"float":-2.0},{"float":2.0}]
+# --- eps variations change the gradient scale ---
+[{"float":0.0},{"float":3.0},{"float":-1.0},{"float":0.25}]
+[{"float":10.0},{"float":10.5},{"float":9.5},{"float":4.0}]
+# --- negative heights ---
+[{"float":-3.0},{"float":-2.5},{"float":-4.0},{"float":1.0}]
+# --- degenerate: eps = 0 -> cross is (0,0,0) -> normalized (0,0,0) ---
+[{"float":0.0},{"float":1.0},{"float":2.0},{"float":0.0}]

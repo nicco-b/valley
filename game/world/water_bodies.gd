@@ -94,7 +94,14 @@ func _ready() -> void:
 		# invisible on its step anyway).
 		var radius := float(w.radius)
 		var lake_step := maxf(DISC_STEP, radius / 128.0)
-		mi.mesh = _disc(radius, lake_step)
+		# The imported shoreline (P2+) rides in world XZ; build the surface
+		# grid clipped to the REAL polygon (centered on `center`, like the
+		# disc). No outline (authored/pre-outline lake) ⇒ the equal-area disc.
+		var outline: PackedVector2Array = w.get("outline", PackedVector2Array())
+		if outline.size() >= 3:
+			mi.mesh = _polygon_disc(_local_outline(outline, center), lake_step)
+		else:
+			mi.mesh = _disc(radius, lake_step)
 		var lake_mat := _material(Vector2.ZERO)
 		if radius >= LAKE_SWELL_MIN_R:
 			# Fetch-scaled swell + real bathymetry (CUSTOM0): the shader's
@@ -429,6 +436,103 @@ func _disc(radius: float, step: float = DISC_STEP) -> ArrayMesh:
 			st.add_index(a + n + 1)
 			st.add_index(a + n)
 	return st.commit()
+
+
+# The imported world-space shoreline shifted into a lake's LOCAL frame
+# (relative to its center), so the outline mesh sits under the same
+# mi.position — and therefore the same lake_levels offset path — as the disc.
+func _local_outline(outline: PackedVector2Array, center: Vector2) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	out.resize(outline.size())
+	for i in outline.size():
+		out[i] = outline[i] - center
+	return out
+
+
+# A vertex-dense surface clipped to the lake's REAL outline — the disc's
+# grid generalized from a circle to an arbitrary polygon. Every DISC_STEP
+# grid corner inside the polygon stays put; every outside corner snaps to
+# the nearest point on the shoreline; a cell emits its two triangles
+# whenever at least one corner is inside. So the surface reaches EXACTLY to
+# the true shore (no floating rim where a disc overhung the pool, no dry
+# gap) while keeping the vertex density the wave field displaces. Plain
+# loops, no lambda captures (the invisible-pond bug of 2026-07-04).
+func _polygon_disc(poly: PackedVector2Array, step: float = DISC_STEP) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var lo := poly[0]
+	var hi := poly[0]
+	for p in poly:
+		lo = Vector2(minf(lo.x, p.x), minf(lo.y, p.y))
+		hi = Vector2(maxf(hi.x, p.x), maxf(hi.y, p.y))
+	lo -= Vector2(step, step)  # a cell of margin so the boundary ring builds
+	hi += Vector2(step, step)
+	var nx := int(ceil((hi.x - lo.x) / step)) + 1
+	var nz := int(ceil((hi.y - lo.y) / step)) + 1
+	var inside := PackedByteArray()
+	inside.resize(nx * nz)
+	for iz in nz:
+		for ix in nx:
+			var p := Vector2(lo.x + ix * step, lo.y + iz * step)
+			var isin := _point_in_poly(p, poly)
+			inside[iz * nx + ix] = 1 if isin else 0
+			if not isin:
+				p = _nearest_on_poly(p, poly)
+			st.set_normal(Vector3.UP)
+			st.add_vertex(Vector3(p.x, 0.0, p.y))
+	for iz in nz - 1:
+		for ix in nx - 1:
+			var a := iz * nx + ix
+			if inside[a] == 0 and inside[a + 1] == 0 \
+					and inside[a + nx] == 0 and inside[a + nx + 1] == 0:
+				continue
+			st.add_index(a)
+			st.add_index(a + 1)
+			st.add_index(a + nx)
+			st.add_index(a + 1)
+			st.add_index(a + nx + 1)
+			st.add_index(a + nx)
+	return st.commit()
+
+
+# Even-odd ray cast: is p inside the closed polygon?
+func _point_in_poly(p: Vector2, poly: PackedVector2Array) -> bool:
+	var inside := false
+	var n := poly.size()
+	var j := n - 1
+	for i in n:
+		var a := poly[i]
+		var b := poly[j]
+		if (a.y > p.y) != (b.y > p.y):
+			var t := (p.y - a.y) / (b.y - a.y)
+			if p.x < a.x + t * (b.x - a.x):
+				inside = not inside
+		j = i
+	return inside
+
+
+# The closest point on the polygon boundary to p (min over all edges) — an
+# outside grid corner snaps here so the mesh meets the shore exactly.
+func _nearest_on_poly(p: Vector2, poly: PackedVector2Array) -> Vector2:
+	var best := poly[0]
+	var bestd := INF
+	var n := poly.size()
+	var j := n - 1
+	for i in n:
+		var a := poly[j]
+		var b := poly[i]
+		var ab := b - a
+		var t := 0.0
+		var len2 := ab.length_squared()
+		if len2 > 1e-9:
+			t = clampf((p - a).dot(ab) / len2, 0.0, 1.0)
+		var q := a + ab * t
+		var d := p.distance_squared_to(q)
+		if d < bestd:
+			bestd = d
+			best = q
+		j = i
+	return best
 
 
 # A dense ribbon: the spline resampled every RIBBON_STEP meters with

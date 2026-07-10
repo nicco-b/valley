@@ -530,6 +530,12 @@ func _import_hydrology(world_dir: String, out_dir: String, manifest: Dictionary)
 		print("  hydrology: kept the %d largest lakes (%d puddles skipped)" % [
 			lakes.size(), skipped])
 	for l: Dictionary in lakes:
+		# The solver's TRUE shoreline (P2+): an ordered closed polygon in world
+		# meters. Carried through verbatim so water_bodies builds a mesh that
+		# hugs the real depression instead of a floating disc. Absent on a
+		# pre-outline export — the record simply omits it and the game falls
+		# back to the equal-area disc (x/z/radius), exactly as before.
+		var outline: Array = l.get("outline", [])
 		var rec := {
 			"id": "hyd_%s" % String(l.get("id", "l")),
 			"no_sim": true,  # region lake: its level stays off the soak digest
@@ -542,6 +548,12 @@ func _import_hydrology(world_dir: String, out_dir: String, manifest: Dictionary)
 			"outlet": "aquifer",
 			"source": "strata_hydrology",
 		}
+		if not outline.is_empty():
+			# Normalize to plain floats (JSON gives us Dictionaries already).
+			var ring: Array = []
+			for p: Dictionary in outline:
+				ring.append({"x": float(p["x"]), "z": float(p["z"])})
+			rec["outline"] = ring
 		_write_json(out_dir.path_join("%s.json" % rec["id"]), rec)
 	return Vector3i(rivers.size(), lakes.size(), falls_total)
 

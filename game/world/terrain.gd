@@ -914,6 +914,15 @@ func _load_water() -> void:
 		var rec: Dictionary = parsed
 		var center: Dictionary = rec["center"]
 		var basin: Dictionary = rec.get("basin", {})
+		# The lake's TRUE shoreline (P2+ imports): an ordered closed polygon in
+		# world meters. water_bodies triangulates it so the surface hugs the
+		# real depression; absent for authored/pre-outline lakes, which fall
+		# back to the equal-area disc. Parsed to PackedVector2Array here (world
+		# XZ) so the mesh builder and rim tests never re-parse Dictionaries.
+		var outline := PackedVector2Array()
+		var outline_raw: Array = rec.get("outline", [])
+		for p: Dictionary in outline_raw:
+			outline.append(Vector2(float(p["x"]), float(p["z"])))
 		water_bodies.append({
 			"id": rec.get("id", f.trim_suffix(".json")),
 			"idx": water_bodies.size(),
@@ -929,6 +938,7 @@ func _load_water() -> void:
 			# Real max depth from the hydrology solve (W2 bathymetry rides
 			# it); 0.0 for authored lakes, which carve their own basin.
 			"depth": float(rec.get("depth", 0.0)),
+			"outline": outline,  # empty ⇒ disc fallback
 		})
 	lake_levels.resize(water_bodies.size())
 	_load_rivers()

@@ -51,6 +51,7 @@
 		],
 		"watershed": [
 			"game/world/hydrology.gd",
+			"game/world/hydrology.ct",
 			"game/world/water_bodies.gd",
 			"game/world/water_field.gd",
 			"game/world/water_gpu.gd",

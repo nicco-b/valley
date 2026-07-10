@@ -4583,6 +4583,14 @@ func _test_hydrology() -> void:
 		Hydrology._hourly(0)
 	_check(Hydrology.lake_level is Dictionary and Hydrology.river_storage is Dictionary,
 		"hydrology runs clean with no authored water bodies")
+	# Contour routing plumbing (Wave D2): flag OFF (the scene-test default) resolves
+	# to the GDScript twin — mode 1, never engaged, the tick counter never moved by
+	# the 6 _hourly calls above. The ENGAGED path (mode 2, 720 native §6 `Hydrology`
+	# ticks, flag-off == flag-on fingerprint) is proven by the four-run soak matrix.
+	var hyd_cs: Dictionary = Hydrology.contour_status()
+	_check(int(hyd_cs.get("mode", 0)) == 1 and not bool(hyd_cs.get("engaged", true))
+			and int(hyd_cs.get("calls", -1)) == 0,
+		"hydrology Contour routing OFF by default (GDScript twin, no silent engage)")
 	for id in Hydrology.lake_level:
 		var lv: float = Hydrology.lake_level[id]
 		_check(lv >= Hydrology.LAKE_LEVEL_MIN and lv <= Hydrology.LAKE_LEVEL_MAX,

@@ -1,0 +1,77 @@
+# Contour port of valley game/world/hydrology.gd :: the region-river reservoir
+#
+# hydrology.gd is the canonical whole-watershed water sim (docs/PORT_LEDGER.md
+# Wave D2). Its hourly loop does two kinds of work, and THE SPLIT (the design
+# call in the ledger row) separates them:
+#
+#   * PER-CELL GRID MATH — stays engine-side (loomkernel-class, the scope law).
+#     `_build_catchments` flow-routes the whole 256×256 watershed once at boot:
+#     a priority-flood depression fill (a binary heap over ~65k cells) then D8
+#     steepest descent, accumulating each basin's catchment AREA. 65k height
+#     samples + a heap flood is exactly the per-element tier the ledger names as
+#     C++; it produces one AGGREGATE per basin (catchment m²) — a number, not a
+#     grid, handed to the balance below.
+#
+#   * THE RESERVOIR RULE — crosses here. Every hour each river is a LINEAR
+#     RESERVOIR: catchment runoff + baseflow flow in, a fixed fraction (RIVER_K)
+#     drains out as discharge, the surface offset follows the normalized flow.
+#     That per-basin recession is a DECISION over the catchment aggregate — pure
+#     scalar physics, no grid — so it ports as the §6 `Hydrology` system mapping
+#     the certified `region_river_step` leaf over the rivers. Its engine-bound
+#     inputs (the rain-shadowed local rainfall Weather.rain_at samples at each
+#     river's own midpoint, the catchment aggregate, the baseflow floor) are
+#     sampled GDScript-side and handed in as seeded arrays — the climate
+#     DESIGN-CALL precedent (seeded-input overlay, tick_seeded).
+#
+# The remainder stays GDScript on the valley side: the watershed (sim-tier)
+# rivers + the lake integration (lakes SUM several rivers' discharge and write
+# into a downstream river's storage — a cross-basin coupling, not a per-cell map;
+# its level-integration leaf is a natural next rung) and every derived write
+# (river_levels, the water.<id>.* mirrors). The system owns the ONE state the
+# balance advances: each region river's reservoir storage.
+#
+# Structural faithfulness: the bodies are byte-identical to the vendored statics
+# (plumb/vendor/hydrology.gd region_river_step / flow_norm_of) — same consts
+# inlined, the inflow parenthesized to match GDScript `+=` RHS grouping (float
+# add is not associative), the same snappedf — so Plumb proves them
+# bit-identical to real headless Godot, and the valley soak proves the whole
+# system in situ (all four fingerprints identical, flag-off == flag-on, the
+# engagement counter proving the region rivers ticked native).
+
+# Reservoir recession per hour (flashy brook, ~8h e-fold). hydrology.gd L38.
+const RIVER_K = 0.12
+
+
+# One region river's next reservoir storage, m³. Catchment runoff + baseflow in,
+# a RIVER_K fraction shed as discharge, the remainder snapped and carried. The
+# per-basin RULE of the hourly balance — pure over its (host-sampled) args.
+sim func region_river_step(storage: float, area: float, rain: float, runoff: float, baseflow: float) -> float:
+	storage = storage + (area * rain * runoff + baseflow)
+	var q = storage * RIVER_K
+	storage = storage - q
+	return snappedf(storage, 0.01)
+
+
+# Discharge normalized against a flow reference: q/(q+qref), the saturating curve
+# every shader/story reader sees. Pure over its two args — Plumb pins it.
+sim func flow_norm_of(q: float, qref: float) -> float:
+	return q / (q + qref)
+
+
+# The hourly region-river tick as a §6 system. `hydrology.storage` is the region
+# rivers' reservoir storages (an array in a stable river order), read then
+# written — a read-modify-write. The four seeded inputs are the host-sampled
+# per-river environment: `hydrology.area` (the catchment aggregate the D8 routing
+# measured), `hydrology.rain` (the rain-shadowed local rainfall), `hydrology.
+# baseflow` (the per-river spring floor), plus the shared `hydrology.runoff`
+# scalar (how readily the soaked ground sheds rain). The step maps the certified
+# region_river_step leaf over every river — the pure recession, native; the
+# sampling, seeded from the engine.
+system Hydrology:
+	reads: hydrology.storage, hydrology.area, hydrology.rain, hydrology.baseflow, hydrology.runoff
+	writes: hydrology.storage
+	sim func step():
+		var s = hydrology.storage
+		for i in range(s.size()):
+			s[i] = region_river_step(s[i], hydrology.area[i], hydrology.rain[i], hydrology.runoff, hydrology.baseflow[i])
+		hydrology.storage = s

@@ -28,11 +28,13 @@
 extern "C" {
 #endif
 
-/* Value tags — mirror Lattice.Value's scalar + vector kinds. Composite kinds
- * (array/dict/basis) are NOT yet marshalled across the C ABI: a function that
- * returns one yields LAT_ERR with a message (see the report's "first landing
- * rung"). cycle_grid_step / snap_to_grid / ground_normal / aligned_basis*
- * are all covered by scalars + vec2/vec3 (+ basis, below). */
+/* Value tags — mirror Lattice.Value's scalar + vector kinds. Scalars and
+ * vec2/vec3 ride the flat fields below; the COMPOSITE kinds (array / dict /
+ * basis / record) cross as a LAT_BUF: a length-prefixed byte buffer in the
+ * CompositeCodec wire format (documented at the bottom of this file — the
+ * single source of truth for the layout). Before the composite-marshalling
+ * rung a composite result yielded LAT_ERR; now every one of the twelve ported
+ * functions is callable, composite args and composite results included. */
 #define LAT_INT   0  /* i */
 #define LAT_FLOAT 1  /* f */
 #define LAT_BOOL  2  /* i (0/1) */
@@ -40,17 +42,26 @@ extern "C" {
 #define LAT_VEC3  4  /* x, y, z */
 #define LAT_NULL  5
 #define LAT_ERR   6  /* result-only: call failed; see err buffer */
+#define LAT_BUF   7  /* composite (array/dict/basis/record): buf + buflen, see below */
 
-/* A tagged scalar/vector on the wire. Vector components are carried as double
- * but represent Godot real_t (float32): the Swift side narrows on the way in
- * (matching Vector3(double,double,double)) and widens on the way out (matching
- * reading v.x as a Variant float), so bit-parity with GDScript is preserved. */
+/* A tagged value on the wire. Scalars use `i`/`f`; vec2/vec3 use `x,y,z`
+ * (components are double but represent Godot real_t/float32 — the Swift side
+ * narrows on the way in, matching Vector3(double,double,double), and widens on
+ * the way out, matching reading v.x as a Variant float, so bit-parity with
+ * GDScript is preserved). A LAT_BUF carries a CompositeCodec byte buffer in
+ * `buf` (length `buflen`); the flat scalar/vector fields are then unused. */
 typedef struct {
     int32_t tag;
     int64_t i;
     double  f;
     double  x, y, z;
+    const uint8_t *buf;    /* LAT_BUF only: CompositeCodec bytes (format at file end) */
+    int64_t        buflen; /* LAT_BUF only: byte count of `buf` */
 } LatValue;
+
+/* Free a LAT_BUF buffer that lattice_call allocated for a *result* (out->buf).
+ * NULL is a no-op. See the OWNERSHIP note on lattice_call. */
+void lattice_buf_free(const uint8_t *buf);
 
 /* Compile a Contour module from UTF-8 source. Returns an opaque handle, or
  * NULL on a compile error (err receives a NUL-terminated diagnostic, truncated
@@ -63,7 +74,18 @@ void lattice_module_destroy(void *handle);
 /* Call `fn` with argc LatValues; write the result into *out.
  * Returns 0 on success. On failure returns non-zero, sets out->tag = LAT_ERR,
  * and writes a NUL-terminated message to err (truncated to errcap).
- * HOT path — no allocation beyond the interpreter's own, no Foundation. */
+ * HOT path — no Foundation; the only heap traffic beyond the interpreter's own
+ * is the single result buffer of a LAT_BUF result (see OWNERSHIP).
+ *
+ * OWNERSHIP of LAT_BUF buffers:
+ *   • ARGUMENT buffers (argv[k].buf, tag LAT_BUF) are owned by the CALLER. They
+ *     need only stay valid for the duration of this call; Lattice copies what
+ *     it decodes. The caller frees them (they are typically caller-side scratch,
+ *     e.g. a std::vector<uint8_t>). Do NOT pass them to lattice_buf_free.
+ *   • A RESULT buffer (out->buf when out->tag == LAT_BUF) is owned by LATTICE:
+ *     it is freshly allocated here. The caller MUST hand it to lattice_buf_free
+ *     exactly once after decoding it. On any error path out->tag is LAT_ERR (or
+ *     a scalar) and out->buf is left NULL — nothing to free. */
 int32_t lattice_call(void *handle, const char *fn,
                      const LatValue *argv, int32_t argc,
                      LatValue *out, char *err, int32_t errcap);
@@ -71,5 +93,44 @@ int32_t lattice_call(void *handle, const char *fn,
 #ifdef __cplusplus
 }
 #endif
+
+/* ===========================================================================
+ * CompositeCodec — the LAT_BUF byte format (SINGLE SOURCE OF TRUTH)
+ * ===========================================================================
+ * A composite Value serializes to a self-describing little-endian byte stream.
+ * It is the same canonical shape Plumb bit-certifies (Value.canonical), carried
+ * as raw LE bytes instead of ASCII hex: every float is the 8-byte little-endian
+ * IEEE-754 bit pattern (identical bytes to Value.hexLE decoded), dict/record
+ * fields keep insertion order, a basis is its three COLUMNS (x,y,z axes). No
+ * ASCII-hex, no Foundation, no ambiguity — so it is legal on the hot path where
+ * Value.canonical's String(format:) is not. buflen bounds the top-level value;
+ * str/array/dict/record carry their own inner counts.
+ *
+ * All multi-byte integers are LITTLE-ENDIAN. One value = 1 tag byte + payload:
+ *
+ *   0x00 INT     int64   : 8 bytes LE
+ *   0x01 FLOAT   float64 : 8 bytes LE (IEEE-754 bit pattern)
+ *   0x02 BOOL    bool    : 1 byte (0 | 1)
+ *   0x03 STR     string  : u32 LE byteLen + that many UTF-8 bytes
+ *   0x04 ARRAY   array   : u32 LE count + <count> values
+ *   0x05 DICT    dict    : u32 LE count + <count> (key value) pairs, insertion order
+ *   0x06 VEC2    vector2 : 2 float64 LE (each real_t/Float32 WIDENED to double)
+ *   0x07 VEC3    vector3 : 3 float64 LE (widened)
+ *   0x08 BASIS   basis   : 9 float64 LE (widened), COLUMN order x,y,z axes
+ *   0x09 RECORD  record  : STR(name payload: u32 len + bytes) + u32 LE field count
+ *                          + <count> (key value) pairs, insertion order
+ *   0x0a NULL    null    : no payload
+ *
+ * Float32 boundary (preserved EXACTLY, mirroring the scalar ABI): a vec2/vec3/
+ * basis component is real_t/Float32; the encoder WIDENS it to double before
+ * writing the 8 LE bytes (what Value.canonical / a Variant `v.x` read does), and
+ * the decoder NARROWS back to real_t when reconstructing the Vector/Basis (what
+ * Vector3(double,…) / Basis(...) storage does). A plain FLOAT (a dict field like
+ * "yaw", an array element) is a full double and crosses unchanged. This keeps a
+ * dict/array carrying vectors bit-identical to GDScript by construction, exactly
+ * as the scalar vec3 path already was.
+ *
+ * Both the encoder (Swift, LatticeEmbed.swift) and every decoder (the godot-cpp
+ * host, contour_kernel.cpp) MUST read this table as the contract. */
 
 #endif /* LATTICE_EMBED_H */

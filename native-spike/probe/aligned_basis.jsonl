@@ -1,0 +1,24 @@
+# aligned_basis(normal: vector3, yaw: float) — orthonormal frame from a normal.
+# Each line: [ {vec3 normal}, {float yaw} ]. Exercises both ref branches
+# (near-X normal -> FORWARD ref, else RIGHT ref), the zero-normal UP fallback,
+# and yaw = 0 / positive / negative / past PI (matrix multiply against the yaw).
+# --- generic normals (ref = RIGHT branch, |up.dot(RIGHT)| <= 0.99) ---
+[{"vec3":[0.2, 0.9, 0.3]},{"float":0.7}]
+[{"vec3":[0.0, 1.0, 0.0]},{"float":0.0}]
+[{"vec3":[0.0, 1.0, 0.0]},{"float":1.5707963267948966}]
+[{"vec3":[0.0, 1.0, 0.0]},{"float":-0.8}]
+[{"vec3":[0.0, 1.0, 0.0]},{"float":5.0}]
+[{"vec3":[0.3, 0.8, -0.5]},{"float":2.2}]
+[{"vec3":[-0.4, 0.7, 0.6]},{"float":-3.0}]
+[{"vec3":[0.9, 0.436, 0.0]},{"float":0.5}]
+# --- near-±X normals: |up.dot(RIGHT)| > 0.99 -> ref = FORWARD ---
+[{"vec3":[1.0, 0.0, 0.0]},{"float":0.0}]
+[{"vec3":[1.0, 0.0, 0.0]},{"float":1.2}]
+[{"vec3":[-1.0, 0.0, 0.0]},{"float":0.9}]
+[{"vec3":[0.995, 0.09987492, 0.0]},{"float":0.3}]
+# --- degenerate: zero normal -> normalized is (0,0,0), lensq 0 < 0.5 -> UP ---
+[{"vec3":[0.0, 0.0, 0.0]},{"float":0.0}]
+[{"vec3":[0.0, 0.0, 0.0]},{"float":1.5}]
+# --- un-normalized inputs: normalize first, so magnitude must not matter ---
+[{"vec3":[0.0, 5.0, 0.0]},{"float":0.4}]
+[{"vec3":[6.0, 0.0, 8.0]},{"float":-1.1}]

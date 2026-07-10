@@ -1,0 +1,31 @@
+# best_socket_snap(cursor, in_sockets, candidates, radius, in_scale) -> Dictionary
+# Each line: [ {vec3 cursor}, {list in_sockets}, {list candidates},
+#             {float radius}, {float in_scale} ]. A socket is a dict
+#   {type: str, pos: vec3, yaw: float}. Exercises: single match, empty
+#   candidate/socket lists, no-type-match, empty-type skip, out-of-radius,
+#   nearest-of-many, distance ties (last wins), first-matching in_socket,
+#   candidate-type filtering, the radius boundary (d == radius), nonzero cursor.
+# --- single compatible candidate within radius -> the mated pose ---
+[{"vec3":[0.0,0.0,0.0]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[0.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[1.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"float":5.0},{"float":1.0}]
+# --- empty candidates -> {} ---
+[{"vec3":[0.0,0.0,0.0]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[0.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"list":[]},{"float":5.0},{"float":1.0}]
+# --- empty in_sockets -> nothing to mate -> {} ---
+[{"vec3":[0.0,0.0,0.0]},{"list":[]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[1.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"float":5.0},{"float":1.0}]
+# --- no shared type -> {} ---
+[{"vec3":[0.0,0.0,0.0]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[0.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"list":[{"dict":{"type":{"str":"b"},"pos":{"vec3":[1.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"float":5.0},{"float":1.0}]
+# --- candidate with empty type is skipped -> {} ---
+[{"vec3":[0.0,0.0,0.0]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[0.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"list":[{"dict":{"type":{"str":""},"pos":{"vec3":[1.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"float":5.0},{"float":1.0}]
+# --- candidate out of radius -> {} ---
+[{"vec3":[0.0,0.0,0.0]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[0.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[10.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"float":5.0},{"float":1.0}]
+# --- nearest of many wins (iterate coarse-then-fine) ---
+[{"vec3":[0.0,0.0,0.0]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[0.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[3.0,0.0,0.0]},"yaw":{"float":0.5}}},{"dict":{"type":{"str":"a"},"pos":{"vec3":[1.0,0.0,0.0]},"yaw":{"float":1.0}}}]},{"float":5.0},{"float":1.0}]
+# --- distance tie: last equal-distance candidate wins (d <= best_d) ---
+[{"vec3":[0.0,0.0,0.0]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[0.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[2.0,0.0,0.0]},"yaw":{"float":0.1}}},{"dict":{"type":{"str":"a"},"pos":{"vec3":[0.0,0.0,2.0]},"yaw":{"float":0.9}}}]},{"float":5.0},{"float":1.0}]
+# --- first matching in_socket (by list order) is the one used ---
+[{"vec3":[0.0,0.0,0.0]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[0.5,0.0,0.0]},"yaw":{"float":0.2}}},{"dict":{"type":{"str":"a"},"pos":{"vec3":[9.0,9.0,9.0]},"yaw":{"float":9.0}}}]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[1.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"float":5.0},{"float":1.0}]
+# --- candidate types filtered: only the 'a' candidate mates ---
+[{"vec3":[0.0,0.0,0.0]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[0.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"list":[{"dict":{"type":{"str":"b"},"pos":{"vec3":[0.5,0.0,0.0]},"yaw":{"float":0.0}}},{"dict":{"type":{"str":"a"},"pos":{"vec3":[2.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"float":5.0},{"float":1.0}]
+# --- radius boundary: d == radius is inclusive ---
+[{"vec3":[0.0,0.0,0.0]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[0.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"list":[{"dict":{"type":{"str":"a"},"pos":{"vec3":[3.0,0.0,0.0]},"yaw":{"float":0.0}}}]},{"float":3.0},{"float":1.0}]
+# --- nonzero cursor, XZ distance ignores Y, scale applied ---
+[{"vec3":[5.0,2.0,5.0]},{"list":[{"dict":{"type":{"str":"peg"},"pos":{"vec3":[1.0,3.0,0.0]},"yaw":{"float":0.3}}}]},{"list":[{"dict":{"type":{"str":"peg"},"pos":{"vec3":[6.0,9.0,5.0]},"yaw":{"float":1.2}}}]},{"float":5.0},{"float":2.0}]

@@ -77,6 +77,23 @@ func _ready() -> void:
 	# _process once a focus exists.
 
 
+func _exit_tree() -> void:
+	# Reap the in-flight base bake before the tree (and the autoloads it
+	# reads — Terrain and its native kernel above all) tears down under it.
+	# _bake_base samples Terrain.height_block on a worker thread; a quit
+	# (or an embedded engine-restart destroy) landing inside the bake window
+	# otherwise dereferences the freed kernel from the pool thread and aborts
+	# the process — the hydrology catchment / sand_patch lesson, fourth
+	# instance. _base_pending is true exactly while a bake is submitted and
+	# not yet drained (_drain_base clears it after its own reap), so it is the
+	# right in-flight guard; _base_task alone would double-wait an already
+	# drained id.
+	if _base_pending and _base_task != -1:
+		WorkerThreadPool.wait_for_task_completion(_base_task)
+		_base_task = -1
+		_base_pending = false
+
+
 ## Toolkit (debug key K): A/B the fill-channels experiment. Forces a
 ## rebake so the source field + sink mask rebuild for the new mode, and
 ## the river ribbons hide while the sim fills the beds (water_bodies

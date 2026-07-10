@@ -87,6 +87,20 @@ func _ready() -> void:
 		var ss: Dictionary = Story.contour_status()
 		print("SOAK CONTOUR-STORY mode=%d engaged=%s story_calls=%d"
 			% [int(ss.get("mode", 0)), str(ss.get("engaged", false)), int(ss.get("calls", 0))])
+	# The SAME engaged-path proof for the AGENT MIND (Mission C3): whether every
+	# agent's advance() (drain/move/satisfy/decide) ran through the native Contour
+	# §6 `AgentMind` system inside THIS run, and how many times. AgentSim is
+	# per-instance, so the counter is CLASS-STATIC — mode=2 + agent_ticks climbing
+	# to hours × herd size (the star_hounds run this mind) means the fingerprinted
+	# sim.pos / sim.current.id above were the Contour system's, not a silent
+	# GDScript fallback; mode=1, calls=0 is the pure-GDScript flag-off run. The
+	# fingerprint owns every animal's pos + activity, so a routed mind that diverged
+	# one ULP would have moved it. (content-empty scaffold: no minds => calls=0,
+	# and both flag paths contribute nothing — bit-identical either way.) AgentSim
+	# is framework (always registered), so the static reads unconditionally.
+	var cs: Dictionary = AgentSim.contour_status()
+	print("SOAK CONTOUR-AGENT mode=%d engaged=%s agent_ticks=%d"
+		% [int(cs.get("mode", 0)), str(cs.get("engaged", false)), int(cs.get("calls", 0))])
 	get_tree().quit(1 if _failures > 0 else 0)
 
 

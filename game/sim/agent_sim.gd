@@ -47,6 +47,30 @@ var current: Dictionary = {}
 var last_utilities: Dictionary = {}
 var produced: Dictionary = {}  # item -> amount accrued; the owner flushes
 
+# --- Contour routing (PLAN_ENGINE E2, Mission C3: the agent mind's RULES tier) --
+## advance()'s hour tick (drain + move/satisfy + decide utility scoring) is a
+## SYSTEM-TIER port routed through the native Contour §6 `AgentMind` system
+## (game/sim/agent_sim.ct, via game/sim/contour_bridge.gd) when STRATA_CONTOUR=1 —
+## a boot-time sim flag, read once, default OFF. Flag OFF is byte-identical
+## GDScript. NO SILENT FALLBACK (the honesty law): flag ON with the kernel absent
+## / the module uncompilable / a refused tick is a LOUD push_error, never a quiet
+## twin. The system consumes the SEEDED pcg stream threaded through agent.rng,
+## seeded from — and written back to — Rng.stream(rng_stream).state, so both paths
+## draw the SAME shared stream in lockstep (pcg_* is bit-exact to RandomPCG).
+##
+## Every AgentSim shares ONE bridge + routing decision (the module is
+## framework-agnostic; each tick fully re-seeds the mind's state), so the state is
+## CLASS-STATIC — and the engagement counter is class-wide, so the soak can prove
+## the herd's minds ran through Contour (contour_status), not a silent fallback.
+## What stays GDScript: body spawn/embody, the live-tick body handoff (managers'
+## _process micro-ticks call drain/decide directly, like weather's _process ease),
+## to_state/from_state persistence, debug_text — engine-bound, not this write set.
+const _CONTOUR_MODULE := "res://game/sim/agent_sim.ct"
+## 0 unresolved · 1 off (flag unset) · 2 engaged (bridge live) · -1 refused.
+static var _contour_mode := 0
+static var _contour_bridge: ContourBridge = null
+static var _contour_calls := 0  # advance()s answered by Contour (engaged-path probe)
+
 
 func setup(agent_id: String, agent_home: Vector2, acts: Array,
 		weights: Dictionary = {}) -> void:
@@ -67,6 +91,15 @@ func setup(agent_id: String, agent_home: Vector2, acts: Array,
 ## One step of life, any size. An hour of catch-up and half a second of
 ## live tick take the same path.
 func advance(dt_hours: float) -> void:
+	# Flag ON (STRATA_CONTOUR=1): the Contour §6 `AgentMind` system owns the whole
+	# tick (drain + move/satisfy + decide), consuming the SAME seeded stream. Flag
+	# OFF (default) is the byte-identical GDScript twin below — the four-run matrix's
+	# bar. A refused tick already push_error'd; never a silent twin.
+	var bridge := _route_contour()
+	if bridge != null:
+		_advance_contour(bridge, dt_hours)
+		return
+	# --- GDScript twin (flag OFF, default — forever byte-identical) ---
 	drain(dt_hours)
 	var to := target - pos
 	if to.length() < arrive:
@@ -75,6 +108,119 @@ func advance(dt_hours: float) -> void:
 		var dt_real := dt_hours * GameClock.day_length_minutes * 60.0 / 24.0
 		pos += to.normalized() * minf(speed * dt_real, to.length())
 	decide()
+
+
+## The live systems bridge when routing is engaged, else null (flag off, or a
+## loud refusal). Resolves once at first tick (boot); flag-off is pure GDScript.
+## Static: one bridge for every mind (the module is framework-agnostic).
+static func _route_contour() -> ContourBridge:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return _contour_bridge
+
+
+static func _contour_resolve() -> void:
+	if OS.get_environment("STRATA_CONTOUR") != "1":
+		_contour_mode = 1   # flag off — the GDScript twin, forever byte-identical
+		return
+	# Flag ON: engage the bridge, or REFUSE loudly (never a silent GDScript pass).
+	if not ContourBridge.available():
+		push_error("[agent_sim] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
+			+ "(not macOS / dylib absent) — refusing to silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	var bridge := ContourBridge.new(WorldState)
+	var err := bridge.compile_file(_CONTOUR_MODULE)
+	if err != "":
+		push_error("[agent_sim] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	_contour_bridge = bridge
+	_contour_mode = 2
+
+
+## Routing introspection for the soak (proves the herd's minds ran through
+## Contour, not a silent fallback): the resolved mode, whether it engaged, and the
+## class-wide advance() tick count. Static — the counter is shared by every mind.
+static func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}
+
+
+## The flag-ON tick: hand this mind's whole record + live environment to the
+## Contour `AgentMind` system. Seeds the SAME inputs the twin reads (the drives,
+## tunables, activities; the hour — solar or clock, chosen by solar_gate; the
+## storm boost's storminess; day_length for the move) and the persistent state it
+## owns (needs/pos/target/current/produced), plus the SEEDED stream pulled off
+## Rng.stream(rng_stream) — so the system draws from the identical shared stream
+## and, on write-back, we thread the advanced state BACK so the autoload persists
+## it and both paths stay in lockstep. The Callable marker_resolver is PRE-RESOLVED
+## into data (agent.markers) GDScript-side (CONTOUR.md §4). Returns false on a
+## refused tick (loud — never a silent GDScript pass).
+func _advance_contour(bridge: ContourBridge, dt_hours: float) -> bool:
+	var stream := Rng.stream(rng_stream)
+	var cohesive := roam_center.is_finite()
+	var inputs := {
+		"agent.needs": needs,
+		"agent.needs_def": needs_def,
+		"agent.activities": activities,
+		"agent.current": current,
+		"agent.produced": produced,
+		"agent.pos": pos,
+		"agent.target": target,
+		"agent.home": home,
+		"agent.jitter": jitter,
+		"agent.roam_center": roam_center if cohesive else Vector2.ZERO,
+		"agent.has_cohesion": cohesive,
+		"agent.roam_range": roam_range,
+		"agent.cohesion_radius": cohesion_radius,
+		"agent.markers": _resolve_markers(),
+		"agent.hour": GameClock.solar_hours() if solar_gate else GameClock.hours,
+		"agent.storminess": Weather.storminess,
+		"agent.speed": speed,
+		"agent.arrive": arrive,
+		"agent.keep_bias": keep_bias,
+		"agent.drain_scale": drain_scale,
+		"agent.day_length_minutes": GameClock.day_length_minutes,
+		"agent.dt_hours": dt_hours,
+		"agent.rng": int(stream.state),
+	}
+	_contour_calls += 1
+	if not bridge.tick_seeded(inputs, dt_hours):
+		push_error("[agent_sim] STRATA_CONTOUR=1 but the AgentMind system tick was refused"
+			+ " — refusing to silently run the GDScript twin")
+		return false
+	# Read back the system's declared writes; thread the advanced stream state back
+	# into the autoload so it persists and the next mind continues the SAME stream.
+	needs = WorldState.get_value("agent.needs", needs)
+	pos = WorldState.get_value("agent.pos", pos)
+	target = WorldState.get_value("agent.target", target)
+	current = WorldState.get_value("agent.current", current)
+	produced = WorldState.get_value("agent.produced", produced)
+	last_utilities = WorldState.get_value("agent.last_utilities", last_utilities)
+	stream.state = int(WorldState.get_value("agent.rng", int(stream.state)))
+	return true
+
+
+## Pre-resolve every marker an activity names into a live world XZ (the Callable
+## marker_resolver's job, done as DATA GDScript-side — CONTOUR.md §4). A marker
+## whose resolver is unbound (wildlife) or returns INF (deleted) is simply OMITTED,
+## and the port reads an absent marker as "fall back to home" — byte-identical to
+## resolve_at's marker branch. Only marker-shaped `at`s are resolved.
+func _resolve_markers() -> Dictionary:
+	var out: Dictionary = {}
+	if not marker_resolver.is_valid():
+		return out
+	for a in activities:
+		var at_v: Variant = a.get("at")
+		if at_v is Dictionary and (at_v as Dictionary).has("marker"):
+			var mid := String((at_v as Dictionary).marker)
+			var p: Vector2 = marker_resolver.call(mid)
+			if p.is_finite():
+				out[mid] = p
+	return out
 
 
 func arrived() -> bool:

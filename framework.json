@@ -99,11 +99,13 @@
 		],
 		"understory": [
 			"game/sim/agent_sim.gd",
+			"game/sim/agent_sim.ct",
 			"game/sim/path_cursor.gd",
 			"game/sim/rng.gd",
 			"game/world/firefly_field.gd",
 			"game/items/firefly.gd",
 			"game/villagers/villager_manager.gd",
+			"game/villagers/villager_manager.ct",
 			"game/villagers/villager_body.gd",
 			"game/villagers/villager_body.tscn"
 		],

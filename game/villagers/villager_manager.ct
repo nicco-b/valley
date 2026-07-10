@@ -1,0 +1,49 @@
+# Contour port of valley game/villagers/villager_manager.gd :: VillagerManager —
+# the bounded RULES tier. VillagerManager is a §6-shaped MANAGER (it raises one
+# AgentSim mind per villager record and advances them), but its per-tick sim work
+# IS AgentSim.advance — already the `system AgentMind` port (game/sim/agent_sim.ct).
+# What is genuinely the manager's OWN closed rule is one pure judgement:
+#
+#   validate_schedule(schedule) — the SCHEDULE's semantic soundness (every
+#   activity a Dictionary carrying a non-empty string `id` and a non-empty string
+#   `satisfies`, the need AgentSim scores against). It is the villagers kind's
+#   validator (Records.register_validator) AND spawn_villager's own guard — one
+#   truth, so the records desk can never green-light a villager the loader would
+#   silently drop. Static + pure in the twin already; Plumb-certified here bit-for-
+#   bit (the same error SENTENCES, %-format load-bearing, law 10).
+#
+# WHAT STAYS GDSCRIPT (engine-bound, enumerated): spawn_villager's body wiring +
+# AgentSim construction; _resolve_marker (a CellRecords.find_record lookup — the
+# marker RESOLVER, which pre-resolves an activity's marker id into a live XZ that
+# AgentMind then reads as the declared `agent.markers` data, CONTOUR.md §4's
+# Callable-as-data); embody/dissolve on focus distance; load/save state;
+# _focus_position. Those read the engine and are not a closed sim rule.
+#
+# STATUS: authored + compiles clean under the cold gate; validate_schedule is
+# Plumb-certified bit-exact vs real headless Godot over a well-formed + adversarial
+# corpus. See docs/PORT_LEDGER.md villager_manager row.
+
+
+# validate_schedule: "" when the schedule is sound, else the FIRST activity's
+# failure — the exact sentence Records.validate_message surfaces to the desk.
+# Contour is eager where GDScript short-circuits, so the twin's `not (a.get("id")
+# is String) or String(a.id).is_empty()` (which never touches a.id when it isn't a
+# String) becomes a nested guard reaching the SAME message for both failure modes.
+sim func validate_schedule(schedule) -> string:
+	var i = 0
+	while i < schedule.size():
+		var a = schedule[i]
+		if not (a is Dictionary):
+			return "activity %d is not an object" % i
+		var aid = a.get("id", null)
+		if not (aid is String):
+			return "activity %d missing string 'id'" % i
+		if aid.is_empty():
+			return "activity %d missing string 'id'" % i
+		var sat = a.get("satisfies", null)
+		if not (sat is String):
+			return "activity '%s' missing string 'satisfies'" % a.get("id", i)
+		if sat.is_empty():
+			return "activity '%s' missing string 'satisfies'" % a.get("id", i)
+		i = i + 1
+	return ""

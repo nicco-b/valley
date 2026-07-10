@@ -1,0 +1,11 @@
+{
+	"version": 2,
+	"hours": 14.5,
+	"day": 7,
+	"wall_time": 1700100000,
+	"civil": true,
+	"player": { "x": -8.0, "z": 40.0 },
+	"state": {},
+	"wear": {},
+	"cells": {}
+}

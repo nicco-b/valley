@@ -64,6 +64,7 @@ func _ready() -> void:
 	_test_story_dry_spell_real()
 	_test_names()
 	_test_playtest_anchors()
+	_test_save_migration()
 	await _test_strata_link()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
@@ -4888,6 +4889,83 @@ func _test_playtest_anchors() -> void:
 	WorldState.restore(ws_guard)
 	GameClock.day = clock_day
 	GameClock.hours = clock_hours
+
+
+## The save covenant ladder (PLAN_SHIP §1.7 / S4 groundwork, save_migration.gd):
+## an OLDER save migrates up to the format this build reads; a save from a
+## NEWER build refuses honestly (never a crash, never a silent reset); a
+## versionless/foreign file refuses. Pure — SaveMigration is static, no
+## autoloads touched. Also drives every fixture in tests/fixtures/saves/
+## through the ladder (the "fixture saves per release" phase, wired into
+## test.sh): each release archives a real save; every later build must still
+## place it on the ladder.
+func _test_save_migration() -> void:
+	# --- an old (v1, pre-interiors) save ladders up to the current format ---
+	var v1 := {
+		"version": 1, "hours": 8.0, "day": 3, "wall_time": 1700000000,
+		"player": {"x": 12.0, "z": -34.0}, "state": {}, "wear": {},
+	}
+	var up := SaveMigration.migrate(v1)
+	_check(bool(up.get("ok", false)), "v1 save migrates (%s)" % up.get("error", ""))
+	_check(int(up.data.version) == SaveMigration.CURRENT,
+		"the ladder lifts v1 to the current format (v%d)" % int(up.data.version))
+	_check(up.data.has("cells") and up.data.cells is Dictionary,
+		"v1→v2 fills the `cells` default the old save predates")
+	_check(up.data.get("civil", null) == false,
+		"v1→v2 defaults `civil` false so apply_snapshot re-anchors the clock")
+	# the original fields survive the reshape untouched
+	_check(int(up.data.day) == 3 and absf(float(up.data.hours) - 8.0) < 0.001
+		and float(up.data.player.x) == 12.0,
+		"the ladder carries the old save's own fields through unchanged")
+	# the migration does not mutate its input dict (works on a copy)
+	_check(int(v1.version) == 1, "migrate leaves the caller's dict at v1 (copy, not mutate)")
+
+	# --- a current (v2) save is a pass-through, byte-shaped the same ---
+	var v2 := {
+		"version": 2, "hours": 1.0, "day": 1, "civil": true,
+		"player": {"x": 0.0, "z": 0.0}, "state": {}, "wear": {}, "cells": {},
+	}
+	var same := SaveMigration.migrate(v2)
+	_check(bool(same.get("ok", false)) and int(same.data.version) == 2,
+		"a v2 save passes through the ladder unchanged")
+
+	# --- a save from a NEWER build refuses honestly (the covenant's core) ---
+	var future := {"version": SaveMigration.CURRENT + 1, "player": {"x": 0.0, "z": 0.0}}
+	var refused := SaveMigration.migrate(future)
+	_check(not bool(refused.get("ok", true)), "a newer-format save does not load")
+	_check(bool(refused.get("refused_newer", false)),
+		"a newer-format save is flagged refused_newer (the player can be told)")
+	_check("newer version" in String(refused.get("error", "")),
+		"the refusal names the honest sentence (got '%s')" % refused.get("error", ""))
+	_check(refused.data.is_empty(),
+		"a refused save yields no data — never a partial, half-migrated world")
+
+	# --- a versionless / foreign file refuses rather than guess ---
+	var bare := SaveMigration.migrate({"hello": "world"})
+	_check(not bool(bare.get("ok", true)) and not bool(bare.get("refused_newer", false)),
+		"a versionless dict refuses (not misread as v1), and it is not 'newer'")
+	var not_dict := SaveMigration.migrate("just a string")
+	_check(not bool(not_dict.get("ok", true)), "a non-dict payload refuses")
+
+	# --- every release fixture still places on the ladder (the test.sh phase) ---
+	var fixtures_dir := "res://tests/fixtures/saves"
+	var fdir := DirAccess.open(fixtures_dir)
+	if fdir == null:
+		_check(false, "the save-fixtures dir exists (tests/fixtures/saves)")
+	else:
+		var seen := 0
+		for fname in fdir.get_files():
+			if not fname.ends_with(".json"):
+				continue
+			seen += 1
+			var raw: Variant = JSON.parse_string(
+				FileAccess.get_file_as_string(fixtures_dir.path_join(fname)))
+			var r := SaveMigration.migrate(raw)
+			_check(bool(r.get("ok", false)),
+				"fixture %s ladders to the current format (%s)" % [fname, r.get("error", "")])
+			_check(int(r.data.get("version", -1)) == SaveMigration.CURRENT,
+				"fixture %s arrives at v%d" % [fname, SaveMigration.CURRENT])
+		_check(seen >= 1, "at least one release save fixture is on record")
 
 
 ## The state verb (DESIGN_QUESTS B12): the desk's mirror-law forcing

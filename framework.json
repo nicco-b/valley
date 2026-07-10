@@ -73,6 +73,7 @@
 		"elements": [
 			"game/world/weather.gd",
 			"game/world/climate.gd",
+			"game/world/climate.ct",
 			"game/world/atmosphere.gd",
 			"game/world/day_night.gd",
 			"game/world/audio.gd",

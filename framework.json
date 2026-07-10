@@ -112,6 +112,7 @@
 		],
 		"campfire": [
 			"game/story/story.gd",
+			"game/story/story.ct",
 			"game/story/journal_ui.gd",
 			"game/story/quest_lint.gd",
 			"game/story/quest_hooks.gd",

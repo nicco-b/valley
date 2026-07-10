@@ -75,6 +75,18 @@ func _ready() -> void:
 		var cc: Dictionary = Climate.contour_status()
 		print("SOAK CONTOUR-CLIMATE mode=%d engaged=%s climate_ticks=%d"
 			% [int(cc.get("mode", 0)), str(cc.get("engaged", false)), int(cc.get("calls", 0))])
+	# Contour routing proof for the Teller (Mission D1e): whether story's latch/index
+	# RULES (the index construction, the §3 DAG, $role prose, role order + rank) ran
+	# through the native Contour VM inside THIS fingerprinted run, and how many times.
+	# Same diagnostic-not-digested discipline as flora above — it proves the flag-ON
+	# soak's story section (journal.* rides the digest) was Contour-authored (mode=2,
+	# calls>0 from the boot index build + every ambient-errand settle), the flag-OFF
+	# soak pure GDScript (mode=1, calls=0). journal latches ARE the digest's story
+	# section, so a routed rule that diverged would move the fingerprint above.
+	if Story.has_method("contour_status"):
+		var ss: Dictionary = Story.contour_status()
+		print("SOAK CONTOUR-STORY mode=%d engaged=%s story_calls=%d"
+			% [int(ss.get("mode", 0)), str(ss.get("engaged", false)), int(ss.get("calls", 0))])
 	get_tree().quit(1 if _failures > 0 else 0)
 
 

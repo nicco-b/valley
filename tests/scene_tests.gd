@@ -160,6 +160,32 @@ func _test_audio() -> void:
 	_check(levels.begins_with("Master:") and " UI:" in levels,
 		"audio: bus_levels lists the house buses (got %s)" % levels)
 
+	# Commit-to-mix (X4 A3-breadth item 3): the write door on a TEMP file —
+	# the shipped mix.json stays untouched here (the link-level probe below
+	# exercises the real path with a snapshot/restore). A tuned SFX level
+	# lands as "levels.SFX" and the existing "ducks" table survives
+	# byte-for-byte (never a blind overwrite).
+	var tmp_mix := "user://mix_commit_test.json"
+	if FileAccess.file_exists(tmp_mix):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp_mix))
+	var seeded := {"ducks": [{"id": "probe_duck", "when": "interiors.inside",
+		"bus": "Ambience", "gain": 0.5}]}
+	var seed_f := FileAccess.open(tmp_mix, FileAccess.WRITE)
+	seed_f.store_string(JSON.stringify(seeded, "\t"))
+	seed_f.close()
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("SFX"), -3.25)
+	var commit_r := Audio.commit_levels(tmp_mix)
+	_check(bool(commit_r.get("ok", false)),
+		"audio: commit_levels writes ok (got %s)" % commit_r.get("error", ""))
+	var landed = Records.load_json(tmp_mix)
+	_check(landed is Dictionary and absf(float(landed.get("levels", {}).get("SFX", 0.0)) - (-3.25)) < 0.01,
+		"audio: commit_levels lands the live SFX level (got %s)" % landed)
+	_check(landed.get("ducks", []).size() == 1
+		and String(landed["ducks"][0].get("id", "")) == "probe_duck",
+		"audio: commit_levels preserves the existing ducks table untouched")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp_mix))
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("SFX"), 0.0)
+
 
 ## The ambience machine (PLAN_AUDIO A2): beds are RECORDS now, the evaluator
 ## is record-driven, and valley's two shipped beds reproduce the OLD
@@ -1069,8 +1095,38 @@ func _test_audio_verbs(peer: StreamPeerTCP) -> void:
 		"audio set missing db errs with the contract line (got %s)" % r[6])
 	_check(String(r[7]).begins_with("err audio needs"),
 		"audio bogus subverb errs with the contract line (got %s)" % r[7])
+
+	# Commit-to-mix over the link (X4 A3-breadth item 3): `audio commit`
+	# lands the CURRENT live bus levels into the REAL data/audio/mix.json —
+	# snapshot + restore around it (the `_test_names_verbs` precedent) so a
+	# green run leaves the worktree byte-identical.
+	var mix_file := ProjectSettings.globalize_path("res://data/audio/mix.json")
+	var mix_original := (FileAccess.get_file_as_string(mix_file)
+		if FileAccess.file_exists(mix_file) else "")
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Music"), -2.0)
+	var c := await _link_send(peer, ["audio commit"])
+	_check(c.size() == 1, "audio commit reply lands (got %d)" % c.size())
+	if c.size() == 1:
+		var commit_line := String(c[0])
+		_check(commit_line.begins_with("ok audio commit ") and "Music:-2.0" in commit_line,
+			"audio commit answers with the just-landed levels (got %s)" % commit_line)
+		var on_disk = Records.load_json(mix_file)
+		_check(on_disk is Dictionary
+			and absf(float(on_disk.get("levels", {}).get("Music", 0.0)) - (-2.0)) < 0.01,
+			"audio commit: mix.json on disk carries the committed level (got %s)" % on_disk)
+	# Restore the shipped file byte-for-byte, then reload so the live table
+	# (ducks + any levels) matches the real content again.
+	if mix_original.is_empty():
+		if FileAccess.file_exists(mix_file):
+			DirAccess.remove_absolute(mix_file)
+	else:
+		var restore_f := FileAccess.open(mix_file, FileAccess.WRITE)
+		restore_f.store_string(mix_original)
+		restore_f.close()
+	Audio.reload_mix()
 	# Leave the mix as found (other probes read levels).
 	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("SFX"), 0.0)
+	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("Music"), 0.0)
 	# The audition arm (A3, 4b-ii): play_sound auditions an ambience LAYER
 	# by id through the held voice (beds loop) and `play_sound stop` silences
 	# it — the Mix face's Audition/Stop buttons, proven over the wire. The

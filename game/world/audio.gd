@@ -357,16 +357,23 @@ func bus_levels() -> String:
 	return " ".join(toks)
 
 
-## Read the duck table (data/audio/mix.json). Each rule is validated
-## against MIX_SCHEMA + a bus-is-a-house-bus check (SFX's honesty), so a
-## malformed rule is dropped with a clear message, never a silent misduck.
-## Content-empty (no file / no ducks) loads nothing, errors nothing (FW4).
+## Read the duck table + any committed levels (data/audio/mix.json). Each
+## duck rule is validated against MIX_SCHEMA + a bus-is-a-house-bus check
+## (SFX's honesty), so a malformed rule is dropped with a clear message,
+## never a silent misduck. Content-empty (no file / no ducks) loads
+## nothing, errors nothing (FW4).
 func _load_mix() -> void:
 	_ducks.clear()
 	if not FileAccess.file_exists(MIX_PATH):
-		return  # neutral fallback: no ducks
+		return  # neutral fallback: no ducks, no committed levels
 	var doc = Records.load_json(MIX_PATH)
-	if not (doc is Dictionary) or not (doc.get("ducks") is Array):
+	if not (doc is Dictionary):
+		push_error("[audio] %s: expected a JSON object" % MIX_PATH)
+		return
+	_apply_levels(doc)
+	if not doc.has("ducks"):
+		return  # content-empty: a mix.json with only committed levels is valid
+	if not (doc.get("ducks") is Array):
 		push_error("[audio] %s: expected an object with a 'ducks' array" % MIX_PATH)
 		return
 	for rule in doc["ducks"]:
@@ -381,6 +388,81 @@ func _load_mix() -> void:
 				% [MIX_PATH, rule["bus"]])
 			continue
 		_ducks.append(rule)
+
+
+## Apply mix.json's committed "levels" (X4 A3-breadth item 3, the Mix
+## face's "Commit to Mix" button): base_gain_db per bus, read at boot (and
+## on any live reload) so a tuned mix survives relaunch. A bus name the
+## document names that isn't a house bus, or a non-numeric level, is
+## skipped with a clear message — never a silent misapply. Content-empty
+## ("levels" absent) leaves AudioServer untouched. NOTE: Settings owns
+## Master's user-facing volume slider and re-applies it right after boot
+## (settings.gd:apply, autoload order after Audio) — a committed Master
+## level is this rung's honest limit, not silently hidden.
+func _apply_levels(doc: Dictionary) -> void:
+	var levels: Variant = doc.get("levels", null)
+	if not (levels is Dictionary):
+		return
+	for bus_name: String in (levels as Dictionary).keys():
+		var idx := AudioServer.get_bus_index(String(bus_name))
+		if idx < 0:
+			push_error("[audio] %s: level bus '%s' is not a house bus" % [MIX_PATH, bus_name])
+			continue
+		var v: Variant = levels[bus_name]
+		if not (v is float or v is int):
+			push_error("[audio] %s: level for '%s' is not numeric" % [MIX_PATH, bus_name])
+			continue
+		AudioServer.set_bus_volume_db(idx, float(v))
+
+
+## Commit the CURRENT live house bus levels into data/audio/mix.json under
+## a "levels" object (bus name -> base_gain_db) — the Mix face's "Commit to
+## Mix" button (PLAN_AUDIO 4a, X4 A3-breadth item 3): a tuned live mix
+## becomes DATA, not a lost knob state. Rides the SAME write-door shape
+## Names.write demonstrates (merge → atomic write → reload) rather than a
+## blind file overwrite: every OTHER top-level key (today just "ducks")
+## survives byte-for-byte; only "levels" is replaced. `file` is overridable
+## so a test drives a temp path end to end. Returns {ok, error}.
+func commit_levels(file: String = MIX_PATH) -> Dictionary:
+	var levels := {}
+	for i in AudioServer.bus_count:
+		levels[AudioServer.get_bus_name(i)] = AudioServer.get_bus_volume_db(i)
+	var doc: Dictionary = {}
+	if FileAccess.file_exists(file):
+		var parsed = Records.load_json(file)
+		if parsed is Dictionary:
+			doc = parsed
+	doc["levels"] = levels
+	if not _save_mix(doc, file):
+		return {"ok": false, "error": "could not write %s" % file}
+	if file == MIX_PATH:
+		_load_mix()
+	return {"ok": true, "error": ""}
+
+
+## Atomic write of the whole mix document (tabbed JSON, the house style —
+## Names._save's own temp+rename precedent): a crash mid-write truncates
+## the temp, never mix.json.
+func _save_mix(doc: Dictionary, file: String) -> bool:
+	var dir := file.get_base_dir()
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(dir))
+	var tmp := file + ".tmp"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	if f == null:
+		push_error("[audio] cannot write %s: %s" % [tmp,
+			error_string(FileAccess.get_open_error())])
+		return false
+	var wrote := f.store_string(JSON.stringify(doc, "\t"))
+	f.close()
+	if not wrote:
+		push_error("[audio] short write to %s — mix on disk untouched" % tmp)
+		return false
+	var err := DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp),
+		ProjectSettings.globalize_path(file))
+	if err != OK:
+		push_error("[audio] could not commit %s: %s (mix untouched)" % [file, error_string(err)])
+		return false
+	return true
 
 
 ## The live linear duck multiplier for a bus — the product of every active

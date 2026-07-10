@@ -1026,7 +1026,17 @@ func _audio(parts: PackedStringArray) -> String:
 			return "err audio set: '%s' is not a house bus" % bus
 		AudioServer.set_bus_volume_db(idx, float(parts[3]))
 		return "ok audio %s %s" % [bus, parts[3]]
-	return "err audio needs set <bus> <db>"
+	if parts[1] == "commit":
+		# Commit-to-mix (X4 A3-breadth item 3, PLAN_AUDIO 4a "write to
+		# mix.json"): land the CURRENT live bus levels into data/audio/
+		# mix.json as base_gain_db per bus, through Audio's own write door
+		# (merge -> atomic write -> reload) — never a blind file overwrite.
+		# The Mix face's "Commit to Mix" button drives this.
+		var r := Audio.commit_levels()
+		if not bool(r.get("ok", false)):
+			return "err audio commit: %s" % r.get("error", "failed")
+		return "ok audio commit %s duck:%s" % [Audio.bus_levels(), Audio.active_ducks()]
+	return "err audio needs set <bus> <db> | commit"
 
 
 ## Advance the clock for the hub — always FORWARD, always through

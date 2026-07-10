@@ -25,6 +25,7 @@ func _ready() -> void:
 	_test_river_drape()
 	_test_bathy_edit_invalidate()
 	_test_region_reseed()
+	_test_sea_reload_visibility()
 	_test_lake_outline()
 	_test_water_field()
 	_test_wave_sources()
@@ -4530,6 +4531,75 @@ func _test_region_reseed() -> void:
 	if had_storage:
 		Hydrology.region_storage[id] = saved_storage
 		Hydrology.region_qref[id] = saved_qref
+
+
+## Mission V1 — THE SEA MUST COME BACK AFTER A BLESS. A living-preview pane
+## boots CONTENT-EMPTY (Terrain.sea_level = -1e12), so water_bodies._ready
+## builds NO sea discs. Through a shaping session the PreviewTerrain drape
+## steps every water tier aside on _enter and restores it on leave (the
+## double-cycle here — the classic double-hide would capture the ALREADY-hidden
+## node on the second wear and make hidden the new normal). The BLESS then
+## re-reads the world off disk (Terrain._reload_water sets sea_level and emits
+## water_reloaded), and the sea must appear for the FIRST time here. On baseline
+## water_reloaded rebuilt only the rivers, so a blessed world showed its rivers
+## but NEVER its sea — the "rivers but no sea" report. This pins the whole
+## sequence and asserts every water tier is visible at the end. Pure nodes +
+## the real drape/reload machinery — no streamer, no kernel, runs headless.
+func _test_sea_reload_visibility() -> void:
+	var saved_sea: float = Terrain.sea_level
+	# A content-empty living-preview boot: no sea on disk yet.
+	Terrain.sea_level = -1e12
+	var wb: Node3D = load("res://game/world/water_bodies.gd").new()
+	add_child(wb)  # _ready: joins the steps-aside group, builds no sea (dry)
+	var ws: Node3D = load("res://game/world/water_sheet.gd").new()
+	add_child(ws)  # the near wave-field tier — also steps aside
+	_check(wb._sea_far == null,
+		"sea/reload: a content-empty boot builds NO sea (the living-preview pane)")
+
+	# The shaping session: wear a drape, resolve, twice. _enter hides every
+	# steps-aside node (recording its visibility); leave restores it.
+	var drape := PreviewTerrain.new()
+	add_child(drape)
+	for cycle in 2:
+		drape._enter()
+		_check(not wb.visible and not ws.visible,
+			"sea/reload: cycle %d — the drape steps the water aside" % cycle)
+		drape.leave()
+		_check(wb.visible and ws.visible,
+			"sea/reload: cycle %d — leaving the drape restores the water" % cycle)
+
+	# The BLESS: the importer wrote a real sea level; reload re-reads it. Mirror
+	# Terrain._reload_water (set the level, emit water_reloaded) without touching
+	# the operator's world on disk.
+	Terrain.sea_level = 12.0
+	Terrain.water_reloaded.emit()
+	_check(wb._sea_far != null,
+		"sea/reload: the bless rebuilds the sea a content-empty boot never made")
+	if wb._sea_far != null:
+		_check(wb._sea_far.is_visible_in_tree() and wb._sea_near.is_visible_in_tree()
+				and wb._sea_mid.is_visible_in_tree(),
+			"sea/reload: every sea tier is visible after the bless")
+	_check(wb.is_visible_in_tree(),
+		"sea/reload: the water_bodies tier is visible after the bless")
+	_check(ws.is_visible_in_tree(),
+		"sea/reload: the water_sheet tier is visible after the bless")
+
+	# The realistic ordering: a bless while the drape is STILL worn (the
+	# crossfade lifts it one beat later) must still land visible sea — the new
+	# discs spawn as hidden children of the stepped-aside tier and show when the
+	# drape leaves.
+	drape._enter()
+	Terrain.water_reloaded.emit()
+	drape.leave()
+	_check(wb._sea_far != null and wb._sea_far.is_visible_in_tree() and wb.is_visible_in_tree(),
+		"sea/reload: sea blessed WHILE the drape is worn shows once the drape lifts")
+
+	# Teardown: drop the throwaway nodes, restore the world's sea level so later
+	# tests see an untouched Terrain.
+	drape.queue_free()
+	ws.queue_free()
+	wb.queue_free()
+	Terrain.sea_level = saved_sea
 
 
 ## The lake-shape E2E (P2+): a Strata export whose lake carries its TRUE

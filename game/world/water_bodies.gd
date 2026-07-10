@@ -57,6 +57,44 @@ var _bathy: Dictionary = {}  # tier -> bake state (see _bathy_register)
 
 func _ready() -> void:
 	add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)  # sea + lakes step aside during preview
+	_build_sea()
+	_build_lakes()
+	for r in Terrain.rivers:
+		_build_river_mesh(r)
+	Hydrology.levels_changed.connect(_on_levels_changed)
+	# The map river pen adds rivers at runtime; give each its ribbon.
+	Terrain.river_added.connect(_build_river_mesh)
+	# A whole-water reload (reload_world / import) re-reads the sea level and
+	# the water records off disk. REBUILD every tier to match: boot built the
+	# sea/lakes only if sea_level was already real, but a living-preview pane
+	# boots CONTENT-EMPTY (sea_level = -1e12, so _ready made NO sea discs and
+	# NO lakes), and this is the one signal that says the level just changed.
+	# Rebuilding the SEA and LAKES here (not the rivers alone) is what makes
+	# the water come back after an in-session bless — without it a blessed
+	# world shows its rivers (rebuilt) but never its sea (never built).
+	Terrain.water_reloaded.connect(_on_water_reloaded)
+	# Mission Y3: the sea/lake bathymetry (_bathy) is a FOLLOW cache keyed
+	# on the focus-snapped anchor — _bathy_follow only rebakes when that
+	# anchor moves, never on its own. A lake's anchor never moves (its
+	# disc is fixed at the lake center — a genuine one-shot bake by
+	# design), and the sea's near/mid tiers only rebake once the player
+	# happens to wander to a new snap cell. Neither listens for the
+	# ground changing under them, so a bless (reload_world's whole-frame
+	# edited, or a sculpted stroke) leaves stale seabed depth live under
+	# the water indefinitely — the shoaling/surf line keeps breaking on
+	# the OLD reef. Forcing the anchor back to INF here just makes
+	# _bathy_follow treat the (unchanged) goal as new next tick, so it
+	# re-bakes off the CURRENT terrain — same one-shot-per-anchor design,
+	# just no longer blind to the ground moving under a fixed anchor.
+	Terrain.edited.connect(_on_terrain_edited_bathy)
+
+
+## Build the three world-sea tiers (near wave patch, mid swell disc, coarse
+## far disc) at the live sea level, plus the two shoaling tiers' bathymetry.
+## Extracted from _ready so a live water reload (_on_water_reloaded) can build
+## the sea a content-empty boot never made. Gated on a real sea_level: a dry
+## world (sea_level = -1e12) makes no sea, and the tier vars stay null.
+func _build_sea() -> void:
 	if Terrain.sea_level > -1e11:
 		_sea_near = MeshInstance3D.new()
 		_sea_near.name = "sea_near"
@@ -84,6 +122,13 @@ func _ready() -> void:
 				Terrain.sea_level)
 		_bathy_register("mid", _sea_mid, SEA_MID_RADIUS, SEA_MID_STEP,
 				Terrain.sea_level)
+
+
+## Build every lake/pond surface from Terrain.water_bodies (vertex-dense discs
+## or outline-hugging polygons, fetch-scaled swell + bathymetry on the big
+## ones). Extracted from _ready so a live water reload can rebuild the lakes a
+## content-empty boot never made.
+func _build_lakes() -> void:
 	for w in Terrain.water_bodies:
 		var center: Vector2 = w.center
 		var mi := MeshInstance3D.new()
@@ -121,30 +166,59 @@ func _ready() -> void:
 		if radius >= LAKE_SWELL_MIN_R:
 			_bathy_register("lake:" + String(w.id), mi, radius, lake_step,
 					float(w.surface))
-	for r in Terrain.rivers:
-		_build_river_mesh(r)
-	Hydrology.levels_changed.connect(_on_levels_changed)
-	# The map river pen adds rivers at runtime; give each its ribbon.
-	Terrain.river_added.connect(_build_river_mesh)
-	# A whole-water reload (reload_world / import) swaps the river set out from
-	# under us — rebuild every ribbon so imported rivers render (and drop the
-	# meshes of any that the reload removed). Hydrology re-seeds first (it
-	# connects earlier, as an autoload), so the fresh ribbons read live flow.
-	Terrain.water_reloaded.connect(_rebuild_rivers)
-	# Mission Y3: the sea/lake bathymetry (_bathy) is a FOLLOW cache keyed
-	# on the focus-snapped anchor — _bathy_follow only rebakes when that
-	# anchor moves, never on its own. A lake's anchor never moves (its
-	# disc is fixed at the lake center — a genuine one-shot bake by
-	# design), and the sea's near/mid tiers only rebake once the player
-	# happens to wander to a new snap cell. Neither listens for the
-	# ground changing under them, so a bless (reload_world's whole-frame
-	# edited, or a sculpted stroke) leaves stale seabed depth live under
-	# the water indefinitely — the shoaling/surf line keeps breaking on
-	# the OLD reef. Forcing the anchor back to INF here just makes
-	# _bathy_follow treat the (unchanged) goal as new next tick, so it
-	# re-bakes off the CURRENT terrain — same one-shot-per-anchor design,
-	# just no longer blind to the ground moving under a fixed anchor.
-	Terrain.edited.connect(_on_terrain_edited_bathy)
+
+
+## A whole-water reload (reload_world / import) re-read the sea level and the
+## water records off disk (Terrain._reload_water): tear down every built water
+## tier and rebuild it against the fresh state. This is the in-session-bless
+## path — a pane that booted content-empty (sea_level = -1e12, no sea, no
+## lakes) gets its sea and lakes for the FIRST time here, and a re-import to a
+## drier/wetter world drops stale bodies and re-seats the surviving ones.
+func _on_water_reloaded() -> void:
+	_rebuild_sea()
+	_rebuild_lakes()
+	_rebuild_rivers()
+
+
+## Tear down the sea tiers (and their bathymetry registrations) and rebuild
+## them at the CURRENT sea level. A content-empty boot built no sea, so this
+## is where a blessed world's sea first appears; a re-import that moved or
+## removed the sea rebuilds/clears it. Pending bathy bakes are waited on
+## before the meshes they write into are freed (the TEARDOWN-REAP law).
+func _rebuild_sea() -> void:
+	_drop_bathy("near")
+	_drop_bathy("mid")
+	for mi in [_sea_near, _sea_mid, _sea_far]:
+		if mi != null:
+			mi.queue_free()
+	_sea_near = null
+	_sea_mid = null
+	_sea_far = null
+	_set_sea_level = -1e9  # force _process to re-seat the tide onto fresh meshes
+	_build_sea()
+
+
+## Tear down every lake mesh (and its bathymetry) and rebuild from the fresh
+## Terrain.water_bodies. Keyed teardown mirrors _rebuild_rivers: a reload to a
+## drier world drops lakes that no longer exist instead of stranding them.
+func _rebuild_lakes() -> void:
+	for id in _lake_meshes.keys():
+		_drop_bathy("lake:" + String(id))
+		_lake_meshes[id].queue_free()
+	_lake_meshes.clear()
+	_build_lakes()
+
+
+## Drop one bathymetry tier: wait for any in-flight worker bake to finish (its
+## id must be reaped before the mesh it writes into is freed — the same reap
+## _exit_tree does) then forget the tier. Idempotent for an absent tier.
+func _drop_bathy(tier: String) -> void:
+	var st: Dictionary = _bathy.get(tier, {})
+	if st.is_empty():
+		return
+	if int(st.get("task", -1)) >= 0:
+		WorkerThreadPool.wait_for_task_completion(int(st.task))
+	_bathy.erase(tier)
 
 
 ## Rebuild all river ribbons after a whole-water reload: free the meshes of

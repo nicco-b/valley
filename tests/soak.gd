@@ -47,6 +47,18 @@ func _ready() -> void:
 				% [DAYS, elapsed, GameClock.day, Weather.state,
 				Climate.wetness, FloraLife.vitality])
 	print("SOAK FINGERPRINT %d" % fp)
+	# Contour routing proof (PLAN_ENGINE E2, Mission C1): whether the first
+	# SYSTEM-TIER port (flora's hourly vitality ease) ran through the native
+	# Contour §6 system inside THIS fingerprinted run, and how many times. Pure
+	# diagnostic — never digested, so it cannot move the fingerprint above; it
+	# proves the flag-ON soak was NOT a silent GDScript fallback (mode=2, calls
+	# climbs to 24*DAYS), and the flag-OFF soak was pure GDScript (mode=1,
+	# calls=0). The fingerprint owns FloraLife.vitality (%.4f above), so an
+	# engaged run whose Contour ease diverged one ULP would have moved it.
+	if FloraLife.has_method("contour_status"):
+		var cs: Dictionary = FloraLife.contour_status()
+		print("SOAK CONTOUR mode=%d engaged=%s flora_ticks=%d"
+			% [int(cs.get("mode", 0)), str(cs.get("engaged", false)), int(cs.get("calls", 0))])
 	get_tree().quit(1 if _failures > 0 else 0)
 
 

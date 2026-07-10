@@ -79,6 +79,7 @@
 			"game/world/ambience.gd",
 			"game/world/weather_fx.gd",
 			"game/world/flora_life.gd",
+			"game/world/flora_life.ct",
 			"game/shaders/sky.gdshader",
 			"game/shaders/rain_curtain.gdshader",
 			"game/shaders/flora_sway.gdshader"

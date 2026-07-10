@@ -77,6 +77,7 @@ func _ready() -> void:
 	_test_contour()
 	_test_conditions_contour()
 	_test_contour_bridge()
+	_test_flora_contour()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -6916,6 +6917,79 @@ func _test_contour_bridge() -> void:
 	for n in [ws1, ws2, ws3, ws4, ws5]:
 		n.free()
 	print("  contour_bridge: probe ticks bit-identical to lattice-cli, continuations survive save/restore, declared-access-only enforced")
+
+
+## THE FIRST SYSTEM FILE (game/world/flora_life.ct, Mission C1): flora's hourly
+## vitality ease as a Contour §6 `Flora` system, wired behind STRATA_CONTOUR
+## through the systems bridge. Two proofs (both SKIP without the native kernel):
+##   (1) PARITY — the Flora system's flora.vitality trajectory over 6 hourly
+##       ticks is BIT-IDENTICAL (LE IEEE-754 hex) to the GDScript twin's own
+##       easing (FloraLife.target_for + the snappedf(clampf(...)) step), computed
+##       side by side in-game — so the .ct system == the .gd _hourly, byte-exact.
+##   (2) WIRING — FloraLife.contour_status() reflects the boot flag, and when
+##       engaged a real FloraLife._hourly drives the counter (the sim path routed
+##       through the VM, not a silent GDScript fallback). This is the same routing
+##       the soak exercises 720× inside its fingerprinted window.
+func _test_flora_contour() -> void:
+	# --- (2) wiring: contour_status reflects the flag, no silent fallback -------
+	var st: Dictionary = FloraLife.contour_status()
+	if bool(st.engaged):
+		var before: int = int(FloraLife.contour_status().calls)
+		var saved_v: float = FloraLife.vitality           # snapshot ALL live state
+		var saved_vit: Variant = WorldState.get_value("flora.vitality")
+		var saved_bloom: Variant = WorldState.get_value("flora.bloom")
+		var saved_parched: Variant = WorldState.get_value("flora.parched")
+		FloraLife._hourly(0)                              # one real hourly tick → routes
+		var after: int = int(FloraLife.contour_status().calls)
+		_check(after == before + 1,
+			"flora: STRATA_CONTOUR=1 routes _hourly's ease through the Contour Flora system (calls %d->%d, no silent fallback)" % [before, after])
+		FloraLife.vitality = saved_v                      # ... and restore it verbatim
+		WorldState.set_value("flora.vitality", saved_vit)
+		WorldState.set_value("flora.bloom", saved_bloom)
+		WorldState.set_value("flora.parched", saved_parched)
+		print("  flora: routing ENGAGED — the hourly vitality ease ticks the native Contour §6 system (%d ticks)" % after)
+	else:
+		_check(int(st.mode) == 1 or int(st.mode) == -1,
+			"flora: unresolved-safe routing mode (%d)" % int(st.mode))
+		print("  flora: routing OFF (mode %d) — GDScript twin, byte-identical" % int(st.mode))
+
+	# --- (1) parity: the Flora system == the GDScript twin, hour by hour --------
+	if not ContourBridge.available():
+		print("  flora: SKIP system-parity (no native kernel — GDScript twin only)")
+		return
+	var WS := load("res://game/state/world_state.gd")
+	var ws = WS.new()
+	ws.set_value("flora.vitality", 0.7)
+	var b := ContourBridge.new(ws)
+	var err := b.compile_file("res://game/world/flora_life.ct")
+	_check(err == "", "flora: flora_life.ct compiles (%s)" % err)
+	if err != "":
+		ws.free()
+		return
+	# The RMW resource shows up in BOTH declared reads and declared writes.
+	var reads := Array(b.declared_reads()); reads.sort()
+	var writes := Array(b.declared_writes())
+	_check(reads == ["flora.env", "flora.vitality"], "flora: declared reads = %s" % [reads])
+	_check(writes == ["flora.vitality"], "flora: declared writes (RMW) = %s" % [writes])
+	# Six hours of the SAME environment; compare the system's flora.vitality to
+	# the twin's easing computed alongside it (target_for is the certified leaf).
+	var env := {"season": "spring", "moist": 0.5, "temp": 20.0}
+	var tgt: float = FloraLife.target_for(env.season, env.moist, env.temp)
+	var twin := 0.7
+	var got := []
+	var exp := []
+	for i in 6:
+		_check(b.tick_seeded({"flora.env": env}, 3600.0), "flora: system tick %d applied" % i)
+		twin = snappedf(clampf(twin + (tgt - twin) * 0.06, 0.0, 1.0), 0.001)  # EASE_PER_HOUR
+		got.append(_f64_hex(ws.get_value("flora.vitality")))
+		exp.append(_f64_hex(twin))
+	_check(got == exp,
+		"flora: 6-hour vitality trajectory bit-identical to the GDScript twin (%s vs %s)" % [got, exp])
+	# It eased UP toward the wet-spring target and never overshot — a live tick.
+	_check(float(ws.get_value("flora.vitality")) > 0.7 and float(ws.get_value("flora.vitality")) < tgt,
+		"flora: vitality eased toward target_for(spring,0.5,20)=%.4f" % tgt)
+	ws.free()
+	print("  flora: 6 hourly ticks of flora_life.ct bit-identical to the GDScript twin via the systems bridge")
 
 
 ## LE IEEE-754 hex of a float — the appendix's exact bit-level wire (the Godot

@@ -1,0 +1,59 @@
+# Contour port of valley game/world/flora_life.gd :: FloraLife
+#
+# The FIRST SYSTEM-TIER file to cross (Mission C1, Wave C of docs/PORT_LEDGER.md).
+# flora_life.gd is the leaf of the world_state→weather→climate→flora graph: "one
+# global vitality value the whole valley's vegetation breathes with," eased hour
+# by hour toward the Climate substrate. Two things port here:
+#
+#   * target_for(season, moist, temp) — the PURE leaf: where vitality wants to
+#     settle for a season + ground moisture + air temperature. Season base
+#     (SEASON_BASE), a wet/dry water term, a scorch penalty, a frost penalty,
+#     clamped. Plumb-certified bit-identical to real headless Godot over
+#     corpus/flora_target_for.jsonl (byte-identical body to the vendored static).
+#
+#   * system Flora — the hourly TICK as a §6 system. It reads the environment
+#     the GDScript twin reads (season/moist/temp, handed in as the dict resource
+#     `flora.env`) plus its own persisted state `flora.vitality`, and writes the
+#     one value it owns: `flora.vitality`, eased toward target_for by
+#     EASE_PER_HOUR (0.06) and snapped to 0.001 — byte-for-byte the twin's
+#     `vitality = snappedf(clampf(vitality + (target-vitality)*0.06, 0,1), 0.001)`.
+#     `flora.vitality` is a read-AND-write resource (a read-modify-write step,
+#     §6 Scheduler) — seeded from WorldState, eased, applied back.
+#
+# The remainder of flora_life.gd's _hourly stays GDScript glue on the valley side
+# (the bloom/parched HUD hysteresis — a derived signal — and _regrow's per-cell
+# depletion field, the loomkernel-class per-element tier). The system owns the
+# ONE fingerprinted scalar the ledger names as flora's write: flora.vitality.
+#
+# Structural faithfulness: Contour has no `: float` local annotations (`var base`
+# not `var base: float`) and the env inputs arrive as one dict resource rather
+# than three Climate/GameClock reads (the scaffold-seeding convention — the host
+# seeds flora.env from the SAME live Climate.moisture/temperature/GameClock reads
+# the twin makes, so the two see bit-identical inputs). The computed answer is
+# identical (Plumb proves target_for; the valley soak proves the whole system in
+# situ — all four fingerprints identical, flag-off == flag-on).
+
+
+# Where vitality wants to settle for a given season, ground moisture, and
+# temperature. dry ground starves, wet ground feeds; scorching + dry = parched;
+# frost bites what's green. Pure — Plumb pins the response.
+const SEASON_BASE = {"spring": 0.85, "summer": 0.68, "autumn": 0.5, "winter": 0.35}
+
+sim func target_for(season, moist, temp) -> float:
+	var base = SEASON_BASE.get(season, 0.6)
+	var water = 0.45 * (moist - 0.35)
+	var heat = -0.03 * maxf(temp - 30.0, 0.0)
+	var cold = -0.02 * maxf(2.0 - temp, 0.0)
+	return clampf(base + water + heat + cold, 0.05, 1.0)
+
+
+# The hourly vitality tick. `flora.env` is the seeded environment dict
+# {season, moist, temp}; `flora.vitality` is the global value, read then written
+# (a §6 read-modify-write). One EASE_PER_HOUR (0.06) step toward the target,
+# clamped to [0,1] and snapped to a milli-unit — the twin's _hourly, exactly.
+system Flora:
+	reads: flora.env, flora.vitality
+	writes: flora.vitality
+	sim func step():
+		var target = target_for(flora.env.season, flora.env.moist, flora.env.temp)
+		flora.vitality = snappedf(clampf(flora.vitality + (target - flora.vitality) * 0.06, 0.0, 1.0), 0.001)

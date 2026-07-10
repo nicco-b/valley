@@ -55,6 +55,23 @@ var _shader_vitality := 0.7
 var _set_vitality := -1e9  # last-pushed shader value (perf guard)
 var _cells: Dictionary = {}  # Vector2i -> taken (0..1]; sparse, self-forgetting
 
+# --- Contour routing (PLAN_ENGINE E2, Mission C1: the FIRST SYSTEM FILE) --------
+## The hourly vitality ease is the first SYSTEM-TIER port to run inside the
+## shipping sim (docs/PORT_LEDGER.md Wave C). When STRATA_CONTOUR=1 — a boot-time
+## sim flag, read once, DevMode-independent, default OFF — _hourly's ease routes
+## through the native Contour §6 `Flora` system (game/world/flora_life.ct, via the
+## systems bridge game/sim/contour_bridge.gd) instead of the GDScript twin. Flag
+## OFF is byte-identical GDScript. NO SILENT FALLBACK (the honesty law): flag ON
+## with the kernel absent / the module uncompilable / a refused tick is a LOUD
+## push_error, never a quiet twin. The routed ticks carry a counter
+## (contour_status) so the soak/scene test can prove the system actually ran
+## inside the fingerprinted window.
+const _CONTOUR_MODULE := "res://game/world/flora_life.ct"
+## 0 unresolved · 1 off (flag unset) · 2 engaged (bridge live) · -1 refused.
+var _contour_mode := 0
+var _contour_bridge: ContourBridge = null
+var _contour_calls := 0   # system ticks answered by Contour (the engaged-path probe)
+
 
 func _ready() -> void:
 	add_to_group("world_state_reader")
@@ -189,12 +206,67 @@ func summary() -> String:
 		"  PARCHED" if WorldState.has_flag("flora.parched") else ""]
 
 
+## The live systems bridge when routing is engaged, else null (flag off, or a
+## loud refusal). Resolves once at first tick (boot); flag-off is pure GDScript.
+func _route_contour() -> ContourBridge:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return _contour_bridge
+
+
+func _contour_resolve() -> void:
+	if OS.get_environment("STRATA_CONTOUR") != "1":
+		_contour_mode = 1   # flag off — the GDScript twin, forever byte-identical
+		return
+	# Flag ON: engage the bridge, or REFUSE loudly (never a silent GDScript pass).
+	if not ContourBridge.available():
+		push_error("[flora] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
+			+ "(not macOS / dylib absent) — refusing to silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	var bridge := ContourBridge.new(WorldState)
+	var err := bridge.compile_file(_CONTOUR_MODULE)
+	if err != "":
+		push_error("[flora] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	_contour_bridge = bridge
+	_contour_mode = 2
+
+
+## Routing introspection for the scene test / soak (proves the system ran, not a
+## silent fallback): the resolved mode, whether it engaged, and the tick count.
+func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}
+
+
 func _hourly(_h: int) -> void:
 	var moist := Climate.moisture(REFERENCE.x, REFERENCE.y)
 	var temp := Climate.temperature(REFERENCE.x, REFERENCE.y)
-	var target := target_for(GameClock.season, moist, temp)
-	vitality = snappedf(clampf(
-		vitality + (target - vitality) * EASE_PER_HOUR, 0.0, 1.0), 0.001)
+	var bridge := _route_contour()
+	if bridge != null:
+		# Flag ON (STRATA_CONTOUR=1): the Contour §6 `Flora` system owns the
+		# vitality ease. It reads the SAME environment the twin below reads
+		# (season/moist/temp, handed in as flora.env) plus its own persisted
+		# state (flora.vitality, overlaid from the live value so a fresh world
+		# with no mirror still seeds), advances one hour step, and writes
+		# flora.vitality back into WorldState. We read it back — every downstream
+		# line (hysteresis, _regrow, the shader ease) runs unchanged on it.
+		_contour_calls += 1
+		var env := {"season": GameClock.season, "moist": moist, "temp": temp}
+		if not bridge.tick_seeded({"flora.env": env, "flora.vitality": vitality}, 3600.0):
+			push_error("[flora] STRATA_CONTOUR=1 but the Flora system tick was refused"
+				+ " — refusing to silently run the GDScript twin")
+			return
+		vitality = float(WorldState.get_value("flora.vitality", vitality))
+	else:
+		# Flag OFF (default): the GDScript twin, forever byte-identical.
+		var target := target_for(GameClock.season, moist, temp)
+		vitality = snappedf(clampf(
+			vitality + (target - vitality) * EASE_PER_HOUR, 0.0, 1.0), 0.001)
 	WorldState.set_value("flora.vitality", vitality)
 	# Hysteresis on the flags so a boundary flicker can't spam story-seeds.
 	if vitality >= 0.8 and not WorldState.has_flag("flora.bloom"):

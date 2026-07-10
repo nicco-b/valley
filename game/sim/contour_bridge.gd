@@ -160,6 +160,66 @@ func tick(dt: float) -> bool:
 	return true
 
 
+## tick(), but with TRANSIENT declared-read inputs overlaid onto the seed
+## (Mission C1). `inputs` maps a declared-read resource -> a value the host
+## computed FRESH this tick and does NOT persist in WorldState — a system's live
+## environment (e.g. flora's season/moisture/temperature, sampled from the same
+## Climate/GameClock reads the GDScript twin makes). The overlay wins over any
+## WorldState mirror of the same key for this tick only; declared WRITES are
+## still applied back to WorldState exactly as tick() does, and the reserved
+## clock/continuations still resume + persist (the §7 replay law is unbroken).
+##
+## DECLARED-ACCESS-ONLY still holds: every `inputs` key MUST be a declared read
+## (else the VM would ignore an unseeded resource and the tick would fault on
+## first access) — an undeclared input is refused LOUDLY here, never silently
+## dropped. Returns true when a tick applied.
+func tick_seeded(inputs: Dictionary, dt: float) -> bool:
+	if not is_ready():
+		return false
+	for k in inputs:
+		if not (String(k) in _reads):
+			push_error("contour_bridge: tick_seeded input '%s' is not a declared read %s"
+				% [String(k), str(_reads)])
+			return false
+	# (1) SEED from WorldState (declared reads + declared writes = own state),
+	# then resume the clock + timed continuations — identical to tick().
+	var seed := {}
+	for r in _reads:
+		var rv: Variant = _ws.get_value(r)
+		if rv != null:
+			seed[r] = rv
+	for w in _writes:
+		var wv: Variant = _ws.get_value(w)
+		if wv != null:
+			seed[w] = wv
+	var elapsed: Variant = _ws.get_value(CLOCK_ELAPSED)
+	if elapsed != null:
+		seed[CLOCK_ELAPSED] = elapsed
+	for name in _timed:
+		var ck := String(name) + CONTINUATION_SUFFIX
+		var cont: Variant = _ws.get_value(ck)
+		if cont != null:
+			seed[ck] = cont
+	# Overlay the transient inputs (win over any mirror; NOT persisted back).
+	for k in inputs:
+		seed[k] = inputs[k]
+	# (2) TICK.
+	var world_out: Dictionary = _vm.tick(seed, dt)
+	if world_out.is_empty():
+		return false
+	# (3) APPLY declared writes + persist the reserved bookkeeping.
+	for w in _writes:
+		if world_out.has(w):
+			_ws.set_value(w, world_out[w])
+	if world_out.has(CLOCK_ELAPSED):
+		_ws.set_value(CLOCK_ELAPSED, world_out[CLOCK_ELAPSED])
+	for name in _timed:
+		var ck := String(name) + CONTINUATION_SUFFIX
+		if world_out.has(ck):
+			_ws.set_value(ck, world_out[ck])
+	return true
+
+
 ## Index the compiled manifest into the seed set (_reads), the apply allow-list
 ## (_writes), and the timed-system names (_timed). Refuses LOUDLY (a diagnostic)
 ## if a system declares a reserved write (time.*/*.__time) — that would corrupt

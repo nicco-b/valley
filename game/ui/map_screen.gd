@@ -21,8 +21,29 @@ const COLOR_INK := Color(0.30, 0.17, 0.16)
 # collision and navmesh (the old map hitching).
 const STREAM_DIST := 900.0
 const DIST_MIN := 120.0
-const DIST_MAX := 40000.0
+# Just past whole-world framing (frame_tile: world_tile_size * 1.05 ≈ 17.2km
+# for the 16384m tile) — the old 40000 let you zoom out 2.3x past the whole
+# world into empty space beyond the far sea disc, which is what read as
+# "falling off the map." One wheel tick of headroom past the open framing,
+# not a trip to orbit.
+const DIST_MAX := 19000.0
 const PAINT_RATE_M := 150.0  # meters of override/sec at the brush center
+# The map camera's field of view. Camera3D defaults to 75° (a wide-angle
+# lens) — left alone, that's what bowed the horizon into a fake planet limb:
+# a wide FOV exaggerates the perspective bulge the further out you frame,
+# and the map opens already framing the whole 16km tile. 35° matches the
+# thumbnail-framing precedent (strata_link.gd's _frame_thumbnail_camera) —
+# tight enough to read as a flat chart, not so tight the orbit/pan feels
+# like a telephoto lens.
+const MAP_FOV := 35.0
+# Labels above this size (region radius / ridge inner-reach) are the map's
+# named landmarks — they read at any zoom once the map is open, so a whole-
+# tile view isn't just unlabeled dots. Everything else is a minor prop:
+# only worth a name once you've zoomed in past LABEL_DIST_MINOR, or the
+# open (zoomed-out) map would be wall-to-wall text.
+const LABEL_SIZE_MAJOR := 500.0
+const LABEL_DIST_MAJOR := DIST_MAX + 1.0  # majors always read while the map is open
+const LABEL_DIST_MINOR := 6000.0  # the old threshold, kept for small features
 
 var active := false
 
@@ -250,6 +271,13 @@ func _open() -> void:
 	visible = true
 	if _cam == null:
 		_cam = Camera3D.new()
+		# Camera3D's default fov is 75° — a wide-angle lens that bows the
+		# horizon into a fake planet limb once framed on the whole tile.
+		# The 75°-default trap: NEVER leave a chart/orbit camera at whatever
+		# Camera3D.new() hands you (see OrbitRig.apply, which seats the
+		# camera every frame but deliberately leaves fov alone — it's
+		# shared with the Toolkit viewer and this is a map-only call).
+		_cam.fov = MAP_FOV
 		add_child(_cam)
 	if _env == null:
 		# The chart air (OrbitRig recipe, shared with the viewer): the
@@ -530,12 +558,18 @@ func _draw_markers() -> void:
 		if r.kind == "ridge" and not r.nodes.is_empty():
 			var nodes: PackedVector2Array = r.nodes
 			c = nodes[nodes.size() / 2]
-		_draw_place(font, c, _label_for(String(r.id)), Color(0.42, 0.30, 0.22))
+		# A ridge's footprint is its inner reach, not "radius" (ridges
+		# author radius=0 and carve their spine from nodes instead).
+		var footprint: float = r.inner if r.kind == "ridge" else r.radius
+		_draw_place(font, c, _label_for(String(r.id)), Color(0.42, 0.30, 0.22),
+			footprint >= LABEL_SIZE_MAJOR)
 	for t in Terrain._tiles:
+		# A blessed Strata tile is the whole world (or a big chunk of it) —
+		# always a major label.
 		_draw_place(font, Vector2(t.x0 + t.size * 0.5, t.z0 + t.size * 0.5),
-			_label_for(String(t.id)), Color(0.30, 0.34, 0.5))
+			_label_for(String(t.id)), Color(0.30, 0.34, 0.5), true)
 	for m in MARKS:
-		_draw_place(font, m[1], m[0], Color(0.55, 0.16, 0.30))
+		_draw_place(font, m[1], m[0], Color(0.55, 0.16, 0.30), true)
 	# Rivers (authored + proposed) as blue polylines along their nodes.
 	for r in Terrain.rivers:
 		var nodes: Array = r.nodes
@@ -620,7 +654,7 @@ func _draw_scale_bar(font: Font, m_per_px: float) -> void:
 
 ## A named island dot, hidden when tiny/off-screen. Labels only when
 ## the map is zoomed in enough that they won't pile up.
-func _draw_place(font: Font, xz: Vector2, text: String, col: Color) -> void:
+func _draw_place(font: Font, xz: Vector2, text: String, col: Color, major := true) -> void:
 	var world := Vector3(xz.x, Terrain.height(xz.x, xz.y) + 2.0, xz.y)
 	var p := _screen_point(world)
 	if p == Vector2.INF:
@@ -629,7 +663,13 @@ func _draw_place(font: Font, xz: Vector2, text: String, col: Color) -> void:
 		return
 	_markers.draw_circle(p, 5.0, col)
 	_markers.draw_circle(p, 5.0, Color.WHITE, false, 1.5)
-	if _rig.distance < 6000.0:
+	# Tiered so the whole-tile open view isn't unlabeled dots (the old single
+	# 6000m cutoff never fired at the ~17km opening distance) without every
+	# minor prop piling up text once you're zoomed all the way out: majors
+	# (named landforms, blessed tiles) always read; minor labels wait for a
+	# close-in zoom, same as before.
+	var dist_cap := LABEL_DIST_MAJOR if major else LABEL_DIST_MINOR
+	if _rig.distance < dist_cap:
 		_draw_label(font, p + Vector2(10, 5), text)
 
 

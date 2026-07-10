@@ -198,6 +198,16 @@ func _process(_delta: float) -> void:
 	var reach := 5.0 if MapScreen.active else 1.0
 	if _sea_far.scale.x != reach:
 		_sea_far.scale = Vector3(reach, 1.0, reach)
+		# The map's narrowed FOV (map_screen.gd MAP_FOV) keeps the visible
+		# ground/sea well inside this disc's radius at the map's own steep
+		# chart angles, but a shallow drag can still put the disc's own
+		# hard circular edge in frame — the planet-limb bug. Fade ALPHA
+		# toward the true edge on the map camera only; rim_fade_radius is
+		# in the mesh's OBJECT space (pre-scale), so it stays SEA_FAR_RADIUS
+		# regardless of the 5x stretch above.
+		var far_mat := _sea_far.mesh.surface_get_material(0) as ShaderMaterial
+		far_mat.set_shader_parameter(
+			"rim_fade_radius", SEA_FAR_RADIUS if MapScreen.active else 0.0)
 	# The tide: all sheets ride the live surface, and the strand
 	# shader's dark band follows it via the sea_level global.
 	var live: float = Terrain.sea_surface()

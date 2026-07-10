@@ -41,6 +41,15 @@ uniform float rapids_boost = 0.0;
 uniform float swell_boost = 0.0;
 uniform float swell_step = 3.0;
 uniform float swell_fade_radius = 0.0;
+// Rim fade (the map's far-disc lesson, 2026-07-09): 0 (default, every mesh
+// but the far sea disc) leaves ALPHA alone. water_bodies sets this to a
+// fraction of SEA_FAR_RADIUS only while the map is open — at that framing
+// the disc's own hard circular edge can sit inside the camera frustum and
+// read as a drawn silhouette (the "planet limb"); fading it to transparent
+// before the true edge lets sky/fog take over instead of a visible seam.
+// Off (0.0) in normal play: the disc's edge is always far past the render
+// distance there, so nothing pays for a fade nobody can reach.
+uniform float rim_fade_radius = 0.0;
 global uniform float swell_amp;
 global uniform vec2 swell_dir;
 global uniform float swell_len;
@@ -114,6 +123,10 @@ float wave_fade(vec2 uv) {
 void vertex() {
 	rapids_v = COLOR.r;
 	alpha_v = COLOR.a;  // 1 everywhere except a feathered river mouth
+	if (rim_fade_radius > 0.0) {
+		alpha_v *= 1.0 - smoothstep(rim_fade_radius * 0.85, rim_fade_radius,
+				length(VERTEX.xz));
+	}
 	flow_v = UV2;
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	vec2 wuv = (wpos.xz - wave_center) / wave_size + 0.5;

@@ -1,0 +1,90 @@
+# Contour port of valley game/world/sand_field.gd :: SandField
+#
+# THE GRAIN SIM'S RULES TIER (Mission D2d, Wave D2 of docs/PORT_LEDGER.md).
+# sand_field.gd is a SIGNED, conserved granular field around the player: footsteps
+# displace material into ejecta rings, landings blast craters with thrown rims,
+# cells steeper than the angle of repose avalanche downhill, and wind erodes
+# prints toward rest. Two engines, one behaviour — a 1024² GPU field and a 256²
+# CPU-reference thread — but the per-texel relaxation SWEEP over 65k/1M cells is
+# loomkernel-class C++/GPU and STAYS there (the E2 scope law, the ledger's P3
+# row: "per-cell relaxation is loomkernel-class C++/GPU").
+#
+# What crosses is the RULES tier — the bounded per-cell physics DECISIONS the
+# sweep consumes, extracted in the twin as pure statics (sand_field.gd's RULES
+# block) and mirrored here VERBATIM (same consts, same left-assoc arithmetic,
+# same builtins), so every bit matches. Plumb pins each leaf bit-identical to
+# real headless Godot; the valley four-run soak matrix proves the `Sand` system
+# in situ (its Contour-computed repose drives a deterministic reference-kernel
+# avalanche whose field digest rides the fingerprint).
+#
+# The file `extends Node` and its class body types `var _gpu: SandGpu` /
+# `var _contour_bridge: ContourBridge` and reads the SandGpu/Climate/Weather/
+# Terrain/WorldState/ContourBridge autoloads, so it cannot load() bare: the
+# harness boots it under the `sand_field` scaffold (six typed autoload stubs) and
+# callv's each pure static (mode=static, no instance, no state).
+
+# tan(31°) — the dry angle of repose (sand_field.gd L29).
+const REPOSE_DRY = 0.60
+# Extra repose a fully wet cell earns — wet sand stands steeper (L30).
+const REPOSE_WET_BONUS = 0.55
+
+# Wet sand stands steeper. The angle-of-repose height threshold a neighbour's
+# drop must exceed before it slumps, in field units (meters of signed volume per
+# cell): dry repose plus a wet bonus, scaled to the cell size. Reads only its two
+# args — pure. (sand_field.gd::repose_height.)
+sim func repose_height(wet: float, cell_m: float) -> float:
+	return (REPOSE_DRY + REPOSE_WET_BONUS * wet) * cell_m
+
+# The avalanche quantum — the mass-exact (antisymmetric) volume that flows from
+# the higher cell to its lower neighbour once their height difference clears
+# repose: half the excess, damped by `flow`. Sand is conserved (the cell's loss
+# is the neighbour's exact gain); zero at or below repose, so a resting slope
+# holds. `diff` is (base+delta) here minus (base+delta) there — the sweep's per-
+# neighbour decision. Reads only its args — pure. (sand_field.gd::repose_flux.)
+sim func repose_flux(diff: float, repose_h: float, flow: float) -> float:
+	if diff > repose_h:
+		return (diff - repose_h) * 0.5 * flow
+	return 0.0
+
+# Wind erodes prints toward rest. The move_toward rate the CPU-reference sim
+# relaxes each active cell toward zero by per step: calm barely touches them, a
+# storm scrubs. Reads only wind — pure. (sand_field.gd::erode_rate.)
+sim func erode_rate(wind: float) -> float:
+	return 0.0004 + 0.002 * wind
+
+# A landing crater's conserved profile at normalized radius d (cell distance /
+# crater radius): a bowl inside (d<1, volume removed), a thrown rim just outside
+# (1≤d<1.5, the removed volume returned), flat beyond. The rim gives back what
+# the bowl takes — the blast conserves. Reads only its args — pure.
+# (sand_field.gd::crater_profile.)
+sim func crater_profile(d: float, depth: float) -> float:
+	if d < 1.0:
+		return -depth * (1.0 - d * d)
+	elif d < 1.5:
+		return depth * 0.9 * (1.5 - d) * 2.0
+	return 0.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# THE SAND CONTROL — the per-tick RULE the relaxation sweep consumes (Mission
+# D2d). Each tick the granular field needs two bounded scalars derived from the
+# environment: the angle-of-repose HEIGHT (from local wetness, wet sand steeper)
+# and the erosion DECAY rate (from wind, storms scrub prints). Those are the
+# conservation/displacement RULE — bounded, not per-texel — so they cross; the
+# 65k/1M-cell SWEEP that reads them stays loomkernel-class C++/GPU (the ledger's
+# P3 split).
+#
+# `sand.wet`/`sand.wind`/`sand.cell_m` are the seeded per-tick environment the
+# host samples GDScript-side (Climate.wetness ⊔ Climate.moisture, Weather.wind,
+# the active cell size — the engine-bound reads that CANNOT cross, exactly like
+# climate's rain-shadow sampler): the tick_seeded overlay, the C1/C2b precedent.
+# The system maps the two certified leaves and writes the control back; the
+# valley host reads sand.repose into its GPU/CPU tick, and the four-run soak
+# matrix drives a deterministic reference-kernel avalanche with it so the digest
+# is earned, not vacuous.
+system Sand:
+	reads: sand.wet, sand.wind, sand.cell_m
+	writes: sand.repose, sand.decay
+	sim func step():
+		sand.repose = repose_height(sand.wet, sand.cell_m)
+		sand.decay = erode_rate(sand.wind)

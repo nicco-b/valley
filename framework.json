@@ -88,6 +88,7 @@
 		],
 		"grain": [
 			"game/world/sand_field.gd",
+			"game/world/sand_field.ct",
 			"game/world/sand_gpu.gd",
 			"game/world/sand_patch.gd",
 			"game/shaders/compute/sand_apply.glsl",

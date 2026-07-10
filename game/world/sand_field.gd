@@ -33,6 +33,51 @@ const BUDGET := 9000
 
 enum Mask { FOOT_L, FOOT_R, PAW, BOOT }
 
+
+## --- RULES tier: the conservation & displacement decisions (Wave D2 / D2d) ----
+## The bounded per-cell physics DECISIONS the granular sim makes, extracted as
+## pure statics so the RULES↔ENGINE split is legible: these cross to Contour
+## (plumb/ports/sand_field.ct, Plumb-certified bit-identical to these very
+## bodies); the per-texel relaxation SWEEP that maps them over the 256²/1024²
+## field stays loomkernel-class C++/GPU (the E2 scope law). relax(),
+## _apply_crater(), _process() and _sim_loop() all call these — one rule, one
+## name, byte-identical either tier.
+
+## Wet sand stands steeper. The angle-of-repose height threshold a neighbour's
+## drop must exceed before it slumps, in field units (meters of signed volume
+## per cell): dry repose (tan 31°) plus a wet bonus, scaled to the cell size.
+static func repose_height(wet: float, cell_m: float) -> float:
+	return (REPOSE_DRY + REPOSE_WET_BONUS * wet) * cell_m
+
+## The avalanche quantum — the mass-exact (antisymmetric) volume that flows from
+## the higher cell to its lower neighbour once their height difference clears
+## repose: half the excess, damped by FLOW. Sand is conserved (the cell's loss
+## is the neighbour's exact gain); zero at or below repose, so a resting slope
+## holds. `diff` is (base+delta) here minus (base+delta) there.
+static func repose_flux(diff: float, repose_h: float, flow: float) -> float:
+	if diff > repose_h:
+		return (diff - repose_h) * 0.5 * flow
+	return 0.0
+
+## Wind erodes prints toward rest. The move_toward rate the CPU-reference sim
+## relaxes each active cell toward zero by per step: calm barely touches them, a
+## storm scrubs. (The GPU driver carries its own per-frame decay; this is the
+## tested reference rate the scene tests pin.)
+static func erode_rate(wind: float) -> float:
+	return 0.0004 + 0.002 * wind
+
+## A landing crater's conserved profile at normalized radius d (cell distance /
+## crater radius): a bowl inside (d<1, volume removed), a thrown rim just outside
+## (1≤d<1.5, the removed volume returned), flat beyond. The rim gives back what
+## the bowl takes — the blast conserves. `depth` scales the whole profile.
+static func crater_profile(d: float, depth: float) -> float:
+	if d < 1.0:
+		return -depth * (1.0 - d * d)
+	elif d < 1.5:
+		return depth * 0.9 * (1.5 - d) * 2.0
+	return 0.0
+
+
 var _gpu: SandGpu
 var _gpu_mode := false
 var _ops := PackedFloat32Array()
@@ -251,7 +296,10 @@ func _process(delta: float) -> void:
 		# near open water and on sea strands, so beach sand stands
 		# steeper and holds prints (wet-sand feel at the new coasts).
 		var wet := maxf(Climate.wetness, Climate.moisture(_anchor.x, _anchor.y))
-		var repose := (REPOSE_DRY + REPOSE_WET_BONUS * wet) * _cell_m()
+		# The repose RULE routes through the Contour §6 `Sand` system when
+		# STRATA_CONTOUR=1 (Wave D2 / D2d): the same wet→repose decision, computed
+		# in the native VM; flag-off it is the extracted leaf, byte-identical.
+		var repose: float = tick_control(wet, Weather.wind, _cell_m()).repose
 		var flow := 0.0 if _base_pending else FLOW
 		# Per-second erosion, applied per frame: calm keeps prints ~2min,
 		# a storm scrubs them in ~20s (the CPU path decays only active
@@ -360,9 +408,9 @@ func _sim_loop() -> void:
 						_apply_crater(delta_field, active, queued, anchor,
 							m.pos, m.radius, m.depth)
 		if anchor.is_finite():
-			var repose := (REPOSE_DRY + REPOSE_WET_BONUS * wet) * CELL
+			var repose := repose_height(wet, CELL)
 			relax(delta_field, base, active, queued, GRID, repose, FLOW, BUDGET)
-			var rate := 0.0004 + 0.002 * wind
+			var rate := erode_rate(wind)
 			for k in mini(active.size(), 2000):
 				delta_field[active[k]] = move_toward(delta_field[active[k]], 0.0, rate)
 			_lock.lock()
@@ -394,7 +442,7 @@ static func relax(delta_field: PackedFloat32Array, base: PackedFloat32Array,
 			var j := ny * grid + nx
 			var diff := (base[i] + delta_field[i]) - (base[j] + delta_field[j])
 			if diff > repose_h:
-				var q := (diff - repose_h) * 0.5 * flow
+				var q := repose_flux(diff, repose_h, flow)
 				delta_field[i] -= q
 				delta_field[j] += q
 				if queued[j] == 0:
@@ -514,11 +562,75 @@ func _apply_crater(delta_field: PackedFloat32Array, active: PackedInt32Array,
 				continue
 			var d := Vector2(dx, dy).length() / float(r)
 			var i := y * GRID + x
-			var v := 0.0
-			if d < 1.0:
-				v = -depth * (1.0 - d * d)
-			elif d < 1.5:
-				v = depth * 0.9 * (1.5 - d) * 2.0
+			var v := crater_profile(d, depth)
 			if v != 0.0:
 				delta_field[i] = clampf(delta_field[i] + v, -MAX_DELTA, MAX_DELTA)
 				_touch(active, queued, i)
+
+
+## --- Contour routing (PLAN_ENGINE E2, Wave D2 / D2d: the SAND RULES) ----------
+## The conservation/displacement RULES (repose height from wetness, erosion rate
+## from wind) route through the native Contour §6 `Sand` system when
+## STRATA_CONTOUR=1, exactly as climate's wetness field does. The per-texel
+## relaxation SWEEP stays loomkernel-class C++/GPU (the scope law) — only the
+## bounded per-tick CONTROL the sweep consumes ({repose, decay}) crosses. Flag
+## off is the extracted leaves, forever byte-identical; flag on refuses LOUDLY on
+## any unavailability (never a silent GDScript fallback).
+var _contour_mode := 0        # 0 unresolved · 1 GDScript · 2 Contour · -1 refused
+var _contour_bridge: ContourBridge = null
+var _contour_calls := 0       # control ticks answered by Contour (engaged probe)
+
+
+func _contour_resolve() -> void:
+	if OS.get_environment("STRATA_CONTOUR") != "1":
+		_contour_mode = 1        # flag off — the GDScript twin, forever byte-identical
+		return
+	if not ContourBridge.available():
+		push_error("[sand] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
+			+ "(non-macOS / dylib absent) — refusing, no silent GDScript fallback")
+		_contour_mode = -1
+		return
+	var bridge := ContourBridge.new(WorldState)
+	var err := bridge.compile_file("res://game/world/sand_field.ct")
+	if err != "":
+		push_error("[sand] STRATA_CONTOUR=1 but sand_field.ct did not compile: %s — "
+			% err + "refusing, no silent GDScript fallback")
+		_contour_mode = -1
+		return
+	_contour_bridge = bridge
+	_contour_mode = 2
+
+
+## The per-tick granular CONTROL the relaxation sweep consumes: {repose, decay}.
+## `repose` is the angle-of-repose height (wet sand stands steeper); `decay` is
+## the CPU-reference erosion rate (wind scrubs prints toward rest). Flag off
+## computes the two extracted RULE leaves directly (byte-identical); flag on
+## routes them through the Contour §6 `Sand` system — declared reads
+## sand.wet/sand.wind/sand.cell_m → declared writes sand.repose/sand.decay — and
+## counts the engaged tick. A per-tick refusal flips to -1 LOUDLY.
+func tick_control(wet: float, wind: float, cell_m: float) -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	if _contour_mode == 2:
+		_contour_calls += 1
+		if not _contour_bridge.tick_seeded(
+				{"sand.wet": wet, "sand.wind": wind, "sand.cell_m": cell_m}, 0.0):
+			push_error("[sand] STRATA_CONTOUR=1 but the Sand control tick was refused "
+				+ "— refusing, no silent GDScript fallback")
+			_contour_mode = -1
+			return {"repose": repose_height(wet, cell_m), "decay": erode_rate(wind)}
+		return {
+			"repose": float(WorldState.get_value("sand.repose")),
+			"decay": float(WorldState.get_value("sand.decay")),
+		}
+	return {"repose": repose_height(wet, cell_m), "decay": erode_rate(wind)}
+
+
+## Contour engagement probe (the soak proof), same contract as FloraLife/Weather/
+## Climate: mode, engaged, calls. The four-run soak matrix reads this to prove
+## the flag-ON runs' sand digest was Contour-authored (mode=2, calls>0) and the
+## flag-OFF runs pure GDScript (mode=1, calls=0).
+func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}

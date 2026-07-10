@@ -87,6 +87,15 @@ func _ready() -> void:
 		var ss: Dictionary = Story.contour_status()
 		print("SOAK CONTOUR-STORY mode=%d engaged=%s story_calls=%d"
 			% [int(ss.get("mode", 0)), str(ss.get("engaged", false)), int(ss.get("calls", 0))])
+	# The SAME proof for the GRAIN RULES (Mission D2d, Wave D2): the sand digest
+	# above was avalanched under the Contour §6 `Sand` system's repose/decay
+	# control (mode=2, sand_ticks climbs 40 per fingerprint), or the pure GDScript
+	# leaves (mode=1, calls=0). The digest rides the fingerprint, so a routed
+	# repose that diverged one ULP would have moved it.
+	if SandField.has_method("contour_status"):
+		var sd: Dictionary = SandField.contour_status()
+		print("SOAK CONTOUR-SAND mode=%d engaged=%s sand_ticks=%d"
+			% [int(sd.get("mode", 0)), str(sd.get("engaged", false)), int(sd.get("calls", 0))])
 	get_tree().quit(1 if _failures > 0 else 0)
 
 
@@ -159,6 +168,48 @@ func _grid_digest(grid: PackedFloat32Array) -> String:
 	return ",".join(parts)
 
 
+## A deterministic granular-RULES exercise for the fingerprint (Mission D2d, Wave
+## D2). sand_field.gd is headless-inert in this playerless soak (no GPU, no sim
+## thread), so its Contour §6 `Sand` system cannot engage on the live tick the way
+## climate/weather/flora do. Instead we drive the CPU-REFERENCE relaxation kernel
+## (SandField.relax — the tested spec the GPU implements) over a fixed spike field
+## with the repose/decay CONTROL the `Sand` system computes: flag-ON the control
+## is the native Contour VM's, flag-OFF the extracted GDScript leaf's. The two are
+## Plumb-certified bit-identical, so this digest is IDENTICAL across the four-run
+## matrix — and a one-ULP divergence in the routed repose would move it, so the
+## engagement (sand_ticks below) is earned, not vacuous. Fully deterministic:
+## fixed seed field, fixed passes, no wall clock.
+func _sand_digest() -> String:
+	var g := 64
+	var delta := PackedFloat32Array()
+	delta.resize(g * g)
+	var base := PackedFloat32Array()      # flat base terrain
+	base.resize(g * g)
+	# Eight signed disturbances (footfall-like: a pit and a rim), deterministic.
+	for k in 8:
+		var cx := 8 + (k * 7) % (g - 16)
+		var cy := 8 + (k * 13) % (g - 16)
+		delta[cy * g + cx] = 0.25 - 0.02 * k
+		delta[cy * g + cx + 1] = -0.12
+	var active := PackedInt32Array()
+	var queued := PackedByteArray()
+	queued.resize(g * g)
+	for i in g * g:
+		queued[i] = 1
+		active.append(i)
+	# Slump to rest, pass by pass, under the Contour-routed repose; then wind
+	# erodes the active cells by the routed decay rate. Each pass takes its
+	# CONTROL from SandField.tick_control — a distinct Sand-system tick (the
+	# engagement the soak counts through SandField.contour_status).
+	for p in 40:
+		var wet := 0.2 + 0.01 * p
+		var ctl: Dictionary = SandField.tick_control(wet, 0.3, SandField.CELL)
+		SandField.relax(delta, base, active, queued, g, ctl.repose, SandField.FLOW, 4000)
+		for k in mini(active.size(), 2000):
+			delta[active[k]] = move_toward(delta[active[k]], 0.0, ctl.decay)
+	return _grid_digest(delta)
+
+
 ## Stable digest of everything the sim decided — only deterministic keys
 ## (no wall-clock-derived values like moon phase or daylight span).
 func _fingerprint(wildlife: Node) -> int:
@@ -175,6 +226,11 @@ func _fingerprint(wildlife: Node) -> int:
 		GameClock.day,
 		WorldState.has_flag("flora.bloom"),
 		WorldState.has_flag("flora.parched"),
+		# The granular RULES digest (Mission D2d): the CPU-reference relaxation
+		# kernel run to rest under the Contour §6 `Sand` system's repose/decay
+		# control. Identical flag-off == flag-on (Plumb-certified leaves); a routed
+		# repose that diverged one ULP moves the whole fingerprint.
+		_sand_digest(),
 	]
 	for herd in (wildlife.herds if wildlife != null else []):
 		for ind in herd.individuals:

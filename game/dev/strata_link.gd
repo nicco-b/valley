@@ -264,6 +264,27 @@ extends Node
 ##                               "ok state <key>=<json>". Latches ride
 ##                               WorldState.changed, so a forced key
 ##                               settles quests exactly like a sim write.
+##   marker set <id> <x> <z> <label…>
+##                            -> COLLAB §3c's ghost markers: place (or move +
+##                               relabel) a named billboard at a world
+##                               position — a soft dot + a Label3D tag,
+##                               y-placed on Terrain.height so it reads like
+##                               a real place. Parented under current_scene
+##                               (the preview_mesh/preview_shared convention)
+##                               so it survives reload_world and cell
+##                               streaming untouched — it is NOT part of the
+##                               streamed world. Not an avatar, not networked
+##                               gameplay: a location pin that happens to
+##                               move (Strata's CollabSession drives one per
+##                               live peer off the roster). "ok marker set
+##                               <id>". Content-empty safe: no current_scene
+##                               (no world loaded yet) answers an honest err
+##                               instead of crashing.
+##   marker clear <id>       -> remove one marker. "ok marker clear <id>"
+##                               even when the id was never set (idempotent).
+##   marker clear all        -> remove every marker wholesale (the
+##                               collab-off / all-peers-gone case).
+##                               "ok marker clear all"
 ##
 ## summary() feeds the Toolkit world panel (systems it can't see are debt).
 
@@ -281,7 +302,7 @@ const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "reload_world"
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
 	"records", "budget", "undo", "redo", "prefab",
 	"save_anchor", "restore_anchor", "anchors", "journal", "scrub",
-	"play_sound", "audio", "name", "names"]
+	"play_sound", "audio", "name", "names", "marker"]
 
 ## Thumbnail render target size (square). The pane renders this offscreen;
 ## Strata caches the PNG by card sha and downsamples in its grid.
@@ -300,6 +321,11 @@ var _served := 0  # commands answered (summary/observability)
 # fenced by this flag: while a thumbnail draws, the next frame's _process
 # bows out rather than double-servicing the same peers.
 var _rendering := false
+
+## COLLAB §3c ghost markers: id -> the Node3D root `marker set` placed,
+## parented under current_scene so it survives reload_world and cell
+## streaming (see `_marker_place`). Wholesale-cleared by `marker clear all`.
+var _markers: Dictionary = {}
 
 
 func _ready() -> void:
@@ -552,6 +578,11 @@ func _execute(line: String) -> String:
 			if parts.size() < 4 or parts[1] != "set":
 				return "err state needs set <key> <value>"
 			return _state_set(parts[2], line.split(" ", false, 3)[3])
+		"marker":
+			# COLLAB §3c ghost markers — Strata's CollabSession drives one
+			# per live peer off the roster (`marker set`), and clears it on
+			# expiry/collab-off (`marker clear`/`marker clear all`).
+			return _marker(parts, line)
 		"records":
 			# The records desk's write path (Strata R5): the game judges
 			# an edited record with its OWN loader schema before the desk
@@ -919,6 +950,93 @@ func _state_set(key: String, raw: String) -> String:
 		value = raw  # a bare word is a string
 	WorldState.set_value(key, value)
 	return "ok state %s=%s" % [key, JSON.stringify(value)]
+
+
+## COLLAB §3c ghost markers — the `marker` verb's dispatcher. `set` places
+## (or moves + relabels) a named billboard; `clear <id>` drops one; `clear
+## all` drops every marker wholesale (the collab-off / all-peers-gone case,
+## idempotent even at zero markers).
+func _marker(parts: PackedStringArray, line: String) -> String:
+	if parts.size() < 2:
+		return "err marker needs set <id> <x> <z> <label> | clear <id>|all"
+	match parts[1]:
+		"set":
+			if parts.size() < 5:
+				return "err marker set needs <id> <x> <z> <label>"
+			if not parts[3].is_valid_float() or not parts[4].is_valid_float():
+				return "err marker set needs numeric x z"
+			var id := parts[2]
+			var x := float(parts[3])
+			var z := float(parts[4])
+			# Everything after z is the label (spaces intact, like `name`).
+			var toks := line.split(" ", false, 5)
+			var label := toks[5].strip_edges() if toks.size() > 5 else ""
+			if label.is_empty():
+				label = id
+			var root: Node = get_tree().current_scene
+			if root == null:
+				return "err marker set: no world loaded"
+			_marker_place(root, id, x, z, label)
+			return "ok marker set %s" % id
+		"clear":
+			if parts.size() < 3:
+				return "err marker clear needs <id>|all"
+			if parts[2] == "all":
+				for id: String in _markers.keys().duplicate():
+					_marker_remove(id)
+				return "ok marker clear all"
+			_marker_remove(parts[2])
+			return "ok marker clear %s" % parts[2]
+		_:
+			return "err marker needs set|clear"
+
+
+## Create-or-move-and-relabel one marker: a soft unshaded dot plus a
+## billboarded Label3D tag above it, y-placed on Terrain.height so it reads
+## like a real place rather than a floating HUD element. Parented under
+## `root` (current_scene) — NOT the streamed world — so `reload_world` and
+## cell streaming (which only ever touch their own tracked cells) never
+## touch it; the marker survives exactly like preview_mesh/preview_shared.
+func _marker_place(root: Node, id: String, x: float, z: float, label: String) -> void:
+	var y := Terrain.height(x, z)
+	var node: Node3D = _markers.get(id, null)
+	if node == null:
+		node = Node3D.new()
+		node.name = "CollabMarker_%s" % id.validate_node_name()
+		var dot := MeshInstance3D.new()
+		dot.name = "Dot"
+		var sphere := SphereMesh.new()
+		sphere.radius = 0.6
+		sphere.height = 1.2
+		dot.mesh = sphere
+		var mat := StandardMaterial3D.new()
+		mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mat.albedo_color = Color(1.0, 0.85, 0.2, 0.85)
+		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		dot.material_override = mat
+		node.add_child(dot)
+		var tag := Label3D.new()
+		tag.name = "Tag"
+		tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		tag.no_depth_test = true
+		tag.position = Vector3(0, 2.0, 0)
+		tag.font_size = 48
+		tag.outline_size = 8
+		node.add_child(tag)
+		root.add_child(node)
+		_markers[id] = node
+	node.global_position = Vector3(x, y, z)
+	(node.get_node("Tag") as Label3D).text = label
+
+
+## Drop one marker (a no-op — not an error — when the id was never set, so
+## `clear all` iterating a stale id list stays honest and idempotent).
+func _marker_remove(id: String) -> void:
+	var node: Node3D = _markers.get(id, null)
+	if node == null:
+		return
+	node.queue_free()
+	_markers.erase(id)
 
 
 ## The records desk (Strata R5): three subverbs over the SAME loader truth.

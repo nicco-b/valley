@@ -384,6 +384,7 @@ func _test_strata_link() -> void:
 	await _test_pulse(peer)
 	await _test_records_desk(peer)
 	await _test_names_verbs(peer)
+	await _test_marker_verbs(peer)
 	await _test_audio_verbs(peer)
 	peer.disconnect_from_host()
 
@@ -1680,6 +1681,82 @@ func _test_names_verbs(peer: StreamPeerTCP) -> void:
 	Names.reload()
 	_check(Names.resolve("hyd_l7") == "hyd_l7",
 		"name: restoring the file returns the gazetteer to shipped content")
+
+
+## Ghost markers (COLLAB §3c, the deferred G2 piece): `marker set` places a
+## named billboard node under current_scene, y-placed on Terrain.height;
+## `marker clear` removes it; `clear all` wipes wholesale. Drives the verb
+## pair headlessly and asserts the node itself, not just the reply text —
+## the discovery test (`_test_link_discovery`) already pins `marker` into
+## VERBS/the dispatcher; this pins its BEHAVIOR.
+func _test_marker_verbs(peer: StreamPeerTCP) -> void:
+	var root := get_tree().current_scene
+	var x := 1234.0
+	var z := -567.0
+	var expect_y: float = Terrain.height(x, z)
+
+	# Bare/short forms err with the contract line, never crash or "unknown".
+	var bad := await _link_send(peer, ["marker", "marker set", "marker set only_id",
+		"marker set peer_a not_a_number 0.0 Nicco", "marker clear"])
+	_check(bad.size() == 5, "marker: bad-arg replies land (got %d)" % bad.size())
+	if bad.size() == 5:
+		_check(String(bad[0]).begins_with("err marker needs"), "marker: bare verb errs")
+		_check(String(bad[1]).begins_with("err marker set needs"), "marker: bare set errs")
+		_check(String(bad[2]).begins_with("err marker set needs"), "marker: set with only an id errs")
+		_check(String(bad[3]).begins_with("err marker set needs numeric"),
+			"marker: non-numeric x/z errs (got %s)" % bad[3])
+		_check(String(bad[4]).begins_with("err marker clear needs"), "marker: bare clear errs")
+
+	# set: a peer's ghost lands at (x, Terrain.height(x,z), z) with its label.
+	var placed := await _link_send(peer, ["marker set peer_a %.1f %.1f Nicco" % [x, z]])
+	_check(placed.size() == 1 and String(placed[0]) == "ok marker set peer_a",
+		"marker set: answers ok with the id (got %s)" % str(placed))
+	var node := root.get_node_or_null("CollabMarker_peer_a") as Node3D
+	_check(node != null, "marker set: the node exists under current_scene")
+	if node != null:
+		_check(absf(node.global_position.x - x) < 0.01 and absf(node.global_position.z - z) < 0.01,
+			"marker set: lands at the requested (x, z)")
+		_check(absf(node.global_position.y - expect_y) < 0.01,
+			"marker set: y-placed on Terrain.height (got %.2f want %.2f)"
+				% [node.global_position.y, expect_y])
+		var tag := node.get_node_or_null("Tag") as Label3D
+		_check(tag != null and tag.text == "Nicco", "marker set: the Label3D carries the label")
+
+	# set again, same id: MOVES + relabels in place — one node, not two.
+	var moved := await _link_send(peer, ["marker set peer_a %.1f %.1f Nicco (afk)" % [x + 10.0, z]])
+	_check(moved.size() == 1 and String(moved[0]) == "ok marker set peer_a",
+		"marker set (again): still one ok reply (got %s)" % str(moved))
+	var again := root.get_node_or_null("CollabMarker_peer_a") as Node3D
+	_check(again == node, "marker set (again): re-uses the SAME node (moves, doesn't duplicate)")
+	if again != null:
+		_check(absf(again.global_position.x - (x + 10.0)) < 0.01, "marker set (again): moved")
+		_check((again.get_node("Tag") as Label3D).text == "Nicco (afk)",
+			"marker set (again): relabeled")
+
+	# a second peer, then clear one — the other survives untouched.
+	await _link_send(peer, ["marker set peer_b 0.0 0.0 Elena"])
+	var cleared := await _link_send(peer, ["marker clear peer_a"])
+	_check(cleared.size() == 1 and String(cleared[0]) == "ok marker clear peer_a",
+		"marker clear: answers ok (got %s)" % str(cleared))
+	_check(root.get_node_or_null("CollabMarker_peer_a") == null,
+		"marker clear: the node is gone")
+	_check(root.get_node_or_null("CollabMarker_peer_b") != null,
+		"marker clear: an untouched peer's marker survives")
+	# clearing an id that was never set (or already cleared) is a no-op ok,
+	# never an error — the idempotent floor `clear all` on a stale roster needs.
+	var again_clear := await _link_send(peer, ["marker clear peer_a"])
+	_check(again_clear.size() == 1 and String(again_clear[0]) == "ok marker clear peer_a",
+		"marker clear: clearing an already-gone id still answers ok")
+
+	# clear all: wholesale wipe, then a repeat is still ok at zero markers.
+	var wiped := await _link_send(peer, ["marker clear all"])
+	_check(wiped.size() == 1 and String(wiped[0]) == "ok marker clear all",
+		"marker clear all: answers ok (got %s)" % str(wiped))
+	_check(root.get_node_or_null("CollabMarker_peer_b") == null,
+		"marker clear all: every marker is gone")
+	var wiped_again := await _link_send(peer, ["marker clear all"])
+	_check(wiped_again.size() == 1 and String(wiped_again[0]) == "ok marker clear all",
+		"marker clear all: idempotent at zero markers")
 
 
 func _link_send(peer: StreamPeerTCP, commands: Array) -> Array:

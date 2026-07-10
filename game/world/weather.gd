@@ -65,6 +65,23 @@ const SEASON_STORM_BIAS := {"winter": 1.6, "autumn": 1.25, "spring": 1.0, "summe
 const SEASON_GALE_BIAS := {"winter": 0.7, "autumn": 0.9, "spring": 1.0, "summer": 1.7}
 const WET_KINDS := ["storm", "squall", "drizzle"]
 
+## The weather LOCK (Strata's weather lock, 2026-07-09). While held, the
+## hourly evolution PAUSES: fronts stop marching, no new fronts spawn, the
+## wind stops wandering — _transition early-returns. The Elements keep
+## RENDERING the held state (the per-frame _process eases wind/rain/cloud/dust
+## toward the current front's targets exactly as before; a still field simply
+## stays put), so the sky doesn't freeze visually — it just stops CHANGING.
+## Independent of the clock lock: you can hold weather while time flows, or
+## the reverse. Mirrored to WorldState "weather.hold" (saves; Strata reads
+## truth off the panel's AIR line).
+##
+## Determinism / soak: the guard is a pure early-return keyed on `held`, which
+## a soak never sets — so an unheld world's transitions are byte-identical and
+## the fingerprint is unmoved. A held world simply stops drawing from the
+## "weather" Rng stream (no spawn, no wind drift), which is deterministic:
+## the same held span always yields the same (frozen) fronts.
+var held := false
+
 var state := "calm"
 var wind := 0.12
 # Last-pushed shader values (perf): set-on-change guards for _process.
@@ -188,6 +205,7 @@ func load_state() -> void:
 			"speed": float(KINDS[kind].speed)})
 	_last_kind = fronts[fronts.size() - 1].kind
 	state = String(fronts[fronts.size() - 1].kind)  # refined next _process
+	held = bool(WorldState.get_value("weather.hold", false))  # the lock survives save/load
 
 
 ## Local weather band at a point: {kind, lead 0..1 (leading-edge
@@ -349,7 +367,26 @@ func _unhandled_input(event: InputEvent) -> void:
 		HUD.notify("weather: " + next + " (forced front)")
 
 
+## Engage / release the weather lock. Idempotent; mirrors to WorldState so it
+## saves and Strata reads truth. No re-seat is needed on release (unlike the
+## clock's swallowed gap): weather evolves on hour_tick, not a wall delta —
+## while held the ticks simply did nothing, and the next tick after release
+## resumes the chain from the fronts exactly as they stood.
+func set_hold(on: bool) -> void:
+	if on == held:
+		return
+	held = on
+	WorldState.set_value("weather.hold", held)
+
+
 func _transition(_hour: int) -> void:
+	# The lock (2026-07-09): a held sky skips all evolution — no march, no
+	# spawn, no wind wander — and does NOT re-save (nothing changed). The
+	# per-frame _process keeps rendering the frozen fronts. Catch-up replays
+	# hour_ticks through here, so a lock engaged before a long sleep honestly
+	# holds the weather across the whole skipped stretch.
+	if held:
+		return
 	# March every front one hour along its own heading; drop the spent.
 	for f in fronts:
 		f.edge = float(f.edge) + float(f.speed) * 3600.0

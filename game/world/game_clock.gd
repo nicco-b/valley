@@ -29,6 +29,28 @@ var day := 0
 ## effect only — catch-up after sleep/close always runs 1:1.
 var time_scale := 1.0
 
+## The clock LOCK (Strata's time-of-day lock, 2026-07-09). A REAL hold, not
+## Strata re-asserting the same hour every poll: while held, the automatic
+## 1:1 real-time advance in _process is suspended and the wall-clock gap it
+## would have advanced is SWALLOWED (held time is time the valley did not
+## live — not replayed as catch-up on release). Mirrored to WorldState
+## "time.hold" so the lock survives save/load and Strata reads truth off the
+## `status` line, not a local guess.
+##
+## What the hold does NOT block: an EXPLICIT move — advance_hours (the dev
+## T-key, the `time`/`scrub` verbs). Locking freezes the passage of time; it
+## never means "refuse to be moved". Scrubbing while locked moves time then
+## stays locked (the auto-advance is still suspended at the new hour) — the
+## honest semantics the playtest desk relies on (see strata_link.gd `_scrub`).
+##
+## Determinism: holding is DETERMINISTIC. A held _process does no sim work at
+## all (no _advance, so no hour_tick, no RNG, no clock read that drives sim) —
+## it only swallows the wall delta. So a world that never engages the hold
+## fingerprints exactly as before (the soak proves this — it drives
+## advance_hours directly and never touches `held`), and a world that IS held
+## simply lives fewer hours, deterministically.
+var held := false
+
 ## winter | spring | summer | autumn — from the real date, hemisphere from
 ## the real latitude; mirrored to WorldState "time.season".
 var season := ""
@@ -73,6 +95,7 @@ func _ready() -> void:
 	hours = civil_now()  # new world: the valley wakes at your local time
 	refresh_daylight()   # (Settings loads after us and pokes this again)
 	WorldState.set_value("time.hour", int(solar_hours()))  # B9 mirror, from boot
+	held = bool(WorldState.get_value("time.hold", false))  # the lock survives save/load
 
 
 func _process(_delta: float) -> void:
@@ -81,6 +104,21 @@ func _process(_delta: float) -> void:
 		_last_unix = now
 	var wall_delta := maxf(0.0, now - _last_unix)  # clock set backwards: hold
 	_last_unix = now
+	_tick(wall_delta)
+
+
+## Advance the clock for one real-time step of `wall_delta` seconds — the
+## automatic passage of time, split from _process so a test can drive it
+## without touching the wall clock. The lock (2026-07-09): a held clock
+## swallows the wall delta whole — the hour does not move and the gap is NOT
+## banked for replay (_process already advanced _last_unix, consuming it).
+## This is where a hold differs from Strata re-asserting the same hour: the
+## valley genuinely stops living time here, so a lock engaged during a laptop
+## sleep is honest (no giant catch-up on release). Explicit moves
+## (advance_hours) still work — the lock freezes passage, not the dial.
+func _tick(wall_delta: float) -> void:
+	if held:
+		return
 	if wall_delta > GAP_SECONDS:
 		advance_hours(wall_delta / 3600.0)  # 1:1 — the machine slept, the valley didn't
 	else:
@@ -317,6 +355,22 @@ func _unhandled_input(event: InputEvent) -> void:
 			_dev_skip(24.0, "a day passes")
 		else:
 			_dev_skip_to_anchor()
+
+
+## Engage / release the clock lock (Strata's time-of-day lock). Idempotent;
+## mirrors the state to WorldState so it saves and Strata reads truth. On
+## RELEASE we re-seat _last_unix to now so the stretch the clock spent held
+## is swallowed rather than replayed as catch-up — held time did not pass in
+## the valley, and resuming must not suddenly live all of it. (_process
+## already keeps _last_unix current every held frame, so this re-seat is a
+## belt-and-suspenders guarantee for a release that lands the same frame.)
+func set_hold(on: bool) -> void:
+	if on == held:
+		return
+	held = on
+	if not on:
+		_last_unix = Time.get_unix_time_from_system()
+	WorldState.set_value("time.hold", held)
 
 
 ## Re-anchor the clock to real local time — the state normal play mode

@@ -144,14 +144,23 @@ func apply_snapshot(data: Dictionary, replay_away: bool) -> bool:
 	GameClock.hours = data.hours
 	GameClock.day = int(data.get("day", 0))
 	WorldState.restore(data.get("state", {}))
+	# The clock LOCK is world state too (2026-07-09). GameClock isn't a
+	# world_state_reader (its _ready seeds the live clock from the wall), so
+	# the restore reloads its lock explicitly — a snapshot saved while locked
+	# comes back locked, and Strata's status mirror reflects the restored
+	# truth. (Weather's lock rides the world_state_reader load_state below.)
+	GameClock.held = bool(WorldState.get_value("time.hold", false))
 	# Every system that mirrors WorldState re-reads it here — autoload
 	# _ready runs before the save loads, so boot-time reads see defaults.
 	get_tree().call_group("world_state_reader", "load_state")
 	get_tree().call_group("npc", "load_state")
 	InteractionField.wear_restore(data.get("wear", {}))
 	# The world ran 1:1 while the app was closed — live the missed hours.
+	# UNLESS the clock was LOCKED at save time: a held clock did not live the
+	# away hours (the lock is a real hold, honest across an app close), so the
+	# replay is skipped and the valley resumes frozen where it stood.
 	var away_hours := 0.0
-	if replay_away and data.has("wall_time"):
+	if replay_away and not GameClock.held and data.has("wall_time"):
 		var elapsed: float = Time.get_unix_time_from_system() - float(data.wall_time)
 		away_hours = maxf(0.0, elapsed / 3600.0)
 	if away_hours > 0.01:

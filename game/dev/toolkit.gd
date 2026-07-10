@@ -170,6 +170,31 @@ var _river_preview: MeshInstance3D
 var orbit := false
 var _orbit := OrbitRig.new()
 
+# FLY_FOV: Camera3D.new()'s default 75° left explicit — it matches the
+# player's own BASE_FOV (player.gd), the right lens for a human-scale fly
+# camera skimming just above the ground.
+#
+# ORBIT_FOV: the 75°-default trap (see map_screen.gd's MAP_FOV comment) —
+# a wide lens bows the horizon into a fake planet limb once framed on a
+# whole tile from kilometers up. set_view_mode's orbit posture calls
+# OrbitRig.frame_tile(), the SAME distance/elevation math the map screen
+# frames with (OrbitRig is explicitly "one rig, two hands"), so it earns
+# the map's fix too: a deliberate, narrower fov instead of whatever
+# Camera3D.new() hands you. The toolkit's orbit sits closer-in than the
+# map at the zoom levels the kit is actually used at (placing/inspecting
+# — OrbitRig.min_distance is 60m, wheel-zoomable well inside frame_tile's
+# opening distance), but that only reduces how much flat ground fills the
+# frame; it doesn't change what fov does to the SAME plane at any given
+# distance, so there's no framing-math case for widening it back up.
+# Landing on the map's own 35° keeps one number for every camera that
+# frames a whole subject from a fixed vantage instead of walking through
+# it — it also matches Strata's own item-preview cam (strata_link.gd
+# _frame_thumbnail_camera, also 35°) for the same "no distortion, whole
+# subject in frame" reason at CLOSE range, so 35° is doing double duty as
+# the right answer at both ends of the orbit's zoom range.
+const FLY_FOV := 75.0
+const ORBIT_FOV := 35.0
+
 
 ## Boot posture (DECISIONS 2026-07-05, build-out item 1): launched with
 ## `--toolkit`, the game skips the title and drops straight into the editor
@@ -275,11 +300,13 @@ func set_view_mode(p_orbit: bool) -> void:
 	orbit = p_orbit
 	if orbit:
 		_orbit.frame_tile()
+		_cam.fov = ORBIT_FOV
 		_ensure_chart_air()
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	elif active:
 		if _cam:
 			_cam.far = 8000.0
+			_cam.fov = FLY_FOV
 			_cam.environment = null  # back under the world's real air
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
@@ -1827,6 +1854,7 @@ func _player() -> CharacterBody3D:
 func _build_nodes() -> void:
 	_cam = Camera3D.new()
 	_cam.far = 8000.0
+	_cam.fov = FLY_FOV
 	add_child(_cam)
 
 	var mat := StandardMaterial3D.new()

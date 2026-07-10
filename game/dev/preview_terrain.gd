@@ -38,6 +38,22 @@ class_name PreviewTerrain
 const SHADER := "res://game/shaders/preview_terrain.gdshader"
 const GRID := 1023  # subdivisions: 1024^2 verts ~ 16m/vertex over 16km
 
+## The scatter overlay (M4 in-viewport preview): when the worn export
+## carries a Strata scatter bake (scatter/manifest.json — written by
+## WorldExporter whenever the doc's Scatter stage ran), the drape grows a
+## lightweight MultiMesh of proxy markers standing on the SAME preview
+## relief, so the operator judges trees-on-hills, not bare terrain. It is
+## presentation only, rides the file path (the shared zero-copy transport
+## carries no dir, so no overlay there — bare relief, honestly), and WEARS
+## and LEAVES with the drape (leave() frees it; the 2026-07-09 fall-through
+## family). PROXY markers, not the kit meshes: this reads placement/density
+## on the relief, it does not pretend species fidelity (the blessed world's
+## _add_baked_scatter is the real thing). Budget: a hard instance cap with a
+## uniform subsample so a dense world still reads without a silent truncation
+## — the wear reply and the log both carry the drop count.
+const SCATTER_CAP := 4000        # max proxy instances the overlay shows
+const SCATTER_MAX_CELLS := 512   # max per-cell files parsed per wear (bounds the slider loop)
+
 ## Nodes that render the streamed world's ground/water join this group
 ## in their _ready (world_streamer, far_terrain, water_bodies,
 ## water_sheet, sand_patch) — the one place the "steps aside during
@@ -81,6 +97,15 @@ var _layer := "shaded"    # survives re-wears: a slider push keeps the drape
 var _layer_cache: Dictionary = {}  # file -> {img, tex}, valid for _dir
 var _ramp_tex: ImageTexture = null # ramps.png LUT (null: shader falls back)
 var _restore: Array = []  # [node, was_visible] pairs recorded at enter
+
+# The scatter overlay: one MultiMeshInstance3D of proxy markers, rebuilt
+# each wear from the export's scatter/ dir, freed on leave. Child of THIS
+# node (identity transform) so placements sit at their origin-centered world
+# meters — the same frame Strata bakes and Terrain uses — NOT under the
+# scaled _mesh. _scatter_proxy/_scatter_mat are built once and reused.
+var _scatter_mmi: MultiMeshInstance3D = null
+var _scatter_proxy: Mesh = null
+var _scatter_mat: Material = null
 
 # The chart air (data layers only — see _apply_chart_air).
 var _chart_env: Environment = null
@@ -144,10 +169,14 @@ func wear(dir: String) -> String:
 	if _layer != "shaded" and set_layer(_layer).begins_with("err"):
 		print("[preview] layer %s missing in new export — back to shaded" % _layer)
 		_apply_layer("shaded")
+	# The scatter overlay rides the same dir (scatter/ if the Scatter stage
+	# ran); its tail joins the reply so Strata's status line carries the count
+	# (and the drop, when capped) — no silent truncation.
+	var scatter_tail := _wear_scatter(dir)
 	var total_ms := (Time.get_ticks_usec() - t0) / 1000.0
 	print("[preview] wear: mesh %.0fms upload %.1fms total %.1fms" % [
 		mesh_ms, (Time.get_ticks_usec() - t1) / 1000.0, total_ms])
-	return "%.0fm sea=%.1fm wear=%.0fms" % [_world_size, sea, total_ms]
+	return "%.0fm sea=%.1fm wear=%.0fms%s" % [_world_size, sea, total_ms, scatter_tail]
 
 
 ## Wear Strata's SHARED bake surfaces (the zero-copy path): wrap the raw
@@ -177,6 +206,9 @@ func wear_shared(params: Dictionary) -> String:
 	_shared_gen = int(params["gen"])
 	_shared_mode = true
 	_height_img = null  # no CPU mirror on the shared path (probe errs honestly)
+	# The zero-copy transport carries no dir, so it carries no scatter/ — drop
+	# any overlay a prior file wear left up (honest bare relief on this path).
+	_clear_scatter()
 	var sea := float(params["sealevel"])
 	_mat.set_shader_parameter("height_map", _shared_front("height"))
 	_mat.set_shader_parameter("world_size", _world_size)
@@ -369,12 +401,17 @@ func leave() -> void:
 		return
 	visible = false
 	for pair: Array in _restore:
-		var n: Node = pair[0]
-		if is_instance_valid(n):
-			(n as Node3D).visible = pair[1]
+		# Validity FIRST, on the untyped element: a stepped-aside node can be
+		# freed between enter and leave (a cell streams out while preview is
+		# worn — streaming never stops here), and a typed `var n: Node = pair[0]`
+		# assignment CRASHES on a freed instance before any guard could run.
+		if not is_instance_valid(pair[0]):
+			continue
+		(pair[0] as Node3D).visible = pair[1]
 	_restore.clear()
 	worn = false
 	_release_chart_air()
+	_clear_scatter()  # the overlay LEAVES with the drape (bless teardown removes it)
 	_free_shared()  # release the wrapped RD textures (no-op on the file path)
 
 
@@ -537,3 +574,136 @@ func _ensure_mesh() -> float:
 	_mesh.extra_cull_margin = 16384.0
 	add_child(_mesh)
 	return (Time.get_ticks_usec() - t0) / 1000.0
+
+
+# --- the scatter overlay (M4 in-viewport preview) --------------------------
+# proxy height (m); the marker is centered on the CylinderMesh, so its base
+# sits on the ground when the instance lifts y by half this (times scale).
+const SCATTER_PROXY_H := 3.5
+
+
+## Build the proxy-marker overlay from the worn export's scatter/ dir. Reads
+## scatter/manifest.json + the per-cell files (cell-subsampled to bound the
+## slider loop, then placement-subsampled to the instance cap), and stands one
+## MultiMesh of markers on the preview relief. Returns the reply tail:
+## "" (no scatter in this bake), " scatter=<n>" (all shown), or
+## " scatter=<n>/<total>(cap)" (subsampled — the drop is n<total). Never
+## truncates silently: the capped case is named in the reply AND the log.
+func _wear_scatter(dir: String) -> String:
+	_clear_scatter()
+	var mpath := dir.path_join("scatter/manifest.json")
+	if not FileAccess.file_exists(mpath):
+		return ""  # the Scatter stage did not run for this bake — bare relief
+	var manifest: Variant = JSON.parse_string(FileAccess.get_file_as_string(mpath))
+	if not (manifest is Dictionary):
+		push_warning("[preview] unreadable scatter manifest: " + mpath)
+		return ""
+	var cells: Array = manifest.get("cells", [])
+	var total := int(manifest.get("count", 0))
+	if total <= 0 or cells.is_empty():
+		return ""
+	# Cell subsample: read at most SCATTER_MAX_CELLS files, spread uniformly
+	# across the (sorted) cell list so coverage stays world-wide, not a corner.
+	var cell_stride := int(ceil(float(cells.size()) / float(SCATTER_MAX_CELLS)))
+	cell_stride = maxi(cell_stride, 1)
+	var sampled: Array = []
+	var sampled_total := 0
+	var ci := 0
+	while ci < cells.size():
+		var ce: Dictionary = cells[ci]
+		sampled.append(ce)
+		sampled_total += int(ce.get("count", 0))
+		ci += cell_stride
+	# Placement subsample within the sampled cells: every k-th so a dense world
+	# reads at density without blowing the instance budget.
+	var place_stride := 1
+	if sampled_total > SCATTER_CAP:
+		place_stride = int(ceil(float(sampled_total) / float(SCATTER_CAP)))
+		place_stride = maxi(place_stride, 1)
+	var xforms: Array[Transform3D] = []
+	var pi := 0
+	for ce: Dictionary in sampled:
+		var file: String = ce.get("file", "")
+		if file.is_empty():
+			continue
+		var cpath := dir.path_join("scatter/" + file)
+		if not FileAccess.file_exists(cpath):
+			continue
+		var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(cpath))
+		if not (parsed is Array):
+			continue
+		for p: Variant in parsed:
+			if not (p is Dictionary):
+				continue
+			if place_stride > 1 and (pi % place_stride) != 0:
+				pi += 1
+				continue
+			pi += 1
+			var s := float(p.get("scale", 1.0))
+			var basis := Basis(Vector3.UP, float(p.get("yaw", 0.0))).scaled(Vector3.ONE * s)
+			var pos := Vector3(float(p.get("x", 0.0)),
+				float(p.get("y", 0.0)) + SCATTER_PROXY_H * 0.5 * s,
+				float(p.get("z", 0.0)))
+			xforms.append(Transform3D(basis, pos))
+			if xforms.size() >= SCATTER_CAP:
+				break
+		if xforms.size() >= SCATTER_CAP:
+			break
+	var shown := xforms.size()
+	if shown == 0:
+		return ""
+	_build_scatter_mm(xforms)
+	if shown < total:
+		print("[preview] scatter overlay: showing %d of %d (cell 1/%d, place 1/%d)" % [
+			shown, total, cell_stride, place_stride])
+		return " scatter=%d/%d(cap)" % [shown, total]
+	print("[preview] scatter overlay: %d markers" % shown)
+	return " scatter=%d" % shown
+
+
+## Stand the proxy MultiMesh under THIS node (identity frame — world meters).
+func _build_scatter_mm(xforms: Array[Transform3D]) -> void:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = _ensure_scatter_proxy()
+	mm.instance_count = xforms.size()
+	for i in xforms.size():
+		mm.set_instance_transform(i, xforms[i])
+	_scatter_mmi = MultiMeshInstance3D.new()
+	_scatter_mmi.multimesh = mm
+	_scatter_mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Instances span the world; keep the overlay out of the frustum cull's way.
+	_scatter_mmi.extra_cull_margin = 16384.0
+	add_child(_scatter_mmi)
+
+
+## The proxy marker: a small low-poly cone, built once. Reads as a standing
+## prop against the relief without pretending to be any particular kit mesh.
+func _ensure_scatter_proxy() -> Mesh:
+	if _scatter_proxy != null:
+		return _scatter_proxy
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.0
+	cone.bottom_radius = 0.9
+	cone.height = SCATTER_PROXY_H
+	cone.radial_segments = 5
+	cone.rings = 1
+	if _scatter_mat == null:
+		var mat := StandardMaterial3D.new()
+		mat.albedo_color = Color(0.45, 0.52, 0.35)  # muted sage — a marker, not a species
+		mat.roughness = 1.0
+		mat.metallic = 0.0
+		_scatter_mat = mat
+	cone.material = _scatter_mat
+	_scatter_proxy = cone
+	return _scatter_proxy
+
+
+## Free the overlay so it LEAVES with the drape (leave/shared-wear teardown,
+## and the first act of every re-wear). Idempotent; the proxy/material cache
+## survives for the next build.
+func _clear_scatter() -> void:
+	if _scatter_mmi != null:
+		if is_instance_valid(_scatter_mmi):
+			_scatter_mmi.queue_free()
+		_scatter_mmi = null

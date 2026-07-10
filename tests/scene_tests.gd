@@ -348,6 +348,7 @@ func _test_strata_link() -> void:
 	await _test_reload_adopt(peer)
 	await _test_preview_world(peer)
 	await _test_preview_mesh(peer)
+	await _test_preview_scatter(peer)
 	await _test_camera_verb(peer)
 	await _test_toolkit_verbs(peer)
 	await _test_toolkit_power(peer)
@@ -1343,6 +1344,116 @@ func _test_preview_mesh(peer: StreamPeerTCP) -> void:
 	cellar.queue_free()
 	StrataLink._preview.queue_free()
 	StrataLink._preview = null
+
+
+## The scatter overlay (M4 in-viewport preview): when the worn export carries
+## a Strata scatter bake, the preview grid grows a MultiMesh of proxy markers
+## standing on the SAME relief — so the operator judges trees-on-hills. The
+## contract this pins: the overlay WEARS on preview_mesh (the reply tail
+## carries the count), the markers sit at the placement y (on the relief),
+## the instance cap subsamples a dense bake WITHOUT a silent truncation (the
+## reply names the cap), and — the regression, the 2026-07-09 fall-through
+## family — it LEAVES on preview_mesh off (the MultiMesh is freed, not left
+## hanging over the restored streamed world).
+func _test_preview_scatter(peer: StreamPeerTCP) -> void:
+	var dir := ProjectSettings.globalize_path("user://preview_scatter_world")
+	DirAccess.make_dir_recursive_absolute(dir)
+	DirAccess.make_dir_recursive_absolute(dir.path_join("scatter"))
+	# The base export (flat 42m world) so the mesh wears; the scatter rides it.
+	var mf := FileAccess.open(dir.path_join("bake_manifest.json"), FileAccess.WRITE)
+	mf.store_string(JSON.stringify({"world": {
+		"size_m": [16384.0, 16384.0], "sea_level_m": 5.0}}))
+	mf.close()
+	var img := Image.create(64, 64, false, Image.FORMAT_RF)
+	img.fill(Color(42.0, 0.0, 0.0))
+	img.save_exr(dir.path_join("height.exr"))
+	# A tiny scatter bake: one cell, three props at a known y=42.
+	var props := [
+		{"id": "sc_a", "cat": "trees", "x": 0.0, "y": 42.0, "z": 0.0, "yaw": 0.0, "scale": 1.0, "pick": 0.1},
+		{"id": "sc_b", "cat": "rocks", "x": 100.0, "y": 42.0, "z": -50.0, "yaw": 1.0, "scale": 2.0, "pick": 0.4},
+		{"id": "sc_c", "cat": "trees", "x": -80.0, "y": 42.0, "z": 30.0, "yaw": 2.0, "scale": 0.8, "pick": 0.9},
+	]
+	_write_scatter_cell(dir, 0, 0, props)
+	_write_scatter_manifest(dir, props.size(), [[0, 0, "cell_0_0.json", props.size()]])
+	# Wear: the reply tail carries the count and the overlay stands one
+	# MultiMesh instance per placement. (The instance TRANSFORMS live in the
+	# RenderingServer buffer, which the headless dummy renderer discards — so
+	# the on-relief placement is a real-renderer/visual property, not asserted
+	# here; instance_count, which lives on the resource, is.)
+	var worn := await _link_send(peer, ["preview_mesh " + dir])
+	_check(worn.size() == 1 and String(worn[0]).begins_with("ok preview_mesh"),
+		"scatter wear answers ok (got %s)" % str(worn))
+	_check(worn.size() == 1 and String(worn[0]).contains("scatter=3"),
+		"the wear reply carries the scatter count (got %s)" % str(worn))
+	var pv: PreviewTerrain = StrataLink._preview
+	_check(pv != null and pv._scatter_mmi != null,
+		"the scatter overlay is worn")
+	if pv != null and pv._scatter_mmi != null:
+		_check(pv._scatter_mmi.multimesh.instance_count == 3,
+			"the overlay instances every placement (got %d)" %
+				pv._scatter_mmi.multimesh.instance_count)
+		_check(pv._scatter_mmi.get_parent() == pv,
+			"the overlay is a child of the preview grid (wears/leaves with it)")
+	# A re-wear whose bake dropped the scatter (no scatter/manifest) clears the
+	# overlay honestly — bare relief, no stale markers.
+	DirAccess.remove_absolute(dir.path_join("scatter/manifest.json"))
+	var bare := await _link_send(peer, ["preview_mesh " + dir])
+	_check(bare.size() == 1 and not String(bare[0]).contains("scatter="),
+		"a bake without scatter drops the overlay from the reply (got %s)" % str(bare))
+	_check(pv != null and pv._scatter_mmi == null,
+		"the overlay is gone when the new bake has no scatter")
+	# The cap: 8000 props in one cell subsample to exactly SCATTER_CAP, and the
+	# reply NAMES the cap (no silent truncation — the drop is total−shown).
+	var many: Array = []
+	for i in 8000:
+		many.append({"id": "sc_%d" % i, "cat": "trees",
+			"x": float(i % 128) - 64.0, "y": 42.0, "z": float(i / 128) - 64.0,
+			"yaw": 0.0, "scale": 1.0, "pick": 0.0})
+	_write_scatter_cell(dir, 0, 0, many)
+	_write_scatter_manifest(dir, many.size(), [[0, 0, "cell_0_0.json", many.size()]])
+	var capped := await _link_send(peer, ["preview_mesh " + dir])
+	_check(capped.size() == 1 and String(capped[0]).contains("/8000(cap)"),
+		"the capped reply names the cap and the total (got %s)" % str(capped))
+	var capped_n := pv._scatter_mmi.multimesh.instance_count if pv != null and pv._scatter_mmi != null else -1
+	_check(capped_n > 0 and capped_n <= PreviewTerrain.SCATTER_CAP,
+		"the overlay honors the instance cap (got %d, cap %d)" % [capped_n, PreviewTerrain.SCATTER_CAP])
+	# THE regression: leave frees the overlay — it does not hang over the
+	# restored streamed world (the 2026-07-09 fall-through family).
+	var off := await _link_send(peer, ["preview_mesh off"])
+	_check(off.size() == 1 and off[0] == "ok preview_mesh off (streamed world restored)",
+		"off restores")
+	_check(pv != null and pv._scatter_mmi == null,
+		"the scatter overlay LEAVES with the drape on off")
+	# Leave no trace.
+	for f in ["height.exr", "bake_manifest.json", "scatter/cell_0_0.json"]:
+		DirAccess.remove_absolute(dir.path_join(f))
+	DirAccess.remove_absolute(dir.path_join("scatter"))
+	DirAccess.remove_absolute(dir)
+	StrataLink._preview.queue_free()
+	StrataLink._preview = null
+
+
+## Write one scatter cell file (the ScatterExport per-cell shape).
+func _write_scatter_cell(dir: String, cx: int, cz: int, props: Array) -> void:
+	var f := FileAccess.open(
+		dir.path_join("scatter/cell_%d_%d.json" % [cx, cz]), FileAccess.WRITE)
+	f.store_string(JSON.stringify(props))
+	f.close()
+
+
+## Write the scatter manifest (the ScatterExport manifest shape the overlay
+## reads: format, count, cells:[{cell,file,count}]). sha256 is omitted — the
+## throwaway preview never verifies (only the blessed streamer does).
+func _write_scatter_manifest(dir: String, total: int, cells: Array) -> void:
+	var entries: Array = []
+	for c: Array in cells:
+		entries.append({"cell": [c[0], c[1]], "file": c[2], "count": c[3], "sha256": ""})
+	var f := FileAccess.open(dir.path_join("scatter/manifest.json"), FileAccess.WRITE)
+	f.store_string(JSON.stringify({
+		"format": 1, "cell_size_m": 128.0, "count": total,
+		"world": {"size_m": [16384.0, 16384.0], "sea_level_m": 5.0},
+		"cells": entries}))
+	f.close()
 
 
 ## The camera mirror (engine-viewport M4): `camera` answers the ACTIVE 3D

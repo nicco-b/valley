@@ -1,0 +1,112 @@
+# Contour port of valley game/dev/toolkit_snap.gd :: ToolkitSnap
+#
+# The Toolkit's pure placement math (grid / ground / normal snaps + L11 kit-
+# bashing sockets). Every function is a pure map from its arguments — no engine
+# state, no autoloads — so each is `sim` and the compiler certifies determinism.
+# Ported mechanically from the GDScript; Plumb proves every one bit-identical to
+# real headless Godot over corpora that hit every branch plus the degenerate
+# cases (zero vectors, negative steps, off-ladder inputs, empty socket lists).
+#
+# Vector semantics mirror Godot's `real_t`/Float32 EXACTLY (see Lattice's
+# Vectors.swift): component-wise arithmetic, length/normalized/dot/cross, and
+# the axis-angle + column Basis constructors all reproduce Godot's single-
+# precision math bit-for-bit. `vec3(0.0,1.0,0.0)` stands in for `Vector3.UP`,
+# `PI()`/`TAU()` for the global constants.
+
+
+# The H-key grid ladder 1 -> 2 -> 4 -> 8 -> 16 -> 1. `dir` +1 coarsens, -1
+# refines; the current value snaps to the nearest rung first (ties break to the
+# larger rung — round-half-up), so an odd link-set step still lands on a rung.
+sim func cycle_grid_step(current: float, dir: int) -> float:
+	var steps = [1.0, 2.0, 4.0, 8.0, 16.0]
+	var best = 0
+	for i in steps.size():
+		if absf(steps[i] - current) <= absf(steps[best] - current):
+			best = i
+	return steps[wrapi(best + dir, 0, steps.size())]
+
+
+# Snap a world XZ to the nearest intersection of a `step`-metre grid, Y left
+# untouched. step <= 0 is the identity map (grid snap off, no branch at the call
+# site).
+sim func snap_to_grid(pos: vector3, step: float) -> vector3:
+	if step <= 0.0:
+		return pos
+	return vec3(snappedf(pos.x, step), pos.y, snappedf(pos.z, step))
+
+
+# The basis for a record aligned to a ground normal, then turned `yaw` about
+# that tilted up. A degenerate/zero normal falls back to +Y (flat). Columns
+# (x, y, z) = (tangent, up, bitangent): local +Y maps to the normal; the yaw
+# post-multiplies about local Y.
+sim func aligned_basis(normal: vector3, yaw: float) -> basis:
+	var up = normal.normalized()
+	if up.length_squared() < 0.5:
+		up = vec3(0.0, 1.0, 0.0)
+	var ref = vec3(1.0, 0.0, 0.0)
+	if absf(up.dot(vec3(1.0, 0.0, 0.0))) > 0.99:
+		ref = vec3(0.0, 0.0, -1.0)
+	var tangent = (ref - up * ref.dot(up)).normalized()
+	var bitangent = tangent.cross(up)
+	return basis_cols(tangent, up, bitangent) * basis_axis_angle(vec3(0.0, 1.0, 0.0), yaw)
+
+
+# The ground normal from three height samples (center, +X `eps` east, +Z `eps`
+# north) — a finite-difference estimate, always oriented +Y up. Flat ground
+# returns exactly (0, 1, 0). `eps` must be > 0.
+sim func ground_normal(h_center: float, h_east: float, h_north: float, eps: float) -> vector3:
+	var east = vec3(eps, h_east - h_center, 0.0)
+	var north = vec3(0.0, h_north - h_center, eps)
+	var n = north.cross(east)
+	if n.y < 0.0:
+		n = -n
+	return n.normalized()
+
+
+# A socket carried from a piece's LOCAL frame into the world, given the piece's
+# planar pose (position, yaw about +Y, uniform scale). The local offset rides
+# the piece's scale then its yaw; the facing is piece yaw plus the socket's own
+# local yaw. Returns {pos: vector3, yaw: float}.
+sim func socket_world(piece_pos: vector3, piece_yaw: float, piece_scale: float, local_pos: vector3, local_yaw: float) -> dict:
+	var wpos = piece_pos + (basis_axis_angle(vec3(0.0, 1.0, 0.0), piece_yaw) * (local_pos * piece_scale))
+	return {"pos": wpos, "yaw": wrapf(piece_yaw + local_yaw, 0.0, TAU())}
+
+
+# The pose an incoming piece must take so ITS socket mates a TARGET world socket:
+# the socket points coincide and the incoming socket faces OPPOSITE the target
+# (yaw + PI). The exact inverse of socket_world. Returns {pos: vector3, yaw: float}.
+sim func snap_to_socket(target_pos: vector3, target_yaw: float, in_local_pos: vector3, in_local_yaw: float, in_scale: float) -> dict:
+	var piece_yaw = wrapf(target_yaw + PI() - in_local_yaw, 0.0, TAU())
+	var piece_pos = target_pos - (basis_axis_angle(vec3(0.0, 1.0, 0.0), piece_yaw) * (in_local_pos * in_scale))
+	return {"pos": piece_pos, "yaw": piece_yaw}
+
+
+# The best socket mate for a piece dropped at `cursor`: among `candidates`
+# (world sockets {type, pos, yaw}), the one NEAREST the cursor in XZ within
+# `radius` that shares a type with any of the incoming piece's `in_sockets`
+# (local {type, pos, yaw}); return the incoming pose (via snap_to_socket) that
+# mates it. {} when no compatible socket is in reach. Ties resolve to the LAST
+# equal-distance candidate (`d <= best_d`), mirroring the GDScript.
+#
+# The GDScript uses `continue`/`break`; Contour has neither, so the skips become
+# nested `if`s and the first-match `break` becomes a `found` guard — the branch
+# structure differs but the computed result is identical (Plumb proves it).
+sim func best_socket_snap(cursor: vector3, in_sockets: array, candidates: array, radius: float, in_scale: float) -> dict:
+	var best_d = radius
+	var best = {}
+	for cand in candidates:
+		var ctype = cand.get("type", "")
+		if ctype != "":
+			var isock = {}
+			var found = false
+			for s in in_sockets:
+				if not found and s.get("type", "") == ctype:
+					isock = s
+					found = true
+			if not isock.is_empty():
+				var cpos = cand["pos"]
+				var d = vec2(cpos.x - cursor.x, cpos.z - cursor.z).length()
+				if d <= best_d:
+					best_d = d
+					best = snap_to_socket(cpos, cand.get("yaw", 0.0), isock["pos"], isock.get("yaw", 0.0), in_scale)
+	return best

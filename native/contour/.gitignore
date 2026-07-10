@@ -1,0 +1,7 @@
+# Reproducible build artifacts — rebuild via CMakeLists.txt + the datum
+# scripts/build_embed.sh (see build.sh). Source, CMake, manifest, and the
+# staged single-source header are tracked; the archive + dylibs are NOT.
+build/
+build-debug/
+build-release/
+lib/*.a

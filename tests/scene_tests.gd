@@ -74,6 +74,7 @@ func _ready() -> void:
 	_test_playtest_anchors()
 	_test_save_migration()
 	await _test_strata_link()
+	_test_contour()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -6544,3 +6545,89 @@ func _test_state_verb(peer: StreamPeerTCP) -> void:
 	WorldState.set_value("test.link.flag", null)
 	WorldState.set_value("test.link.num", null)
 	WorldState.set_value("test.link.word", null)
+
+
+## The Contour VM host (game/sim/contour.gd, PLAN_ENGINE §3 E2). Two halves:
+##   available → a Contour call answers bit-identical to its GDScript twin
+##               (ToolkitSnap), in-game, over scalar AND composite (basis/dict)
+##               results — the native Lattice VM running in THIS process.
+##   absent    → an honest NO-OP: a Contour that never compiled (or a missing
+##               module, or a build with no dylib) returns false/null and never
+##               crashes, so every consumer keeps its GDScript path.
+## SKIP-when-absent (the framework file rides every game): off macOS / without
+## the built dylib, only the no-op contract is asserted.
+func _test_contour() -> void:
+	# --- the honest no-op contract, ALWAYS asserted (dylib present or not) ----
+	# A fresh host with no module compiled: not ready, calls return null, no crash.
+	var cold := Contour.new()
+	_check(not cold.is_ready(), "contour: a host with no module is not ready")
+	_check(cold.call_fn("cycle_grid_step", [3.0, 1]) == null,
+		"contour: call_fn on an uncompiled host is null (honest no-op)")
+	# A missing module is a diagnostic, not a crash (content-empty-safe).
+	var miss := Contour.new()
+	var miss_err := miss.compile_file("res://tests/contour/does_not_exist.ct")
+	_check(miss_err != "" and not miss.is_ready(),
+		"contour: a missing module yields a diagnostic, host stays un-ready")
+
+	# --- the available path: bit-identity to the GDScript twin, in-game -------
+	if not Contour.available():
+		print("  contour: SKIP available-path (no native kernel — GDScript twin only)")
+		return
+	var vm := Contour.new()
+	var err := vm.compile_file("res://tests/contour/toolkit_snap.ct")
+	_check(err == "", "contour: toolkit_snap.ct compiles (%s)" % err)
+	if err != "":
+		return
+	_check(vm.is_ready(), "contour: the VM is ready after compile")
+
+	# The GDScript twin, loaded as a script object so its static functions can
+	# be invoked by name (callv is an Object method — the class ref can't carry
+	# it; the same shape the native-spike probe used).
+	var twin_gd: GDScript = load("res://game/dev/toolkit_snap.gd")
+	_check(twin_gd != null, "contour: the GDScript twin loads")
+	if twin_gd == null:
+		return
+
+	# Every call the twin answers, the VM answers BIT-IDENTICALLY. `==` on the
+	# result Variants is an exact IEEE compare (same value, not approx) — scalar,
+	# vector, BASIS (composite result), and DICT (composite result) all covered.
+	var cases := [
+		["cycle_grid_step", [3.0, 1]],                                  # scalar -> scalar
+		["cycle_grid_step", [16.0, 1]],                                 # ladder wrap
+		["snap_to_grid",    [Vector3(13.0, 7.5, -6.0), 4.0]],           # vec3 -> vec3
+		["ground_normal",   [0.0, 1.0, 0.0, 1.0]],                      # 4 floats -> vec3
+		["aligned_basis",   [Vector3(0.2, 0.9, 0.3), 0.7]],            # -> BASIS (LAT_BUF)
+		["socket_world",    [Vector3(10.0, 0.0, 10.0), PI / 2.0, 1.0,
+							  Vector3(2.0, 0.0, 0.0), 0.0]],             # -> DICT (LAT_BUF)
+	]
+	for c in cases:
+		var fn: String = c[0]
+		var args: Array = c[1]
+		var twin: Variant = twin_gd.callv(fn, args)
+		var got: Variant = vm.call_fn(fn, args)
+		_check(_contour_eq(got, twin),
+			"contour: %s bit-identical to ToolkitSnap.%s (twin=%s got=%s)" % [fn, fn, twin, got])
+	print("  contour: %d calls (scalar/vec/basis/dict) bit-identical to the GDScript twin — native VM in-process" % cases.size())
+
+
+# Exact structural equality for a Contour result vs its GDScript twin. `==` on
+# floats/vectors is a bit compare; dicts compare key-by-key so a Variant `==`
+# quirk on nested Dictionaries can't hide a mismatch.
+func _contour_eq(a: Variant, b: Variant) -> bool:
+	if typeof(a) != typeof(b):
+		return false
+	if typeof(a) == TYPE_DICTIONARY:
+		if a.size() != b.size():
+			return false
+		for k in a:
+			if not b.has(k) or not _contour_eq(a[k], b[k]):
+				return false
+		return true
+	if typeof(a) == TYPE_ARRAY:
+		if a.size() != b.size():
+			return false
+		for i in a.size():
+			if not _contour_eq(a[i], b[i]):
+				return false
+		return true
+	return a == b

@@ -1,0 +1,17 @@
+; The Contour kernel. Deliberately NOT named *.gdextension (the loomkernel
+; precedent): the editor's auto-scan would register it on every platform and
+; error where the library isn't built (Linux CI, stock Godot). The load site
+; (game/dev/contour.gd) loads it EXPLICITLY via GDExtensionManager on macOS,
+; only when the dylib is present; everywhere else the GDScript twin runs and
+; the class simply never registers.
+;
+; macos maps to the template_debug dylib (the editor / dev runtime). The
+; template_release build (libcontourkernel.macos.release.dylib) ships beside
+; it for the release-flavor runtime, mapped by the shipped manifest at export
+; time — the same debug/release split loomkernel's shipyard uses.
+[configuration]
+entry_symbol = "contour_kernel_init"
+compatibility_minimum = "4.7"
+
+[libraries]
+macos = "res://native/contour/bin/libcontourkernel.macos.dylib"

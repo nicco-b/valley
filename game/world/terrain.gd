@@ -445,12 +445,24 @@ func _ready() -> void:
 		_home_rect.position.x, _home_rect.position.y,
 		_home_rect.end.x, _home_rect.end.y))
 	_configure_noise()
-	if FileAccess.file_exists(EDIT_PATH):
-		_edits = Image.load_from_file(ProjectSettings.globalize_path(EDIT_PATH))
+	var edits := _load_data_image(EDIT_PATH)
+	if edits != null:
+		_edits = edits
 		_edits.convert(Image.FORMAT_RF)
 	else:
 		_edits = Image.create(EDIT_SIZE, EDIT_SIZE, false, Image.FORMAT_RF)
 	_init_kernel()
+	# Boot proof (PLAN_SHIP tile gap): name whether the world stands on its
+	# BAKED tile or the procedural base, with a height sample the shipped boot
+	# probe reads back. The S1 tile read used a real-filesystem load that could
+	# not reach inside the .pck, so a shipped app fell silently to procedural;
+	# this line makes that failure loud and the fix provable.
+	if has_world_tile():
+		var t0: Dictionary = _tiles[0]
+		print("[terrain] world tile live: %s %dx%d over %.0fm — height(0,0)=%.3fm (TILE-backed)" % [
+			t0.id, int(t0.res), int(t0.res), float(t0.size), height(0.0, 0.0)])
+	else:
+		print("[terrain] no world tile — procedural base (height(0,0)=%.3fm)" % height(0.0, 0.0))
 
 
 # The procedural draft's parameters from data/world/landform.json, if a
@@ -1100,10 +1112,10 @@ func _load_biomes() -> void:
 	var pal_tex := ImageTexture.create_from_image(pal_img)
 	RenderingServer.global_shader_parameter_set("biome_palette", pal_tex)
 	RenderingServer.global_shader_parameter_set("biome_count", biomes.size())
-	if not FileAccess.file_exists(BIOME_MAP_PATH):
+	var painted := _load_data_image(BIOME_MAP_PATH)
+	if painted == null:
 		RenderingServer.global_shader_parameter_set("biome_present", false)
 		return
-	var painted := Image.load_from_file(ProjectSettings.globalize_path(BIOME_MAP_PATH))
 	_biome_res = painted.get_width()
 	# Match each painted pixel to the nearest palette ink → index image.
 	_biome_img = Image.create(_biome_res, _biome_res, false, Image.FORMAT_R8)
@@ -1227,6 +1239,36 @@ func restore_biome_map(snap: Image, rect: Rect2) -> void:
 		edited.emit(rect)
 
 
+## Read a res:// data image PACK-SAFE, for the layers terrain reads as RAW
+## pixels (exact float heights / palette inks) rather than imported textures.
+## Image.load_from_file(globalize_path(...)) is a REAL-filesystem read: it
+## works in dev (res:// maps to the project dir) but CANNOT reach inside an
+## exported .pck, so a shipped app found nothing and silently fell to the
+## procedural base (the PLAN_SHIP tile gap). FileAccess.get_file_as_bytes
+## reads res:// THROUGH Godot's pack, so the SAME bytes decode in dev and in
+## the shipped app — no dev/ship fork. The ship staging marks these files
+## importer="keep" so the raw bytes ride the pack verbatim (StrataCore
+## ShipPipeline.keepRawData). Returns null on a missing/undecodable file;
+## every caller already treats null as "layer absent".
+func _load_data_image(path: String) -> Image:
+	var bytes := FileAccess.get_file_as_bytes(path)
+	if bytes.is_empty():
+		return null
+	var img := Image.new()
+	var err := ERR_UNAVAILABLE
+	var lower := path.to_lower()
+	if lower.ends_with(".exr"):
+		err = img.load_exr_from_buffer(bytes)
+	elif lower.ends_with(".png"):
+		err = img.load_png_from_buffer(bytes)
+	else:
+		push_error("[terrain] unsupported data-image format (want .exr/.png): " + path)
+		return null
+	if err != OK or img.is_empty():
+		return null
+	return img
+
+
 ## Load one painted-tile record: image → float array, once at boot
 ## (and on dev hot-reload). Cold path; any failure skips the tile.
 func _load_tile(rec: Dictionary, fallback_id: String) -> Dictionary:
@@ -1245,7 +1287,7 @@ func _load_tile(rec: Dictionary, fallback_id: String) -> Dictionary:
 			WORLD_FRAME_M, WORLD_FRAME_M])
 		return {}
 	var path: String = rec["heightmap"]
-	var img := Image.load_from_file(ProjectSettings.globalize_path(path))
+	var img := _load_data_image(path)
 	if img == null or img.is_empty():
 		push_error("[terrain] tile heightmap missing/unreadable: " + path)
 		return {}
@@ -1308,7 +1350,7 @@ func recorded_spawn() -> Variant:
 func _load_tile_override() -> void:
 	if _tiles.is_empty() or not FileAccess.file_exists(TILE_OVERRIDE_EXR):
 		return
-	var img := Image.load_from_file(ProjectSettings.globalize_path(TILE_OVERRIDE_EXR))
+	var img := _load_data_image(TILE_OVERRIDE_EXR)
 	if img == null or img.is_empty():
 		push_error("[terrain] tile override unreadable: " + TILE_OVERRIDE_EXR)
 		return

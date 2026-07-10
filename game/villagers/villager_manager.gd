@@ -50,6 +50,14 @@ func _ready() -> void:
 	# restart, minus the restart. Its schema (SCHEMA above, registered by
 	# _load's load_dir) is what the desk validates an edit against.
 	Records.register_reloader("villagers", reload)
+	# Full validate coverage (CREATION_KIT_REVIEW_V2 #3a, the quests->QuestLint
+	# pattern): the field schema alone can only see that `schedule` is an Array;
+	# the SCHEDULE's soundness (every activity a string id + string satisfies)
+	# is a semantic rule only spawn_villager knew. Registered here as the kind's
+	# validator, `records validate villagers` runs the SAME judgement the loader
+	# does — so the desk can never green-light a villager whose schedule
+	# spawn_villager would reject and silently drop. The loader judges the desk.
+	Records.register_validator("villagers", _validate_record)
 	# The world budget's agent axis (a METER, NOT A WALL): every mind counts
 	# toward the live-agent tally, embodied or not. Read-only.
 	Budget.register_population(_population)
@@ -100,6 +108,19 @@ static func validate_schedule(schedule: Array) -> String:
 		if not (a.get("satisfies") is String) or String(a.satisfies).is_empty():
 			return "activity '%s' missing string 'satisfies'" % a.get("id", i)
 	return ""
+
+
+## The villagers kind's semantic validator (Records.validate_kind runs it
+## after the field schema, the quests->QuestLint pattern). A record whose
+## fields typed clean still needs a sound schedule; this relays
+## validate_schedule's first failure so the records desk bounces a bad edit
+## with the game's own words. The field check already proved `schedule` is an
+## Array, but guard for a direct call.
+func _validate_record(record: Dictionary) -> String:
+	var schedule: Variant = record.get("schedule", [])
+	if not (schedule is Array):
+		return "field 'schedule' should be Array"
+	return validate_schedule(schedule)
 
 
 ## Raise one villager mind from a record. Returns the villager entry (the

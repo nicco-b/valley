@@ -1136,6 +1136,29 @@ func _test_records_desk(peer: StreamPeerTCP) -> void:
 			"a cyclic quest bounces with QuestLint's cycle words (got %s)" % ereplies[4])
 		_check(ereplies[5] == "ok validate quests",
 			"a sound quest validates ok through the real lint (got %s)" % ereplies[5])
+	# The SHIPPED villagers kind over the wire (CREATION_KIT_REVIEW_V2 #3a):
+	# a creature's day, edited like a quest. `records schema villagers` answers
+	# the shape the desk renders typed editors from; `records validate villagers`
+	# runs the SAME schedule judgement the loader does — a schedule with a
+	# malformed activity bounces with the game's own words, over the link,
+	# before anything lands. This is the acceptance's "edit an activity record
+	# over the link" half, proven headless.
+	var good_villager := '{"id": "wire_v", "name": "Wire", "home": {"x": 0, "z": 0}, "body_scene": "res://game/villagers/villager_body.tscn", "schedule": [{"id": "garden", "at": "roam", "satisfies": "work"}]}'
+	var bad_villager := '{"id": "wire_v", "name": "Wire", "home": {"x": 0, "z": 0}, "body_scene": "res://game/villagers/villager_body.tscn", "schedule": [{"id": "garden", "at": "roam"}]}'
+	var vreplies := await _link_send(peer, [
+		"records schema villagers",
+		"records validate villagers " + good_villager,
+		"records validate villagers " + bad_villager,
+	])
+	_check(vreplies.size() == 3, "villager desk replies land (got %d)" % vreplies.size())
+	if vreplies.size() == 3:
+		_check("schedule:Array" in String(vreplies[0]),
+			"schema villagers answers the schedule field's shape (got %s)" % vreplies[0])
+		_check(vreplies[1] == "ok validate villagers",
+			"a sound villager validates ok over the link (got %s)" % vreplies[1])
+		_check(String(vreplies[2]).begins_with("err validate villagers:")
+				and "satisfies" in String(vreplies[2]),
+			"a malformed schedule bounces with the game's words (got %s)" % vreplies[2])
 	# Leave no trace: drop the synthetic kinds from the registries.
 	Records._schemas.erase("probe_kind")
 	Records._reloaders.erase("probe_kind")
@@ -5036,6 +5059,19 @@ func _test_villager() -> void:
 	_check(VillagerManager.validate_schedule([
 		{"id": "a"}]) != "",
 		"an activity missing 'satisfies' is caught")
+	# Full validate coverage through the records desk's OWN door (#3a): the
+	# semantic validator is wired, so Records.validate_kind — the truth
+	# `records validate villagers` answers with — runs the schedule judgement,
+	# not just the field types. A malformed activity bounces HERE, before an
+	# edit lands, instead of green-lighting a spawn the loader would drop.
+	var _vbase := {"id": "x", "name": "X", "home": {"x": 0, "z": 0},
+		"body_scene": "res://game/villagers/villager_body.tscn"}
+	_check(Records.validate_kind("villagers",
+		_vbase.duplicate().merged({"schedule": [{"id": "a", "satisfies": "rest"}]})) == "",
+		"a sound villager validates clean through the records desk")
+	_check(Records.validate_kind("villagers",
+		_vbase.duplicate().merged({"schedule": [{"id": "a"}]})) != "",
+		"the desk's validate runs the schedule check, not just field types")
 	# The marker keyword vocabulary (§4c: a marker is a card with a keyword) —
 	# injected like the records-desk probe, so no marker asset need ship.
 	Cards._slots["probe/marker"] = {"keyword": "marker",

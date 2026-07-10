@@ -1,0 +1,17 @@
+{
+  "files" : {
+    "height.exr" : "9174ce1d7ae5c9259bf6ac26ef281b5803087cd85e2b80e2aab5b15d025e68f7",
+    "hydrology.json" : "fe244ce443e8658a228f280592828eb0ea4c295f6cc8cf040f855b3c8c95e7d7"
+  },
+  "format" : 1,
+  "name" : "lake_e2e",
+  "param_hash" : "e2e",
+  "seed" : 1,
+  "world" : {
+    "sea_level_m" : 5,
+    "size_m" : [
+      16384,
+      16384
+    ]
+  }
+}

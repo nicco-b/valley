@@ -23,6 +23,7 @@ func _ready() -> void:
 	_test_strata_water()
 	_test_river_drape()
 	_test_region_reseed()
+	_test_lake_outline()
 	_test_water_field()
 	_test_wave_sources()
 	_test_foam_memory()
@@ -3503,6 +3504,82 @@ func _test_region_reseed() -> void:
 	if had_storage:
 		Hydrology.region_storage[id] = saved_storage
 		Hydrology.region_qref[id] = saved_qref
+
+
+## The lake-shape E2E (P2+): a Strata export whose lake carries its TRUE
+## shoreline outline — driven through the REAL import_world.gd — must land as
+## a hyd_ record that keeps the outline, and WaterBodies must build a
+## vertex-dense surface that HUGS that outline instead of the floating
+## equal-area disc. The committed fixture (tests/fixtures/lake_e2e_world) is a
+## kidney/L-shaped depression baked by Strata's HydrologySolver (see
+## LakeOutlineE2ETests.swift), so the notch is dry ground the old disc floated
+## over. Proves items (2)–(4) of the rung end to end.
+func _test_lake_outline() -> void:
+	var world_abs := ProjectSettings.globalize_path("res://tests/fixtures/lake_e2e_world")
+	if not FileAccess.file_exists(world_abs.path_join("hydrology.json")):
+		print("  lake outline: SKIP (no E2E fixture)")
+		return
+	# (2) Run the real importer; it must carry the outline into the record.
+	var out_abs := ProjectSettings.globalize_path("user://lake_e2e_out")
+	DirAccess.make_dir_recursive_absolute(out_abs)
+	var project := ProjectSettings.globalize_path("res://")
+	var r := _run_importer(world_abs, out_abs, project)
+	_check(int(r.code) == 0, "E2E import exits 0 (%s)" % String(r.out).substr(0, 200))
+	var rec_path := out_abs.path_join("hyd_l1.json")
+	_check(FileAccess.file_exists(rec_path), "importer wrote the lake record")
+	var rec: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(rec_path))
+	var outline_raw: Array = rec.get("outline", [])
+	_check(outline_raw.size() >= 6,
+		"importer carried the true shoreline (%d verts, not a disc)" % outline_raw.size())
+	# (3) WaterBodies builds a dense surface clipped to the real outline.
+	var WaterBodies := load("res://game/world/water_bodies.gd")
+	var wb: Node = WaterBodies.new()
+	var center := Vector2(float(rec["center"]["x"]), float(rec["center"]["z"]))
+	var world_poly := PackedVector2Array()
+	for p: Dictionary in outline_raw:
+		world_poly.append(Vector2(float(p["x"]), float(p["z"])))
+	var local: PackedVector2Array = wb._local_outline(world_poly, center)
+	var lake_step := maxf(0.9, float(rec["radius"]) / 128.0)
+	var poly_mesh: ArrayMesh = wb._polygon_disc(local, lake_step)
+	var disc_mesh: ArrayMesh = wb._disc(float(rec["radius"]), lake_step)
+	var pv: PackedVector3Array = poly_mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	_check(pv.size() > 200, "outline surface is vertex-dense (%d verts)" % pv.size())
+	# (4) It HUGS the shore: nearly every built triangle sits inside the true
+	# polygon, while the equal-area disc spills well past it — the floating rim.
+	var pin := _tri_inside_fraction(wb, poly_mesh, local)
+	var din := _tri_inside_fraction(wb, disc_mesh, local)
+	_check(pin > 0.9, "outline mesh stays inside the real shore (%.2f in)" % pin)
+	_check(din < pin - 0.1,
+		"the disc fallback floats past the shore (disc %.2f < outline %.2f)" % [din, pin])
+	wb.free()
+	# Scrub the scratch import so the run leaves nothing behind.
+	var d := DirAccess.open(out_abs)
+	if d != null:
+		for f in d.get_files():
+			d.remove(f)
+
+
+# Fraction of a mesh's triangles whose centroid lies inside `poly` (XZ) —
+# 1.0 means the surface never spills past the shoreline.
+func _tri_inside_fraction(wb: Node, mesh: ArrayMesh, poly: PackedVector2Array) -> float:
+	var arrs := mesh.surface_get_arrays(0)
+	var v: PackedVector3Array = arrs[Mesh.ARRAY_VERTEX]
+	var idx: PackedInt32Array = arrs[Mesh.ARRAY_INDEX]
+	if idx.is_empty():
+		return 0.0
+	var inside := 0
+	var tris := 0
+	var i := 0
+	while i + 2 < idx.size():
+		var a: Vector3 = v[idx[i]]
+		var b: Vector3 = v[idx[i + 1]]
+		var c: Vector3 = v[idx[i + 2]]
+		var cen := Vector2((a.x + b.x + c.x) / 3.0, (a.z + b.z + c.z) / 3.0)
+		if wb._point_in_poly(cen, poly):
+			inside += 1
+		tris += 1
+		i += 3
+	return float(inside) / float(maxi(tris, 1))
 
 
 func _test_water_field() -> void:

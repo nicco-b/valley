@@ -56,6 +56,7 @@ func _ready() -> void:
 	await _test_threshold()
 	await _test_interior_hand()
 	_test_map()
+	_test_map_travel()
 	_test_pause_esc_routing()
 	_test_embedded_pane_posture()
 	_test_story_dry_spell_real()
@@ -1643,6 +1644,65 @@ func _test_map() -> void:
 	_check(not MapScreen.active, "map closes")
 	_check(player.is_physics_processing(), "close returns the hand")
 	player.queue_free()
+
+
+## The map's RMB fast travel must land where you CLICKED, not a kilometre
+## past it. The world is a baked 16384m tile whose ground stands hundreds of
+## metres above y=0, and the map's orbit camera is steeply pitched — so the
+## old landing (intersect the ray with the flat y=0 plane) drifted far
+## downrange over any elevated terrain. MapScreen.ray_to_terrain marches the
+## real height field to the SURFACE instead. Driven through a real Camera3D
+## (project_ray_* end to end) over a synthetic flat-but-elevated field, so
+## the ground truth is analytic: the ray meets the plane y=H at one point.
+func _test_map_travel() -> void:
+	const H := 300.0  # a flat terrain lifted 300m — the tile is no lowland
+	var sampler := func(_x: float, _z: float) -> float: return H
+	var cam := Camera3D.new()
+	add_child(cam)  # under the root viewport: project_ray_* needs the frame
+	# Seat it like the orbit rig: high and steeply pitched over the tile.
+	var target := Vector3(0.0, H, 0.0)
+	var az := 0.7
+	var el := 0.7  # ~40deg above the ground plane — the chart look
+	var dist := 9000.0
+	cam.global_position = target + Vector3(
+		dist * cos(el) * sin(az), dist * sin(el), dist * cos(el) * cos(az))
+	cam.look_at(target, Vector3.UP)
+	await get_tree().process_frame  # let the transform settle before ray casts
+
+	var vp: Vector2 = cam.get_viewport().get_visible_rect().size
+	# An off-centre pixel: a genuine unproject, not just a look at the target.
+	var px := vp * 0.5 + Vector2(220.0, -140.0)
+	var org := cam.project_ray_origin(px)
+	var dir := cam.project_ray_normal(px).normalized()
+	_check(dir.y < -0.001, "map travel: the test ray points down at the ground")
+
+	# Analytic truth: where this ray crosses the plane y=H.
+	var t_surface := (org.y - H) / -dir.y
+	var truth := org + dir * t_surface
+	# What the OLD landing did: intersect the flat y=0 plane instead.
+	var t_zero := org.y / -dir.y
+	var plane0 := org + dir * t_zero
+
+	var hit: Vector3 = MapScreen.ray_to_terrain(org, dir, sampler)
+	_check(hit != Vector3.INF, "map travel: the ray finds the surface")
+	if hit != Vector3.INF:
+		_check(absf(hit.y - H) < 1.0, "map travel: the hit sits ON the ground (y=H)")
+		var err := Vector2(hit.x - truth.x, hit.z - truth.z).length()
+		_check(err < 2.0,
+			"map travel: surface hit lands where clicked (%.2fm off)" % err)
+		# The bug this fixes: the y=0 plane drifted the drop far downrange.
+		# Over 300m of elevation at this pitch that is hundreds of metres —
+		# assert the fix beats it by a wide margin, so a regression that
+		# reinstates the plane fails loudly.
+		var drift := Vector2(plane0.x - truth.x, plane0.z - truth.z).length()
+		_check(drift > 100.0,
+			"map travel: the retired y=0 plane drifted %.0fm (the bug)" % drift)
+		_check(err < drift * 0.1,
+			"map travel: the surface march beats the plane by 10x+")
+	# A ray pointing UP out of the world finds no ground (INF, plane fallback).
+	_check(MapScreen.ray_to_terrain(org, Vector3(0.0, 1.0, 0.0), sampler) == Vector3.INF,
+		"map travel: a skyward ray finds no surface")
+	cam.queue_free()
 
 
 ## The Esc precedence (TICKET: Esc in the embedded pane must not pop the

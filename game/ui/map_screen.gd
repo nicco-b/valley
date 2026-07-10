@@ -176,14 +176,15 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if event.button_index == MOUSE_BUTTON_RIGHT and _from_toolkit:
 			# Right-click: drop the fly cam there (the 38km2 commute fix);
-			# the orbit recenters with it so the view follows the hand.
-			var org := _cam.project_ray_origin(event.position)
-			var dir := _cam.project_ray_normal(event.position)
-			if absf(dir.y) > 0.001:
-				var t := -org.y / dir.y
-				var hit := org + dir * t
-				Toolkit.move_to(Vector2(hit.x, hit.z))
-				_rig.target = Vector3(hit.x, 0.0, hit.z)
+			# the orbit recenters with it so the view follows the hand. The
+			# target is the terrain SURFACE under the cursor, not the flat
+			# y=0 plane (_travel_target) — over the baked 16384m tile the
+			# ground stands hundreds of metres up and the pitched orbit made
+			# the plane land a kilometre past the click.
+			var w := _travel_target(event.position)
+			if w != Vector2.INF:
+				Toolkit.move_to(w)
+				_rig.target = Vector3(w.x, 0.0, w.y)
 				HUD.notify("toolkit cam moved")
 			get_viewport().set_input_as_handled()
 			return
@@ -364,9 +365,75 @@ func _commit_river() -> void:
 	_update_hint()
 
 
+## The RMB travel target: the terrain SURFACE under a screen pixel, in
+## world XZ (Vector2.INF when the ray leaves the world). This is the HONEST
+## landing the map's fast-travel needs — a ray-march down the height field,
+## not the flat y=0 plane _mouse_world uses. Over the baked 16384m tile the
+## ground rises hundreds of metres and the orbit camera is steeply pitched,
+## so the y=0 intersection drifted the drop as much as a kilometre past the
+## click ("RMB doesn't land where I clicked"). Falls back to the y=0 plane
+## only when the ray finds no ground (a click on the open sea past the
+## coastline), so a travel out to water still answers.
+func _travel_target(screen_pos: Vector2) -> Vector2:
+	if _cam == null:
+		return Vector2.INF
+	var org := _cam.project_ray_origin(screen_pos)
+	var dir := _cam.project_ray_normal(screen_pos)
+	var hit := ray_to_terrain(org, dir, Callable(Terrain, "height"))
+	if hit == Vector3.INF:
+		if absf(dir.y) < 0.001:
+			return Vector2.INF
+		hit = org + dir * (-org.y / dir.y)
+	return Vector2(hit.x, hit.z)
+
+
+## March a camera ray onto the terrain surface `sampler` describes — the
+## pure heart of _travel_target, testable with a synthetic height field (no
+## Camera3D, no Terrain). `sampler.call(x, z) -> float` is the ground height
+## at a world XZ (Terrain.height live). Walks `step`-metre strides from the
+## origin until the ray first dips to or below the ground, then binary-
+## refines the crossing to sub-metre. Returns the world hit, or Vector3.INF
+## when the ray points up out of the world, starts under the ground, or
+## never meets it within `far`. Coarse-step then refine is robust for the
+## whole-tile view (a discrete click, not a per-frame cost); a spike thinner
+## than one stride between samples is the only thing it can step over, and
+## the map has none at this scale.
+static func ray_to_terrain(origin: Vector3, dir: Vector3, sampler: Callable,
+		far := 80000.0, step := 40.0) -> Vector3:
+	if dir.length_squared() < 1e-12:
+		return Vector3.INF
+	dir = dir.normalized()
+	# Starting under the ground (camera below the surface) has no honest
+	# forward hit — the plane fallback in _travel_target owns that case.
+	if origin.y - float(sampler.call(origin.x, origin.z)) < 0.0:
+		return Vector3.INF
+	var prev_t := 0.0
+	var t := 0.0
+	while t < far:
+		t = minf(t + step, far)
+		var p := origin + dir * t
+		if p.y - float(sampler.call(p.x, p.z)) <= 0.0:
+			# Crossing lies in (prev_t, t]: last sample above, this one below.
+			var lo := prev_t
+			var hi := t
+			for _i in 24:
+				var mid := (lo + hi) * 0.5
+				var pm := origin + dir * mid
+				if pm.y - float(sampler.call(pm.x, pm.z)) <= 0.0:
+					hi = mid
+				else:
+					lo = mid
+			return origin + dir * hi
+		prev_t = t
+		if t >= far:
+			break
+	return Vector3.INF
+
+
 ## Screen mouse → world XZ on the y=0 plane. The map cam is pitched, so
 ## this carries a little parallax over tall terrain (good enough for a
-## whole-world guide brush; the same approximation the RMB teleport uses).
+## whole-world guide brush; the RMB teleport rides _travel_target, which
+## ray-marches the surface so its landing is exact).
 func _mouse_world() -> Vector2:
 	if _cam == null:
 		return Vector2.INF

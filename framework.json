@@ -44,6 +44,7 @@
 		],
 		"contour": [
 			"game/sim/contour.gd",
+			"game/sim/contour_bridge.gd",
 			"native/contour/bin/contourkernel.gdext",
 			"native/contour/bin/libcontourkernel.macos.dylib",
 			"native/contour/bin/libcontourkernel.macos.release.dylib"
@@ -197,7 +198,8 @@
 			"tests/quests/role_replay.test.json",
 			"tests/fixtures/saves/v1_pre_interiors.json",
 			"tests/fixtures/saves/v2_current.json",
-			"tests/contour/toolkit_snap.ct"
+			"tests/contour/toolkit_snap.ct",
+			"tests/contour/probe_time.ct"
 		],
 		"defaults": [
 			"data/world/biomes.json"

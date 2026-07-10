@@ -76,6 +76,7 @@ func _ready() -> void:
 	await _test_strata_link()
 	_test_contour()
 	_test_conditions_contour()
+	_test_contour_bridge()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -6819,3 +6820,105 @@ func _test_conditions_contour() -> void:
 		_check(vm.call_fn("_one_of", c[0]) == c[1],
 			"conditions.ct _one_of(%s) == %s" % [c[0], c[1]])
 	print("  conditions: %d spec cases bit-identical to conditions.ct via the native Lattice VM" % (latch.size() + truthy.size() + eqs.size() + ones.size()))
+
+
+## THE SYSTEMS BRIDGE (game/sim/contour_bridge.gd, Mission C0): a Contour §7
+## timed `system` ticking IN-GAME against WorldState, one clock step per call.
+## Three proofs (all SKIP without the native kernel — the framework file rides
+## every game / platform):
+##   (1) PARITY — the toy `Fade` system's probe.level trajectory over 4 ticks is
+##       BIT-IDENTICAL (LE IEEE-754 hex) to lattice-cli's own tick of the same
+##       module + seed + dt (the datum EmbedTickTests reference), so an in-game
+##       tick == a lattice-cli tick.
+##   (2) REPLAY LAW — snapshot WorldState mid-`over`, restore into a FRESH world,
+##       and tick to completion: byte-identical to the un-snapshotted run. The
+##       continuation (Fade.__time) + clock (time.elapsed) ride WorldState, so
+##       they survive SaveGame snapshot/restore.
+##   (3) DECLARED-ACCESS-ONLY — the bridge seeds only declared reads and applies
+##       only declared writes; an undeclared write is refused by the language at
+##       compile, and a reserved write (time.*/*.__time) is refused by the bridge.
+func _test_contour_bridge() -> void:
+	if not ContourBridge.available():
+		print("  contour_bridge: SKIP (no native kernel — GDScript twin only)")
+		return
+
+	var WS := load("res://game/state/world_state.gd")
+	# The lattice-cli reference trajectory for Fade over probe (start 0, target
+	# 100, over 3.0s, dt 1.0): t = 1/3, 2/3, 1.0 (pinned), then done → holds. From
+	# `lattice-cli run probe_cli.ct trajectory` (datum EmbedTickTests pins the same).
+	var ref_hex := ["aaaaaaaaaaaa4040", "aaaaaaaaaaaa5040", "0000000000005940", "0000000000005940"]
+
+	# --- (1) parity: the probe trajectory bit-matches lattice-cli ---------------
+	var ws1 = WS.new()
+	ws1.set_value("probe.start", 0.0)
+	ws1.set_value("probe.target", 100.0)
+	var b1 := ContourBridge.new(ws1)
+	var err := b1.compile_file("res://tests/contour/probe_time.ct")
+	_check(err == "", "contour_bridge: probe_time.ct compiles (%s)" % err)
+	if err != "":
+		ws1.free()
+		return
+	var reads := Array(b1.declared_reads()); reads.sort()
+	var writes := Array(b1.declared_writes())
+	_check(reads == ["probe.start", "probe.target"], "contour_bridge: declared reads = %s" % [reads])
+	_check(writes == ["probe.level"], "contour_bridge: declared writes = %s" % [writes])
+	var got_hex := []
+	for i in 4:
+		_check(b1.tick(1.0), "contour_bridge: tick %d applied" % i)
+		got_hex.append(_f64_hex(ws1.get_value("probe.level")))
+	_check(got_hex == ref_hex,
+		"contour_bridge: probe.level trajectory bit-identical to lattice-cli (%s vs %s)" % [got_hex, ref_hex])
+	_check(ws1.get_value("Fade.__time") != null, "contour_bridge: Fade.__time continuation rode into WorldState")
+	_check(ws1.get_value("time.elapsed") != null, "contour_bridge: time.elapsed rode into WorldState")
+
+	# --- (2) replay law: snapshot mid-over, restore FRESH, complete -------------
+	var ws2 = WS.new()
+	ws2.set_value("probe.start", 0.0)
+	ws2.set_value("probe.target", 100.0)
+	var b2 := ContourBridge.new(ws2)
+	b2.compile_file("res://tests/contour/probe_time.ct")
+	b2.tick(1.0); b2.tick(1.0)                       # two ticks → mid-`over`
+	var cont: Dictionary = ws2.get_value("Fade.__time")
+	_check(int(cont.get("phase", -1)) == 0 and not bool(cont.get("done", true)),
+		"contour_bridge: mid-over after 2 ticks (phase=%s done=%s)" % [cont.get("phase"), cont.get("done")])
+	var snap: Dictionary = ws2.snapshot()            # the SaveGame snapshot shape
+	var a_hex := []
+	b2.tick(1.0); a_hex.append(_f64_hex(ws2.get_value("probe.level")))
+	b2.tick(1.0); a_hex.append(_f64_hex(ws2.get_value("probe.level")))
+	# restore the mid-over snapshot into a FRESH world + bridge, then complete
+	var ws3 = WS.new()
+	ws3.restore(snap)
+	var b3 := ContourBridge.new(ws3)
+	b3.compile_file("res://tests/contour/probe_time.ct")
+	var b_hex := []
+	b3.tick(1.0); b_hex.append(_f64_hex(ws3.get_value("probe.level")))
+	b3.tick(1.0); b_hex.append(_f64_hex(ws3.get_value("probe.level")))
+	_check(a_hex == b_hex,
+		"contour_bridge: restore-then-replay bit-identical (%s vs %s)" % [a_hex, b_hex])
+	_check(b_hex.size() == 2 and b_hex[1] == "0000000000005940",
+		"contour_bridge: restored run completes at probe.target (100.0)")
+
+	# --- (3) declared-access refusals: undeclared (compiler) + reserved (bridge)
+	var sneak := "system Sneak:\n\treads: probe.start\n\twrites: probe.level\n\tsim func step():\n\t\tprobe.level = probe.start\n\t\tprobe.secret = 1.0\n"
+	var ws4 = WS.new()
+	var b4 := ContourBridge.new(ws4)
+	var sneak_err := b4.compile(sneak)
+	_check(sneak_err != "" and sneak_err.contains("probe.secret"),
+		"contour_bridge: undeclared write refused loudly (%s)" % sneak_err)
+	_check(not b4.is_ready(), "contour_bridge: a refused module leaves the bridge un-ready")
+	var reserved := "system Clock:\n\treads: probe.start\n\twrites: time.elapsed\n\tsim func step():\n\t\ttime.elapsed = probe.start\n"
+	var ws5 = WS.new()
+	var b5 := ContourBridge.new(ws5)
+	var reserved_err := b5.compile(reserved)
+	_check(reserved_err != "" and reserved_err.contains("reserved"),
+		"contour_bridge: reserved write (time.elapsed) refused by the bridge (%s)" % reserved_err)
+
+	for n in [ws1, ws2, ws3, ws4, ws5]:
+		n.free()
+	print("  contour_bridge: probe ticks bit-identical to lattice-cli, continuations survive save/restore, declared-access-only enforced")
+
+
+## LE IEEE-754 hex of a float — the appendix's exact bit-level wire (the Godot
+## side of Plumb's diff), so a comparison here is byte-exact, not approximate.
+func _f64_hex(v: Variant) -> String:
+	return PackedFloat64Array([float(v)]).to_byte_array().hex_encode()

@@ -227,6 +227,32 @@ Variant ContourKernel::contour_call(const String &fn, const Array &args) {
 	return result;
 }
 
+Dictionary ContourKernel::contour_tick(const Dictionary &world, double dt) {
+	if (!handle) return Dictionary();
+	// Encode the seed world (a dict) to a CompositeCodec buffer; the buffer is
+	// caller-owned and need only outlive the call.
+	std::vector<uint8_t> store;
+	cc_encode(store, Variant(world));
+	LatValue out{};
+	char err[1024] = {0};
+	int rc = lattice_tick(handle, store.data(), (int64_t)store.size(), dt, &out, err, sizeof(err));
+	if (rc != 0) { UtilityFunctions::push_error("contour_tick: ", String(err)); return Dictionary(); }
+	Variant result = lat_to_variant(out);
+	if (out.tag == LAT_BUF) lattice_buf_free(out.buf);   // Lattice-owned result buffer
+	return (result.get_type() == Variant::DICTIONARY) ? (Dictionary)result : Dictionary();
+}
+
+Array ContourKernel::contour_systems() {
+	if (!handle) return Array();
+	LatValue out{};
+	char err[1024] = {0};
+	int rc = lattice_systems(handle, &out, err, sizeof(err));
+	if (rc != 0) { UtilityFunctions::push_error("contour_systems: ", String(err)); return Array(); }
+	Variant result = lat_to_variant(out);
+	if (out.tag == LAT_BUF) lattice_buf_free(out.buf);
+	return (result.get_type() == Variant::ARRAY) ? (Array)result : Array();
+}
+
 Dictionary ContourKernel::bench(const String &fn, const Array &args, int64_t iters) {
 	Dictionary d;
 	if (!handle || iters <= 0) { d["ok"] = false; return d; }
@@ -291,6 +317,8 @@ void ContourKernel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("load_module", "src"), &ContourKernel::load_module);
 	ClassDB::bind_method(D_METHOD("is_loaded"), &ContourKernel::is_loaded);
 	ClassDB::bind_method(D_METHOD("contour_call", "fn", "args"), &ContourKernel::contour_call);
+	ClassDB::bind_method(D_METHOD("contour_tick", "world", "dt"), &ContourKernel::contour_tick);
+	ClassDB::bind_method(D_METHOD("contour_systems"), &ContourKernel::contour_systems);
 	ClassDB::bind_method(D_METHOD("bench", "fn", "args", "iters"), &ContourKernel::bench);
 	ClassDB::bind_method(D_METHOD("bench_marshal", "fn", "args", "iters"), &ContourKernel::bench_marshal);
 }

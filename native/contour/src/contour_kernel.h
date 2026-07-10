@@ -44,6 +44,19 @@ public:
 	// result back to a Variant. Returns null on error. HOT.
 	Variant contour_call(const String &fn, const Array &args);
 
+	// Advance the whole §6/§7 SYSTEM schedule one clock step of `dt` seconds over
+	// `world` (a Dictionary of dotted resource -> value). Returns the resulting
+	// world Dictionary (declared writes + reserved time.*/<System>.__time keys
+	// riding in it, per lattice_tick's contract), or an EMPTY Dictionary on error.
+	// HOT — the sim-tick surface (contour_call is the ported-function surface).
+	Dictionary contour_tick(const Dictionary &world, double dt);
+
+	// Report the module's SYSTEM manifest: an Array (declaration order) of
+	// {name, reads, writes, timed} dictionaries, so a host seeds declared reads
+	// and applies declared writes HONESTLY. Empty Array if no module is loaded.
+	// COLD — read once after compile.
+	Array contour_systems();
+
 	// Bench the PURE VM path: marshal args once, loop the C-ABI call `iters`
 	// times, return {per_call_us, total_us, ok, result}. Isolates VM+ABI cost.
 	Dictionary bench(const String &fn, const Array &args, int64_t iters);

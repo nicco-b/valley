@@ -89,3 +89,23 @@ func call_fn(fn: String, args: Array) -> Variant:
 	if _kernel == null:
 		return null
 	return _kernel.contour_call(fn, args)
+
+## Advance the whole §6/§7 SYSTEM schedule one clock step of `dt` seconds over
+## `world` (a Dictionary of dotted resource -> value); returns the resulting
+## world Dictionary. The reserved clock keys (time.elapsed / time.dt) and each
+## timed system's continuation (<System>.__time) ride IN the returned world, so
+## feeding a returned world straight back in resumes every suspended timeline
+## bit-identically (the replay law). Empty Dictionary when the VM isn't ready.
+## HOT path — the sim-tick surface (call_fn is the ported-function surface).
+func tick(world: Dictionary, dt: float) -> Dictionary:
+	if _kernel == null:
+		return {}
+	return _kernel.contour_tick(world, dt)
+
+## The module's SYSTEM manifest: an Array (declaration order) of
+## {name, reads, writes, timed} dictionaries — the declared reads/writes a host
+## seeds and applies honestly. Empty Array when the VM isn't ready. COLD path.
+func systems() -> Array:
+	if _kernel == null:
+		return []
+	return _kernel.contour_systems()

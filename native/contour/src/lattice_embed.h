@@ -8,12 +8,21 @@
  *
  * Lifecycle:
  *   handle = lattice_module_create(src, len, err, errcap);   // COLD: compile once
- *   lattice_call(handle, "fn", argv, argc, &out, err, errcap);// HOT: per tick
+ *   lattice_systems(handle, &out, err, errcap);              // COLD: read the manifest
+ *   lattice_call(handle, "fn", argv, argc, &out, err, errcap);// HOT: per tick (a fn)
+ *   lattice_tick(handle, world, worldlen, dt, &out, ...);    // HOT: per tick (systems)
  *   lattice_module_destroy(handle);
  *
- * Determinism: the hot path (lattice_call) marshals values by tag through the
- * Lattice interpreter and touches no wall-clock, no RNG, no Foundation. The
- * cold path (compile) uses Foundation (the lexer/parser) — off the tick.
+ * Two hot entries: lattice_call runs one exported function (the ported-function
+ * surface); lattice_tick advances the whole §6/§7 SYSTEM schedule one clock step
+ * against a world dict — the sim-tick surface. lattice_systems reports each
+ * system's DECLARED reads/writes so a host can seed and apply honestly (declared
+ * access only). All three are deterministic and Foundation-free.
+ *
+ * Determinism: the hot path (lattice_call / lattice_tick) marshals values by tag
+ * through the Lattice interpreter and touches no wall-clock, no RNG, no
+ * Foundation. The cold path (compile) uses Foundation (the lexer/parser) — off
+ * the tick.
  *
  * Threading: a handle is NOT re-entrant (the interpreter carries a frame
  * stack). One handle per calling thread, or serialize calls. The valley sim
@@ -89,6 +98,46 @@ void lattice_module_destroy(void *handle);
 int32_t lattice_call(void *handle, const char *fn,
                      const LatValue *argv, int32_t argc,
                      LatValue *out, char *err, int32_t errcap);
+
+/* Advance the whole §6/§7 SYSTEM schedule by ONE clock step of `dt` seconds over
+ * a seed `world` — the sim-tick surface (where lattice_call is the ported-
+ * FUNCTION surface). `world` is a CompositeCodec DICT buffer of dotted resource
+ * (`terrain.height`, `signal.rang`) → value; `worldlen` is its byte count.
+ * Returns 0 with *out a LAT_BUF holding the resulting world DICT.
+ *
+ * The returned world carries, under reserved keys the host persists verbatim so
+ * a save/restore replays bit-identically (spec §7 / the appendix wire form):
+ *   • time.elapsed  (f) — the monotone injected clock (prior + dt)
+ *   • time.dt       (f) — this step's dt
+ *   • <System>.__time   — each TIMED system's serializable continuation record
+ * plus every system's declared writes and the seeded reads that passed through.
+ * A host applies DECLARED writes back and persists the reserved keys; it does
+ * NOT blind-copy the world (declared-access-only — see lattice_systems).
+ *
+ * Determinism: this is the SAME interpreter path `tick_systems` and lattice-cli
+ * run, so an embedded tick is byte-for-byte a lattice-cli tick of the same
+ * module + seed + dt. HOT path — no Foundation. On any error (a non-dict world,
+ * a runtime fault) returns non-zero, *out.tag = LAT_ERR, out->buf NULL, and a
+ * NUL-terminated message in err. OWNERSHIP: the `world` argument buffer is
+ * CALLER-owned (read-only here); the *out result buffer is LATTICE-owned — hand
+ * it to lattice_buf_free exactly once after decoding, exactly like lattice_call. */
+int32_t lattice_tick(void *handle, const uint8_t *world, int64_t worldlen, double dt,
+                     LatValue *out, char *err, int32_t errcap);
+
+/* Report the compiled module's SYSTEM manifest so a host can seed and apply
+ * honestly (declared access only). Returns 0 with *out a LAT_BUF holding an
+ * ARRAY (declaration order) of one DICT per system, each with keys:
+ *   • name   (str)          — the system's name
+ *   • reads  (array of str) — its declared `reads:` resources, declaration order
+ *   • writes (array of str) — its declared `writes:` resources, declaration order
+ *   • timed  (bool)         — true when the step is a §7 timeline (so the host
+ *                             knows to persist a `<name>.__time` continuation)
+ * A host seeds ONLY the union of `reads` (from its world mirror) and applies
+ * ONLY the union of `writes` back; the language already refuses (compile error)
+ * a step that writes an undeclared resource, so the manifest is exhaustive.
+ * COLD path (pure metadata, no interpreter run). OWNERSHIP: the *out result
+ * buffer is LATTICE-owned — free it with lattice_buf_free once after decoding. */
+int32_t lattice_systems(void *handle, LatValue *out, char *err, int32_t errcap);
 
 #ifdef __cplusplus
 }

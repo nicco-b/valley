@@ -1,0 +1,17 @@
+# probe_time.ct — the SYSTEMS-BRIDGE probe (Mission C0). A TEST FIXTURE, not
+# shipped game content: a toy §7 timed system that ticks in-game through
+# ContourBridge and is asserted bit-identical to lattice-cli's own tick.
+#
+# `Fade` reads two mirror keys (probe.start, probe.target) and writes one
+# (probe.level) as a REAL `over 3.0s` construct — the body sweeps probe.level
+# from start to target across three seconds on the normalized clock `t`. Driven
+# by the injected clock (ContourBridge.tick(dt) -> lattice_tick), it suspends
+# into a serializable continuation (Fade.__time) that survives every tick and
+# every save/restore, so the scene test can snapshot mid-`over`, restore, and
+# prove the completion is byte-identical (the replay law, in-process).
+system Fade:
+	reads: probe.start, probe.target
+	writes: probe.level
+	sim func step():
+		over 3.0s:
+			probe.level = lerpf(probe.start, probe.target, t)

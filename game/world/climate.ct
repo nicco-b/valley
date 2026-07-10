@@ -1,0 +1,96 @@
+# Contour port of valley game/world/climate.gd :: Climate.aspect_term,
+# Climate.snow_line_for
+#
+# Two pure scalar-physics leaves of the Climate autoload. The rest of the file
+# is SYSTEM-TIER (the temperature/moisture/snow field reads Terrain/Weather/
+# WorldState and writes the per-cell grid + shader params) — but these two
+# statics read ONLY their float arguments, no engine, no autoload, no RNG, so
+# they are `sim` and the compiler certifies determinism; Plumb proves them
+# bit-identical to real headless Godot.
+#
+# The file `extends Node` and its field methods reference the Terrain/Weather/
+# GameClock/Records/Toolkit/WorldState autoloads, so it cannot load() bare: the
+# harness boots it under the `climate` scaffold (six typed autoload stubs) and
+# callv's each static (no instance, no state). The ports are VERBATIM structural
+# mirrors — the module consts inlined as Contour `const`, the same left-assoc
+# arithmetic, the same builtins (sin/cos/maxf/clampf/TAU), so every bit matches.
+
+# Degrees on a full-tilt sun-facing slope (climate.gd L195).
+const ASPECT_GAIN = 1.8
+# Degrees lost per meter of altitude — the lapse rate (climate.gd L32).
+const LAPSE = 0.06
+
+# The aspect warmth term: a sun-facing slope banks morning warmth, a shaded one
+# stays cold. `up` gates to daytime (sin of the 24h solar angle, floored at 0);
+# `bearing` swings +1 dawn .. -1 dusk (cos of the same); the slope's downhill-Z
+# gradient (clamped to a unit tilt) scales the gain. gradient_z<0 faces the
+# rising sun. Reads only its two args — pure.
+sim func aspect_term(gradient_z: float, solar_h: float) -> float:
+	var up = maxf(sin(TAU() * (solar_h - 6.0) / 24.0), 0.0)
+	var bearing = cos(TAU() * (solar_h - 6.0) / 24.0)
+	return ASPECT_GAIN * up * bearing * clampf(-gradient_z, -1.0, 1.0)
+
+# The altitude where the air crosses freezing — the snowline falls straight out
+# of the lapse rate (base temperature / degrees-per-meter). The instance method
+# snow_line() feeds this its live base_temperature(); the pure `_for` variant
+# takes the base temp as an explicit arg. Reads only base_t — pure.
+sim func snow_line_for(base_t: float) -> float:
+	return base_t / LAPSE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# THE WETNESS FIELD — the 64-cell grid evolution (Mission C2b, Wave C2).
+#
+# climate.gd's _hourly loop advances an 8×8 wetness field: each cell wets under
+# the rain actually falling on IT (rain-shadowed), dews under still saturated
+# pre-dawn air, else dries by its own local temperature, and every cell takes a
+# share of the valley's snow-meltwater. That per-cell state machine is the RULE
+# this rung crosses. What it CANNOT cross — the reason for the split written into
+# PORT_LEDGER.md's climate row — is its READS: Weather.rain_at (a cross-system
+# call carrying the loomkernel rain shadow), the orographic terrain sampling
+# (Terrain.height probes → the cached swing/gradient/height per cell), and the
+# dew gate (Weather wind + the upwind-water humidity model). All engine-bound.
+#
+# So the host samples those GDScript-side per tick and hands them in as seeded
+# input arrays (the tick_seeded overlay, the C1 precedent): the pure evolution
+# runs here, the sampler stays loomkernel-class (the E2 scope law). The rule
+# reduces to ONE pure leaf mapped over the grid — cell_step — Plumb-certified
+# bit-identical, exactly as flora's target_for is.
+
+const RAIN_RATE = 0.16       # wetness gained per storm-hour of local rain
+const BASE_DRY_RATE = 0.015  # wetness lost per hour at freezing
+const WARM_DRY_RATE = 0.004  # extra drying per hour per degree above 0
+const DEW_RATE = 0.03        # pre-dawn saturated-air wetting per hour
+const MELTWATER = 0.4        # share of melted snow that soaks the ground
+
+# One cell's next wetness, given its current wetness and the per-cell environment
+# the host sampled this hour: `rain` (rain-shadowed local rainfall), `dry_t` (the
+# local dry-branch temperature — seasonal + diurnal·swing − chill − lapse·h +
+# aspect, all orographic sampling folded in host-side), `dew` (the dew gate:
+# dew-window ∧ still ∧ saturated), and `melt` (the valley's snow meltwater this
+# hour). Rain soaks; else dew films; else warmth dries; then meltwater soaks and
+# the value is snapped to a milli-unit — byte-for-byte climate.gd's inner loop.
+# Reads only its args — pure; Plumb pins the response.
+sim func cell_step(w: float, rain: float, dry_t: float, dew: bool, melt: float) -> float:
+	if rain > 0.05:
+		w = minf(w + RAIN_RATE * rain, 1.0)
+	elif dew:
+		w = minf(w + DEW_RATE, 1.0)
+	else:
+		w = maxf(w - BASE_DRY_RATE - WARM_DRY_RATE * maxf(dry_t, 0.0), 0.0)
+	return snappedf(minf(w + melt * MELTWATER, 1.0), 0.001)
+
+# The hourly field tick as a §6 system. `climate.wet_grid` is the 8×8 row-major
+# grid, read then written (a read-modify-write, the §6 Scheduler orders it by
+# declaration). The four seeded inputs are the host-sampled per-cell environment
+# (`climate.rain`/`climate.dry_t`/`climate.dew` arrays) plus the valley-anchored
+# `climate.melt` scalar. The step maps the certified cell_step leaf over every
+# cell — the pure evolution, in Contour; the sampling, seeded from the engine.
+system Climate:
+	reads: climate.wet_grid, climate.rain, climate.dry_t, climate.dew, climate.melt
+	writes: climate.wet_grid
+	sim func step():
+		var g = climate.wet_grid
+		for i in range(g.size()):
+			g[i] = cell_step(g[i], climate.rain[i], climate.dry_t[i], climate.dew[i], climate.melt)
+		climate.wet_grid = g

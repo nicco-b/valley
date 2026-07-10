@@ -78,6 +78,26 @@ var _cell_swing := PackedFloat32Array()
 var _cell_grad := PackedFloat32Array()
 var _cell_h := PackedFloat32Array()
 
+# --- Contour routing (PLAN_ENGINE E2, Mission C2b: the WETNESS FIELD) -----------
+## The hourly wetness-field evolution is the second SYSTEM-TIER port to run inside
+## the shipping sim (docs/PORT_LEDGER.md Wave C2). When STRATA_CONTOUR=1 — a
+## boot-time sim flag, read once, DevMode-independent, default OFF — the per-cell
+## soak/dew/dry/meltwater RULE routes through the native Contour §6 `Climate`
+## system (game/world/climate.ct, via game/sim/contour_bridge.gd) instead of the
+## GDScript twin. THE SPLIT: the field's READS are engine-bound (Weather.rain_at's
+## rain shadow, the orographic terrain sampling, the wind+humidity dew gate), so
+## the host samples them here and hands them in as seeded input arrays (the
+## tick_seeded overlay, the C1 precedent); the pure evolution runs native. Flag
+## OFF is byte-identical GDScript. NO SILENT FALLBACK (the honesty law): flag ON
+## with the kernel absent / the module uncompilable / a refused tick is a LOUD
+## push_error, never a quiet twin. The routed ticks carry a counter so the
+## soak/scene test can prove the system actually ran in the fingerprinted window.
+const _CONTOUR_MODULE := "res://game/world/climate.ct"
+## 0 unresolved · 1 off (flag unset) · 2 engaged (bridge live) · -1 refused.
+var _contour_mode := 0
+var _contour_bridge: ContourBridge = null
+var _contour_calls := 0   # field ticks answered by Contour (the engaged-path probe)
+
 
 func _fresh_grid() -> PackedFloat32Array:
 	var g := PackedFloat32Array()
@@ -331,6 +351,25 @@ static func snow_line_for(base_t: float) -> float:
 	return base_t / LAPSE
 
 
+## One cell's next wetness, given its current wetness and the per-cell
+## environment sampled for this hour: `rain` (the rain-shadowed local
+## rainfall), `dry_t` (the local dry-branch temperature — season/diurnal/
+## chill/lapse/aspect already folded in), `dew` (the dew gate: dew-window
+## AND still AND saturated) and `melt` (the valley's snow-meltwater this
+## hour). Rain soaks, else dew films, else warmth dries; then meltwater
+## soaks and the value snaps to a milli-unit. The pure per-cell RULE of the
+## field tick — extracted so the Contour §6 `Climate` system and this twin
+## share ONE body (game/world/climate.ct), Plumb-certified bit-identical.
+static func cell_step(w: float, rain: float, dry_t: float, dew: bool, melt: float) -> float:
+	if rain > 0.05:
+		w = minf(w + RAIN_RATE * rain, 1.0)
+	elif dew:
+		w = minf(w + DEW_RATE, 1.0)
+	else:
+		w = maxf(w - BASE_DRY_RATE - WARM_DRY_RATE * maxf(dry_t, 0.0), 0.0)
+	return snappedf(minf(w + melt * MELTWATER, 1.0), 0.001)
+
+
 ## Ground moisture at a position: the wetness field there, lifted near
 ## open water (pond banks stay damp through a dry spell).
 func moisture(x: float, z: float) -> float:
@@ -377,6 +416,43 @@ func summary() -> String:
 		moisture(REFERENCE.x, REFERENCE.y)]
 
 
+## The live systems bridge when routing is engaged, else null (flag off, or a
+## loud refusal). Resolves once at first tick (boot); flag-off is pure GDScript.
+func _route_contour() -> ContourBridge:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return _contour_bridge
+
+
+func _contour_resolve() -> void:
+	if OS.get_environment("STRATA_CONTOUR") != "1":
+		_contour_mode = 1   # flag off — the GDScript twin, forever byte-identical
+		return
+	# Flag ON: engage the bridge, or REFUSE loudly (never a silent GDScript pass).
+	if not ContourBridge.available():
+		push_error("[climate] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
+			+ "(not macOS / dylib absent) — refusing to silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	var bridge := ContourBridge.new(WorldState)
+	var err := bridge.compile_file(_CONTOUR_MODULE)
+	if err != "":
+		push_error("[climate] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	_contour_bridge = bridge
+	_contour_mode = 2
+
+
+## Routing introspection for the scene test / soak (proves the system ran, not a
+## silent fallback): the resolved mode, whether it engaged, and the tick count.
+func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}
+
+
 func _hourly(_h: int) -> void:
 	var ref_t := temperature(REFERENCE.x, REFERENCE.y)
 	# Snow first (valley-anchored, as before): freezing rainfall over the
@@ -397,24 +473,58 @@ func _hourly(_h: int) -> void:
 	var chill := 3.0 * Weather.storminess
 	var solar: float = GameClock.solar_hours()
 	var dew_window := solar >= DEW_FROM and solar <= DEW_TO
-	for i in GRID_N * GRID_N:
-		var cx := GRID_ORIGIN + (float(i % GRID_N) + 0.5) * GRID_CELL
-		var cz := GRID_ORIGIN + (float(i / GRID_N) + 0.5) * GRID_CELL
-		var local_rain := Weather.rain_at(cx, cz)
-		var w := wet_grid[i]
-		if local_rain > 0.05:
-			w = minf(w + RAIN_RATE * local_rain, 1.0)
-		elif dew_window and Weather.property_at(cx, cz, "wind") <= DEW_WIND \
-				and _humidity_for(cx, cz, w, _cell_h[i]) >= DEW_HUMIDITY:
-			# Dew at dawn: saturated still air neither dries the ground
-			# nor leaves it alone — a thin film condenses, darkening the
-			# pre-dawn ground; the morning sun dries it back off.
-			w = minf(w + DEW_RATE, 1.0)
-		else:
-			var t := seasonal + diurnal * _cell_swing[i] - chill \
+	var bridge := _route_contour()
+	if bridge != null:
+		# Flag ON (STRATA_CONTOUR=1): the Contour §6 `Climate` system owns the
+		# per-cell evolution. We sample the engine-bound per-cell environment
+		# here (the rain shadow, the orographic dry-temperature, the dew gate —
+		# the loomkernel-class sampling that CANNOT cross, the scope law) and
+		# hand it in as seeded input arrays; the system maps the certified
+		# cell_step leaf over the grid and writes climate.wet_grid back, which we
+		# read into wet_grid (every downstream reader runs unchanged on it).
+		_contour_calls += 1
+		var rain_in: Array = []
+		var dry_t_in: Array = []
+		var dew_in: Array = []
+		var grid_in: Array = []
+		rain_in.resize(GRID_N * GRID_N)
+		dry_t_in.resize(GRID_N * GRID_N)
+		dew_in.resize(GRID_N * GRID_N)
+		grid_in.resize(GRID_N * GRID_N)
+		for i in GRID_N * GRID_N:
+			var cx := GRID_ORIGIN + (float(i % GRID_N) + 0.5) * GRID_CELL
+			var cz := GRID_ORIGIN + (float(i / GRID_N) + 0.5) * GRID_CELL
+			rain_in[i] = Weather.rain_at(cx, cz)
+			dry_t_in[i] = seasonal + diurnal * _cell_swing[i] - chill \
 					- LAPSE * _cell_h[i] + aspect_term(_cell_grad[i], solar)
-			w = maxf(w - BASE_DRY_RATE - WARM_DRY_RATE * maxf(t, 0.0), 0.0)
-		wet_grid[i] = snappedf(minf(w + melt * MELTWATER, 1.0), 0.001)
+			dew_in[i] = dew_window and Weather.property_at(cx, cz, "wind") <= DEW_WIND \
+					and _humidity_for(cx, cz, wet_grid[i], _cell_h[i]) >= DEW_HUMIDITY
+			grid_in[i] = wet_grid[i]
+		if not bridge.tick_seeded({
+				"climate.wet_grid": grid_in, "climate.rain": rain_in,
+				"climate.dry_t": dry_t_in, "climate.dew": dew_in,
+				"climate.melt": melt}, 3600.0):
+			push_error("[climate] STRATA_CONTOUR=1 but the Climate system tick was refused"
+				+ " — refusing to silently run the GDScript twin")
+			return
+		var out: Variant = WorldState.get_value("climate.wet_grid", null)
+		if out is Array and (out as Array).size() == GRID_N * GRID_N:
+			for i in GRID_N * GRID_N:
+				wet_grid[i] = float(out[i])
+	else:
+		# Flag OFF (default): the GDScript twin, forever byte-identical. Each
+		# cell soaks/dews/dries via the shared cell_step body (dry_t and the dew
+		# gate sampled per cell, exactly as the seeded-input path above feeds the
+		# system — the two paths compute the same wet_grid).
+		for i in GRID_N * GRID_N:
+			var cx := GRID_ORIGIN + (float(i % GRID_N) + 0.5) * GRID_CELL
+			var cz := GRID_ORIGIN + (float(i / GRID_N) + 0.5) * GRID_CELL
+			var local_rain := Weather.rain_at(cx, cz)
+			var dry_t := seasonal + diurnal * _cell_swing[i] - chill \
+					- LAPSE * _cell_h[i] + aspect_term(_cell_grad[i], solar)
+			var dew := dew_window and Weather.property_at(cx, cz, "wind") <= DEW_WIND \
+					and _humidity_for(cx, cz, wet_grid[i], _cell_h[i]) >= DEW_HUMIDITY
+			wet_grid[i] = cell_step(wet_grid[i], local_rain, dry_t, dew, melt)
 	WorldState.set_value("climate.wetness", wetness)
 	WorldState.set_value("climate.snow", snow)
 	WorldState.set_value("climate.temperature", snappedf(ref_t, 0.1))

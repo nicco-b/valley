@@ -66,6 +66,15 @@ func _ready() -> void:
 		var ws: Dictionary = Weather.contour_status()
 		print("SOAK CONTOUR mode=%d engaged=%s weather_ticks=%d"
 			% [int(ws.get("mode", 0)), str(ws.get("engaged", false)), int(ws.get("calls", 0))])
+	# The SAME proof for the WETNESS FIELD (Mission C2b): the 8×8 grid evolution
+	# ran through the native Contour §6 `Climate` system inside THIS run (mode=2,
+	# climate_ticks climbs to 24*DAYS), or was pure GDScript (mode=1, calls=0).
+	# The fingerprint owns Climate.wetness AND the whole wet_grid digest above,
+	# so an engaged run whose Contour cell_step diverged one ULP moves it.
+	if Climate.has_method("contour_status"):
+		var cc: Dictionary = Climate.contour_status()
+		print("SOAK CONTOUR-CLIMATE mode=%d engaged=%s climate_ticks=%d"
+			% [int(cc.get("mode", 0)), str(cc.get("engaged", false)), int(cc.get("calls", 0))])
 	get_tree().quit(1 if _failures > 0 else 0)
 
 

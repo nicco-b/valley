@@ -49,6 +49,7 @@ func _ready() -> void:
 	_test_multi_select_group()
 	_test_duplicate()
 	_test_snap_apply()
+	_test_socket_snap()
 	_test_link_toolkit_ops()
 	_test_prefab()
 	_test_river_undo()
@@ -2060,6 +2061,50 @@ func _test_toolkit_snap() -> void:
 	_check(ToolkitSnap.cycle_grid_step(1.0, -1) == 16.0, "grid step wraps 1 -> 16")
 	_check(ToolkitSnap.cycle_grid_step(3.0, -1) == 2.0,
 		"an off-ladder 3 snaps to the nearest rung then refines")
+	# --- Kit-bashing socket math (L11), pure like the grid math above.
+	# socket_world carries a local socket into world: at a piece placed at
+	# (10,0,10) turned 90° (yaw PI/2), a local +X socket [2,0,0] rotates to -Z.
+	var sw := ToolkitSnap.socket_world(Vector3(10.0, 0.0, 10.0), PI / 2.0, 1.0,
+		Vector3(2.0, 0.0, 0.0), 0.0)
+	_check((sw["pos"] as Vector3).is_equal_approx(Vector3(10.0, 0.0, 8.0)),
+		"socket_world rotates the local offset by the piece yaw (got %s)" % sw["pos"])
+	_check(absf(fposmod(float(sw["yaw"]) - PI / 2.0, TAU)) < 1e-5,
+		"socket_world adds the piece yaw to the socket yaw")
+	# scale rides the offset: the same socket at scale 2 sits twice as far out.
+	var sw2 := ToolkitSnap.socket_world(Vector3.ZERO, 0.0, 2.0, Vector3(1.5, 0.0, 0.0), 0.0)
+	_check((sw2["pos"] as Vector3).is_equal_approx(Vector3(3.0, 0.0, 0.0)),
+		"socket_world scales the local offset by the piece scale")
+	# snap_to_socket is the inverse of socket_world: a piece placed by it has its
+	# socket land exactly on the target, facing OPPOSITE (the click-together law).
+	var tgt_pos := Vector3(5.0, 1.0, -2.0)
+	var tgt_yaw := 0.7
+	var lp := Vector3(-1.5, 0.6, 0.0)
+	var lyaw := PI  # the incoming "west" socket
+	var pose := ToolkitSnap.snap_to_socket(tgt_pos, tgt_yaw, lp, lyaw, 1.0)
+	var back := ToolkitSnap.socket_world(pose["pos"], float(pose["yaw"]), 1.0, lp, lyaw)
+	_check((back["pos"] as Vector3).is_equal_approx(tgt_pos),
+		"snap_to_socket seats the incoming socket ON the target point")
+	_check(absf(fposmod(float(back["yaw"]) - (tgt_yaw + PI), TAU)) < 1e-5,
+		"the mated socket faces opposite the target (yaw + PI)")
+	# best_socket_snap: nearest compatible candidate within reach mates; an
+	# out-of-reach or type-mismatched candidate yields {} (place as usual).
+	var ins: Array = [{"type": "wall", "pos": Vector3(-1.5, 0.6, 0.0), "yaw": PI}]
+	var cands: Array = [
+		{"type": "wall", "pos": Vector3(20.0, 0.0, 0.0), "yaw": 0.0},  # too far
+		{"type": "wall", "pos": Vector3(2.0, 0.6, 0.0), "yaw": 0.0},   # in reach
+	]
+	var chosen := ToolkitSnap.best_socket_snap(Vector3(2.4, 0.0, 0.0), ins, cands, 3.0, 1.0)
+	_check(not chosen.is_empty(), "best_socket_snap mates a compatible socket in reach")
+	var cw := ToolkitSnap.socket_world(chosen["pos"], float(chosen["yaw"]), 1.0,
+		Vector3(-1.5, 0.6, 0.0), PI)
+	_check((cw["pos"] as Vector3).is_equal_approx(Vector3(2.0, 0.6, 0.0)),
+		"the chosen mate lands on the in-reach candidate, not the far one")
+	_check(ToolkitSnap.best_socket_snap(Vector3(2.4, 0.0, 0.0), ins,
+		[{"type": "floor", "pos": Vector3(2.0, 0.0, 0.0), "yaw": 0.0}], 3.0, 1.0).is_empty(),
+		"an incompatible socket type never mates (place as usual)")
+	_check(ToolkitSnap.best_socket_snap(Vector3(2.4, 0.0, 0.0), ins,
+		[{"type": "wall", "pos": Vector3(20.0, 0.0, 0.0), "yaw": 0.0}], 3.0, 1.0).is_empty(),
+		"a socket out of reach never mates")
 
 
 ## Find a record by id anywhere in the Chronicle (a test helper — post-move/
@@ -2299,6 +2344,145 @@ func _test_snap_apply() -> void:
 	player.queue_free()
 
 
+## The id of the single record that appeared since `known` (a {id: true}
+## snapshot of the whole Chronicle) — the test's "which one did _place_at just
+## add" resolver, cell-agnostic (a socket mate can land in a neighbour cell).
+func _new_record_id_since(known: Dictionary) -> String:
+	for c: Vector2i in CellRecords.all_cells():
+		for r: Dictionary in CellRecords.records(c):
+			if not known.has(String(r.get("id", ""))):
+				return String(r.get("id", ""))
+	return ""
+
+
+func _all_record_ids() -> Dictionary:
+	var out := {}
+	for c: Vector2i in CellRecords.all_cells():
+		for r: Dictionary in CellRecords.records(c):
+			out[String(r.get("id", ""))] = true
+	return out
+
+
+## Kit-bashing socket snap (L11): a piece whose card declares sockets, dropped
+## near a compatible socket of an already-placed piece, MATES it — position AND
+## orientation click, landing as ONE undoable record op through the same
+## CellRecords funnel every snap rides (so undo v2 covers it). And the zero-
+## regression floor, proven three ways: no socket in reach, a socket out of
+## reach, and an incoming piece with no sockets all place EXACTLY as before.
+## Synthetic far cells, no files left.
+func _test_socket_snap() -> void:
+	var wall_slot := "arch/ruins/broken_wall"
+	if not Cards.has(wall_slot) or Cards.sockets_for_file(Cards.resolve(wall_slot)).is_empty():
+		print("  socket snap: SKIP (broken_wall card has no sockets in this checkout)")
+		return
+	var player := CharacterBody3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	Toolkit._enter()
+	Toolkit._tool = Toolkit.Tool.PLACE
+	Toolkit._snap_grid = false
+	Toolkit._snap_ground = false
+	Toolkit._snap_normal = false
+	Toolkit._snap_socket = false
+	ToolkitHistory.clear()
+	var bx := 872.0 * 128.0
+	var bz := 872.0 * 128.0
+	var placed: Array[String] = []
+
+	# Piece A (a wall), socket snap OFF: it lands where it is dropped.
+	_check(Toolkit.set_place_slot(wall_slot) > 0, "the wall slot is in the palette")
+	var before_a := _all_record_ids()
+	var a_hit := Vector3(bx, Terrain.height(bx, bz), bz)
+	Toolkit._place_at(a_hit)
+	var aid := _new_record_id_since(before_a)
+	placed.append(aid)
+	var a := _find_rec(aid)
+	_check(absf(float(a.x) - a_hit.x) < 1e-4 and absf(float(a.z) - a_hit.z) < 1e-4,
+		"piece A lands at the drop point (socket snap off)")
+
+	# A's east+west sockets, from A's actual record + its card (the same
+	# transform the Toolkit gathers candidates through).
+	var east := {}
+	var west := {}
+	for s: Dictionary in Cards.sockets_for_file(String(a.kit)):
+		if String(s.get("name", "")) == "east":
+			east = s
+		elif String(s.get("name", "")) == "west":
+			west = s
+	_check(not east.is_empty() and not west.is_empty(),
+		"the wall card declares named east + west sockets")
+	var a_seat := Vector3(float(a.x), CellRecords.seat_y(a), float(a.z))
+	var a_sc := float(a.get("scale", 1.0))
+	var a_east := ToolkitSnap.socket_world(a_seat, float(a.yaw), a_sc,
+		Vector3(east.pos[0], east.pos[1], east.pos[2]), float(east.yaw))
+
+	# Piece B, socket snap ON, cursor near A's east socket (XZ): B MATES — its
+	# own west socket clicks onto A's east, not at the raw cursor.
+	Toolkit._snap_socket = true
+	var b_cursor := Vector3(a_east.pos.x + 0.4,
+		Terrain.height(a_east.pos.x, a_east.pos.z), a_east.pos.z - 0.3)
+	var before_b := _all_record_ids()
+	var depth0 := ToolkitHistory.depth()
+	Toolkit._place_at(b_cursor)
+	_check(ToolkitHistory.depth() == depth0 + 1,
+		"a socket-snapped place is ONE undo action")
+	var bid := _new_record_id_since(before_b)
+	placed.append(bid)
+	var b := _find_rec(bid)
+	_check(not b.is_empty(), "piece B landed as a record")
+	var b_west := ToolkitSnap.socket_world(
+		Vector3(float(b.x), CellRecords.seat_y(b), float(b.z)),
+		float(b.yaw), float(b.get("scale", 1.0)),
+		Vector3(west.pos[0], west.pos[1], west.pos[2]), float(west.yaw))
+	_check((b_west.pos - a_east.pos).length() < 0.1,
+		"B's socket clicks ONTO A's east socket (Δ=%.3fm)" % (b_west.pos - a_east.pos).length())
+	_check(absf(fposmod(float(b_west.yaw) - (float(a_east.yaw) + PI), TAU)) < 1e-3,
+		"B's mated socket faces opposite A's (the click-together law)")
+	_check(Vector2(float(b.x) - b_cursor.x, float(b.z) - b_cursor.z).length() > 0.1,
+		"B snapped to the socket, not to the raw cursor")
+
+	# Z removes the snapped piece — the record op undoes like any other.
+	Toolkit._undo()
+	_check(_find_rec(bid).is_empty(), "Z removes the socket-snapped piece")
+
+	# Zero regression #1: snap ON but no socket in reach (far from A) -> B lands
+	# at the drop point, exactly as with snap off.
+	var far := Vector3(bx + 400.0, 0.0, bz + 400.0)
+	far.y = Terrain.height(far.x, far.z)
+	var before_far := _all_record_ids()
+	Toolkit._place_at(far)
+	var fid := _new_record_id_since(before_far)
+	placed.append(fid)
+	var fr := _find_rec(fid)
+	_check(absf(float(fr.x) - far.x) < 1e-4 and absf(float(fr.z) - far.z) < 1e-4,
+		"no socket in reach: snap-on places at the drop point (zero regression)")
+
+	# Zero regression #2: an incoming piece with NO sockets, dropped right on
+	# A's socket, never snaps — it places as today.
+	var plain_slot := "arch/ruins/toppled_column"
+	if Cards.has(plain_slot) and Cards.sockets_for_file(Cards.resolve(plain_slot)).is_empty():
+		_check(Toolkit.set_place_slot(plain_slot) > 0, "the socketless slot is in the palette")
+		var c_cursor := Vector3(a_east.pos.x, Terrain.height(a_east.pos.x, a_east.pos.z), a_east.pos.z)
+		var before_c := _all_record_ids()
+		Toolkit._place_at(c_cursor)
+		var cid := _new_record_id_since(before_c)
+		placed.append(cid)
+		var cr := _find_rec(cid)
+		_check(absf(float(cr.x) - c_cursor.x) < 1e-4 and absf(float(cr.z) - c_cursor.z) < 1e-4,
+			"a piece with no sockets never snaps (places exactly as today)")
+
+	# Leave no trace.
+	Toolkit._deselect()
+	ToolkitHistory.clear()
+	CellRecords.flush()
+	_wipe_records(placed)
+	Toolkit._snap_socket = false
+	Toolkit.set_tool("sculpt")
+	Toolkit.active = false
+	player.remove_from_group("player")
+	player.queue_free()
+
+
 ## The link's R1-polish verbs over the REAL dispatch (audit R1 polish), driven
 ## headless through StrataLink._execute — the same line grammar Strata sends,
 ## so the wire contract for snap/select/move/duplicate is pinned without a
@@ -2347,7 +2531,7 @@ func _test_link_toolkit_ops() -> void:
 	_check(du == "ok duplicate 2", "link duplicate answers the copy count (got %s)" % du)
 	_check(ToolkitHistory.depth() == d0 + 1, "link duplicate is ONE undo action")
 	# Error lines: unknown snap kind, short select.
-	_check(StrataLink._execute("toolkit snap wobble on") == "err toolkit snap needs grid|ground|normal",
+	_check(StrataLink._execute("toolkit snap wobble on") == "err toolkit snap needs grid|ground|normal|socket",
 		"an unknown snap kind errs with the contract line")
 	_check(String(StrataLink._execute("toolkit select box 1 2")).begins_with("err toolkit select"),
 		"a short select box errs with the contract line")

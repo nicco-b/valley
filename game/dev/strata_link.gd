@@ -793,15 +793,15 @@ func _toolkit(parts: PackedStringArray) -> String:
 			var s: Dictionary = Toolkit.link_state()
 			return "ok place %d/%d:%s" % [landed, int(s["place_count"]), s["place_slot"]]
 		"snap":
-			# `toolkit snap grid|ground|normal on|off` or `... step <m>`
-			# (audit R1 polish): the same toggles B/K/H drive.
+			# `toolkit snap grid|ground|normal|socket on|off` or `... step <m>`
+			# (audit R1 polish + L11 socket): the same toggles B/K/H/J drive.
 			if parts.size() >= 4 and parts[2] == "step" and parts[3].is_valid_float():
 				return "ok snap step %.2fm" % Toolkit.set_grid_step(float(parts[3]))
 			if parts.size() < 4 or not (parts[3] == "on" or parts[3] == "off"):
-				return "err toolkit snap needs grid|ground|normal on|off, or step <m>"
+				return "err toolkit snap needs grid|ground|normal|socket on|off, or step <m>"
 			var snap_r := Toolkit.set_snap(parts[2], parts[3] == "on")
 			if snap_r < 0:
-				return "err toolkit snap needs grid|ground|normal"
+				return "err toolkit snap needs grid|ground|normal|socket"
 			return "ok snap %s %s" % [parts[2], parts[3]]
 		"select":
 			# `toolkit select box <x0> <z0> <x1> <z1>` — box multi-select

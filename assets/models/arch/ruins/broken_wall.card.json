@@ -12,5 +12,9 @@
  "generator": "gen_meshes.py",
  "collision": "-col convex hull node included",
  "clips": "none \u2014 static placeholder",
- "gated": false
+ "gated": false,
+ "sockets": [
+  {"name": "west", "type": "wall", "pos": [-1.5, 0.6, 0.0], "yaw": 3.14159265},
+  {"name": "east", "type": "wall", "pos": [1.5, 0.6, 0.0], "yaw": 0.0}
+ ]
 }

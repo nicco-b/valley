@@ -336,10 +336,20 @@ static func snow_line_for(base_t: float) -> float:
 func moisture(x: float, z: float) -> float:
 	var near := 0.0
 	for w in Terrain.water_bodies:
-		var c: Vector2 = w.center
-		var r: float = w.radius
-		var d := Vector2(x - c.x, z - c.y).length()
-		near = maxf(near, 1.0 - smoothstep(r, r + 18.0, d))
+		# Pond banks stay damp to the TRUE shore for outline lakes (distance to
+		# the real boundary, full inside); disc fallback stays byte-identical to
+		# the old center-radius smoothstep for pre-outline lakes.
+		if (w.outline as PackedVector2Array).size() >= 3:
+			var lo: Vector2 = w.out_lo
+			var hi: Vector2 = w.out_hi
+			if x < lo.x - 18.0 or x > hi.x + 18.0 or z < lo.y - 18.0 or z > hi.y + 18.0:
+				continue
+			near = maxf(near, 1.0 - smoothstep(0.0, 18.0, Terrain._lake_edge_dist(w, x, z)))
+		else:
+			var c: Vector2 = w.center
+			var r: float = w.radius
+			var d := Vector2(x - c.x, z - c.y).length()
+			near = maxf(near, 1.0 - smoothstep(r, r + 18.0, d))
 	for river in Terrain.rivers:
 		var q := Terrain.river_query(river, x, z)
 		near = maxf(near, 1.0 - smoothstep(q.half, q.half + 12.0, q.d))

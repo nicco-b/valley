@@ -3781,6 +3781,44 @@ func _test_lake_outline() -> void:
 	_check(din < pin - 0.1,
 		"the disc fallback floats past the shore (disc %.2f < outline %.2f)" % [din, pin])
 	wb.free()
+	# (5) The QUERY tracks the same shore the mesh does. Load the imported record
+	# into a bare Terrain and ask water_surface_base at the two notch witnesses:
+	# a point inside the true shore but PAST where the disc reaches must answer
+	# water at the fill elevation; a point inside the disc's OVERHANG but on dry
+	# land (outside the polygon) must answer NO water. Witnesses are found by
+	# scanning the shoreline bbox, so the test survives any importer re-framing.
+	var t: Node = load("res://game/world/terrain.gd").new()
+	var lake: Dictionary = t._lake_from_record(rec, "l1", 0)
+	t.water_bodies.append(lake)
+	t.lake_levels.resize(1)
+	var rad := float(rec["radius"])
+	var water_pt := Vector2.INF  # inside polygon, outside disc
+	var dry_pt := Vector2.INF    # inside disc, outside polygon (the overhang)
+	var lo2 := world_poly[0]
+	var hi2 := world_poly[0]
+	for p in world_poly:
+		lo2 = Vector2(minf(lo2.x, p.x), minf(lo2.y, p.y))
+		hi2 = Vector2(maxf(hi2.x, p.x), maxf(hi2.y, p.y))
+	var span := hi2 - lo2
+	for iz in 33:
+		for ix in 33:
+			var wp := lo2 + Vector2(span.x * ix / 32.0, span.y * iz / 32.0)
+			var inpoly: bool = t._poly_contains(world_poly, wp.x, wp.y)
+			var indisc: bool = (wp - center).length() < rad
+			if inpoly and not indisc and not water_pt.is_finite():
+				water_pt = wp
+			if indisc and not inpoly and not dry_pt.is_finite():
+				dry_pt = wp
+	if water_pt.is_finite() and dry_pt.is_finite():
+		_check(t.water_surface_base(water_pt.x, water_pt.y) == float(rec["surface"]),
+			"query: inside the true shore but past the disc answers water at fill (%.0f, %.0f)"
+				% [water_pt.x, water_pt.y])
+		_check(t.water_surface_base(dry_pt.x, dry_pt.y) < -1e11,
+			"query: inside the disc overhang but on dry land answers NO water (%.0f, %.0f)"
+				% [dry_pt.x, dry_pt.y])
+	else:
+		print("  lake outline query: SKIP (no notch witness — disc ~ polygon)")
+	t.free()
 	# Scrub the scratch import so the run leaves nothing behind.
 	var d := DirAccess.open(out_abs)
 	if d != null:

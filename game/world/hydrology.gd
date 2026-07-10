@@ -574,8 +574,10 @@ func _basin_at(i: int, n: int, half: float) -> int:
 	var z := center.y - half + (i / n) * grid_m
 	var b := 0
 	for w in Terrain.water_bodies:
-		var c: Vector2 = w.center
-		if Vector2(x - c.x, z - c.y).length() < float(w.radius):
+		# Basin ownership follows the same water footprint the surface renders —
+		# the TRUE outline when present, the equal-area disc otherwise (identical
+		# to the old test for pre-outline lakes).
+		if Terrain._in_lake(w, x, z):
 			return b
 		b += 1
 	for r in Terrain.sim_rivers():

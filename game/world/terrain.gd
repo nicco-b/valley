@@ -207,8 +207,7 @@ var kernel: RefCounted = null
 ## this; deterministic cell generation reads water_surface_base().
 func water_surface(x: float, z: float) -> float:
 	for w in water_bodies:
-		var c: Vector2 = w.center
-		if Vector2(x - c.x, z - c.y).length() < float(w.radius):
+		if _in_lake(w, x, z):
 			return float(w.surface) + lake_levels[w.idx]
 	for r in rivers:
 		var q := _river_probe(r, x, z)
@@ -224,8 +223,7 @@ func water_surface(x: float, z: float) -> float:
 ## so streamed cells stay reproducible whatever the season's water is doing.
 func water_surface_base(x: float, z: float) -> float:
 	for w in water_bodies:
-		var c: Vector2 = w.center
-		if Vector2(x - c.x, z - c.y).length() < float(w.radius):
+		if _in_lake(w, x, z):
 			return w.surface
 	for r in rivers:
 		var q := _river_probe(r, x, z)
@@ -234,6 +232,80 @@ func water_surface_base(x: float, z: float) -> float:
 	if sea_level > -1e11 and home_guard(x, z) > 0.0:
 		return sea_level
 	return -1e12
+
+
+## Point-in-lake water-presence test — TRUE when (x,z) lies within the lake's
+## rendered water footprint. The TRUE shoreline polygon (P2+ imports carry an
+## `outline`) drives it: a bounding-box early-out (as cheap as the disc's reject
+## far from the lake), then an even-odd point-in-polygon over the shore edges —
+## the same classification water_bodies.gd builds the surface mesh from, so the
+## query and the rendered surface agree at the fringe (the notch). Lakes with no
+## outline (authored / pre-outline imports) fall back to the equal-area disc,
+## byte-for-byte the old `length() < radius` test — old bakes behave exactly as
+## before. Read-only over the water_body record: safe on worker threads.
+func _in_lake(w: Dictionary, x: float, z: float) -> bool:
+	var outline: PackedVector2Array = w.outline
+	if outline.size() >= 3:
+		var lo: Vector2 = w.out_lo
+		var hi: Vector2 = w.out_hi
+		if x < lo.x or z < lo.y or x > hi.x or z > hi.y:
+			return false
+		return _poly_contains(outline, x, z)
+	var c: Vector2 = w.center
+	return Vector2(x - c.x, z - c.y).length() < float(w.radius)
+
+
+## Even-odd ray cast: is world point (x,z) inside the closed polygon? The exact
+## formulation water_bodies.gd's mesh builder uses (`_point_in_poly`), so a grid
+## corner the surface renders as water reads as water here too.
+func _poly_contains(poly: PackedVector2Array, x: float, z: float) -> bool:
+	var inside := false
+	var n := poly.size()
+	var j := n - 1
+	for i in n:
+		var a := poly[i]
+		var b := poly[j]
+		if (a.y > z) != (b.y > z):
+			var t := (z - a.y) / (b.y - a.y)
+			if x < a.x + t * (b.x - a.x):
+				inside = not inside
+		j = i
+	return inside
+
+
+## Distance (meters) from world point (x,z) to the lake's water edge: 0.0 when
+## inside the footprint, else the shortest distance to the shore. Outline lakes
+## measure to the true polygon boundary; disc lakes to the circle. Cold path
+## (moisture halos) — the hot boolean is _in_lake.
+func _lake_edge_dist(w: Dictionary, x: float, z: float) -> float:
+	var outline: PackedVector2Array = w.outline
+	if outline.size() >= 3:
+		if _poly_contains(outline, x, z):
+			return 0.0
+		return sqrt(_poly_dist_sq(outline, x, z))
+	var c: Vector2 = w.center
+	return maxf(Vector2(x - c.x, z - c.y).length() - float(w.radius), 0.0)
+
+
+## Squared distance from (x,z) to the closest point on the polygon boundary —
+## min over every edge (segment). The unsquared companion of
+## water_bodies.gd's _nearest_on_poly.
+func _poly_dist_sq(poly: PackedVector2Array, x: float, z: float) -> float:
+	var p := Vector2(x, z)
+	var best := 1e30
+	var n := poly.size()
+	var j := n - 1
+	for i in n:
+		var a := poly[j]
+		var b := poly[i]
+		var ab := b - a
+		var t := 0.0
+		var len2 := ab.length_squared()
+		if len2 > 1e-9:
+			t = clampf((p - a).dot(ab) / len2, 0.0, 1.0)
+		best = minf(best, p.distance_squared_to(a + ab * t))
+		j = i
+	return best
 
 
 # Beyond this distance from a river's edge no consumer cares (moisture
@@ -917,37 +989,60 @@ func _load_water() -> void:
 				and parsed.has("radius") and parsed.has("surface")):
 			push_error("[terrain] bad lake record (needs center/radius/surface): " + path)
 			continue
-		var rec: Dictionary = parsed
-		var center: Dictionary = rec["center"]
-		var basin: Dictionary = rec.get("basin", {})
-		# The lake's TRUE shoreline (P2+ imports): an ordered closed polygon in
-		# world meters. water_bodies triangulates it so the surface hugs the
-		# real depression; absent for authored/pre-outline lakes, which fall
-		# back to the equal-area disc. Parsed to PackedVector2Array here (world
-		# XZ) so the mesh builder and rim tests never re-parse Dictionaries.
-		var outline := PackedVector2Array()
-		var outline_raw: Array = rec.get("outline", [])
-		for p: Dictionary in outline_raw:
-			outline.append(Vector2(float(p["x"]), float(p["z"])))
-		water_bodies.append({
-			"id": rec.get("id", f.trim_suffix(".json")),
-			"idx": water_bodies.size(),
-			"center": Vector2(float(center["x"]), float(center["z"])),
-			"radius": float(rec["radius"]),
-			"surface": float(rec["surface"]),
-			"basin_radius": float(basin.get("radius", rec["radius"])),
-			"basin_depth": float(basin.get("depth", 0.0)),
-			"outlet": rec.get("outlet", "aquifer"),
-			# Strata-imported lakes (hyd_*): a regenerable cache, so their
-			# levels live on Hydrology's REGION tier, off the soak digest.
-			"no_sim": bool(rec.get("no_sim", false)),
-			# Real max depth from the hydrology solve (W2 bathymetry rides
-			# it); 0.0 for authored lakes, which carve their own basin.
-			"depth": float(rec.get("depth", 0.0)),
-			"outline": outline,  # empty ⇒ disc fallback
-		})
+		water_bodies.append(_lake_from_record(
+			parsed, f.trim_suffix(".json"), water_bodies.size()))
 	lake_levels.resize(water_bodies.size())
 	_load_rivers()
+
+
+## Normalize a raw lake record (data/water/*.json or an importer output) into
+## the live water_body dict — the one place the record schema is read, so the
+## query path (_in_lake) and the mesh builder see the same fields. Deterministic
+## and self-contained: the outline bbox is folded from the vertex list in order,
+## no dict iteration, so the precompute is bit-stable from the record bytes
+## alone (the soak-determinism contract). Shared by _load_water and the E2E
+## scene test, which drives the query against a real imported outline.
+func _lake_from_record(rec: Dictionary, fallback_id: String, idx: int) -> Dictionary:
+	var center: Dictionary = rec["center"]
+	var basin: Dictionary = rec.get("basin", {})
+	# The lake's TRUE shoreline (P2+ imports): an ordered closed polygon in
+	# world meters. water_bodies triangulates it so the surface hugs the real
+	# depression, and _in_lake tests against it; absent for authored/pre-outline
+	# lakes, which fall back to the equal-area disc. Parsed to PackedVector2Array
+	# (world XZ) so the mesh builder, rim tests, and queries never re-parse dicts.
+	var outline := PackedVector2Array()
+	var outline_raw: Array = rec.get("outline", [])
+	for p: Dictionary in outline_raw:
+		outline.append(Vector2(float(p["x"]), float(p["z"])))
+	# Axis-aligned bounds of the shoreline — the bbox early-out that keeps the
+	# point-in-polygon test's far-field reject as cheap as the disc's.
+	var lo := Vector2.ZERO
+	var hi := Vector2.ZERO
+	if outline.size() >= 3:
+		lo = outline[0]
+		hi = outline[0]
+		for p in outline:
+			lo = Vector2(minf(lo.x, p.x), minf(lo.y, p.y))
+			hi = Vector2(maxf(hi.x, p.x), maxf(hi.y, p.y))
+	return {
+		"id": rec.get("id", fallback_id),
+		"idx": idx,
+		"center": Vector2(float(center["x"]), float(center["z"])),
+		"radius": float(rec["radius"]),
+		"surface": float(rec["surface"]),
+		"basin_radius": float(basin.get("radius", rec["radius"])),
+		"basin_depth": float(basin.get("depth", 0.0)),
+		"outlet": rec.get("outlet", "aquifer"),
+		# Strata-imported lakes (hyd_*): a regenerable cache, so their
+		# levels live on Hydrology's REGION tier, off the soak digest.
+		"no_sim": bool(rec.get("no_sim", false)),
+		# Real max depth from the hydrology solve (W2 bathymetry rides
+		# it); 0.0 for authored lakes, which carve their own basin.
+		"depth": float(rec.get("depth", 0.0)),
+		"outline": outline,  # empty ⇒ disc fallback
+		"out_lo": lo,  # outline bbox (unused when outline empty)
+		"out_hi": hi,
+	}
 
 
 func _load_rivers() -> void:
@@ -1259,9 +1354,19 @@ func _load_biomes() -> void:
 func moisture_static(x: float, z: float) -> float:
 	var near := 0.0
 	for w in water_bodies:
-		var c: Vector2 = w.center
-		near = maxf(near, 1.0 - smoothstep(w.radius, w.radius + 40.0,
-			Vector2(x - c.x, z - c.y).length()))
+		# The damp halo hugs the TRUE shore for outline lakes (distance to the
+		# real boundary, full inside), else the equal-area disc — byte-identical
+		# to the old center-radius smoothstep for pre-outline lakes.
+		if (w.outline as PackedVector2Array).size() >= 3:
+			var lo: Vector2 = w.out_lo
+			var hi: Vector2 = w.out_hi
+			if x < lo.x - 40.0 or x > hi.x + 40.0 or z < lo.y - 40.0 or z > hi.y + 40.0:
+				continue
+			near = maxf(near, 1.0 - smoothstep(0.0, 40.0, _lake_edge_dist(w, x, z)))
+		else:
+			var c: Vector2 = w.center
+			near = maxf(near, 1.0 - smoothstep(w.radius, w.radius + 40.0,
+				Vector2(x - c.x, z - c.y).length()))
 	for r in rivers:
 		var q := _river_probe(r, x, z)
 		if q.x < q.y + 30.0:

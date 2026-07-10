@@ -378,6 +378,7 @@ func _test_strata_link() -> void:
 	await _test_preview_world(peer)
 	await _test_preview_mesh(peer)
 	await _test_preview_scatter(peer)
+	await _test_living_preview(peer)
 	await _test_camera_verb(peer)
 	await _test_toolkit_verbs(peer)
 	await _test_toolkit_power(peer)
@@ -1599,6 +1600,174 @@ func _write_scatter_manifest(dir: String, total: int, cells: Array) -> void:
 		"world": {"size_m": [16384.0, 16384.0], "sea_level_m": 5.0},
 		"cells": entries}))
 	f.close()
+
+
+## M6a — the living preview resolves on pause (PLAN_LIVING_PREVIEW §9).
+## Two halves, both over the real link + real machinery:
+##
+## (A) the RESOLVE contract + Walk Here honesty (§6), no streamer needed:
+##   wear a drape → Walk Here REFUSES (you cannot walk a photograph) → fire
+##   preview_world → the kernel re-tiles to the shape AND _drape_resolved
+##   flips → Walk Here now LANDS on the shaped ground (kernel height).
+##
+## (B) the CONFIRM signal + CROSSFADE + shaped collision (§3), driving a real
+##   world_streamer: wear a drape, reshape via preview_world so the kernel
+##   re-tiles and the near ring rebuilds; the streamer emits near_ring_settled
+##   on the busy->idle edge; strata_link leaves the drape one beat later; the
+##   rebuilt cell carries the SHAPED height in real trimesh collision. Half B
+##   builds real flora/scatter cells, so it SKIPs honestly when the world
+##   assets aren't present (fresh clone / bare CI) — the tile-cache-skip idiom.
+func _test_living_preview(peer: StreamPeerTCP) -> void:
+	if not Terrain.has_world_tile() or Terrain.kernel == null:
+		print("  living preview: SKIP (no kernel or baked tile)")
+		return
+	# Snapshot the world so the reshapes below restore bit-identically.
+	var orig_rec: Variant = JSON.parse_string(FileAccess.get_file_as_string(
+		"res://data/regions/baked_world.json"))
+	if not (orig_rec is Dictionary):
+		print("  living preview: SKIP (no baked_world.json record)")
+		return
+	var orig_sea: float = Terrain.sea_level
+	# A synthetic export: a flat 42m world, sea at 5m, with the height.exr the
+	# drape wears and preview_world re-tiles from.
+	var dir := ProjectSettings.globalize_path("user://living_preview_world")
+	DirAccess.make_dir_recursive_absolute(dir)
+	var img := Image.create(64, 64, false, Image.FORMAT_RF)
+	img.fill(Color(42.0, 0.0, 0.0))
+	img.save_exr(dir.path_join("height.exr"))
+	var mf := FileAccess.open(dir.path_join("bake_manifest.json"), FileAccess.WRITE)
+	mf.store_string(JSON.stringify({"world": {
+		"size_m": [16384.0, 16384.0], "sea_level_m": 5.0}}))
+	mf.close()
+
+	# -- (A) the resolve contract + Walk Here honesty ----------------------
+	var worn := await _link_send(peer, ["preview_mesh " + dir])
+	_check(worn.size() == 1 and worn[0].begins_with("ok preview_mesh"),
+		"living: the drape wears (got %s)" % str(worn))
+	_check(StrataLink._preview != null and StrataLink._preview.worn,
+		"living: the drape is worn")
+	_check(not StrataLink._drape_resolved,
+		"living: a fresh drape is UNRESOLVED (the kernel lacks its shape)")
+	# Walk Here over an unresolved drape refuses honestly (§6). No player is
+	# needed — the guard fires before the player lookup.
+	var refuse := await _link_send(peer, ["teleport 100 100"])
+	_check(refuse.size() == 1 and refuse[0].begins_with("err resolve first"),
+		"living: Walk Here refuses over an unresolved drape (got %s)" % str(refuse))
+	# The RESOLVE: preview_world re-tiles the kernel to the 42m shape and marks
+	# the drape resolved.
+	var resolved := await _link_send(peer, ["preview_world " + dir])
+	_check(resolved.size() == 1 and resolved[0].begins_with("ok preview"),
+		"living: preview_world resolves (got %s)" % str(resolved))
+	_check(absf(Terrain.height(3000.0, 3000.0) - 42.0) < 0.01,
+		"living: the kernel now carries the shaped ground (%.2f)" % Terrain.height(3000.0, 3000.0))
+	_check(StrataLink._drape_resolved,
+		"living: the resolve marks the kernel resolved (Walk Here arms)")
+	# Walk Here now LANDS on the shaped ground. A CharacterBody3D player so the
+	# body branch runs; the drop height is Terrain.height + 1.5 (~43.5m).
+	var pl := CharacterBody3D.new()
+	pl.add_to_group("player")
+	add_child(pl)
+	var land := await _link_send(peer, ["teleport 200 200"])
+	_check(land.size() == 1 and land[0].begins_with("ok player"),
+		"living: Walk Here lands after a resolve (got %s)" % str(land))
+	_check(absf(pl.global_position.y - (Terrain.height(200.0, 200.0) + 1.5)) < 0.01,
+		"living: the walker stands on the SHAPED ground (%.2fm)" % pl.global_position.y)
+
+	# -- (B) the confirm signal + crossfade + shaped collision -------------
+	# Real cells carry real flora — SKIP half B without the world assets, so a
+	# bare clone never reds on a missing billboard texture.
+	var have_assets := DirAccess.dir_exists_absolute(
+		ProjectSettings.globalize_path("res://assets/paintings/blooms"))
+	if have_assets:
+		# Focus OUTSIDE the home-guard/sculpt frame (like preview_world's
+		# 3000,3000 probe) so the near cells sit on the flat 42m plateau — the
+		# origin cell is shaped by the spawn guard and would read taller.
+		pl.global_position = Vector3(3000.0, 0.0, 3000.0)
+		var streamer: Node3D = load("res://game/world/world_streamer.gd").new()
+		add_child(streamer)  # _ready fills the near ring synchronously
+		# Let the initial async ring drain so we measure a CLEAN busy->idle
+		# edge from the reshape, not the boot fill.
+		await _pump_until_settled(streamer, 240)
+		var settles := [0]
+		streamer.near_ring_settled.connect(func() -> void: settles[0] += 1)
+		# Re-wear + reshape THROUGH the link so the crossfade arms against this
+		# streamer (found by group). The kernel is already at 42m from (A); a
+		# re-tile still dirties every loaded cell (edited over the whole frame).
+		await _link_send(peer, ["preview_mesh " + dir])
+		_check(StrataLink._preview.worn, "living: the drape is worn before the crossfade")
+		await _link_send(peer, ["preview_world " + dir])
+		# Drive frames (cooldowns zeroed) until the streamer confirms settled.
+		var fired := await _pump_until_signal(streamer, settles, 600)
+		_check(fired, "living: near_ring_settled fires after the resolve (§3 confirm)")
+		_check(not StrataLink._preview.worn,
+			"living: the drape LEAVES one confirm beat later (the crossfade)")
+		# The rebuilt near cell carries the shaped height in REAL collision.
+		var cell := Vector2i(roundi(3000.0 / 128.0), roundi(3000.0 / 128.0))
+		var body: Node = streamer._terrain.get(cell)
+		_check(body != null, "living: the near cell rebuilt after the resolve")
+		if body != null:
+			var col := _find_collision_shape(body)
+			_check(col != null and col.shape is ConcavePolygonShape3D,
+				"living: the rebuilt cell carries trimesh collision")
+			if col != null and col.shape is ConcavePolygonShape3D:
+				var faces: PackedVector3Array = col.shape.get_faces()
+				var maxy := -1e30
+				for v in faces:
+					maxy = maxf(maxy, v.y)
+				_check(faces.size() > 0 and absf(maxy - 42.0) < 1.0,
+					"living: the collision sits at the SHAPED height (~42m, got %.2f)" % maxy)
+		streamer.queue_free()
+	else:
+		print("  living preview (crossfade/collision): SKIP (no world assets)")
+
+	# Teardown: leave the drape, restore the world bit-identically, drop the
+	# player, erase the export. The world is exactly as the next test finds it.
+	await _link_send(peer, ["preview_mesh off"])
+	pl.queue_free()
+	_check(Terrain.preview_tile(orig_rec, orig_sea), "living: restore wears the original")
+	StrataLink._drape_resolved = false
+	if StrataLink._preview != null:
+		StrataLink._preview.queue_free()
+		StrataLink._preview = null
+	for f in ["height.exr", "bake_manifest.json"]:
+		DirAccess.remove_absolute(dir.path_join(f))
+	DirAccess.remove_absolute(dir)
+
+
+## Drive frames while zeroing the streamer's rebuild cooldowns (test speed —
+## the 0.8s quiet cooldown is a live-sculpt frame-smoothness knob, not part of
+## what we assert), returning once every rebuild queue has drained or the
+## frame budget is spent.
+func _pump_until_settled(streamer: Node3D, budget: int) -> void:
+	for i in budget:
+		streamer._quiet_cooldown = 0.0
+		streamer._rebuild_cooldown = 0.0
+		await get_tree().process_frame
+		if streamer._is_near_ring_settled():
+			return
+
+
+## Like _pump_until_settled but stops as soon as the settle COUNTER ticks (the
+## near_ring_settled signal fired). Returns whether it fired within budget.
+func _pump_until_signal(streamer: Node3D, counter: Array, budget: int) -> bool:
+	for i in budget:
+		streamer._quiet_cooldown = 0.0
+		streamer._rebuild_cooldown = 0.0
+		await get_tree().process_frame
+		if counter[0] > 0:
+			return true
+	return false
+
+
+## First CollisionShape3D under a node (depth-first).
+func _find_collision_shape(n: Node) -> CollisionShape3D:
+	for child in n.get_children():
+		if child is CollisionShape3D:
+			return child
+		var deep := _find_collision_shape(child)
+		if deep != null:
+			return deep
+	return null
 
 
 ## The camera mirror (engine-viewport M4): `camera` answers the ACTIVE 3D

@@ -277,7 +277,7 @@ const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "reload_world"
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
 	"records", "budget", "undo", "redo", "prefab",
 	"save_anchor", "restore_anchor", "anchors", "journal", "scrub",
-	"play_sound", "audio"]
+	"play_sound", "audio", "name", "names"]
 
 ## Thumbnail render target size (square). The pane renders this offscreen;
 ## Strata caches the PNG by card sha and downsamples in its grid.
@@ -627,6 +627,30 @@ func _execute(line: String) -> String:
 			# contract. Levels are tuning — the graph stays framework-owned
 			# (LAW A2; the fence's amended clause).
 			return _audio(parts)
+		"name":
+			# The gazetteer's write door (the naming desk): create-or-update
+			# a place's name. `name <id> <text…>` — the text is everything
+			# after the id (spaces intact). Rides Names.write, which validates
+			# the candidate through the game's OWN records-desk schema and
+			# key-preservingly upserts data/names/names.json before the live
+			# table rebinds — no second write path, no invented rule.
+			var toks := line.split(" ", false, 2)
+			if toks.size() < 3:
+				return "err name needs <id> <text>"
+			var r := Names.write(toks[1], toks[2])
+			if not bool(r.get("ok", false)):
+				return "err name %s: %s" % [toks[1], r.get("error", "failed")]
+			return "ok name %s %s" % [toks[1], Names.resolve(toks[1])]
+		"names":
+			# The gazetteer's table (the desk's read side): every named place
+			# as `id\x1fname\x1fkind`, rows tab-separated. Content-empty answers
+			# `ok names count=0` and nothing else — an unnamed world, no error.
+			var rows := PackedStringArray()
+			for e: Dictionary in Names.entries():
+				rows.append("%s%s%s" % [
+					e.id, _clean(String(e.name)), _clean(String(e.kind))])
+			var head := "ok names count=%d" % rows.size()
+			return head if rows.is_empty() else head + "\t" + "\t".join(rows)
 		_:
 			return "err unknown verb '%s'" % parts[0]
 

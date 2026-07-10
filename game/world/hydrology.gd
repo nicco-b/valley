@@ -217,22 +217,29 @@ func flow_norm(river_id: String) -> float:
 	return q / (q + float(region_qref.get(river_id, Q_REF)))
 
 
+## A basin's world-panel label: its id, with the gazetteer's name beside it
+## when the place has one (`hyd_l1 «The Aquifer Pool»`) — names beside ids,
+## the naming desk's WATER surface. Bare id when unnamed (the honest floor).
+func _labelled(id: String) -> String:
+	return "%s «%s»" % [id, Names.resolve(id)] if Names.has_name(id) else id
+
+
 ## Toolkit: every basin, right now.
 func summary() -> String:
 	var lines := PackedStringArray()
 	for r in Terrain.sim_rivers():
 		lines.append("%s: %.0f m3/h (norm %.2f, level %+.2fm)" % [
-			r.id, discharge(r.id), flow_norm(r.id), Terrain.river_levels[r.idx]])
+			_labelled(r.id), discharge(r.id), flow_norm(r.id), Terrain.river_levels[r.idx]])
 	for w in Terrain.water_bodies:
 		if w.get("no_sim", false):
 			lines.append("%s (region): level %+.2fm" % [
-				w.id, float(region_lake_level.get(w.id, 0.0))])
+				_labelled(w.id), float(region_lake_level.get(w.id, 0.0))])
 		else:
-			lines.append("%s: level %+.2fm" % [w.id, float(lake_level.get(w.id, 0.0))])
+			lines.append("%s: level %+.2fm" % [_labelled(w.id), float(lake_level.get(w.id, 0.0))])
 	for r in Terrain.rivers:
 		if r.get("no_sim", false):
 			lines.append("%s (region): %.0f m3/h (norm %.2f, catchment %.1f km2)" % [
-				r.id, discharge(r.id), flow_norm(r.id),
+				_labelled(r.id), discharge(r.id), flow_norm(r.id),
 				float(r.get("catchment", 0.0)) / 1e6])
 	return "\n".join(lines)
 

@@ -59,6 +59,7 @@ func _ready() -> void:
 	_test_pause_esc_routing()
 	_test_embedded_pane_posture()
 	_test_story_dry_spell_real()
+	_test_names()
 	_test_playtest_anchors()
 	await _test_strata_link()
 	if _failures > 0:
@@ -345,6 +346,7 @@ func _test_strata_link() -> void:
 	await _test_inspect_notices(peer)
 	await _test_pulse(peer)
 	await _test_records_desk(peer)
+	await _test_names_verbs(peer)
 	await _test_audio_verbs(peer)
 	peer.disconnect_from_host()
 
@@ -1309,6 +1311,110 @@ func _test_camera_verb(peer: StreamPeerTCP) -> void:
 
 
 ## Send commands one per line, then pump frames until every reply lands.
+## The naming desk (the gazetteer): resolve/fallback, the records-desk
+## schema it rides, and the key-preserving write round trip on a TEMP file
+## (the shipped content stays untouched). Content-empty is a first-class
+## state — a missing table loads zero names, zero errors, and resolve still
+## answers the id.
+func _test_names() -> void:
+	# Rides the records desk: the kind's {id,name} schema is registered, so
+	# `records validate names` judges a name-record by the loader's own rule.
+	var sch := Records.schema_for("names")
+	_check(int(sch.get("id", -1)) == TYPE_STRING and int(sch.get("name", -1)) == TYPE_STRING,
+		"names: the loader registered its {id,name} schema")
+	_check(Records.validate_kind("names", {"id": "x", "name": "Y"}) == "",
+		"names: a well-formed name-record validates")
+	_check(Records.validate_kind("names", {"id": "x"}) != "",
+		"names: a name-record missing its name is refused")
+
+	# resolve: the honest fallback to the id itself when a place has no name.
+	_check(Names.resolve("no_such_place") == "no_such_place",
+		"names: resolve falls back to the id itself")
+	_check(not Names.has_name("no_such_place"), "names: an unnamed id has_name=false")
+
+	# The few names valley ships for its own places (content).
+	_check(Names.has_name("hyd_l1") and Names.resolve("hyd_l1") == "The Aquifer Pool",
+		"names: a shipped name resolves (got %s)" % Names.resolve("hyd_l1"))
+	_check(Names.kind_of("hyd_l1") == "lake", "names: a shipped name carries its kind")
+
+	# The write round trip on a TEMP file — the real content stays untouched.
+	var tmp := "user://names_test.json"
+	if FileAccess.file_exists(tmp):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+	# content-empty: a table that isn't there loads zero names, zero errors.
+	Names.reload(tmp)
+	_check(Names.named_ids().is_empty(), "names: a missing file loads content-empty")
+	_check(Names.resolve("hyd_r1") == "hyd_r1",
+		"names: content-empty resolve falls back to the id")
+
+	# A validated create...
+	var w1 := Names.write("cove_a", "First Cove", "cove", tmp)
+	_check(bool(w1.get("ok", false)),
+		"names: write creates a validated record (got %s)" % w1.get("error", ""))
+	_check(Names.resolve("cove_a") == "First Cove", "names: a written name resolves live")
+	_check(Names.kind_of("cove_a") == "cove", "names: a written name keeps its kind")
+	# ...then a second, and the first SURVIVES (key-preserving upsert).
+	Names.write("cove_b", "Second Cove", "", tmp)
+	_check(Names.resolve("cove_a") == "First Cove" and Names.resolve("cove_b") == "Second Cove",
+		"names: writing a second entry preserves the first")
+	# A rename in place keeps the row's prior kind when the verb omits it.
+	Names.write("cove_a", "Renamed Cove", "", tmp)
+	_check(Names.resolve("cove_a") == "Renamed Cove" and Names.kind_of("cove_a") == "cove",
+		"names: a rename preserves the prior kind")
+	_check(Names.named_ids().size() == 2, "names: a rename upserts, never duplicates")
+	# Validation refuses an empty name before anything reaches disk.
+	_check(not bool(Names.write("cove_c", "   ", "", tmp).get("ok", false)),
+		"names: an empty name is refused")
+
+	# Restore the LIVE table from the shipped content (other surfaces/tests
+	# see the real gazetteer again).
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+	Names.reload()
+	_check(Names.resolve("hyd_l1") == "The Aquifer Pool",
+		"names: the live table restored from shipped content")
+
+
+## The naming desk over the link: `names` reads the table, `name <id> <text>`
+## writes it (create-or-update). The write touches the shipped file, so the
+## test snapshots its bytes and restores them after — a green run leaves the
+## worktree byte-identical.
+func _test_names_verbs(peer: StreamPeerTCP) -> void:
+	var file := ProjectSettings.globalize_path("res://data/names/names.json")
+	var original := FileAccess.get_file_as_string(file)
+
+	# names: the shipped table, rows tab-separated, fields unit-separated.
+	var before := await _link_send(peer, ["names"])
+	_check(before.size() == 1 and String(before[0]).begins_with("ok names count="),
+		"names: the table answers ok with a count (got %s)" % str(before))
+	_check("hyd_l1" in String(before[0]) and "The Aquifer Pool" in String(before[0]),
+		"names: the table carries a shipped named place")
+
+	# name: create-or-update, validated and reloaded; then it reads back.
+	var wrote := await _link_send(peer, [
+		"name hyd_l7 North Tarn", "names", "name", "name bad_no_text"])
+	_check(wrote.size() == 4, "name: replies land (got %d)" % wrote.size())
+	if wrote.size() == 4:
+		_check(String(wrote[0]) == "ok name hyd_l7 North Tarn",
+			"name: a write answers ok with the resolved name (got %s)" % wrote[0])
+		_check("hyd_l7" in String(wrote[1]) and "North Tarn" in String(wrote[1]),
+			"name: the new name is in the table right after (got %s)" % wrote[1])
+		_check(String(wrote[2]) == "err name needs <id> <text>",
+			"name: a bare verb errs with its contract line (got %s)" % wrote[2])
+		_check(String(wrote[3]) == "err name needs <id> <text>",
+			"name: an id with no text errs (got %s)" % wrote[3])
+	# The live table saw the write (the verb rebound the gazetteer).
+	_check(Names.resolve("hyd_l7") == "North Tarn", "name: the live table reflects the write")
+
+	# Restore the shipped file byte-for-byte and rebind — no test residue.
+	var f := FileAccess.open(file, FileAccess.WRITE)
+	if f != null:
+		f.store_string(original)
+		f.close()
+	Names.reload()
+	_check(Names.resolve("hyd_l7") == "hyd_l7",
+		"name: restoring the file returns the gazetteer to shipped content")
+
+
 func _link_send(peer: StreamPeerTCP, commands: Array) -> Array:
 	for c in commands:
 		peer.put_data((str(c) + "\n").to_utf8_buffer())

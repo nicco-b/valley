@@ -567,7 +567,11 @@ func _draw_place(font: Font, xz: Vector2, text: String, col: Color) -> void:
 
 
 ## region/tile id -> a readable place name (title-cased, "_" → space).
+## A place's map label: the gazetteer's name when it has one, else the
+## id prettified (the honest floor — a landform with no name still reads).
 func _label_for(id: String) -> String:
+	if Names.has_name(id):
+		return Names.resolve(id)
 	return id.replace("_", " ").capitalize()
 
 

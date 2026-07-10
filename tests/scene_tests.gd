@@ -11,6 +11,8 @@ func _ready() -> void:
 	_test_conditions_v2()
 	_test_skills()
 	_test_clock()
+	_test_clock_lock()
+	_test_weather_lock()
 	_test_seasons()
 	_test_climate()
 	_test_climate_v2()
@@ -2950,6 +2952,91 @@ func _test_clock() -> void:
 	_check(absf(GameClock.hours - GameClock.civil_now()) < 0.01,
 		"return_to_now re-anchors to real local time")
 	_check(GameClock.day == day_before, "return_to_now keeps days lived")
+
+
+## The clock LOCK (2026-07-09): a REAL hold. While held, the automatic 1:1
+## _process advance is suspended and the swallowed wall gap is not banked;
+## an EXPLICIT advance_hours (the `time`/`scrub` verbs, the T key) still
+## moves the clock, and the lock stays engaged after (scrub-then-re-hold).
+## Determinism: holding does no sim work, so it's a no-op on the fingerprint.
+func _test_clock_lock() -> void:
+	var was_held: bool = GameClock.held
+	var h0: float = GameClock.hours
+	var d0: int = GameClock.day
+	# Engage via the link verb — the mirror-truth reply and the WorldState
+	# mirror both land.
+	var on := StrataLink._execute("time_lock on")
+	_check(on == "ok time_lock on", "time_lock on answers the state (got %s)" % on)
+	_check(GameClock.held, "time_lock on holds the clock")
+	_check(bool(WorldState.get_value("time.hold", false)),
+		"the clock lock mirrors to WorldState (saves)")
+	# A held clock does NOT auto-advance: drive one real-time tick (the same
+	# path _process takes) and assert the dial holds. Both the small-delta
+	# ease and the large-gap catch-up are swallowed while held.
+	GameClock.hours = 8.0
+	GameClock._tick(1.0)      # small-delta ease path
+	GameClock._tick(3600.0)   # large-gap catch-up path
+	_check(absf(GameClock.hours - 8.0) < 1e-6, "a held clock ignores the auto-advance")
+	# An EXPLICIT move still works while locked (the scrub/T-key door), and the
+	# lock survives the move.
+	GameClock.advance_hours(2.0)
+	_check(absf(GameClock.hours - 10.0) < 1e-6, "advance_hours moves a locked clock (explicit)")
+	_check(GameClock.held, "the clock stays locked after an explicit move (scrub re-holds)")
+	# Release: the dial is free again and the mirror clears.
+	var off := StrataLink._execute("time_lock off")
+	_check(off == "ok time_lock off", "time_lock off answers the state (got %s)" % off)
+	_check(not GameClock.held, "time_lock off frees the clock")
+	_check(not bool(WorldState.get_value("time.hold", true)),
+		"the released lock mirrors to WorldState")
+	# Idempotent.
+	_check(StrataLink._execute("time_lock on") == "ok time_lock on"
+			and StrataLink._execute("time_lock on") == "ok time_lock on",
+		"time_lock is idempotent")
+	_check(StrataLink._execute("time_lock wobble").begins_with("err time_lock"),
+		"time_lock rejects a bad arg")
+	# Leave no trace.
+	GameClock.set_hold(was_held)
+	GameClock.hours = h0
+	GameClock.day = d0
+
+
+## The weather LOCK (2026-07-09): while held, hourly evolution pauses — the
+## fronts don't march, none spawn, the wind stops wandering. The per-frame
+## render eases continue (the Elements keep drawing the held state). Catch-up
+## replays hour_ticks through the same guard, so a locked sky holds across a
+## skipped stretch.
+func _test_weather_lock() -> void:
+	var was_held: bool = Weather.held
+	# A known starting sky. force_kind appends a full-cover front — hold a
+	# REFERENCE to it (GDScript dicts are by-ref) so index churn from later
+	# spawns/expiries can't fool the march check.
+	Weather.force_kind("storm")
+	var front: Dictionary = Weather.fronts[Weather.fronts.size() - 1]
+	var edge_before: float = float(front.edge)
+	var on := StrataLink._execute("weather_lock on")
+	_check(on == "ok weather_lock on", "weather_lock on answers the state (got %s)" % on)
+	_check(Weather.held, "weather_lock on holds the weather")
+	_check(bool(WorldState.get_value("weather.hold", false)),
+		"the weather lock mirrors to WorldState (saves)")
+	# Drive many hour_ticks and assert nothing evolved: same front count, the
+	# tracked front's edge unmoved (no march), the wind angle unmoved.
+	var count_before: int = Weather.fronts.size()
+	var angle_before: float = Weather._wind_angle
+	for h in 12:
+		Weather._transition(h)
+	_check(Weather.fronts.size() == count_before, "a held sky spawns no new fronts")
+	_check(absf(float(front.edge) - edge_before) < 1e-6, "a held sky does not march its fronts")
+	_check(absf(Weather._wind_angle - angle_before) < 1e-9, "a held sky's wind stops wandering")
+	# Release: evolution resumes — one tick now marches the tracked front.
+	var off := StrataLink._execute("weather_lock off")
+	_check(off == "ok weather_lock off", "weather_lock off answers the state (got %s)" % off)
+	_check(not Weather.held, "weather_lock off frees the weather")
+	Weather._transition(0)
+	_check(float(front.edge) > edge_before, "a freed sky marches again")
+	_check(StrataLink._execute("weather_lock wobble").begins_with("err weather_lock"),
+		"weather_lock rejects a bad arg")
+	# Leave no trace.
+	Weather.set_hold(was_held)
 
 
 ## Seasons follow the real calendar; daylight, solar noon, and the

@@ -272,6 +272,7 @@ const PROTOCOL := 1
 ## exactly, both ways: add a verb there and it MUST land here too.
 const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "reload_world",
 	"teleport", "screenshot", "thumbnail", "flyover", "meshstats", "weather", "time",
+	"time_lock", "weather_lock",
 	"preview_world", "preview_mesh", "preview_shared", "render_device",
 	"camera", "view", "view_layer", "probe",
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
@@ -382,9 +383,17 @@ func _execute(line: String) -> String:
 			return "ok pong %d" % PROTOCOL
 		"status":
 			var focus := _focus()
-			return "ok %.2fh focus=(%.0f, %.0f) fps=%d served=%d" % [
+			# `day` + the two lock states ride the status line (2026-07-09):
+			# Strata's SimClock parses them off the SAME heartbeat that carries
+			# the hour, so the Live slider AND the Playtest scrubber read one
+			# clock (no drift between the two faces), and both lock toggles
+			# MIRROR the game's truth instead of a local guess. Appended after
+			# the pre-existing fields — SimClock reads `<hours>h` first and the
+			# rest by name, so older hubs ignore what they don't parse.
+			return "ok %.2fh focus=(%.0f, %.0f) fps=%d served=%d day=%d hold=%d whold=%d" % [
 				GameClock.hours, focus.x, focus.y,
-				Engine.get_frames_per_second(), _served]
+				Engine.get_frames_per_second(), _served,
+				GameClock.day, 1 if GameClock.held else 0, 1 if Weather.held else 0]
 		"pulse":
 			# The batched heartbeat (native-embed F2): five verbs, one
 			# reply, nested behind the record separator. See _pulse.
@@ -452,6 +461,23 @@ func _execute(line: String) -> String:
 			if parts.size() < 2:
 				return "err time needs +<h> or <0..24>"
 			return _time(parts[1])
+		"time_lock":
+			# The time-of-day LOCK (2026-07-09): a REAL hold in GameClock — the
+			# 1:1 auto-advance suspends and the wall gap is swallowed (not a
+			# Strata re-assert every poll). Idempotent; the reply is the state
+			# that RESULTED, which the next `status` line also carries.
+			if parts.size() < 2 or not (parts[1] in ["on", "off"]):
+				return "err time_lock needs on|off"
+			GameClock.set_hold(parts[1] == "on")
+			return "ok time_lock %s" % ("on" if GameClock.held else "off")
+		"weather_lock":
+			# The weather LOCK (2026-07-09): Weather stops EVOLVING (fronts hold,
+			# no spawn, wind stops wandering) while the Elements keep rendering
+			# the held state. Independent of the clock lock.
+			if parts.size() < 2 or not (parts[1] in ["on", "off"]):
+				return "err weather_lock needs on|off"
+			Weather.set_hold(parts[1] == "on")
+			return "ok weather_lock %s" % ("on" if Weather.held else "off")
 		"preview_world":
 			if parts.size() < 2:
 				return "err preview_world needs a dir"
@@ -1122,6 +1148,18 @@ func _stage(q: Dictionary, stage_id: String) -> Dictionary:
 ## the nearest anchor at/before the target, restores it, then advances forward
 ## to the target: latches stay monotone (an earlier world reloaded, replayed
 ## up), and the reply NAMES the anchor it restored from so nothing is hidden.
+##
+## Scrub + lock semantics (2026-07-09): a scrub is an EXPLICIT move, so it
+## works whether or not the clock is locked — advance_hours is the explicit
+## door the lock never blocks (the lock only suspends the automatic 1:1
+## advance in _process). The `held` flag is never touched here, so a scrub
+## under a lock MOVES time to the target and STAYS locked: the sim lives the
+## scrubbed hours, then the clock re-holds at the new moment on the next
+## _process. (A backward scrub restores an anchor whose saved WorldState
+## carries its own time.hold — restore_anchor reloads the lock as it stood
+## when the anchor was saved, then the forward replay re-applies as above.)
+## Weather's lock is orthogonal: a scrub's replayed hour_ticks skip evolution
+## while weather is held, so a locked sky stays put across the scrub too.
 func _scrub(target_abs: float) -> String:
 	var cur := _abs_hours()
 	if target_abs >= cur - 0.001:

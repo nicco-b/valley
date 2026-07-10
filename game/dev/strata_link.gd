@@ -345,6 +345,14 @@ var _markers: Dictionary = {}
 
 
 func _ready() -> void:
+	# Vernier (P4): the living-preview distance gate's one tunable, registered
+	# BEFORE the DevMode gate below (sea_swell's precedent) so it exists in
+	# every posture, including the headless scene tests. Passive — reads the
+	# 2500m default once; never calls the setter on its own (M6a.1, §5-the-look).
+	Vernier.register("living_preview.resolve_max_dist", TYPE_FLOAT, DEFAULT_RESOLVE_MAX_DIST,
+		Callable(self, "vernier_set_resolve_max_dist"),
+		Callable(self, "vernier_resolve_max_dist"),
+		"Camera-to-focus distance (m) below which a living-preview resolve crossfades the chart drape off to the real world; above it the chart STAYS the survey face (the operator's 2026-07-10 M6a verdict).")
 	if not DevMode.active():
 		set_process(false)
 		return
@@ -401,6 +409,12 @@ func _process(_delta: float) -> void:
 			if peer.get_status() == StreamPeerTCP.STATUS_CONNECTED:
 				peer.put_data((reply + "\n").to_utf8_buffer())
 			_served += 1
+	# M6a.1 — the living-preview DISTANCE GATE (PLAN_LIVING_PREVIEW §5, the
+	# operator's 2026-07-10 verdict): once a resolve has re-tiled the kernel
+	# under a worn drape, whether the chart drape lifts to the real world is
+	# a per-frame call on where the camera is. Cheap and inert until a resolve
+	# arms it (the flag-off / no-living-preview path never sets _living_gate).
+	_living_gate_tick()
 
 
 ## Read up to one newline-terminated command (small lines; commands are
@@ -459,6 +473,15 @@ func _execute(line: String) -> String:
 			var tile := Terrain.reload_world()
 			if tile == "failed":
 				return "err reload failed: tile did not reload (old tile stays live)"
+			# THE CROSSING (M6a.1): bless re-reads the REAL world off disk — the
+			# chart drape's survey-face job (§5) ends here. Drop it and disarm the
+			# distance gate unconditionally, so a survey-distance bless (where the
+			# gate was keeping the chart worn) can't strand the photograph over the
+			# world the operator just chose. A no-op when no drape is worn.
+			if _preview != null:
+				_preview.leave()
+			_reset_living_gate()
+			_drape_resolved = false
 			# The undo stack's mementos point at the world that just changed
 			# under them — a reverted stroke over a fresh tile would be
 			# garbage. Disk is the truth across a reload; the stream restarts.
@@ -1436,24 +1459,30 @@ func _preview_world(dir: String) -> String:
 		return "err could not load %s" % rec["heightmap"]
 	# M6a — the RESOLVE (PLAN_LIVING_PREVIEW §3): when a drape is currently
 	# worn (the living preview's sub-0.4s drag proxy), preview_world PROMOTES
-	# it to the real world — the kernel now carries the shape (Walk Here lands
-	# true, §6), and the near ring rebuilds real ground behind the drape. Mark
-	# the kernel resolved and arm the crossfade so the drape lifts one
-	# near-ring-settled beat later, no stale-ground flash. With no drape worn
-	# this is the plain walk-it viewer, exactly as before.
+	# it to the real world UNDERNEATH — the kernel now carries the shape (Walk
+	# Here lands true, §6), and the near ring rebuilds real ground behind the
+	# drape. Whether the drape then LIFTS to reveal that ground is a distance
+	# call (M6a.1 below): near the ground the resolve is the better face and it
+	# crossfades in; at survey distance the CHART is the better face (the
+	# operator's 2026-07-10 verdict) and the drape stays worn. Arm the gate and
+	# let it decide, per frame, from the camera. No drape worn → the plain
+	# walk-it viewer, exactly as before.
 	if _preview != null and _preview.worn:
 		_drape_resolved = true
+		_resolved_dir = dir
+		_near_ring_confirmed = false
+		_living_gate = true
 		_arm_drape_crossfade()
 	return "ok preview %.0fm sea=%.1fm (in memory — Send persists)" % [
 		size, Terrain.sea_level]
 
 
-## M6a — the living-preview CROSSFADE (§3): after a resolve re-tiles the
-## kernel behind a worn drape, wait for the near ring to rebuild the real
-## ground, THEN leave the drape — one confirm beat, no stale-ground flash.
-## One-shot: the first near_ring_settled after the resolve lifts the
-## photograph. No streamer in the tree (a bare test scene) → the drape stays
-## until the next explicit preview_mesh off, the honest fallback.
+## M6a — the living-preview CROSSFADE arm (§3): after a resolve re-tiles the
+## kernel behind a worn drape, listen for the near ring to finish rebuilding
+## the real ground — that confirm is the "no stale-ground flash" gate the
+## distance tick then waits on. One-shot: the first near_ring_settled after
+## the resolve marks it confirmed. No streamer in the tree (a bare test
+## scene) → confirm never lands and the drape stays worn, the honest fallback.
 func _arm_drape_crossfade() -> void:
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer == null or not streamer.has_signal("near_ring_settled"):
@@ -1464,12 +1493,75 @@ func _arm_drape_crossfade() -> void:
 
 
 func _on_near_ring_settled_crossfade() -> void:
-	# Only lift a drape that is STILL the resolved one. If the operator resumed
-	# dragging during the crossfade window, a fresh preview_mesh re-wore the
-	# drape UNRESOLVED (the kernel lacks the new shape) — leaving it here would
-	# flash stale ground. That new drag's own resolve re-arms the crossfade.
-	if _preview != null and _preview.worn and _drape_resolved:
+	# The real ground under the drape is now rebuilt (collision + scatter). Mark
+	# it confirmed so the distance tick may lift the drape without flashing
+	# stale ground — but ONLY if this is still the resolved drape. If the
+	# operator resumed dragging, a fresh preview_mesh re-wore it UNRESOLVED and
+	# reset the gate; that new drag's own resolve re-arms this.
+	if _living_gate and _drape_resolved:
+		_near_ring_confirmed = true
+		_maybe_lift_drape()
+
+
+## M6a.1 — the DISTANCE GATE (PLAN_LIVING_PREVIEW §5, the operator's
+## 2026-07-10 M6a verdict: at the chooser's ~17km survey framing the raw
+## resolved world — no water yet, no far-field polish, no hypsometric
+## legibility — "reads as mud"; the chart drape is the better survey face).
+## So a resolve NEVER blind-replaces the chart: the crossfade only fires when
+## the observing camera is nearer than resolve_max_dist (~2500m from focus),
+## where the resolve is the truer picture (Walk Here, close orbit). Above the
+## threshold the resolve still happened underneath (kernel + near ring +
+## collision) but the drape stays the worn face; descending below it lifts the
+## drape (deferred crossfade), and climbing back above re-wears the chart from
+## the still-current bake. Ticks every frame from _process while _living_gate.
+func _living_gate_tick() -> void:
+	if not _living_gate or _preview == null:
+		return
+	var dist := _camera_focus_dist()
+	if _preview.worn:
+		# The chart is the visible face. Lift it only once the real ground is
+		# confirmed rebuilt AND the camera has dropped below the threshold.
+		if _near_ring_confirmed and dist < _resolve_max_dist:
+			_preview.leave()
+	elif _resolved_dir != "" and dist >= _resolve_max_dist + RESOLVE_DIST_HYST:
+		# Already crossfaded to the real world; the camera climbed back to a
+		# survey framing — re-wear the chart from the still-current bake. Cheap
+		# (a warm texture swap, ~7-13ms, no re-send: the export dir persists and
+		# the kernel is unchanged, so _drape_resolved STAYS true). The
+		# hysteresis band keeps a camera hovering at the threshold from
+		# thrashing leave/re-wear every frame.
+		_preview.wear(_resolved_dir)
+
+
+## Lift the drape now if it is the resolved one, the real ground is confirmed,
+## and the camera is near enough that the resolve is the better face. Called
+## both on the confirm signal and from the distance tick.
+func _maybe_lift_drape() -> void:
+	if _living_gate and _preview != null and _preview.worn and _drape_resolved \
+			and _near_ring_confirmed and _camera_focus_dist() < _resolve_max_dist:
 		_preview.leave()
+
+
+## Distance from the observing camera to the focus point on the ground — the
+## survey-vs-near-ground signal the gate reads. No active camera → INF (treat
+## as survey-far: keep the chart, the safe face). The focus is where the view
+## is aimed (_focus): under the fly cam in the authoring posture, else the
+## player. Height is sampled from the kernel so the distance is honest 3D.
+func _camera_focus_dist() -> float:
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return INF
+	var f := _focus()
+	return cam.global_position.distance_to(Vector3(f.x, Terrain.height(f.x, f.y), f.y))
+
+
+## Clear the living-preview gate — no resolve is armed, so the distance tick
+## goes inert. Called when the drape is dropped ("off"/leave) or re-wound to a
+## fresh UNRESOLVED drag (a new preview_mesh); the next resolve re-arms it.
+func _reset_living_gate() -> void:
+	_living_gate = false
+	_near_ring_confirmed = false
+	_resolved_dir = ""
 
 
 ## The M2 fast path: one PreviewTerrain grid, created on demand under the
@@ -1482,14 +1574,42 @@ var _preview: PreviewTerrain = null
 # M6a (§6): true when a preview_world has re-tiled the kernel UNDER the
 # currently worn drape — i.e. the ground you see is the ground you can walk.
 # A fresh wear clears it (the drape shows a shape the kernel lacks); a resolve
-# sets it; leaving the drape makes it moot. Gates Walk Here honesty.
+# sets it; leaving the drape makes it moot. Gates Walk Here honesty. Survives
+# the distance gate's leave/re-wear (the kernel stays resolved across both).
 var _drape_resolved := false
+# M6a.1 — the DISTANCE GATE state (§5, the survey-face verdict):
+#   _living_gate        — a resolve is armed; the tick watches the camera.
+#   _near_ring_confirmed— the real ground rebuilt (safe to lift, no flash).
+#   _resolved_dir       — the export dir the resolve tiled from, for a cheap
+#                         re-wear when the camera climbs back to survey.
+var _living_gate := false
+var _near_ring_confirmed := false
+var _resolved_dir := ""
+# The camera-to-focus distance below which a resolve crossfades in; above it
+# the chart stays the survey face. Live-tunable by NAME via Vernier
+# (living_preview.resolve_max_dist). HYST is the re-wear-on-climb band that
+# stops a camera parked at the threshold from thrashing every frame.
+const DEFAULT_RESOLVE_MAX_DIST := 2500.0
+const RESOLVE_DIST_HYST := 300.0
+var _resolve_max_dist := DEFAULT_RESOLVE_MAX_DIST
+
+
+## Vernier door for living_preview.resolve_max_dist (named methods, never a
+## lambda — Vernier's shutdown-crash law). Negative clamps to 0 (a threshold
+## below the ground is "always survey": the drape never lifts).
+func vernier_set_resolve_max_dist(v: float) -> void:
+	_resolve_max_dist = maxf(0.0, v)
+
+
+func vernier_resolve_max_dist() -> float:
+	return _resolve_max_dist
 
 
 func _preview_mesh(dir: String) -> String:
 	if dir == "off":
 		if _preview != null:
 			_preview.leave()
+		_reset_living_gate()
 		return "ok preview_mesh off (streamed world restored)"
 	if _preview == null:
 		_preview = PreviewTerrain.new()
@@ -1498,8 +1618,11 @@ func _preview_mesh(dir: String) -> String:
 	if line.begins_with("err"):
 		return line
 	# A fresh drape is UNRESOLVED (§6): the grid shows a shape the live kernel
-	# does not carry yet, so Walk Here refuses until the pause resolves it.
+	# does not carry yet, so Walk Here refuses until the pause resolves it. It
+	# also unwinds any prior resolve's distance gate — this drag is a new shape
+	# whose own resolve will re-arm it.
 	_drape_resolved = false
+	_reset_living_gate()
 	return "ok preview_mesh %s (in memory — off restores)" % line
 
 
@@ -1530,6 +1653,7 @@ func _preview_shared(payload: String) -> String:
 	if payload == "off":
 		if _preview != null:
 			_preview.leave()
+		_reset_living_gate()
 		return "ok preview_shared off (streamed world restored)"
 	var rd := RenderingServer.get_rendering_device()
 	if rd == null:

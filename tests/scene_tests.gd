@@ -1654,6 +1654,11 @@ func _test_living_preview(peer: StreamPeerTCP) -> void:
 		print("  living preview: SKIP (no baked_world.json record)")
 		return
 	var orig_sea: float = Terrain.sea_level
+	# M6a.1 — the distance gate's tunable is registered in every posture.
+	_check(Vernier.has("living_preview.resolve_max_dist"),
+		"living: the resolve-distance tunable is registered (Vernier)")
+	_check(absf(float(Vernier.get_value("living_preview.resolve_max_dist")) - 2500.0) < 0.01,
+		"living: the gate default is 2500m from focus")
 	# A synthetic export: a flat 42m world, sea at 5m, with the height.exr the
 	# drape wears and preview_world re-tiles from.
 	var dir := ProjectSettings.globalize_path("user://living_preview_world")
@@ -1699,9 +1704,13 @@ func _test_living_preview(peer: StreamPeerTCP) -> void:
 	_check(absf(pl.global_position.y - (Terrain.height(200.0, 200.0) + 1.5)) < 0.01,
 		"living: the walker stands on the SHAPED ground (%.2fm)" % pl.global_position.y)
 
-	# -- (B) the confirm signal + crossfade + shaped collision -------------
-	# Real cells carry real flora — SKIP half B without the world assets, so a
-	# bare clone never reds on a missing billboard texture.
+	# -- (B) the DISTANCE GATE: far resolve keeps the chart, near crossfades --
+	# The operator's 2026-07-10 M6a verdict (§5): at survey distance the raw
+	# resolved world reads as mud, so the chart drape STAYS the face; the
+	# resolve still happens underneath (kernel + near ring + collision). Only
+	# near the ground does the crossfade fire. Real cells carry real flora —
+	# SKIP half B without the world assets, so a bare clone never reds on a
+	# missing billboard texture.
 	var have_assets := DirAccess.dir_exists_absolute(
 		ProjectSettings.globalize_path("res://assets/paintings/blooms"))
 	if have_assets:
@@ -1709,6 +1718,13 @@ func _test_living_preview(peer: StreamPeerTCP) -> void:
 		# 3000,3000 probe) so the near cells sit on the flat 42m plateau — the
 		# origin cell is shaped by the spawn guard and would read taller.
 		pl.global_position = Vector3(3000.0, 0.0, 3000.0)
+		var gy := Terrain.height(3000.0, 3000.0)  # the focus ground (~42m)
+		# A camera whose distance to that focus the gate reads. Start it at
+		# SURVEY distance: 3000m up over the focus, well past the 2500m gate.
+		var cam := Camera3D.new()
+		add_child(cam)
+		cam.global_position = Vector3(3000.0, gy + 3000.0, 3000.0)
+		cam.make_current()
 		var streamer: Node3D = load("res://game/world/world_streamer.gd").new()
 		add_child(streamer)  # _ready fills the near ring synchronously
 		# Let the initial async ring drain so we measure a CLEAN busy->idle
@@ -1716,21 +1732,31 @@ func _test_living_preview(peer: StreamPeerTCP) -> void:
 		await _pump_until_settled(streamer, 240)
 		var settles := [0]
 		streamer.near_ring_settled.connect(func() -> void: settles[0] += 1)
-		# Re-wear + reshape THROUGH the link so the crossfade arms against this
+		# Re-wear + reshape THROUGH the link so the gate arms against this
 		# streamer (found by group). The kernel is already at 42m from (A); a
 		# re-tile still dirties every loaded cell (edited over the whole frame).
 		await _link_send(peer, ["preview_mesh " + dir])
-		_check(StrataLink._preview.worn, "living: the drape is worn before the crossfade")
+		_check(StrataLink._preview.worn, "living: the drape is worn before the resolve")
 		await _link_send(peer, ["preview_world " + dir])
 		# Drive frames (cooldowns zeroed) until the streamer confirms settled.
 		var fired := await _pump_until_signal(streamer, settles, 600)
 		_check(fired, "living: near_ring_settled fires after the resolve (§3 confirm)")
-		_check(not StrataLink._preview.worn,
-			"living: the drape LEAVES one confirm beat later (the crossfade)")
-		# The rebuilt near cell carries the shaped height in REAL collision.
+		_check(StrataLink._near_ring_confirmed,
+			"living: the resolve records the near-ring confirm")
+		# THE GATE, FAR: a few frames past the confirm, the drape is STILL worn —
+		# at survey distance the chart is the better face, the resolve rode
+		# underneath (§5 verdict). No stale-ground crossfade here.
+		for i in 8:
+			await get_tree().process_frame
+		_check(StrataLink._preview.worn,
+			"living: FAR resolve keeps the chart worn (survey face stays)")
+		_check(StrataLink._drape_resolved,
+			"living: the kernel resolved underneath even while the chart stays up")
+		# The resolve DID rebuild real ground under the chart — the near cell
+		# carries the shaped height in REAL collision (Walk Here works far too).
 		var cell := Vector2i(roundi(3000.0 / 128.0), roundi(3000.0 / 128.0))
 		var body: Node = streamer._terrain.get(cell)
-		_check(body != null, "living: the near cell rebuilt after the resolve")
+		_check(body != null, "living: the near cell rebuilt under the far chart")
 		if body != null:
 			var col := _find_collision_shape(body)
 			_check(col != null and col.shape is ConcavePolygonShape3D,
@@ -1742,9 +1768,43 @@ func _test_living_preview(peer: StreamPeerTCP) -> void:
 					maxy = maxf(maxy, v.y)
 				_check(faces.size() > 0 and absf(maxy - 42.0) < 1.0,
 					"living: the collision sits at the SHAPED height (~42m, got %.2f)" % maxy)
+		# THE GATE, DESCEND: drop the camera below the 2500m threshold. The
+		# deferred crossfade fires now (the near ring is already confirmed).
+		cam.global_position = Vector3(3000.0, gy + 50.0, 3000.0)
+		var lifted := false
+		for i in 8:
+			await get_tree().process_frame
+			if not StrataLink._preview.worn:
+				lifted = true
+				break
+		_check(lifted, "living: descending below the gate lifts the chart (crossfade)")
+		# THE GATE, CLIMB BACK: rise back to survey — the chart re-wears from the
+		# still-current bake (no re-send; the kernel stays resolved).
+		cam.global_position = Vector3(3000.0, gy + 3000.0, 3000.0)
+		var rewore := false
+		for i in 8:
+			await get_tree().process_frame
+			if StrataLink._preview.worn:
+				rewore = true
+				break
+		_check(rewore, "living: climbing back to survey re-wears the chart (cheap, no re-send)")
+		_check(StrataLink._drape_resolved,
+			"living: the re-worn chart is still kernel-resolved (Walk Here still lands)")
+		# THE TUNABLE gates it: widen resolve_max_dist past the survey distance
+		# and the same far camera now reads as 'near' — the chart lifts.
+		await _link_send(peer, ["vernier set living_preview.resolve_max_dist 100000"])
+		var tuned_lift := false
+		for i in 8:
+			await get_tree().process_frame
+			if not StrataLink._preview.worn:
+				tuned_lift = true
+				break
+		_check(tuned_lift, "living: widening the tunable lifts the far chart (the gate is the knob)")
+		await _link_send(peer, ["vernier set living_preview.resolve_max_dist 2500"])
+		cam.queue_free()
 		streamer.queue_free()
 	else:
-		print("  living preview (crossfade/collision): SKIP (no world assets)")
+		print("  living preview (distance gate): SKIP (no world assets)")
 
 	# Teardown: leave the drape, restore the world bit-identically, drop the
 	# player, erase the export. The world is exactly as the next test finds it.

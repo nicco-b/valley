@@ -98,6 +98,13 @@ func reload() -> void:
 ## schedule is sound, else the first activity's failure — the same
 ## words-back shape Records.validate_message uses, so the desk can surface
 ## it. Static and pure: the records desk can call it without a manager.
+##
+## RULES-TIER PORT (Mission C3): this is the manager's one closed sim rule,
+## Plumb-certified bit-for-bit vs the Contour port game/villagers/villager_manager.ct
+## (validate_schedule) — the error SENTENCES asserted verbatim. The per-tick sim
+## itself is AgentSim.advance, routed through the §6 `AgentMind` system; this desk
+## lint stays GDScript (a load-time judgement, no fingerprint pressure), the port
+## standing as its certified spec.
 static func validate_schedule(schedule: Array) -> String:
 	for i in schedule.size():
 		var a: Variant = schedule[i]

@@ -1,0 +1,216 @@
+# Contour port of valley game/sim/agent_sim.gd :: AgentSim — the shared agent
+# mind's RULES tier (drain / satisfy / decide utility scoring + the move-toward
+# step), as a Contour §6 system consuming the SEEDED pcg stream (the RNG rung).
+#
+# WHAT PORTS (the fingerprinted sim tick — one `advance(dt_hours)` = one system
+# step): needs DRAIN over game-hours; the agent either SATISFIES its current
+# activity's need (and accrues `produced`) when it has arrived, or MOVES one step
+# toward its target; then DECIDES — utility-scores every activity (need deficit ×
+# hour-gate × storm boost), keeps the current with hysteresis (keep_bias) unless
+# clearly beaten, and on a retarget resolves the chosen activity's place. The
+# writes are exactly agent_sim.gd's advance writes: needs, pos, target, current,
+# produced, and the advanced rng state (a roam retarget draws the stream twice).
+#
+# WHAT STAYS GDSCRIPT (engine-bound, enumerated — the honest split, weather's
+# precedent): body spawning / embodiment (WildlifeManager / VillagerManager load
+# scenes, seat bodies, embody+dissolve on focus distance); the live-tick body
+# position handoff (`sim.pos = body.global_position`); persistence to WorldState
+# (to_state/from_state); the Toolkit debug_text readout. Those touch the engine
+# and are not part of this system's write set.
+#
+# THE CALLABLE, RESOLVED AS DATA (agent_sim.gd's `marker_resolver: Callable`):
+# Contour has no Callable by design (CONTOUR.md §4 — a Callable is an unbounded
+# escape into arbitrary GDScript, exactly the nondeterminism the sim tier makes
+# impossible). So the owning manager PRE-RESOLVES every marker an activity names
+# into a live XZ GDScript-side — the same door the bridge resolves declared reads
+# through — and hands them in as the declared read `agent.markers` (a dict
+# marker-id -> vec2). resolve_target reads that map: a named marker that is
+# present resolves to its position; one that is ABSENT (deleted, or an agent with
+# no resolver — wildlife) falls back to home, byte-identical to the twin's
+# `marker_resolver` returning INF / being unbound. The RESOLVER stays valley-side
+# (VillagerManager._resolve_marker over CellRecords); the port sees only data.
+#
+# THE SEEDED-READS SHAPE (weather's precedent): the tick's live environment
+# (hour — solar_hours or clock hours, chosen by solar_gate GDScript-side; the
+# storm boost's storminess; day_length_minutes for the move) and the agent's
+# whole record (its activities list, drives, tunables, roam cohesion) arrive as
+# declared reads. The persistent state it owns (needs / pos / target / current /
+# produced / rng) round-trips through its declared writes. roam_center's INF
+# sentinel is a boolean read `agent.has_cohesion` (vec2 has no is_finite()).
+#
+# STATUS: authored + compiles clean under the cold gate; its five numeric leaves
+# (drain_need / satisfy_need / utility / hours_gate / step_toward — the last
+# proving vec2.normalized()) are Plumb-certified bit-exact vs real headless Godot,
+# and the roam draw sequence (pcg_randf / pcg_randf_range) rides the rng_pcg rows.
+# Its in-situ proof is the valley FOUR-RUN SOAK MATRIX (the star_hounds herd runs
+# this mind for 30 game-days) — see docs/PORT_LEDGER.md agent_sim row.
+
+const DRAIN_SCALE = 5.0     # need points lost per game-hour at weight 1.0
+const SATISFY_SCALE = 10.0  # points gained per game-hour at rate 1.0
+const OFF_HOURS_GATE = 0.15
+
+
+# drain: one need bleeds by its weight over the hours, floored at 0, capped 100.
+sim func drain_need(v, weight, drain_scale, dt) -> float:
+	return clampf(v - weight * drain_scale * dt, 0.0, 100.0)
+
+
+# satisfy: the current activity feeds its need at `rate` (× SATISFY_SCALE).
+sim func satisfy_need(v, rate, dt) -> float:
+	return clampf(v + rate * SATISFY_SCALE * dt, 0.0, 100.0)
+
+
+# _hours_gate: 1.0 inside the activity's preferred window, OFF_HOURS_GATE outside.
+# The window wraps midnight when start > end. No `hours` field => always open (the
+# caller passes has_hours=false). h is the gate hour (solar or clock, chosen by
+# the owner's solar_gate).
+sim func hours_gate(has_hours, start, end, h) -> float:
+	if not has_hours:
+		return 1.0
+	var inside = false
+	if start <= end:
+		inside = h >= start and h < end
+	else:
+		inside = h >= start or h < end
+	if inside:
+		return 1.0
+	return OFF_HOURS_GATE
+
+
+# decide's per-activity utility: the need's DEFICIT (how far from content),
+# softened by the hour gate, spiked by weather (storminess × the activity's
+# storm_boost). The best score wins.
+sim func utility(need, gate, storminess, storm_boost) -> float:
+	var u = (100.0 - need) * gate
+	u = u * (1.0 + storminess * storm_boost)
+	return u
+
+
+# advance's move: one step of any size toward the target, capped so a step never
+# overshoots (minf against the remaining distance). Godot's Vector2.normalized()
+# (Float32 divide) — the agent never overshoots and a zero remaining vector would
+# stay put (guarded by the arrive check upstream).
+sim func step_toward(pos, target, speed, dt_real) -> vector2:
+	var to = target - pos
+	return pos + to.normalized() * minf(speed * dt_real, to.length())
+
+
+# resolve_target: where a chosen activity sends the agent, plus the advanced rng.
+# A raw {x,z} -> that XZ; a {"marker": id} -> the pre-resolved marker position if
+# present, else home (gone / no resolver); "roam" -> a seeded draw within the
+# range (or the herd's cohesion disk); anything else -> home. Only the roam path
+# draws the stream (randf for the angle, then randf_range for the magnitude — the
+# twin's order), so rng is threaded back through the returned dict.
+#
+# IN-PORT RENAME: the twin's local is `at` (the activity's `at` field), but `at`
+# is a Contour reserved word (the §7 `at MOMENT` time construct — fleet-law
+# collision list), so it is `dest` here. The field read is still `a.get("at")`.
+sim func resolve_target(a, home, roam_center, has_cohesion, roam_range, cohesion_radius, markers, rng) -> dict:
+	var dest = a.get("at", null)
+	if dest is Dictionary:
+		if dest.has("marker"):
+			var mid = dest.marker
+			if markers.has(mid):
+				return {"pos": markers[mid], "rng": rng}
+			return {"pos": home, "rng": rng}
+		return {"pos": vec2(dest.x, dest.z), "rng": rng}
+	if dest == "roam":
+		var center = home
+		var radius = roam_range
+		if has_cohesion:
+			center = roam_center
+			radius = cohesion_radius
+		var da = pcg_randf(rng)
+		var ang = da.value * TAU()
+		var dm = pcg_randf_range(da.state, 0.2, 1.0)
+		var off = vec2(cos(ang), sin(ang)) * dm.value * radius
+		return {"pos": center + off, "rng": dm.state}
+	return {"pos": home, "rng": rng}
+
+
+# The shared agent mind, one advance() as a §6 system step. Reads the agent's
+# whole record + its live environment (all seeded by the owner each tick); writes
+# the six persistent fields the mind owns. last_utilities is the decision readout
+# (a write, recomputed fresh each tick — never seeded).
+system AgentMind:
+	reads: agent.needs, agent.needs_def, agent.activities, agent.current, agent.produced, agent.pos, agent.target, agent.home, agent.jitter, agent.roam_center, agent.has_cohesion, agent.roam_range, agent.cohesion_radius, agent.markers, agent.hour, agent.storminess, agent.speed, agent.arrive, agent.keep_bias, agent.drain_scale, agent.day_length_minutes, agent.dt_hours, agent.rng
+	writes: agent.needs, agent.pos, agent.target, agent.current, agent.produced, agent.rng, agent.last_utilities
+	sim func step():
+		var needs = agent.needs
+		var needs_def = agent.needs_def
+		var activities = agent.activities
+		var current = agent.current
+		var pos = agent.pos
+		var target = agent.target
+		var home = agent.home
+		var jitter = agent.jitter
+		var storminess = agent.storminess
+		var hour = agent.hour
+		var drain_scale = agent.drain_scale
+		var keep_bias = agent.keep_bias
+		var speed = agent.speed
+		var arrive = agent.arrive
+		var dt = agent.dt_hours
+		var rng = agent.rng
+		# drain: every need bleeds this hour.
+		var needs2 = {}
+		for need in needs:
+			needs2[need] = drain_need(needs[need], needs_def.get(need, 1.0), drain_scale, dt)
+		# arrive => satisfy the current need + accrue produced; else move a step.
+		var pos2 = pos
+		var produced2 = agent.produced
+		var to = target - pos
+		if to.length() < arrive:
+			if not current.is_empty():
+				var sn = current.satisfies
+				needs2[sn] = satisfy_need(needs2[sn], current.get("rate", 6.0), dt)
+				var produces = current.get("produces", {})
+				for item in produces:
+					produced2[item] = produced2.get(item, 0.0) + produces[item] * dt
+		else:
+			var dt_real = dt * agent.day_length_minutes * 60.0 / 24.0
+			pos2 = step_toward(pos, target, speed, dt_real)
+		# decide: utility-score every activity, keep with hysteresis or retarget.
+		var best = {}
+		var best_u = 0.0 - 1.0
+		var current_u = 0.0
+		var last_utils = {}
+		for a in activities:
+			var has_hours = a.has("hours")
+			var start = 0.0
+			var end = 0.0
+			if has_hours:
+				start = a.hours[0]
+				end = a.hours[1]
+			var gate = hours_gate(has_hours, start, end, hour)
+			var need_v = needs2.get(a.satisfies, 50.0)
+			var u = utility(need_v, gate, storminess, a.get("storm_boost", 0.0))
+			last_utils[a.id] = u
+			if a == current:
+				current_u = u
+			if u > best_u:
+				best_u = u
+				best = a
+		var current2 = current
+		var target2 = target
+		var rng2 = rng
+		var keep = false
+		# Short-circuit by nesting (Contour is eager): current.satisfies would
+		# fault on an empty current, so guard it first — the twin's `and` chain.
+		if not current.is_empty():
+			if needs2.get(current.satisfies, 0.0) < 85.0:
+				if current_u * keep_bias >= best_u:
+					keep = true
+		if not keep:
+			if best != current:
+				var r = resolve_target(best, home, agent.roam_center, agent.has_cohesion, agent.roam_range, agent.cohesion_radius, agent.markers, rng)
+				current2 = best
+				target2 = r.pos + jitter
+				rng2 = r.rng
+		agent.needs = needs2
+		agent.pos = pos2
+		agent.target = target2
+		agent.current = current2
+		agent.produced = produced2
+		agent.rng = rng2
+		agent.last_utilities = last_utils

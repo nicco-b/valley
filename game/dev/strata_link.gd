@@ -647,13 +647,25 @@ func _execute(line: String) -> String:
 			# bus, ducks, low-pass) OR a bare res-path on the SFX bus. Fire
 			# and forget — sync reply, no async dance. An Audition button in
 			# the record inspector / on audio cards drives it.
+			# `stop` silences the held ambience audition; an SFX id, a bare
+			# res-path, or an ambience LAYER id each audition through the real
+			# graph. Beds loop (need `play_sound stop`); SFX are one-shots.
+			# SURGICAL: one dispatcher arm — the VERBS list is unchanged.
 			if parts.size() < 2:
-				return "err play_sound needs <event|res-path>"
+				return "err play_sound needs <event|res-path|stop>"
 			var arg := parts[1]
+			if arg == "stop":
+				Audio.audition_stop()
+				return "ok play_sound stop"
 			if arg.begins_with("res://"):
 				Audio.play_file(arg)
-			else:
+			elif Audio.has_sfx(arg):
 				Audio.play(arg)
+			else:
+				# Not an SFX id or a res-path: try an ambience bed by id so the
+				# Audition button works on beds too. Unknown ids stay a silent
+				# no-op (content-empty), reply still ok.
+				Audio.audition_by_id(arg)
 			return "ok play_sound %s" % arg
 		"audio":
 			# The Mix face (PLAN_AUDIO 4a): `audio` reports the house bus
@@ -716,7 +728,7 @@ func _pulse() -> String:
 	# key -> verb line; keys are Strata's GamePulse section names.
 	for pair: Array in [["toolkit", "toolkit status"], ["panel", "panel"],
 			["inspect", "inspect"], ["notices", "notices"], ["status", "status"],
-			["budget", "budget"]]:
+			["budget", "budget"], ["audio", "audio"]]:
 		out += "%s%s=%s" % [PULSE_SEP, pair[0], _execute(pair[1])]
 	return out
 

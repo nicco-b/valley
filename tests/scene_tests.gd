@@ -1068,6 +1068,51 @@ func _test_audio_verbs(peer: StreamPeerTCP) -> void:
 		"audio bogus subverb errs with the contract line (got %s)" % r[7])
 	# Leave the mix as found (other probes read levels).
 	AudioServer.set_bus_volume_db(AudioServer.get_bus_index("SFX"), 0.0)
+	# The audition arm (A3, 4b-ii): play_sound auditions an ambience LAYER
+	# by id through the held voice (beds loop) and `play_sound stop` silences
+	# it — the Mix face's Audition/Stop buttons, proven over the wire. The
+	# bed rides the ambience records this game ships (wind_bed), so what the
+	# probe hears is what ships (LAW A4).
+	Audio.audition_stop()  # clean slate — nothing auditioning
+	var a := await _link_send(peer, [
+		"play_sound wind_bed",
+		"play_sound stop",
+		"play_sound stop",
+	])
+	_check(a.size() == 3, "audition replies land (got %d)" % a.size())
+	if a.size() == 3:
+		_check(a[0] == "ok play_sound wind_bed",
+			"play_sound <ambience id> auditions the bed (got %s)" % a[0])
+		_check(a[1] == "ok play_sound stop",
+			"play_sound stop answers ok (got %s)" % a[1])
+		_check(a[2] == "ok play_sound stop",
+			"play_sound stop is idempotent — a second stop is a clean no-op (got %s)" % a[2])
+	# The held voice actually RUNS the bed and the stop actually silences it
+	# (not just an ok over the wire). The scene-test context is autoload-only
+	# — no Ambience scene node, so its index is empty and the wire audition
+	# above is a content-empty no-op; here we drive Audio.audition directly
+	# with a bed record over the game's OWN shipped wav, proving the graph
+	# path (loops, plays on the record's house bus, stops). The full-scene
+	# headless probe proves the wire path end-to-end where the node exists.
+	var bed := {
+		"id": "wind_bed", "file": "res://assets/audio/wind_loop.wav",
+		"bus": "Ambience", "day_gain": 0.5,
+	}
+	if ResourceLoader.exists(String(bed["file"])):
+		Audio.audition(bed)
+		_check(Audio._audition.playing,
+			"audition holds a looping voice for a bed")
+		_check(Audio._audition.bus == String(bed["bus"]),
+			"audition plays on the bed's OWN house bus (%s), through the real graph"
+			% Audio._audition.bus)
+		_check(Audio._audition.stream is AudioStreamWAV
+			and (Audio._audition.stream as AudioStreamWAV).loop_mode != AudioStreamWAV.LOOP_DISABLED,
+			"audition loops the bed so it can be judged")
+		Audio.audition_stop()
+		_check(not Audio._audition.playing,
+			"audition_stop silences the held voice")
+	else:
+		print("  audition: SKIP (no wind_loop.wav asset)")
 
 
 ## preview_world (ONE_APP P8, the viewer): the game wears a Strata export

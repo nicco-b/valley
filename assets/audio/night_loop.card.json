@@ -1,0 +1,14 @@
+{
+ "slot": "night_loop",
+ "class": "audio_loop",
+ "variants": 1,
+ "files": [
+  "night_loop.wav"
+ ],
+ "status": "real",
+ "license": "CC0",
+ "loop_seconds": 52,
+ "gain_db": -6,
+ "tags": ["ambience", "night", "crickets", "bed"],
+ "gated": false
+}

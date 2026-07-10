@@ -98,6 +98,15 @@ func _load_beds() -> void:
 			"rec": rec, "player": player,
 			"presence": 1.0 if _biome_matches(rec, "") else 0.0,
 		})
+	# Hand Audio the bed records by id (PLAN_AUDIO 4b-ii): the link's Audition
+	# path lives on the Audio autoload (the link can't reach this scene node),
+	# so the ONE validated loader here feeds the audition index — no second
+	# reader, no drift. Re-registered on every reload so a landed edit is
+	# auditionable at once; an empty set (content-empty) clears the index.
+	var by_id := {}
+	for bed in _beds:
+		by_id[String(bed.rec.get("id", ""))] = bed.rec
+	Audio.register_ambience(by_id)
 
 
 ## The desk's live reload (kind audio_ambience): re-read the beds AND the

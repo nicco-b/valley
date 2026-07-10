@@ -1,0 +1,14 @@
+{
+ "slot": "wind_loop",
+ "class": "audio_loop",
+ "variants": 1,
+ "files": [
+  "wind_loop.wav"
+ ],
+ "status": "placeholder-synth",
+ "license": "ours",
+ "loop_seconds": 0,
+ "gain_db": -6,
+ "tags": ["ambience", "wind", "bed"],
+ "gated": false
+}

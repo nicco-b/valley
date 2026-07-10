@@ -1,0 +1,16 @@
+{
+ "slot": "steps/sand",
+ "class": "audio_oneshot",
+ "variants": 4,
+ "files": [
+  "sand_1.wav",
+  "sand_2.wav",
+  "sand_3.wav",
+  "sand_4.wav"
+ ],
+ "status": "placeholder-synth",
+ "license": "ours",
+ "gain_db": -13,
+ "tags": ["footstep", "surface:sand"],
+ "gated": false
+}

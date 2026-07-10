@@ -93,6 +93,19 @@ var _rng := RandomNumberGenerator.new()
 ## The loaded duck rules (from mix.json) — an Array of rule Dictionaries.
 ## Empty until _load_mix; empty stays empty when no mix.json ships.
 var _ducks: Array = []
+## The audition voice (PLAN_AUDIO 4b-ii, A3): ONE dedicated held player for
+## looped ambience auditions over the link — kept apart from Ambience's live
+## beds so `play_sound stop` silences the audition and never the running
+## world. SFX auditions ride the fire-and-forget one-shot pool; only a
+## LOOPING ambience layer needs a held voice with a stop.
+var _audition: AudioStreamPlayer
+## The ambience audition index (id -> record), handed over by the Ambience
+## evaluator on load/reload. Audio is the autoload the link reaches; the beds
+## live on a scene node the link can't name, so the node feeds its ONE
+## validated record set here for `play_sound <ambience-id>`. Empty until the
+## bed machine registers (content-empty / autoload-only test = no ambience
+## audition, a clean no-op).
+var _ambience_index: Dictionary = {}
 
 
 func _ready() -> void:
@@ -136,6 +149,10 @@ func _build_pools() -> void:
 		p3.bus = "SFX"
 		add_child(p3)
 		_pool3d.append(p3)
+	# The single held audition voice (A3): its bus is set per-audition to the
+	# record's own house bus so a bed auditions on Ambience, not the SFX pool.
+	_audition = AudioStreamPlayer.new()
+	add_child(_audition)
 
 
 ## Read data/audio/sfx/*.json through the game's own validator. Every
@@ -232,6 +249,72 @@ func play_file(path: String, pos = null) -> void:
 		p.bus = "SFX"
 		p.volume_db = 0.0
 		p.play()
+
+
+## Does an SFX event record exist for this id? The link's audition router
+## (play_sound) asks so it can tell an SFX one-shot from an ambience LAYER
+## (which loops and needs the held audition voice + a stop).
+func has_sfx(event: String) -> bool:
+	return _sfx.has(event)
+
+
+## The Ambience evaluator hands over its bed records by id (load + reload) so
+## the link can audition a bed even though the beds live on a scene node the
+## link can't name. Audio only HOLDS the index — Ambience stays the one
+## validated loader (no drift). Duplicated so a later reload can't mutate a
+## caller's dict out from under us.
+func register_ambience(index: Dictionary) -> void:
+	_ambience_index = index.duplicate()
+
+
+## Audition an ambience layer by id (the `play_sound <ambience-id>` arm):
+## look it up in the registered index and audition it on the held voice.
+## Unknown id (or no bed machine registered — content-empty / autoload-only)
+## is a clean no-op.
+func audition_by_id(id: String) -> void:
+	var rec: Dictionary = _ambience_index.get(id, {})
+	if not rec.is_empty():
+		audition(rec)
+
+
+## Audition an ambience LAYER by its record over the link (4b-ii, LAW A4 —
+## "what does this feel like in the game"): loop the bed's file on its OWN
+## house bus so the audition rides the real graph AND the live bus duck (an
+## interior/storm-ducked bed auditions as quiet as it would sound in place).
+## Held on the single audition voice — a second audition replaces the first;
+## `audition_stop` (the `play_sound stop` arm) silences it. A missing file /
+## unknown bus is a clean no-op (content-empty law). The bed's day_gain is the
+## audition floor: a listen, not the full solar/wind/biome machine Ambience
+## runs in place. The loaded stream is DUPLICATED before its loop flag is set
+## so the shared cached resource (the live bed uses the same wav) is untouched.
+func audition(rec: Dictionary) -> void:
+	var file := String(rec.get("file", ""))
+	if not ResourceLoader.exists(file):
+		return
+	var bus := String(rec.get("bus", "Ambience"))
+	if AudioServer.get_bus_index(bus) < 0:
+		bus = "Ambience"
+	var stream: AudioStream = load(file).duplicate()
+	# Loop the audition so a bed can be judged (beds loop in place); a
+	# one-shot would end before the ear could settle. WAV carries loop_mode;
+	# Ogg/other streams carry a `loop` bool — set whichever the stream has.
+	if stream is AudioStreamWAV:
+		(stream as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_FORWARD
+	elif "loop" in stream:
+		stream.set("loop", true)
+	_audition.stream = stream
+	_audition.bus = bus
+	var lin := clampf(float(rec.get("day_gain", 1.0)) * bus_duck(bus), 0.0001, 1.0)
+	_audition.volume_db = linear_to_db(lin)
+	_audition.play()
+
+
+## Stop the held ambience audition (the `play_sound stop` arm). Idempotent —
+## stopping a silent voice is a clean no-op, so the Mix face's Stop button is
+## always safe to press.
+func audition_stop() -> void:
+	if _audition and _audition.playing:
+		_audition.stop()
 
 
 ## One AudioStreamRandomizer per event: its variation pool + pitch/volume

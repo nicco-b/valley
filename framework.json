@@ -126,6 +126,7 @@
 			"game/dev/toolkit_snap.gd",
 			"game/dev/scatter_hand.gd",
 			"game/dev/budget.gd",
+			"game/dev/budget.ct",
 			"game/dev/strata_link.gd",
 			"game/dev/strata_conventions.gd",
 			"game/dev/hot_reload.gd",
@@ -147,10 +148,12 @@
 		],
 		"items_skills_interact": [
 			"game/items/items.gd",
+			"game/items/items.ct",
 			"game/items/item_pickup.gd",
 			"game/items/forage_spot.gd",
 			"game/items/pickup.tscn",
 			"game/skills/skills.gd",
+			"game/skills/skills.ct",
 			"game/interact/interactable.gd",
 			"game/interact/examinable.gd"
 		],

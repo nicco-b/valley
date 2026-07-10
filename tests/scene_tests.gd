@@ -78,6 +78,9 @@ func _ready() -> void:
 	_test_conditions_contour()
 	_test_contour_bridge()
 	_test_flora_contour()
+	_test_items_contour()
+	_test_skills_contour()
+	_test_budget_contour()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -6996,3 +6999,152 @@ func _test_flora_contour() -> void:
 ## side of Plumb's diff), so a comparison here is byte-exact, not approximate.
 func _f64_hex(v: Variant) -> String:
 	return PackedFloat64Array([float(v)]).to_byte_array().hex_encode()
+
+
+## The P1 RULES TRIO (Mission D1b): items / skills / budget route their RULES
+## through Contour behind STRATA_CONTOUR. Each test (1) proves the live autoload's
+## routing reflects the flag with NO SILENT FALLBACK — flag-ON engages and the
+## engagement counter climbs, flag-OFF is byte-identical GDScript — and (2) proves
+## the ported rules bit-identical to the GDScript twin via a local VM, whatever the
+## live flag (like _test_flora_contour builds its own bridge).
+func _test_items_contour() -> void:
+	var st: Dictionary = Items.contour_status()
+	if bool(st.engaged):
+		var before: int = int(Items.contour_status().calls)
+		var saved: Variant = WorldState.get_value("player.inventory")
+		WorldState.set_value("player.inventory", {})
+		Items.add("probe_apple", 3)                 # routes add
+		var n: int = Items.count("probe_apple")     # routes count
+		_check(n == 3, "items: routed add+count agree (got %d)" % n)
+		var after: int = int(Items.contour_status().calls)
+		_check(after >= before + 2,
+			"items: STRATA_CONTOUR=1 routes the inventory rules through Contour (calls %d->%d, no silent fallback)" % [before, after])
+		WorldState.set_value("player.inventory", saved)
+		print("  items: routing ENGAGED — inventory rules tick the native Contour VM (%d calls)" % after)
+	else:
+		_check(int(st.mode) == 1 or int(st.mode) == -1,
+			"items: unresolved-safe routing mode (%d)" % int(st.mode))
+		print("  items: routing OFF (mode %d) — GDScript twin, byte-identical" % int(st.mode))
+
+	if not Contour.available():
+		print("  items: SKIP rule-parity (no native kernel)")
+		return
+	var vm := Contour.new()
+	var err := vm.compile_file("res://game/items/items.ct")
+	_check(err == "", "items: items.ct compiles (%s)" % err)
+	if err != "":
+		return
+	var defs := {"apple": {"tags": ["food", "forage"]}, "berry": {"tags": ["food"]},
+		"axe": {"tags": ["tool"]}}
+	var inv := {"apple": 2, "berry": 3, "axe": 1}
+	_check(int(vm.call_fn("count", [inv, "apple"])) == 2, "items: count == twin")
+	_check(int(vm.call_fn("count", [inv, "ghost"])) == 0, "items: count(absent) == 0")
+	_check(int(vm.call_fn("count_tag", [inv, defs, "food"])) == 5, "items: count_tag(food) == 5")
+	_check(int(vm.call_fn("count_tag", [inv, defs, "tool"])) == 1, "items: count_tag(tool) == 1")
+	# add's order-faithful, erase-free transform, bit-compared to the GDScript twin.
+	for step: Array in [["apple", 3], ["axe", -1], ["coin", 5], ["apple", -20]]:
+		var got: Variant = vm.call_fn("add", [inv, step[0], step[1]])
+		var twin := inv.duplicate()
+		twin[step[0]] = int(twin.get(step[0], 0)) + step[1]
+		if twin[step[0]] <= 0:
+			twin.erase(step[0])
+		_check(JSON.stringify(got) == JSON.stringify(twin),
+			"items: add(%s,%d) == twin (%s vs %s)" % [step[0], step[1], JSON.stringify(got), JSON.stringify(twin)])
+	print("  items: count/count_tag/add bit-identical to the GDScript twin via Contour")
+
+
+func _test_skills_contour() -> void:
+	var def := {"id": "d1b_probe", "name": "Probe", "stat": "stat.d1b_scene",
+		"thresholds": [10.0, 40.0, 80.0]}
+	var st: Dictionary = Skills.contour_status()
+	if bool(st.engaged):
+		var before: int = int(Skills.contour_status().calls)
+		var saved: Variant = WorldState.get_value("stat.d1b_scene")
+		WorldState.set_value("stat.d1b_scene", 45.0)
+		var lvl: int = Skills._level_for(def)      # routes _level_for
+		var pr: float = Skills.progress(def)       # routes progress
+		_check(lvl == 2, "skills: routed _level_for(45) == 2 (got %d)" % lvl)
+		_check(is_equal_approx(pr, 0.125), "skills: routed progress(45) == 0.125 (got %f)" % pr)
+		var after: int = int(Skills.contour_status().calls)
+		_check(after >= before + 2,
+			"skills: STRATA_CONTOUR=1 routes the progression rules through Contour (calls %d->%d, no silent fallback)" % [before, after])
+		WorldState.set_value("stat.d1b_scene", saved)
+		print("  skills: routing ENGAGED — progression rules tick the native Contour VM (%d calls)" % after)
+	else:
+		_check(int(st.mode) == 1 or int(st.mode) == -1,
+			"skills: unresolved-safe routing mode (%d)" % int(st.mode))
+		print("  skills: routing OFF (mode %d) — GDScript twin, byte-identical" % int(st.mode))
+
+	if not Contour.available():
+		print("  skills: SKIP rule-parity (no native kernel)")
+		return
+	var vm := Contour.new()
+	var err := vm.compile_file("res://game/skills/skills.ct")
+	_check(err == "", "skills: skills.ct compiles (%s)" % err)
+	if err != "":
+		return
+	# Sweep the stat; the routed level + progress bit-identical to the twin.
+	var got := []
+	var exp := []
+	for v in [0.0, 5.0, 25.0, 40.0, 79.0, 200.0]:
+		var world := {def.stat: v}
+		got.append("%d,%s" % [int(vm.call_fn("_level_for", [world, def])), _f64_hex(vm.call_fn("progress", [world, def]))])
+		# the GDScript twin, computed alongside
+		var tl := 0
+		for t in def.thresholds:
+			if v >= float(t):
+				tl += 1
+		var tp: float
+		if tl >= def.thresholds.size():
+			tp = 1.0
+		else:
+			var prev := 0.0 if tl == 0 else float(def.thresholds[tl - 1])
+			tp = clampf((v - prev) / (float(def.thresholds[tl]) - prev), 0.0, 1.0)
+		exp.append("%d,%s" % [tl, _f64_hex(tp)])
+	_check(got == exp, "skills: level+progress sweep bit-identical to the twin (%s vs %s)" % [got, exp])
+	print("  skills: _level_for/progress bit-identical to the GDScript twin via Contour")
+
+
+func _test_budget_contour() -> void:
+	var th := {"cell_placements": {"amber": 250, "red": 600},
+		"agents": {"amber": 500, "red": 1200},
+		"records": {"amber": 10000, "red": 40000}, "per_placement_ms": 0.02}
+	var st: Dictionary = Budget.contour_status()
+	if bool(st.engaged):
+		var before: int = int(Budget.contour_status().calls)
+		var saved: Dictionary = Budget.thresholds
+		Budget.thresholds = th
+		var g: int = Budget.grade(700, "agents")    # routes grade -> amber (1)
+		_check(g == 1, "budget: routed grade(700,agents) == amber (got %d)" % g)
+		var after: int = int(Budget.contour_status().calls)
+		_check(after >= before + 1,
+			"budget: STRATA_CONTOUR=1 routes the grade rule through Contour (calls %d->%d, no silent fallback)" % [before, after])
+		Budget.thresholds = saved
+		print("  budget: routing ENGAGED — the grade rule ticks the native Contour VM (%d calls)" % after)
+	else:
+		_check(int(st.mode) == 1 or int(st.mode) == -1,
+			"budget: unresolved-safe routing mode (%d)" % int(st.mode))
+		print("  budget: routing OFF (mode %d) — GDScript twin, byte-identical" % int(st.mode))
+
+	if not Contour.available():
+		print("  budget: SKIP rule-parity (no native kernel)")
+		return
+	var vm := Contour.new()
+	var err := vm.compile_file("res://game/dev/budget.ct")
+	_check(err == "", "budget: budget.ct compiles (%s)" % err)
+	if err != "":
+		return
+	# grade over every axis + boundary, bit-compared to the twin (0 green/1/2).
+	for axis in ["cell_placements", "agents", "records", "missing"]:
+		for value in [0, 250, 400, 600, 900, 45000]:
+			var got: int = int(vm.call_fn("grade", [th, value, axis]))
+			var t: Dictionary = th.get(axis, {})
+			var twin := 0
+			if value >= int(t.get("red", 1 << 30)):
+				twin = 2
+			elif value >= int(t.get("amber", 1 << 30)):
+				twin = 1
+			_check(got == twin, "budget: grade(%d,%s) == twin (%d vs %d)" % [value, axis, got, twin])
+	_check(int(vm.call_fn("worst_grade", [th, 100, 700, 50])) == 1, "budget: worst_grade amber")
+	_check(int(vm.call_fn("worst_grade", [th, 10, 10, 50000])) == 2, "budget: worst_grade red")
+	print("  budget: grade/worst_grade bit-identical to the GDScript twin via Contour")

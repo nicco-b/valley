@@ -1,0 +1,55 @@
+# Contour port of valley game/skills/skills.gd :: Skills
+#
+# The P1 RULES TRIO, file 2 (Mission D1b, Batch C1 of docs/PORT_LEDGER.md). Skills
+# is use-based progression, Skyrim-philosophy — you get better at what you do.
+# A skill is a record (data/skills/): a `name`, the WorldState `stat` it reads,
+# and level `thresholds`. There is NO XP system apart from the world's own
+# counters; levels are DERIVED, so they save for free and can never desync. What
+# ports is the PROGRESSION RULES the ledger names — pure maps over the world's
+# stat value and the skill record:
+#
+#   * _level_for(world, def) — the derived level: how many thresholds the skill's
+#     stat value has crossed. Pure over the world's stat mirror + the record.
+#   * progress(world, def)   — progress toward the next level, 0..1 (1.0 maxed).
+#
+# The split (the flora precedent): the RULES cross; the IO/signal/engine glue
+# STAYS GDScript. `Records.load_dir` (loading the skill records), the
+# `WorldState.changed` signal handler `_on_state_changed`, and its `HUD.notify`
+# level-up toast (with the `skill.<id>.notified` dedup mirror) are presentation /
+# signal glue — the valley twin seeds the SAME stat value the rules read
+# (`world.get(def.stat, 0)` mirrors `WorldState.get_value(def.stat, 0)`).
+#
+# Structural faithfulness (the computed answer is byte-identical to the twin):
+#   * `_level_for` keeps its leading underscore (the Plumb `fn` column names one
+#     function on both sides; leading underscores are legal in Contour, as
+#     `conditions._truthy`/`_loose_eq` already prove).
+#   * the twin's `lvl += 1` compound assignment becomes `lvl = lvl + 1` (Contour
+#     has no `+=`); the value is identical.
+#   * progress's `0.0 if lvl == 0 else float(def.thresholds[lvl-1])` ternary
+#     becomes an if that assigns `prev` (Contour has no ternary); identical.
+
+
+# The derived level: the count of thresholds the skill's stat value has crossed.
+# `world.get(def.stat, 0)` is the seeded WorldState mirror the twin reads.
+sim func _level_for(world, def) -> int:
+	var value = float(world.get(def.stat, 0))
+	var lvl = 0
+	for t in def.thresholds:
+		if value >= float(t):
+			lvl = lvl + 1
+	return lvl
+
+
+# Progress toward the next level, 0..1 (1.0 when maxed). prev is the last
+# threshold crossed (0.0 at level 0), next the one ahead; the value's fraction of
+# that span, clamped.
+sim func progress(world, def) -> float:
+	var lvl = _level_for(world, def)
+	if lvl >= def.thresholds.size():
+		return 1.0
+	var prev = 0.0
+	if lvl != 0:
+		prev = float(def.thresholds[lvl - 1])
+	var next = float(def.thresholds[lvl])
+	var value = float(world.get(def.stat, 0))
+	return clampf((value - prev) / (next - prev), 0.0, 1.0)

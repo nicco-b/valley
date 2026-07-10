@@ -3,7 +3,7 @@
 	"framework": "valley",
 	"born": "2026-07-09",
 	"plan": "docs/PLAN_FRAMEWORK.md (FW3 — the whole machine rides, pane parity)",
-	"note": "The framework manifest: the file set a scaffolded game copies (copy + provenance + offered updates, the library pattern). The rev is COMPUTED, never stored: sha256 over the sorted 'path sha256' lines of every file below, truncated to 12 hex — derivable from the filesystem on both sides (scripts/framework_dist.sh prints it). FW3 grows v0's world spine to the FULL Q1 table: the Toolkit + link + overrides (Strata's hand in every game), the Campfire (save/story/quest_lint), the Threshold, fabric, the map, skills, items, interact, the whole UI (hud/settings/pause/title/ui_theme), the player machinery — AND the verification discipline (scripts/test.sh + soak.sh + the dev scripts, tests/run_tests + scene_tests + quest_harness + soak, the 4 SYNTHETIC quest fixtures). A scaffolded game verifies itself like valley does. Marked exclusions stay content: valley.tscn, the hound and wildlife (wildlife_manager/body + hound_body.tscn + star_hounds.json), the kit placeholder scenes, dry_spell.test.json (drives a SHIPPED valley quest), and all of data/ + assets/ except the default biome palette and the fox model (the default-look placeholder body player.tscn embeds — FW4 moves it to a character record). The test harnesses SKIP their content-dependent probes when the content is absent (the tile/card SKIP pattern, extended); the soak runs its autoload sims content-empty and folds wildlife in only when the manager exists. The autoload column and the framework sections of project.godot are copied from THIS repo's project.godot at scaffold time — the column IS the table of contents.",
+	"note": "The framework manifest: the file set a scaffolded game copies (copy + provenance + offered updates, the library pattern). The rev is COMPUTED, never stored: sha256 over the sorted 'path sha256' lines of every file below, truncated to 12 hex — derivable from the filesystem on both sides (scripts/framework_dist.sh prints it). FW3 grows v0's world spine to the FULL Q1 table: the Toolkit + link + overrides (Strata's hand in every game), the Campfire (save/story/quest_lint), the Threshold, fabric, the map, skills, items, interact, the whole UI (hud/settings/pause/title/ui_theme), the player machinery — AND the verification discipline (scripts/test.sh + soak.sh + the dev scripts, tests/run_tests + scene_tests + quest_harness + soak, the 6 SYNTHETIC quest fixtures — including the Q3 hooks-door pair, hook_errand + hook_replay, and their probe hook fragments under game/story/hooks/). A scaffolded game verifies itself like valley does. Marked exclusions stay content: valley.tscn, the hound and wildlife (wildlife_manager/body + hound_body.tscn + star_hounds.json), the kit placeholder scenes, dry_spell.test.json (drives a SHIPPED valley quest), and all of data/ + assets/ except the default biome palette and the fox model (the default-look placeholder body player.tscn embeds — FW4 moves it to a character record). The test harnesses SKIP their content-dependent probes when the content is absent (the tile/card SKIP pattern, extended); the soak runs its autoload sims content-empty and folds wildlife in only when the manager exists. The autoload column and the framework sections of project.godot are copied from THIS repo's project.godot at scaffold time — the column IS the table of contents.",
 	"project_sections": [
 		"display",
 		"autoload",
@@ -102,7 +102,11 @@
 		"campfire": [
 			"game/story/story.gd",
 			"game/story/journal_ui.gd",
-			"game/story/quest_lint.gd"
+			"game/story/quest_lint.gd",
+			"game/story/quest_hooks.gd",
+			"game/story/quest_run.gd",
+			"game/story/hooks/probe_errand.gd",
+			"game/story/hooks/probe_impure.gd"
 		],
 		"toolkit_link": [
 			"game/dev/dev_mode.gd",
@@ -176,6 +180,8 @@
 			"tests/quests/cooldown_cycles.test.json",
 			"tests/quests/fork_gave.test.json",
 			"tests/quests/fork_kept.test.json",
+			"tests/quests/hook_errand.test.json",
+			"tests/quests/hook_replay.test.json",
 			"tests/fixtures/saves/v1_pre_interiors.json",
 			"tests/fixtures/saves/v2_current.json"
 		],

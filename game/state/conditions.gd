@@ -29,8 +29,13 @@ class_name Conditions
 ##   {"told": ...} / {"opinion_band": ...}  — RESERVED until S1/S2 land:
 ##       linted as reserved, evaluate false (never a silent pass)
 ##   {"custom": [name, ...], "watch": [k..]} — the hooks door (Q3): watch
-##       declares index keys; dispatch lands with QuestHooks. Until then
-##       custom evaluates false, honestly.
+##       declares index keys; the named predicate is answered by the
+##       quest's QuestHooks.condition (§6). eval() takes an optional
+##       `custom` resolver Callable(name, args) -> bool that Story binds to
+##       the owning quest's hook; with NO resolver bound (dialogue rows, an
+##       unhooked quest) custom fails closed, honestly — never a silent
+##       pass, never a Strata-invented semantic (valley's hook is the only
+##       interpreter).
 
 ## Predicate spellings the evaluator answers — the linter's closed table.
 const PREDICATES: Array[String] = ["flag", "not_flag", "eq", "gte", "lte",
@@ -42,23 +47,23 @@ const RESERVED: Array[String] = ["told", "opinion_band"]
 const COMPOSE: Array[String] = ["all", "any", "not"]
 
 
-static func eval(c: Dictionary) -> bool:
+static func eval(c: Dictionary, custom: Callable = Callable()) -> bool:
 	for key: String in c:
 		match key:
 			"all":
 				for sub: Dictionary in c.all:
-					if not eval(sub):
+					if not eval(sub, custom):
 						return false
 			"any":
 				var passed := false
 				for sub: Dictionary in c.any:
-					if eval(sub):
+					if eval(sub, custom):
 						passed = true
 						break
 				if not passed:
 					return false
 			"not":
-				if eval(c["not"]):
+				if eval(c["not"], custom):
 					return false
 			"flag":
 				if not _truthy(WorldState.get_value(c.flag)):
@@ -105,9 +110,15 @@ static func eval(c: Dictionary) -> bool:
 				if not _one_of(WorldState.get_value("weather.state", ""), c.weather):
 					return false
 			"custom":
-				# The hooks door opens at Q3 (QuestHooks.condition). Until a
-				# dispatcher exists, an authored custom row fails closed.
-				return false
+				# The hooks door (Q3): dispatch the named predicate to the
+				# quest's QuestHooks.condition via the bound resolver. With no
+				# resolver (dialogue, an unhooked quest) it fails closed — the
+				# game's hook is the ONLY interpreter (never a Strata semantic).
+				# ANDs with any sibling predicate, like every other row.
+				var ok := custom.is_valid() and bool(
+					custom.call(String(c.custom[0]), (c.custom as Array).slice(1)))
+				if not ok:
+					return false
 			"watch":
 				pass  # index keys for the custom beside it — data, not a test
 			"told", "opinion_band":
@@ -159,6 +170,24 @@ static func keys_of(c: Dictionary) -> Array[String]:
 				for k: String in c.get("watch", []):
 					keys.append(k)
 	return keys
+
+
+## The custom-predicate names inside a condition (mechanical, like keys_of).
+## Story asks the quest's hook for each name's custom_keys() so a hook may
+## declare its own index keys in code, beside (or instead of) the record's
+## `watch` — the §6 "records may also declare watch" completion.
+static func custom_names(c: Dictionary) -> Array[String]:
+	var out: Array[String] = []
+	for key: String in c:
+		match key:
+			"all", "any":
+				for sub: Dictionary in c[key]:
+					out.append_array(custom_names(sub))
+			"not":
+				out.append_array(custom_names(c["not"]))
+			"custom":
+				out.append(String(c.custom[0]))
+	return out
 
 
 ## Schema check against the closed table — the linter's condition rows.

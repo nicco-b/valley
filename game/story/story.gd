@@ -28,11 +28,19 @@ extends Node
 ## notify on root/terminal (★3 as ruled at the table: middle stages
 ## fill the diary silently), the minimal J screen, summary() for the
 ## Toolkit panel.
-## Deferred to their rungs: hooks dispatch (Q3), roles (Q4), dialogue
-## (Q5), scenes assembler (Q6 — stage scene ids are recorded as requests
-## so the harness can assert them), expire machinery (Q8), world flips
-## (Q10). `mint` records into an in-memory log (harness-visible) and
-## logs once — it rides Memory v2's fact channels when S1/B3 lands.
+## Q3 (the hooks door) adds: a quest record may name a QuestHooks fragment
+## (§6); Story instantiates it, builds one QuestRun handle per quest, and
+## dispatches typed lifecycle entry points (on_start / on_stage /
+## on_objective / on_resolve) plus the `custom` condition predicate — the
+## game's hook is the ONLY interpreter, dispatched through a resolver bound
+## to the owning quest (never a Strata-invented semantic). Hooks fire from
+## latch processing, which is changed-driven, so they replay bit-identically
+## through advance_hours catch-up (the harness holds us to it).
+## Deferred to their rungs: roles + on_fill (Q4), dialogue (Q5), scenes
+## assembler (Q6 — stage scene ids are recorded as requests so the harness
+## can assert them), expire machinery + on_expire (Q8), world flips (Q10).
+## `mint` records into an in-memory log (harness-visible) and logs once —
+## it rides Memory v2's fact channels when S1/B3 lands.
 ##
 ## Sim contract: stateless over WorldState (all quest state IS WorldState
 ## keys under journal.* / choice.*); world_state_reader group rebuilds
@@ -65,6 +73,13 @@ var _scene_requests: Array[String] = []
 
 var _settling: Dictionary = {}  # quest id -> true while _settle runs
 var _journal_ui: CanvasLayer = null
+
+## The hooks door (Q3, §6): per-quest QuestHooks instance and the single
+## QuestRun handle it receives. Both are pure/stateless (props bound once
+## from the record) — cached by quest id, lazily. A cached value of null
+## means "loaded, no hook" (the common case; we don't reload every latch).
+var _hooks: Dictionary = {}  # quest id -> QuestHooks or null
+var _runs: Dictionary = {}   # quest id -> QuestRun
 
 
 func _ready() -> void:
@@ -135,6 +150,8 @@ func register_quest(rec: Dictionary) -> void:
 func unregister_quest(id: String) -> void:
 	quests.erase(id)
 	_cycles.erase(id)
+	_hooks.erase(id)
+	_runs.erase(id)
 	_build_index()
 
 
@@ -145,13 +162,24 @@ func _build_index() -> void:
 	for qid: String in quests:
 		var q: Dictionary = quests[qid]
 		var keys: Array[String] = []
-		keys.append_array(Conditions.keys_of(q.get("start_if", {})))
+		var conds: Array = [q.get("start_if", {})]
 		if q.has("repeatable"):
 			keys.append("time.day")  # cooldown re-arm rides the day tick
 		for stage: Dictionary in q.stages:
-			keys.append_array(Conditions.keys_of(stage.get("advance_when", {})))
+			conds.append(stage.get("advance_when", {}))
 			for obj: Dictionary in stage.get("objectives", []):
-				keys.append_array(Conditions.keys_of(obj.get("done_if", {})))
+				conds.append(obj.get("done_if", {}))
+		var hook := _hook_of(q)
+		for cond: Dictionary in conds:
+			keys.append_array(Conditions.keys_of(cond))
+			# A custom predicate's index keys come from the record's `watch`
+			# (via keys_of above) AND, if a hook is present, whatever it
+			# declares in code via custom_keys — the §6 "records may also
+			# declare watch" completion, so a code-declared watch still
+			# re-evaluates event-driven, never polled.
+			if hook != null:
+				for name: String in Conditions.custom_names(cond):
+					keys.append_array(hook.custom_keys(name))
 		for key in keys:
 			if not _index.has(key):
 				_index[key] = []
@@ -224,12 +252,17 @@ func _try_start(q: Dictionary) -> bool:
 			return false
 	elif int(cyc.count) > 0:
 		return false  # stories never re-arm (§7)
-	if not Conditions.eval(q.get("start_if", {})):
+	if not Conditions.eval(q.get("start_if", {}), _custom_resolver(q)):
 		return false
 	if q.has("repeatable"):
 		cyc.active = int(WorldState.get_value("time.day", 0))
 	cyc.count = int(cyc.count) + 1
 	_cycles[qid] = cyc
+	# on_start (§6): after start_if passes and (Q4) roles fill, BEFORE the
+	# root seals — the hook may set up world keys the root's prose reads.
+	var hook := _hook_of(q)
+	if hook != null:
+		hook.on_start(_run_of(q))
 	var prefix := _latch_prefix(q)
 	var rooted := false
 	for stage: Dictionary in q.stages:
@@ -256,7 +289,7 @@ func _eligible(q: Dictionary, stage: Dictionary) -> bool:
 ## latched (a parent with no objectives hands off on its own latch).
 func _reach_passes(q: Dictionary, stage: Dictionary) -> bool:
 	if stage.has("advance_when"):
-		return Conditions.eval(stage.advance_when)
+		return Conditions.eval(stage.advance_when, _custom_resolver(q))
 	for pid: String in _parents(q, stage):
 		if not reached(q.id, pid):
 			continue
@@ -310,16 +343,29 @@ func _latch_stage(q: Dictionary, prefix: String, stage: Dictionary) -> void:
 		_cycles[q.id] = cyc
 	if stage.get("start", false) or stage.get("terminal", false):
 		HUD.notify("journal — %s" % _first_words(String(stage.get("journal", q.title))))
+	# The hooks door (§6): the CK fragment fires AFTER the latch is sealed
+	# and its effects/mint/scenes ran, so the hook sees a consistent world.
+	# A terminal also fires on_resolve, after the cycle bookkeeping above so
+	# q.reached reflects the resolution.
+	var hook := _hook_of(q)
+	if hook != null:
+		var run := _run_of(q)
+		hook.on_stage(run, String(stage.id))
+		if stage.get("terminal", false):
+			hook.on_resolve(run, String(stage.id))
 
 
 func _try_latch_objective(q: Dictionary, prefix: String, stage: Dictionary,
 		obj: Dictionary) -> bool:
 	if objective_done(q.id, stage.id, obj.id):
 		return false
-	if not Conditions.eval(obj.get("done_if", {})):
+	if not Conditions.eval(obj.get("done_if", {}), _custom_resolver(q)):
 		return false
 	WorldState.set_value("%s%s.%s" % [prefix, stage.id, obj.id],
 		{"day": int(WorldState.get_value("time.day", 0))})
+	var hook := _hook_of(q)
+	if hook != null:
+		hook.on_objective(_run_of(q), String(stage.id), String(obj.id))
 	return true
 
 
@@ -357,6 +403,91 @@ func _mint(q: Dictionary, stage: Dictionary, mint: Dictionary) -> void:
 		_mint_logged = true
 		print("[story] mint '%s' recorded in memory — fact channels land with S1/B3"
 				% mint.get("kind", ""))
+
+
+# --- the hooks door (§6) ----------------------------------------------------
+
+## The QuestHooks fragment for a quest, loaded and cached lazily. A record
+## may name it bare ("hooks": "hooks/x.gd") or bound
+## ({"script": ..., "bind": {...}}). Cache null when there is no hook so we
+## don't reload every latch. A script that fails to load, or does not extend
+## QuestHooks, is an error and caches null (fail safe, never crash).
+func _hook_of(q: Dictionary) -> QuestHooks:
+	var qid: String = q.id
+	if _hooks.has(qid):
+		return _hooks[qid]
+	var hook: QuestHooks = null
+	if q.has("hooks"):
+		var path := String(q.hooks) if q.hooks is String \
+				else String((q.hooks as Dictionary).get("script", ""))
+		var script: Variant = load("res://game/story/" + path)
+		if script is GDScript:
+			var inst: Variant = (script as GDScript).new()
+			if inst is QuestHooks:
+				hook = inst
+			else:
+				push_error("[story] %s: hooks script '%s' does not extend QuestHooks" % [qid, path])
+		else:
+			push_error("[story] %s: hooks script '%s' failed to load" % [qid, path])
+	_hooks[qid] = hook
+	return hook
+
+
+## The single QuestRun handle a quest's hook receives (props bound once from
+## the record). Built lazily, reused across every lifecycle call.
+func _run_of(q: Dictionary) -> QuestRun:
+	var qid: String = q.id
+	if _runs.has(qid):
+		return _runs[qid]
+	var props: Dictionary = {}
+	if q.get("hooks") is Dictionary:
+		props = (q.hooks as Dictionary).get("bind", {})
+	var run := QuestRun.new(qid, self, props)
+	_runs[qid] = run
+	return run
+
+
+## A custom-predicate resolver bound to THIS quest's hook — the door that
+## lets the closed condition language dispatch a game-declared predicate
+## without Story ever inventing a semantic. Returns an empty Callable for
+## an unhooked quest (custom then fails closed, honestly).
+func _custom_resolver(q: Dictionary) -> Callable:
+	if not q.has("hooks"):
+		return Callable()
+	return func(name: String, args: Array) -> bool:
+		var hook := _hook_of(q)
+		if hook == null:
+			return false
+		return hook.condition(_run_of(q), name, args)
+
+
+## q.latch — advance a stage by fiat from a hook. Monotone holds: an
+## already-reached stage is a no-op; the seal (and its own on_stage/
+## on_resolve dispatch) run exactly as any other latch.
+func hook_latch(qid: String, stage_id: String) -> void:
+	if not quests.has(qid):
+		return
+	var q: Dictionary = quests[qid]
+	var stage := _stage(q, stage_id)
+	if stage.is_empty():
+		push_error("[story] %s: hook latched unknown stage '%s'" % [qid, stage_id])
+		return
+	if reached(qid, stage_id):
+		return
+	var prefix := _latch_prefix(q)
+	if prefix.is_empty():
+		return  # never started — nothing to hang the latch on
+	_latch_stage(q, prefix, stage)
+
+
+## q.mint — a hook mints a fact (harness-visible until S1/B3's channels).
+func hook_mint(qid: String, data: Dictionary) -> void:
+	_mint(quests.get(qid, {"id": qid}), {}, data)
+
+
+## q.request_scene — a hook records a scene request (Q6 assembler asserts it).
+func hook_request_scene(qid: String, scene_id: String) -> void:
+	_scene_requests.append("%s.%s" % [qid, scene_id])
 
 
 # --- readings (all derived from WorldState) ---------------------------------

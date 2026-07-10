@@ -26,13 +26,16 @@ class_name QuestLint
 ##   roles      $role references resolve to declared roles or built-ins
 ##   targets    stage scene ids exist; scene dialogue records exist;
 ##              hooks scripts exist; thread `after` targets exist
+##   hooks      the named script extends QuestHooks and its `bind`
+##              satisfies properties() — every declared prop bound, none
+##              extra, each the right type (CK property binding, §6)
 ##   spine      on spine: true threads, chapters' paths-to-terminal gate
 ##              only on player-writable keys or the recurrent list
 ##              (data/story/recurrent.json) — start_if is exempt (one-
 ##              shot sim events may OPEN spine content, never bar its
 ##              path). §3's spine-gating rule, the checkable part.
 ##
-## Deferred with their rungs: hook `bind` vs properties() (Q3), role
+## Deferred with their rungs: role
 ## query shapes (Q4), dialogue graphs (Q5), scene `where` place records
 ## (B7), world-flip group ownership (Q10 — the `world` effect is refused
 ## outright until it exists).
@@ -207,13 +210,58 @@ static func lint_quest(q: Dictionary) -> Array[String]:
 			if not scene_ids.has(sid):
 				problems.append("%s.%s: names undeclared scene '%s'" % [qid, stage.id, sid])
 
-	# -- hooks: the named script exists in the game repo.
+	# -- hooks (§6): the named script exists, extends QuestHooks, and its
+	# bind satisfies the script's properties() (CK property binding checked
+	# at commit, not discovered at runtime — missing, extra, or mistyped).
 	if q.has("hooks"):
 		var path := String(q.hooks) if q.hooks is String \
 				else String((q.hooks as Dictionary).get("script", ""))
-		if not FileAccess.file_exists("res://game/story/" + path):
+		var full := "res://game/story/" + path
+		if not FileAccess.file_exists(full):
 			problems.append("%s: hooks script 'game/story/%s' does not exist" % [qid, path])
+		else:
+			problems.append_array(_lint_hook_bind(q, full))
 	return problems
+
+
+## The property-binding check (§6): load the hooks script, read its
+## properties() (name -> TYPE_*), and hold the record's `bind` to it — every
+## declared property bound, none extra, each the right type (JSON ints stand
+## in for floats). Static and headless: the base touches no autoload on new().
+static func _lint_hook_bind(q: Dictionary, full: String) -> Array[String]:
+	var problems: Array[String] = []
+	var qid: String = q.id
+	var script: Variant = load(full)
+	if not (script is GDScript):
+		problems.append("%s: hooks script '%s' failed to load" % [qid, full])
+		return problems
+	var inst: Variant = (script as GDScript).new()
+	if not (inst is QuestHooks):
+		problems.append("%s: hooks script '%s' does not extend QuestHooks" % [qid, full])
+		return problems
+	var props: Dictionary = inst.properties()
+	var bind: Dictionary = (q.hooks as Dictionary).get("bind", {}) if q.hooks is Dictionary else {}
+	for pname: String in props:
+		if not bind.has(pname):
+			problems.append("%s: hooks bind is missing property '%s' (properties() declares it)" % [qid, pname])
+		elif not _type_ok(bind[pname], int(props[pname])):
+			problems.append("%s: hooks bind '%s' is mistyped (properties() wants %s)"
+					% [qid, pname, type_string(int(props[pname]))])
+	for bname: String in bind:
+		if not props.has(bname):
+			problems.append("%s: hooks bind names '%s', not a declared property()" % [qid, bname])
+	return problems
+
+
+static func _type_ok(value: Variant, t: int) -> bool:
+	match t:
+		TYPE_STRING: return value is String
+		TYPE_FLOAT: return (value is float) or (value is int)  # JSON ints are floats
+		TYPE_INT: return value is int
+		TYPE_BOOL: return value is bool
+		TYPE_ARRAY: return value is Array
+		TYPE_DICTIONARY: return value is Dictionary
+		_: return true
 
 
 ## Thread lint (§3): chapters name real quests/stages; spine threads

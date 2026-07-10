@@ -74,6 +74,32 @@ func setup() -> bool:
 	return true
 
 
+## Free every RID this driver created — 4 Texture RIDs (the 3-field ring +
+## _display), the ops buffer, and the three shader+pipeline pairs. See
+## WaterGpu.teardown for why RefCounted needs an explicit free called from
+## the owner's _exit_tree: RD resources are manual and leak across an
+## engine-restart destroy otherwise.
+func teardown() -> void:
+	if not _ok or _rd == null:
+		return
+	_ok = false
+	if display_texture != null:
+		display_texture.texture_rd_rid = RID()
+		display_texture = null
+	for t in _ring:
+		if (t as RID).is_valid():
+			_rd.free_rid(t)
+	_ring.clear()
+	if _display.is_valid():
+		_rd.free_rid(_display)
+	if _ops_buffer.is_valid():
+		_rd.free_rid(_ops_buffer)
+	for entry in _pipeline.values():
+		_rd.free_rid(entry[1])  # pipeline before its shader
+		_rd.free_rid(entry[0])
+	_pipeline.clear()
+
+
 ## One frame: stamp queued disturbances into curr, step the wave
 ## equation (+ foam decay/advection), rotate the ring, publish.
 ## `foam_decay_f` is this frame's exp(-dt/τ); `drift_texels` is the

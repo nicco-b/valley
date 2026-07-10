@@ -92,6 +92,11 @@ func _exit_tree() -> void:
 		WorkerThreadPool.wait_for_task_completion(_base_task)
 		_base_task = -1
 		_base_pending = false
+	# Reap the GPU driver's RD resources (7 Texture RIDs + sampler + buffer
+	# + shaders/pipelines) while the RenderingDevice is still alive. The
+	# base-bake reap above must precede this — the bake touches _gpu.
+	if _gpu != null:
+		_gpu.teardown()
 
 
 ## Toolkit (debug key K): A/B the fill-channels experiment. Forces a

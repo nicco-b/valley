@@ -79,6 +79,14 @@ func _ready() -> void:
 	RenderingServer.global_shader_parameter_set("wave_size", WaveGpu.REGION)
 
 
+func _exit_tree() -> void:
+	# Reap the GPU driver's RD resources (4 Texture RIDs + buffer +
+	# shaders/pipelines) while the RenderingDevice is still alive; without
+	# this the ring + display textures leak across an engine-restart destroy.
+	if _gpu != null:
+		_gpu.teardown()
+
+
 ## Ring the water at a world point (wading feet, landings, dropped things).
 func disturb(world_xz: Vector2, radius_m: float, strength_m: float) -> void:
 	if not enabled or not _anchor.is_finite() or _op_count >= WaveGpu.MAX_OPS:

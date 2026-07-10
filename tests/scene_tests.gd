@@ -380,6 +380,7 @@ func _test_strata_link() -> void:
 	await _test_preview_world(peer)
 	await _test_preview_mesh(peer)
 	await _test_preview_scatter(peer)
+	await _test_preview_water(peer)
 	await _test_living_preview(peer)
 	await _test_camera_verb(peer)
 	await _test_toolkit_verbs(peer)
@@ -1603,6 +1604,108 @@ func _test_preview_scatter(peer: StreamPeerTCP) -> void:
 	DirAccess.remove_absolute(dir)
 	StrataLink._preview.queue_free()
 	StrataLink._preview = null
+
+
+## T1 · the water overlay (PLAN_STRATA_TOOL). The rivers/lakes/waterfalls the
+## bake computes (hydrology.json, in every export) draw on the drape, honor the
+## "Hydrology: live ⏸" toggle (preview_water on|off), and — the regression that
+## matters — LEAVE with the drape so no blue lines hang over the streamed world
+## (builder mode). Same env as _test_preview_scatter: a synthetic export dir
+## worn over the REAL link + PreviewTerrain.
+func _test_preview_water(peer: StreamPeerTCP) -> void:
+	var dir := ProjectSettings.globalize_path("user://preview_water_world")
+	DirAccess.make_dir_recursive_absolute(dir)
+	# Base export so the mesh wears; the water rides the same dir.
+	var mf := FileAccess.open(dir.path_join("bake_manifest.json"), FileAccess.WRITE)
+	mf.store_string(JSON.stringify({"world": {
+		"size_m": [16384.0, 16384.0], "sea_level_m": 5.0}}))
+	mf.close()
+	var img := Image.create(64, 64, false, Image.FORMAT_RF)
+	img.fill(Color(42.0, 0.0, 0.0))
+	img.save_exr(dir.path_join("height.exr"))
+	# A tiny hydrology.json in the export shape: one two-node river carrying one
+	# waterfall, one lake with a true triangular outline, one disc-fallback lake.
+	_write_hydrology(dir, {
+		"format": 1, "sea_level_m": 5.0,
+		"rivers": [{
+			"id": "r0", "catchment_m2": 5.0e6,
+			"nodes": [
+				{"x": -200.0, "z": 0.0, "width": 3.0, "surface": 40.0},
+				{"x": 200.0, "z": 0.0, "width": 9.0, "surface": 35.0}],
+			"waterfalls": [{"x": 0.0, "z": 0.0, "drop_m": 6.0}]}],
+		"lakes": [
+			{"id": "l0", "x": 500.0, "z": 500.0, "radius": 80.0, "surface": 30.0,
+				"depth": 8.0, "outline": [
+					{"x": 420.0, "z": 420.0}, {"x": 580.0, "z": 420.0},
+					{"x": 500.0, "z": 580.0}]},
+			{"id": "l1", "x": -500.0, "z": -500.0, "radius": 60.0, "surface": 20.0,
+				"depth": 5.0, "outline": []}]})
+	# Wear: the reply names the counts and the overlay stands one MeshInstance3D
+	# (surfaces live on the resource, which the headless dummy renderer keeps —
+	# unlike the RenderingServer instance buffer scatter can't assert here).
+	var worn := await _link_send(peer, ["preview_mesh " + dir])
+	_check(worn.size() == 1 and String(worn[0]).begins_with("ok preview_mesh"),
+		"water wear answers ok (got %s)" % str(worn))
+	_check(worn.size() == 1 and String(worn[0]).contains("water=1r/2l"),
+		"the wear reply carries the water count (got %s)" % str(worn))
+	var pv: PreviewTerrain = StrataLink._preview
+	_check(pv != null and pv._water_mi != null, "the water overlay is worn")
+	if pv != null and pv._water_mi != null:
+		_check(pv._water_mi.get_parent() == pv,
+			"the overlay is a child of the preview grid (wears/leaves with it)")
+		# Three surfaces: river ribbons (triangles), lake outlines, waterfall
+		# ticks (both lines) — the shapes the bake already computed.
+		_check(pv._water_mi.mesh != null and pv._water_mi.mesh.get_surface_count() == 3,
+			"the mesh carries river + lake + waterfall surfaces (got %d)" %
+				(pv._water_mi.mesh.get_surface_count() if pv._water_mi.mesh != null else -1))
+		_check(pv._water_mi.visible, "the overlay is visible by default (live)")
+	# The ⏸ toggle: preview_water off hides WITHOUT re-solving (the node stays,
+	# just invisible), on shows it again. No re-wear, no stale geometry.
+	var off_w := await _link_send(peer, ["preview_water off"])
+	_check(off_w.size() == 1 and off_w[0] == "ok preview_water off",
+		"preview_water off answers ok (got %s)" % str(off_w))
+	_check(pv != null and pv._water_mi != null and not pv._water_mi.visible,
+		"the toggle HIDES the overlay (node kept, invisible)")
+	var on_w := await _link_send(peer, ["preview_water on"])
+	_check(on_w.size() == 1 and on_w[0] == "ok preview_water on",
+		"preview_water on answers ok (got %s)" % str(on_w))
+	_check(pv != null and pv._water_mi != null and pv._water_mi.visible,
+		"the toggle SHOWS the overlay again")
+	# A re-wear whose bake dropped the hydrology (no hydrology.json) clears the
+	# overlay honestly — bare relief, no stale rivers.
+	DirAccess.remove_absolute(dir.path_join("hydrology.json"))
+	var bare := await _link_send(peer, ["preview_mesh " + dir])
+	_check(bare.size() == 1 and not String(bare[0]).contains("water="),
+		"a bake without hydrology drops the overlay from the reply (got %s)" % str(bare))
+	_check(pv != null and pv._water_mi == null,
+		"the overlay is gone when the new bake has no hydrology")
+	# THE regression: leave frees the overlay — it never hangs over the restored
+	# streamed world (builder mode). Re-wear the water first, then leave.
+	_write_hydrology(dir, {"format": 1, "sea_level_m": 5.0,
+		"rivers": [{"id": "r0", "catchment_m2": 1.0e6, "nodes": [
+			{"x": 0.0, "z": -100.0, "width": 4.0, "surface": 30.0},
+			{"x": 0.0, "z": 100.0, "width": 4.0, "surface": 30.0}],
+			"waterfalls": []}], "lakes": []})
+	await _link_send(peer, ["preview_mesh " + dir])
+	_check(pv != null and pv._water_mi != null, "the overlay re-wears")
+	var off := await _link_send(peer, ["preview_mesh off"])
+	_check(off.size() == 1 and off[0] == "ok preview_mesh off (streamed world restored)",
+		"off restores")
+	_check(pv != null and pv._water_mi == null,
+		"the water overlay LEAVES with the drape on off (never leaks to builder mode)")
+	# Leave no trace.
+	for f in ["height.exr", "bake_manifest.json"]:
+		DirAccess.remove_absolute(dir.path_join(f))
+	DirAccess.remove_absolute(dir)
+	StrataLink._preview.queue_free()
+	StrataLink._preview = null
+
+
+## Write a hydrology.json (the export shape WorldExporter writes / valley reads).
+func _write_hydrology(dir: String, root: Dictionary) -> void:
+	var f := FileAccess.open(dir.path_join("hydrology.json"), FileAccess.WRITE)
+	f.store_string(JSON.stringify(root))
+	f.close()
 
 
 ## Write one scatter cell file (the ScatterExport per-cell shape).

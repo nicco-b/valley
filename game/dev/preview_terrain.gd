@@ -107,6 +107,21 @@ var _scatter_mmi: MultiMeshInstance3D = null
 var _scatter_proxy: Mesh = null
 var _scatter_mat: Material = null
 
+# The water overlay (PLAN_STRATA_TOOL T1): rivers (tapered ribbons), lake
+# outlines, and waterfall ticks built each wear from the export's hydrology.json
+# — the SAME records Strata's Metal chart draws (WaterOverlay.swift) and the
+# SAME file every export already ships. One MeshInstance3D child of THIS node
+# (identity frame — origin-centered world meters, like the scatter overlay), so
+# it wears and LEAVES with the drape and never leaks into the streamed world.
+# _water_on honors Strata's "Hydrology: live ⏸" toggle across re-wears.
+var _water_mi: MeshInstance3D = null
+var _water_on := true
+# Water colours — MIRROR Strata's DataRamps.Water (the one colour truth; the
+# game can't import Swift, same contract as the drape shader's ramp fallback).
+const WATER_RIVER := Color(0.13, 0.42, 0.72, 0.92)
+const WATER_LAKE := Color(0.09, 0.30, 0.60, 0.92)
+const WATER_FALL := Color(0.86, 0.95, 1.0, 0.92)
+
 # The chart air (data layers only — see _apply_chart_air).
 var _chart_env: Environment = null
 var _chart_cam: Camera3D = null
@@ -173,10 +188,13 @@ func wear(dir: String) -> String:
 	# ran); its tail joins the reply so Strata's status line carries the count
 	# (and the drop, when capped) — no silent truncation.
 	var scatter_tail := _wear_scatter(dir)
+	# T1 — the water overlay rides the SAME dir (hydrology.json, always shipped);
+	# its tail joins the reply so Strata's status line names the count.
+	var water_tail := _wear_water(dir)
 	var total_ms := (Time.get_ticks_usec() - t0) / 1000.0
 	print("[preview] wear: mesh %.0fms upload %.1fms total %.1fms" % [
 		mesh_ms, (Time.get_ticks_usec() - t1) / 1000.0, total_ms])
-	return "%.0fm sea=%.1fm wear=%.0fms%s" % [_world_size, sea, total_ms, scatter_tail]
+	return "%.0fm sea=%.1fm wear=%.0fms%s%s" % [_world_size, sea, total_ms, scatter_tail, water_tail]
 
 
 ## Wear Strata's SHARED bake surfaces (the zero-copy path): wrap the raw
@@ -206,9 +224,11 @@ func wear_shared(params: Dictionary) -> String:
 	_shared_gen = int(params["gen"])
 	_shared_mode = true
 	_height_img = null  # no CPU mirror on the shared path (probe errs honestly)
-	# The zero-copy transport carries no dir, so it carries no scatter/ — drop
-	# any overlay a prior file wear left up (honest bare relief on this path).
+	# The zero-copy transport carries no dir, so it carries no scatter/ nor
+	# hydrology.json — drop any overlay a prior file wear left up (honest bare
+	# relief on this path).
 	_clear_scatter()
+	_clear_water()
 	var sea := float(params["sealevel"])
 	_mat.set_shader_parameter("height_map", _shared_front("height"))
 	_mat.set_shader_parameter("world_size", _world_size)
@@ -412,6 +432,7 @@ func leave() -> void:
 	worn = false
 	_release_chart_air()
 	_clear_scatter()  # the overlay LEAVES with the drape (bless teardown removes it)
+	_clear_water()    # T1 — the water overlay leaves with the drape too
 	_free_shared()  # release the wrapped RD textures (no-op on the file path)
 
 
@@ -707,3 +728,178 @@ func _clear_scatter() -> void:
 		if is_instance_valid(_scatter_mmi):
 			_scatter_mmi.queue_free()
 		_scatter_mmi = null
+
+
+# --- the water overlay (PLAN_STRATA_TOOL T1) -------------------------------
+# Draws the rivers/lakes/waterfalls the bake ALREADY computed (hydrology.json,
+# in every export) over the chart drape. Pure draw — no solve, no export write.
+# Geometry mirrors Strata's WaterOverlay.swift: tapered river ribbons, true lake
+# outlines (disc fallback when the solver left none), waterfall crosses.
+
+
+## Build the water overlay from the worn export's hydrology.json. Returns the
+## reply tail: "" (no hydrology in this bake) or " water=<rivers>r/<lakes>l".
+## Honors _water_on (a paused session wears the geometry hidden, so a toggle
+## back on is instant and never stale).
+func _wear_water(dir: String) -> String:
+	_clear_water()
+	var hpath := dir.path_join("hydrology.json")
+	if not FileAccess.file_exists(hpath):
+		return ""  # the Hydrology stage did not run for this bake
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(hpath))
+	if not (parsed is Dictionary):
+		push_warning("[preview] unreadable hydrology.json: " + hpath)
+		return ""
+	var rivers: Array = parsed.get("rivers", [])
+	var lakes: Array = parsed.get("lakes", [])
+	if rivers.is_empty() and lakes.is_empty():
+		return ""
+
+	# Display tuning in world meters (mirrors WaterOverlay.Style): the solver's
+	# channel widths are a pixel on a 16 km chart, so scale + clamp for legibility.
+	var s := maxf(_world_size, 1.0)
+	var min_w := maxf(s * 0.0018, 8.0)
+	var max_w := maxf(s * 0.010, 40.0)
+	var y_lift := maxf(s * 0.0008, 2.0)
+	var fall_half := maxf(s * 0.004, 20.0)
+
+	var river_tris := PackedVector3Array()
+	for r: Variant in rivers:
+		if not (r is Dictionary):
+			continue
+		var nodes: Array = r.get("nodes", [])
+		if nodes.size() < 2:
+			continue
+		for i in nodes.size() - 1:
+			var a: Dictionary = nodes[i]
+			var b: Dictionary = nodes[i + 1]
+			var ax := float(a.get("x", 0.0)); var az := float(a.get("z", 0.0))
+			var bx := float(b.get("x", 0.0)); var bz := float(b.get("z", 0.0))
+			var dx := bx - ax; var dz := bz - az
+			var seg_len := sqrt(dx * dx + dz * dz)
+			if seg_len <= 1e-4:
+				continue  # coincident nodes: no ribbon (no NaN normal)
+			dx /= seg_len; dz /= seg_len
+			var px := -dz; var pz := dx  # XZ-plane perpendicular
+			var ha := clampf(float(a.get("width", 1.0)) * 3.0, min_w, max_w) * 0.5
+			var hb := clampf(float(b.get("width", 1.0)) * 3.0, min_w, max_w) * 0.5
+			var ay := float(a.get("surface", 0.0)) + y_lift
+			var by := float(b.get("surface", 0.0)) + y_lift
+			var a0 := Vector3(ax + px * ha, ay, az + pz * ha)
+			var a1 := Vector3(ax - px * ha, ay, az - pz * ha)
+			var b0 := Vector3(bx + px * hb, by, bz + pz * hb)
+			var b1 := Vector3(bx - px * hb, by, bz - pz * hb)
+			river_tris.append_array([a0, b0, a1, a1, b0, b1])
+
+	var lake_lines := PackedVector3Array()
+	var fall_lines := PackedVector3Array()
+	for lake: Variant in lakes:
+		if not (lake is Dictionary):
+			continue
+		var ly := float(lake.get("surface", 0.0)) + y_lift
+		var outline: Array = lake.get("outline", [])
+		if outline.size() >= 3:
+			for i in outline.size():
+				var pa: Dictionary = outline[i]
+				var pb: Dictionary = outline[(i + 1) % outline.size()]
+				lake_lines.append(Vector3(float(pa.get("x", 0.0)), ly, float(pa.get("z", 0.0))))
+				lake_lines.append(Vector3(float(pb.get("x", 0.0)), ly, float(pb.get("z", 0.0))))
+		else:
+			var cx := float(lake.get("x", 0.0)); var cz := float(lake.get("z", 0.0))
+			var rad := float(lake.get("radius", 0.0))
+			if rad > 1e-3:
+				var seg := 40
+				for i in seg:
+					var t0 := float(i) / float(seg) * TAU
+					var t1 := float(i + 1) / float(seg) * TAU
+					lake_lines.append(Vector3(cx + rad * cos(t0), ly, cz + rad * sin(t0)))
+					lake_lines.append(Vector3(cx + rad * cos(t1), ly, cz + rad * sin(t1)))
+
+	# Waterfall ticks: a cross at each drop, elevation from the nearest channel
+	# node (the fall rides the river's surface).
+	for r: Variant in rivers:
+		if not (r is Dictionary):
+			continue
+		var nodes: Array = r.get("nodes", [])
+		var falls: Array = r.get("waterfalls", [])
+		if falls.is_empty() or nodes.is_empty():
+			continue
+		for wf: Variant in falls:
+			if not (wf is Dictionary):
+				continue
+			var fx := float(wf.get("x", 0.0)); var fz := float(wf.get("z", 0.0))
+			var fy := _nearest_surface(fx, fz, nodes) + y_lift
+			fall_lines.append(Vector3(fx - fall_half, fy, fz))
+			fall_lines.append(Vector3(fx + fall_half, fy, fz))
+			fall_lines.append(Vector3(fx, fy, fz - fall_half))
+			fall_lines.append(Vector3(fx, fy, fz + fall_half))
+
+	if river_tris.is_empty() and lake_lines.is_empty() and fall_lines.is_empty():
+		return ""
+
+	var mesh := ArrayMesh.new()
+	if not river_tris.is_empty():
+		_add_surface(mesh, Mesh.PRIMITIVE_TRIANGLES, river_tris, WATER_RIVER)
+	if not lake_lines.is_empty():
+		_add_surface(mesh, Mesh.PRIMITIVE_LINES, lake_lines, WATER_LAKE)
+	if not fall_lines.is_empty():
+		_add_surface(mesh, Mesh.PRIMITIVE_LINES, fall_lines, WATER_FALL)
+
+	_water_mi = MeshInstance3D.new()
+	_water_mi.mesh = mesh
+	_water_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_water_mi.extra_cull_margin = 16384.0
+	_water_mi.custom_aabb = AABB(Vector3(-_world_size, -6000, -_world_size),
+		Vector3(_world_size * 2.0, 12000, _world_size * 2.0))
+	_water_mi.visible = _water_on
+	add_child(_water_mi)
+	return " water=%dr/%dl" % [rivers.size(), lakes.size()]
+
+
+## Add one flat-colour surface (unshaded, alpha-blended, both faces) to `mesh`.
+func _add_surface(mesh: ArrayMesh, prim: int, verts: PackedVector3Array, col: Color) -> void:
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	mesh.add_surface_from_arrays(prim, arrays)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = col
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.vertex_color_use_as_albedo = false
+	mesh.surface_set_material(mesh.get_surface_count() - 1, mat)
+
+
+## y of the channel node nearest (x,z) — the waterfall's water surface.
+func _nearest_surface(x: float, z: float, nodes: Array) -> float:
+	var best := 0.0
+	var bd := INF
+	for nd: Variant in nodes:
+		if not (nd is Dictionary):
+			continue
+		var nx := float(nd.get("x", 0.0)); var nz := float(nd.get("z", 0.0))
+		var d := (nx - x) * (nx - x) + (nz - z) * (nz - z)
+		if d < bd:
+			bd = d
+			best = float(nd.get("surface", 0.0))
+	return best
+
+
+## Free the water overlay so it LEAVES with the drape (leave/shared-wear
+## teardown, and the first act of every re-wear). Idempotent.
+func _clear_water() -> void:
+	if _water_mi != null:
+		if is_instance_valid(_water_mi):
+			_water_mi.queue_free()
+		_water_mi = null
+
+
+## Strata's "Hydrology: live ⏸" toggle (link verb preview_water on|off): show or
+## hide the water overlay without a re-solve. The state sticks across re-wears.
+## Returns an ok/err reply for the link.
+func set_water(on: bool) -> String:
+	_water_on = on
+	if _water_mi != null and is_instance_valid(_water_mi):
+		_water_mi.visible = on
+	return "ok preview_water %s" % ("on" if on else "off")

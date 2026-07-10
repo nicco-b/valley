@@ -313,7 +313,7 @@ const PROTOCOL := 1
 const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "reload_world",
 	"teleport", "screenshot", "thumbnail", "flyover", "meshstats", "weather", "time",
 	"time_lock", "weather_lock",
-	"preview_world", "preview_mesh", "preview_shared", "render_device",
+	"preview_world", "preview_mesh", "preview_shared", "preview_water", "render_device",
 	"camera", "view", "view_layer", "probe",
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
 	"records", "budget", "undo", "redo", "prefab",
@@ -582,6 +582,16 @@ func _execute(line: String) -> String:
 			if parts.size() < 2:
 				return "err preview_shared needs a payload (or off)"
 			return _preview_shared(line.substr(len("preview_shared")).strip_edges())
+		"preview_water":
+			# T1 · the "Hydrology: live ⏸" toggle. Show/hide the water overlay
+			# (rivers/lakes/waterfalls, drawn from hydrology.json) on the worn
+			# drape — draw-only, no re-solve. `err` when nothing is worn (the
+			# Metal chart's own toggle still holds Strata-side).
+			if parts.size() < 2 or not (parts[1] in ["on", "off"]):
+				return "err preview_water needs on|off"
+			if _preview == null:
+				return "err no preview mesh worn (preview_mesh <dir> first)"
+			return _preview.set_water(parts[1] == "on")
 		"render_device":
 			# The device-identity handshake for the shared path: our engine's
 			# logical-device pointer (get_driver_resource). Strata compares it

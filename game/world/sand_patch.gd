@@ -31,6 +31,17 @@ func _ready() -> void:
 	add_child(_mi)
 
 
+func _exit_tree() -> void:
+	# Reap the in-flight build before the node (and the autoloads the task
+	# reads — Terrain/its kernel) tears down under it: a quit landing inside
+	# the build window otherwise dereferences freed members from the worker
+	# ("Cannot call method lock on a null value") — the hydrology catchment
+	# lesson, same fix.
+	if _task != -1:
+		WorkerThreadPool.wait_for_task_completion(_task)
+		_task = -1
+
+
 func _process(_delta: float) -> void:
 	var want: Vector2 = SandField._anchor
 	if want.is_finite() and want != _anchor and _task == -1 and want != _pending_anchor:

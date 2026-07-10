@@ -30,10 +30,12 @@ echo "$QUEST_OUT" | grep -q "QUEST-HARNESS PASS" || exit 1
 echo "== framework manifest lint (the fence, PLAN_FRAMEWORK FW5) =="
 # Static text scan over every file framework.json lists: no preloading
 # res://assets/ (content), no naming a data/ record's id, no writing an
-# un-namespaced valley.* shader-global key. No scene/autoloads needed —
-# same `godot -s` shape as the unit-tests pass above. Known pre-FW5 hits
-# ride in ALLOWLIST (branch-pending or residue, see tests/framework_lint.gd);
-# anything new fails for real.
+# un-namespaced valley.* shader-global key, no direct OS.is_debug_build()
+# gate, and (TEARDOWN-REAP LAW) no WorkerThreadPool/Thread task without a
+# matching _exit_tree reap — four crashes earned that last one. No
+# scene/autoloads needed — same `godot -s` shape as the unit-tests pass
+# above. Known pre-FW5 hits ride in ALLOWLIST (branch-pending or residue,
+# see tests/framework_lint.gd); anything new fails for real.
 godot --headless -s tests/framework_lint.gd || exit 1
 
 echo "== determinism trap (fork engine only) =="

@@ -24,6 +24,18 @@ extends SceneTree
 ##                    sole exemption (it reads the raw signal so nothing
 ##                    else has to). No allowlist: new gates route through
 ##                    DevMode.active() or they fail the fence.
+##   teardown-reap    the TEARDOWN-REAP LAW: a framework file that submits
+##                    a WorkerThreadPool task (add_task/add_group_task) or
+##                    spins a Thread must reap it in _exit_tree — a
+##                    wait_for_task_completion/wait_to_finish call in that
+##                    function's own body — before the tree (and the
+##                    autoloads an in-flight task reads) tears down under
+##                    it. Four crashes earned this one (hydrology
+##                    catchments, the toolkit ghost player, sand_patch's
+##                    build, water_field's base bake — the last was the
+##                    engine-restart blocker). tests/ is exempt, same as
+##                    asset-preload/content-id/dev-gate — its probes wait
+##                    on their tasks inline, not from a node lifecycle.
 ##
 ## ALLOWLIST is the FW1-era honesty valve: known hits, each tagged with
 ## WHY it's not failing the build today — either a pending FW4 rung that
@@ -104,6 +116,13 @@ const ALLOWLIST: Array[Dictionary] = [
 	{"path": "tools/strata/import_world.gd", "rule": "content-id",
 		"literal": "sea",
 		"reason": "RESIDUE - the import tool mints the base ocean record's id by hand, unclaimed"},
+	# -- teardown-reap: none today — every framework file that submits a
+	# WorkerThreadPool/Thread task reaps it for real in _exit_tree
+	# (hydrology.gd, sand_patch.gd, water_field.gd, sand_field.gd,
+	# far_terrain.gd, world_streamer.gd, water_bodies.gd). A future
+	# justified exception (a task reaped from somewhere other than
+	# _exit_tree, documented) goes here — clearing it retires the entry
+	# in the same commit, same discipline as every other rule above. --
 ]
 
 var _failures := 0
@@ -157,6 +176,52 @@ func _run_probes() -> void:
 		["probe_id"])
 	_check(clean.is_empty(), "probe: a clean file passes with zero hits")
 
+	# teardown-reap: (b) an unreaped task is CAUGHT, two shapes —
+	# no _exit_tree at all, and an _exit_tree that never waits.
+	var reap_missing := lint_text("probe/reap_dirty_missing.gd",
+		"func _ready() -> void:\n"
+		+ "\t_task = WorkerThreadPool.add_task(_build)\n",
+		[])
+	_check(reap_missing.size() == 1 and reap_missing[0].rule == "teardown-reap",
+		"probe: teardown-reap catches add_task with no _exit_tree at all")
+
+	var reap_hollow := lint_text("probe/reap_dirty_hollow.gd",
+		"func _ready() -> void:\n"
+		+ "\t_thread = Thread.new()\n"
+		+ "\t_thread.start(_build)\n"
+		+ "\n"
+		+ "func _exit_tree() -> void:\n"
+		+ "\tpass  # forgot to reap\n",
+		[])
+	_check(reap_hollow.size() == 1 and reap_hollow[0].rule == "teardown-reap",
+		"probe: teardown-reap catches an _exit_tree that never waits")
+
+	# teardown-reap: (a) the real shapes in the tree today pass clean —
+	# WorkerThreadPool and Thread, both reaped for real in _exit_tree.
+	var reap_clean_pool := lint_text("probe/reap_clean_pool.gd",
+		"func _ready() -> void:\n"
+		+ "\t_task = WorkerThreadPool.add_task(_build)\n"
+		+ "\n"
+		+ "func _exit_tree() -> void:\n"
+		+ "\tif _task != -1:\n"
+		+ "\t\tWorkerThreadPool.wait_for_task_completion(_task)\n"
+		+ "\t\t_task = -1\n",
+		[])
+	_check(reap_clean_pool.is_empty(),
+		"probe: teardown-reap passes a WorkerThreadPool task reaped in _exit_tree")
+
+	var reap_clean_thread := lint_text("probe/reap_clean_thread.gd",
+		"func _ready() -> void:\n"
+		+ "\t_thread = Thread.new()\n"
+		+ "\t_thread.start(_build)\n"
+		+ "\n"
+		+ "func _exit_tree() -> void:\n"
+		+ "\tif _thread != null:\n"
+		+ "\t\t_thread.wait_to_finish()\n",
+		[])
+	_check(reap_clean_thread.is_empty(),
+		"probe: teardown-reap passes a Thread reaped in _exit_tree")
+
 
 # --- pass 2: the real manifest ------------------------------------------
 
@@ -179,6 +244,9 @@ func _run_real() -> void:
 			# job is to probe CONTENT where it ships — every probe rides a
 			# content-empty guard. Naming ids/assets there is the harness
 			# working, not a framework coupling; only shader-global applies.
+			# teardown-reap rides the same exemption: the test probes wait
+			# on their tasks inline (SceneTree/probe scripts, no node
+			# lifecycle), not from an _exit_tree reap.
 			if path.begins_with("tests/") and hit.rule != "shader-global":
 				continue
 			# DevMode is the one door (PLAN_SHIP §2): dev_mode.gd reads the
@@ -240,7 +308,61 @@ func lint_text(path: String, text: String, ids: Array) -> Array[Dictionary]:
 				var lit: String = m.get_string(1)
 				if lit.length() >= MIN_ID_LEN and ids.has(lit):
 					hits.append({"path": path, "rule": "content-id", "literal": lit})
+
+	# teardown-reap is a whole-file check, not per-line: it needs to see
+	# _exit_tree's own body, not just the line a task was submitted on.
+	if path.get_extension() == "gd":
+		var reap_hit := _reap_hit(path, text)
+		if not reap_hit.is_empty():
+			hits.append(reap_hit)
 	return hits
+
+
+## The TEARDOWN-REAP LAW, static: does this file submit a WorkerThreadPool
+## task or spin a Thread, and if so does its _exit_tree actually wait on
+## it? Comment-only lines are skipped, same as the per-line rules above.
+## Returns a single {path, rule, literal} hit, or {} if clean.
+func _reap_hit(path: String, text: String) -> Dictionary:
+	var submit_re := RegEx.create_from_string(
+		"WorkerThreadPool\\.(add_task|add_group_task)\\s*\\(|Thread\\.new\\s*\\(")
+	var submits := false
+	for line in text.split("\n"):
+		var s := line.strip_edges()
+		if s.begins_with("#"):
+			continue
+		if submit_re.search(line):
+			submits = true
+			break
+	if not submits:
+		return {}
+	var body := _exit_tree_body(text)
+	if body.contains("wait_for_task_completion") or body.contains("wait_to_finish"):
+		return {}
+	return {"path": path, "rule": "teardown-reap",
+		"literal": "WorkerThreadPool/Thread task with no _exit_tree reap "
+			+ "(TEARDOWN-REAP LAW)"}
+
+
+## Extracts the body of this file's top-level `func _exit_tree` (from its
+## `func` line to the next top-level `func` or end of file), or "" if the
+## file has no _exit_tree at all. Top-level funcs start at column 0 —
+## Godot's own style — so a nested `func` inside a lambda never ends the
+## body early.
+func _exit_tree_body(text: String) -> String:
+	var lines := text.split("\n")
+	var start := -1
+	for i in lines.size():
+		if lines[i].begins_with("func _exit_tree"):
+			start = i
+			break
+	if start == -1:
+		return ""
+	var out: Array[String] = []
+	for i in range(start + 1, lines.size()):
+		if lines[i].begins_with("func "):
+			break
+		out.append(lines[i])
+	return "\n".join(out)
 
 
 # --- manifest + content-id corpus ---------------------------------------

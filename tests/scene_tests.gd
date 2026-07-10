@@ -22,6 +22,7 @@ func _ready() -> void:
 	_test_hydrology()
 	_test_strata_water()
 	_test_river_drape()
+	_test_bathy_edit_invalidate()
 	_test_region_reseed()
 	_test_lake_outline()
 	_test_water_field()
@@ -346,6 +347,7 @@ func _test_strata_link() -> void:
 	await _test_state_verb(peer)
 	await _test_reload_honesty(peer)
 	await _test_reload_adopt(peer)
+	await _test_far_terrain_reload()
 	await _test_preview_world(peer)
 	await _test_preview_mesh(peer)
 	await _test_preview_scatter(peer)
@@ -484,6 +486,91 @@ func _test_reload_adopt(peer: StreamPeerTCP) -> void:
 	# that lean on has_world_tile() are unaffected.
 	if not stash.is_empty() and Terrain._tiles.is_empty():
 		Terrain._tiles = stash
+		if Terrain.kernel:
+			Terrain.kernel.set_tiles(Terrain._tiles)
+
+
+## Mission Y3: the map's far-terrain quadtree must pick up an in-session
+## bless — the reported bug was "press M, the ground still reads the
+## pre-bless surface." far_terrain.gd already listens for Terrain.edited
+## and rebuilds any leaf whose rect the edit touches (debounced
+## EDIT_REBUILD_DELAY=1.2s so a burst of edits coalesces into one rebuild);
+## reload_world's whole-frame edited emit is exactly the "everything just
+## changed" case that debounce is FOR. This pins it end to end: a real
+## FarTerrain node, focused where a real reload_world adopt call (the exact
+## in-session-bless verb) lands a tile with a drastically different height,
+## must show the NEW height in its cached leaf mesh within a few seconds —
+## never the frozen pre-bless one.
+func _test_far_terrain_reload() -> void:
+	if not Terrain.has_world_tile():
+		print("  far_terrain reload: SKIP (no baked tile cache)")
+		return
+	# Mimic the content-empty boot (same stash pattern as _test_reload_adopt):
+	# the far-terrain leaf we build first must read the PROCEDURAL ground
+	# (no tile), so the post-bless height change is unmistakable.
+	var stash: Array = Terrain._tiles.duplicate()
+	var stash_sea: float = Terrain.sea_level
+	Terrain._tiles = []
+	if Terrain.kernel:
+		Terrain.kernel.set_tiles(Terrain._tiles)
+	Terrain.sea_level = -1e12
+
+	var player := Node3D.new()
+	player.add_to_group("player")
+	add_child(player)
+	player.global_position = Vector3(512.0, 0.0, 512.0)
+	var far := Node3D.new()
+	far.set_script(load("res://game/world/far_terrain.gd"))
+	add_child(far)
+
+	const KEY := "1024_0_0"  # the MIN_TILE leaf covering (0,0)-(1024,1024)
+	const VERT_IDX := 16 * 33 + 16  # tile-center vertex (local 512,512)
+	var settled := false
+	for i in 240:
+		await get_tree().process_frame
+		if far._cache.has(KEY):
+			settled = true
+			break
+	_check(settled, "far_terrain builds the pre-bless (procedural) leaf")
+	if not settled:
+		player.queue_free()
+		far.queue_free()
+		if not stash.is_empty():
+			Terrain._tiles = stash
+			Terrain.sea_level = stash_sea
+			if Terrain.kernel:
+				Terrain.kernel.set_tiles(Terrain._tiles)
+		return
+	var mesh0: ArrayMesh = far._cache[KEY].mesh
+	var y0: float = (mesh0.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+			as PackedVector3Array)[VERT_IDX].y
+
+	# The exact in-session-bless verb: re-read the tile record + heightmap
+	# still on disk (untouched — only the in-memory _tiles was dropped).
+	var reply: String = Terrain.reload_world()
+	_check(reply == "reloaded", "reload_world adopts the tile (got %s)" % reply)
+
+	var rebuilt := false
+	var elapsed := 0.0
+	while elapsed < 5.0:
+		await get_tree().process_frame
+		elapsed += get_process_delta_time()
+		var mi: MeshInstance3D = far._cache.get(KEY)
+		if mi == null or mi.mesh == mesh0:
+			continue
+		var y1: float = (mi.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+				as PackedVector3Array)[VERT_IDX].y
+		if absf(y1 - y0) > 1.0:
+			rebuilt = true
+			break
+	_check(rebuilt,
+		"far_terrain's cached leaf reflects the bless within 5s (not the pre-bless surface)")
+
+	player.queue_free()
+	far.queue_free()
+	if not stash.is_empty():
+		Terrain._tiles = stash
+		Terrain.sea_level = stash_sea
 		if Terrain.kernel:
 			Terrain.kernel.set_tiles(Terrain._tiles)
 
@@ -3799,6 +3886,59 @@ func _test_river_drape() -> void:
 		"%s: draped ribbon hugs the real bake (max float %.3fm)" % [river.id, new_float])
 	print("  river drape: %s old max-scan floated %.2fm, clamped drape floats %.4fm" % [
 		river.id, old_float, new_float])
+
+
+## Mission Y3 sweep: the sea/lake bathymetry (_bathy) is a follow cache keyed
+## on a focus-snapped anchor — _bathy_follow only rebakes when that anchor
+## MOVES, so a lake's fixed-position tier (a documented "one-shot bake") and
+## the sea's near/mid tiers (idle while the focus sits still) never notice
+## the ground changing under them: a bless (reload_world's whole-frame
+## edited) or a sculpted stroke left the shoaling/surf line reading the OLD
+## seabed forever. _on_terrain_edited_bathy is the fix — it staleness-checks
+## every registered tier's bake footprint against the edited rect and, on a
+## hit, resets the anchor to INF so the very next _bathy_follow call (every
+## _process, regardless of whether focus moved) treats the goal as new and
+## rebakes off the live ground. Pure dict logic — no tree, no kernel, no
+## renderer needed, so this runs everywhere (including headless).
+func _test_bathy_edit_invalidate() -> void:
+	var wb: Node3D = load("res://game/world/water_bodies.gd").new()
+	# A "lake" tier sitting still at (500, 500), radius 80 — the one-shot
+	# case: nothing ever moves its goal, so only an edit can unstick it.
+	wb._bathy = {
+		"lake:hyd_test": {"mi": null, "radius": 80.0, "step": 1.0, "n": 4,
+			"level": 10.0, "arrays": [], "anchor": Vector2(500.0, 500.0),
+			"goal": Vector2(500.0, 500.0), "task": -1, "out": PackedFloat32Array()},
+		"near": {"mi": null, "radius": 300.0, "step": 3.0, "n": 4,
+			"level": 12.0, "arrays": [], "anchor": Vector2(3000.0, 3000.0),
+			"goal": Vector2(3000.0, 3000.0), "task": -1, "out": PackedFloat32Array()},
+	}
+	# An edit far from both tiers' footprints: neither anchor is touched.
+	wb._on_terrain_edited_bathy(Rect2(-50.0, -50.0, 10.0, 10.0))
+	_check(Vector2(wb._bathy["lake:hyd_test"].anchor) == Vector2(500.0, 500.0),
+		"bathy: an edit outside a tier's footprint leaves its anchor alone")
+	_check(Vector2(wb._bathy["near"].anchor) == Vector2(3000.0, 3000.0),
+		"bathy: an edit outside the OTHER tier's footprint leaves it alone too")
+	# An edit clipping the lake tier's footprint (500,500 +/- 80): the fixed
+	# lake anchor — which nothing else would ever unstick — resets to INF.
+	wb._on_terrain_edited_bathy(Rect2(540.0, 540.0, 20.0, 20.0))
+	_check(not Vector2(wb._bathy["lake:hyd_test"].anchor).is_finite(),
+		"bathy: an edit touching the lake's footprint invalidates its anchor")
+	_check(Vector2(wb._bathy["near"].anchor) == Vector2(3000.0, 3000.0),
+		"bathy: the untouched sea tier is still left alone")
+	# The mission's actual trigger: reload_world's whole-frame edited rect
+	# covers everything (including this tier's anchor, well inside the
+	# 16384m world frame) — every tier resets.
+	wb._on_terrain_edited_bathy(Rect2(-8192.0, -8192.0, 16384.0, 16384.0))
+	_check(not Vector2(wb._bathy["near"].anchor).is_finite(),
+		"bathy: a whole-frame bless invalidates the sea tier's anchor too")
+	# An unbaked tier (anchor still INF) is left alone — its first bake
+	# reads whatever is live anyway, nothing stale to invalidate.
+	wb._bathy["mid"] = {"mi": null, "radius": 1600.0, "step": 12.0, "n": 4,
+		"level": 12.0, "arrays": [], "anchor": Vector2.INF,
+		"goal": Vector2.INF, "task": -1, "out": PackedFloat32Array()}
+	wb._on_terrain_edited_bathy(Rect2(-8192.0, -8192.0, 16384.0, 16384.0))
+	_check(not Vector2(wb._bathy["mid"].anchor).is_finite(),
+		"bathy: an unbaked tier's INF anchor is a no-op, not a crash")
 
 
 ## Zero-flow regression: a river imported WHILE the game runs (reload_world /

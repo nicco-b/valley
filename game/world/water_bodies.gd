@@ -131,6 +131,20 @@ func _ready() -> void:
 	# meshes of any that the reload removed). Hydrology re-seeds first (it
 	# connects earlier, as an autoload), so the fresh ribbons read live flow.
 	Terrain.water_reloaded.connect(_rebuild_rivers)
+	# Mission Y3: the sea/lake bathymetry (_bathy) is a FOLLOW cache keyed
+	# on the focus-snapped anchor — _bathy_follow only rebakes when that
+	# anchor moves, never on its own. A lake's anchor never moves (its
+	# disc is fixed at the lake center — a genuine one-shot bake by
+	# design), and the sea's near/mid tiers only rebake once the player
+	# happens to wander to a new snap cell. Neither listens for the
+	# ground changing under them, so a bless (reload_world's whole-frame
+	# edited, or a sculpted stroke) leaves stale seabed depth live under
+	# the water indefinitely — the shoaling/surf line keeps breaking on
+	# the OLD reef. Forcing the anchor back to INF here just makes
+	# _bathy_follow treat the (unchanged) goal as new next tick, so it
+	# re-bakes off the CURRENT terrain — same one-shot-per-anchor design,
+	# just no longer blind to the ground moving under a fixed anchor.
+	Terrain.edited.connect(_on_terrain_edited_bathy)
 
 
 ## Rebuild all river ribbons after a whole-water reload: free the meshes of
@@ -341,6 +355,25 @@ func _bathy_register(tier: String, mi: MeshInstance3D, radius: float, step: floa
 	_bathy[tier] = {"mi": mi, "radius": radius, "step": step, "n": n,
 		"level": level, "arrays": arrays, "anchor": Vector2.INF,
 		"goal": Vector2.INF, "task": -1, "out": PackedFloat32Array()}
+
+
+## Mission Y3: a world edit (sculpt commit, or a whole-frame reload_world
+## bless) invalidates any registered tier whose bake footprint the edit
+## touches — its NEXT _bathy_follow call (every _process, regardless of
+## whether the focus/anchor moved) rebakes off the live seabed instead of
+## trusting the depth data it baked before the edit. Untouched tiers (an
+## edit on the far side of the world from a lake) are left alone — same
+## economy as far_terrain's own rect-scoped _invalidate.
+func _on_terrain_edited_bathy(world_rect: Rect2) -> void:
+	for tier: String in _bathy:
+		var st: Dictionary = _bathy[tier]
+		var anchor: Vector2 = st.anchor
+		if not anchor.is_finite():
+			continue  # never baked yet — its first bake reads live ground anyway
+		var r: float = st.radius
+		var footprint := Rect2(anchor.x - r, anchor.y - r, r * 2.0, r * 2.0)
+		if footprint.intersects(world_rect):
+			st.anchor = Vector2.INF
 
 
 ## W2: move one sea tier to `goal`, rebaking its seabed for the new

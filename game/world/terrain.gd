@@ -398,6 +398,7 @@ const EDIT_PATH := "res://data/terrain/edit_layer.exr"
 
 signal edited(world_rect: Rect2)
 signal river_added(river: Dictionary)  # a runtime pen river (water_bodies/Hydrology attach)
+signal water_reloaded  # the whole water layer was re-read off disk (reload_world / import)
 
 # The biome substrate (Stage B, 2026-07-05): a painted indexed map over
 # the whole world (data/world/biome_map.png, matched to the palette in
@@ -785,6 +786,11 @@ func _reload_water() -> void:
 	rivers.clear()
 	river_levels = PackedFloat32Array()
 	_load_water()
+	# The region reservoirs (Hydrology) and river ribbons (water_bodies) live
+	# outside this array — an import while the game runs must re-seed and
+	# rebuild them, or the fresh hyd_* rivers idle at zero flow with stale
+	# meshes. Boot seeds in _ready; this is the live-reload counterpart.
+	water_reloaded.emit()
 
 
 ## Bulk height samples, row-major nz rows of nx — THE call worker-thread

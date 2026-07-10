@@ -99,11 +99,10 @@ func _ready() -> void:
 		river_storage[r.id] = SPRING_M3H / RIVER_K  # boot at baseflow equilibrium
 	for r in Terrain.rivers:
 		if r.get("no_sim", false):
-			region_storage[r.id] = _region_baseflow(r) / RIVER_K
-			region_qref[r.id] = _region_qref(r)
+			_seed_region_river(r)
 	for w in Terrain.water_bodies:
 		if w.get("no_sim", false):
-			region_lake_level[w.id] = 0.0
+			_seed_region_lake(w)
 		else:
 			lake_level[w.id] = 0.0
 	load_state()
@@ -111,12 +110,16 @@ func _ready() -> void:
 	# worker at boot so the first hour tick never hitches the frame.
 	_catch_task = WorkerThreadPool.add_task(_build_catchments)
 	GameClock.hour_tick.connect(_hourly)
-	# The map river pen adds no_sim rivers mid-session; seed the new
-	# reservoir at baseflow so its ribbon flows from the first frame.
+	# The map river pen adds one no_sim river mid-session; seed its reservoir
+	# at baseflow so its ribbon flows from the first frame.
 	Terrain.river_added.connect(func(r: Dictionary) -> void:
 		if r.get("no_sim", false):
-			region_storage[r.id] = _region_baseflow(r) / RIVER_K
-			region_qref[r.id] = _region_qref(r))
+			_seed_region_river(r))
+	# A whole-water reload (reload_world / Strata import while running) rebuilds
+	# Terrain.rivers from disk but leaves the region tier here untouched — the
+	# fresh hyd_* rivers would idle at zero discharge. Re-seed the newcomers,
+	# preserving every river that is already breathing.
+	Terrain.water_reloaded.connect(_reseed_region_water)
 
 
 func _exit_tree() -> void:
@@ -192,6 +195,48 @@ func discharge(river_id: String) -> float:
 	if region_storage.has(river_id):
 		return float(region_storage[river_id]) * RIVER_K
 	return float(river_storage.get(river_id, 0.0)) * RIVER_K
+
+
+# Seed one region river's reservoir at its baseflow equilibrium and pin its
+# flow reference — the shared seeding math for boot, the pen, and reloads.
+# A river ALREADY breathing is left exactly as it is: an unrelated reload
+# (a paint stroke elsewhere, a re-import of a different tile) must never
+# reset a playing world's river state.
+func _seed_region_river(r: Dictionary) -> void:
+	var id: String = r.id
+	if region_storage.has(id):
+		return
+	region_storage[id] = _region_baseflow(r) / RIVER_K
+	region_qref[id] = _region_qref(r)
+
+
+# Seed one region lake's level, unless it is already tracked (same live-state
+# rule as the rivers).
+func _seed_region_lake(w: Dictionary) -> void:
+	if not region_lake_level.has(w.id):
+		region_lake_level[w.id] = 0.0
+
+
+## Re-seed the REGION tier after a live water reload (Terrain.water_reloaded).
+## _reload_water rebuilt Terrain.rivers/water_bodies from disk; every no_sim
+## newcomer that lacks a reservoir gets the SAME baseflow seed _ready gives,
+## so its discharge/flow_norm read real water from the first frame instead of
+## the "0 m3/h, norm 0.00" of an unseeded river. Rivers already breathing keep
+## their live storage; their visual level is recomputed from their (preserved)
+## discharge, because _reload_water zeroed Terrain.river_levels on the rebuild.
+func _reseed_region_water() -> void:
+	for r in Terrain.rivers:
+		if not r.get("no_sim", false):
+			continue
+		_seed_region_river(r)
+		if r.idx < Terrain.river_levels.size():
+			Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
+					RIVER_LEVEL_MAX, flow_norm(r.id)), RIVER_LEVEL_MIN,
+					RIVER_LEVEL_MAX), 0.001)
+	for w in Terrain.water_bodies:
+		if w.get("no_sim", false):
+			_seed_region_lake(w)
+	_push_levels()
 
 
 # Spring inflow for a region river, m³/h — scaled to its catchment so a

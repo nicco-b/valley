@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tests/rules_matrix.gd" id="1_rules_matrix"]
+
+[node name="RulesMatrix" type="Node"]
+script = ExtResource("1_rules_matrix")

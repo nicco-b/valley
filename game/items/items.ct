@@ -1,0 +1,79 @@
+# Contour port of valley game/items/items.gd :: Items
+#
+# The P1 RULES TRIO, file 1 (Mission D1b, Batch C1 of docs/PORT_LEDGER.md — items,
+# skills, budget). Items is the inventory desk: item definitions loaded from
+# data/items/ (IO glue — `Records.load_dir`, STAYS GDScript) and the player's
+# inventory living in WorldState under `player.inventory` (a {id: count} dict that
+# saves/signals/participates in consequences for free). What ports here is the
+# INVENTORY RULES tier the ledger names — the pure maps over that dict:
+#
+#   * display_name(defs, id) — the item's shown name, or the id itself when the
+#     record (or its `name`) is absent. Pure over the defs table + the id.
+#   * count(inv, id)         — how many of `id` the inventory holds (0 absent).
+#   * count_tag(inv, defs, tag) — the KEYWORD LAW (DESIGN_QUESTS B15): the total
+#     count of every held item whose record carries `tag` — "any N things tagged
+#     food", identity-free like every radiant gate. Pure over inv + defs + tag.
+#   * add(inv, id, count)    — the inventory transform: `inv[id] += count`, and a
+#     count that falls to <=0 drops the id (a self-forgetting bag). Returns the
+#     NEW inventory dict (the GDScript twin writes it back through
+#     WorldState.set_value — that write is the IO glue that STAYS; the RULE is the
+#     order-faithful transform proven here).
+#
+# The split (the flora precedent): the RULES cross; the IO/signal/engine glue
+# STAYS GDScript. `Records.load_dir` (filesystem), `WorldState.get_value/set_value`
+# (the world store + its `changed` signal) and `inventory()` (the get_value read)
+# are glue — the valley twin seeds the SAME `player.inventory` dict the rules read.
+#
+# Structural faithfulness (Contour has no `str()`/`.erase()`; the computed answer
+# is byte-identical):
+#   * display_name drops the vendored `str()` — the `name`/`id` values are already
+#     strings, so the coercion is a no-op (Godot-exact string-coercion is a
+#     deferred builtin; unneeded here).
+#   * add rebuilds the dict INSERTION-ORDER-FAITHFULLY instead of
+#     duplicate()+`erase`: an existing id keeps its slot (updated, or dropped when
+#     the new total <=0); a new id appends only when its total is positive —
+#     byte-for-byte the twin's duplicate/set/erase, so the serialized dict order
+#     (and any downstream fingerprint of player.inventory) is identical.
+
+
+# The item's display name: its record's `name`, or the id itself when the record
+# (or its name) is absent. Pure over the defs table.
+sim func display_name(defs, id) -> string:
+	return defs.get(id, {}).get("name", id)
+
+
+# How many of `id` the inventory holds (0 when absent). Pure over the inv dict.
+sim func count(inv, id) -> int:
+	return int(inv.get(id, 0))
+
+
+# The keyword law: the summed count of every held item whose record carries the
+# tag. Identity-free — a gate asks for "N things tagged food", not a named item.
+sim func count_tag(inv, defs, tag) -> int:
+	var total = 0
+	for id in inv:
+		var tags = defs.get(id, {}).get("tags", [])
+		if tags.has(tag):
+			total = total + int(inv[id])
+	return total
+
+
+# The inventory transform: add `count` of `id` (negative to remove), returning the
+# new inventory. An id whose total falls to <=0 is dropped — a self-forgetting bag.
+# Insertion order is preserved exactly as the twin's duplicate()/set/erase leaves
+# it (existing id keeps its slot; a new id appends only when positive).
+sim func add(inv, id, count) -> dict:
+	var n = int(inv.get(id, 0)) + count
+	var out = {}
+	var had = false
+	for k in inv:
+		if k == id:
+			had = true
+			if n > 0:
+				out[id] = n
+		else:
+			out[k] = inv[k]
+	if not had:
+		if n > 0:
+			out[id] = n
+	return out

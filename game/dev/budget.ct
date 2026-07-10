@@ -1,0 +1,72 @@
+# Contour port of valley game/dev/budget.gd :: WorldBudget
+#
+# The P1 RULES TRIO, file 3 (Mission D1b, Batch C1 of docs/PORT_LEDGER.md).
+#
+# HONEST RECLASSIFICATION (the ledger row moves off SYSTEM-TIER). budget.gd is a
+# METER, NOT A WALL: it reads the live world along three axes (per-cell placement
+# density, live agents, total placed records) and GRADES each green/amber/red
+# against thresholds. Its own doc is emphatic — "NOTHING here writes sim state or
+# refuses a placement". The grade is a DEV READOUT (a Toolkit HUD line, the
+# `budget` link verb, Strata's inspector Budget row); it never enters the
+# fingerprinted world. So budget is not a §6 system (a system writes a declared
+# world resource; budget writes nothing). Per the mission's steer, the GRADING
+# RULES port as certified functions — not a forced system shape:
+#
+#   * grade(thresholds, value, axis) — the atom: red if value crosses the axis'
+#     red knee, amber if it crosses amber, else green (0/1/2). Pure over the
+#     thresholds table + the value + the axis. Plumb-certified bit-identical.
+#   * worst_grade(thresholds, c, a, r) — the colour the HUD line wears: the worst
+#     grade across the three axes' live readings. Pure over thresholds + the
+#     three counts (the live readings — cell_count/agent_count/total_records —
+#     are the engine glue that STAYS; the RULE is this max-of-three).
+#   * status_word(g) — the grade's word (green/amber/red). Pure over g.
+#
+# The split (the flora precedent): the RULES cross; the IO / engine / presentation
+# glue STAYS GDScript. `reload` (FileAccess/JSON threshold record load),
+# `register_population`/`register_reloader` (the agent registry + records desk),
+# `focus_position`/`focus_cell`/`cell_count`/`total_records`/`agent_count` (live
+# CellRecords/Toolkit/registry reads), `status_color` (a Color — presentation),
+# and `snapshot`/`hud_line`/`link_line`/`summary` (the presentation assembly, with
+# `%.1f`/`%.4f` float formatting — a deferred string-format builtin) STAY. The
+# GDScript `snapshot`/`link_line` compose the routed `grade`.
+#
+# Structural faithfulness (the computed answer is byte-identical to the twin):
+#   * the enum GREEN/AMBER/RED becomes the ints 0/1/2 (Contour has no `enum`);
+#     status_word's `["green","amber","red"][g]` indexing is unchanged.
+#   * the `1 << 30` sentinel default becomes its literal value `1073741824`
+#     (Contour has no bit-shift operator); the value is identical.
+#   * worst_grade's `maxi(maxi(a,b),c)` becomes three comparisons that keep the
+#     running max (Contour's builtin set has `maxf` but not `maxi`, and the grade
+#     ints stay small — no builtin was added, per the minimalism law); the
+#     max-of-three answer is identical.
+
+
+# The grade atom: red (2) if the value crosses the axis' red knee, amber (1) if it
+# crosses amber, else green (0). A missing axis / knee reads as an unreachable
+# sentinel (1073741824 == the twin's `1 << 30`), so an unlisted axis grades green.
+sim func grade(thresholds, value, axis) -> int:
+	var t = thresholds.get(axis, {})
+	if value >= int(t.get("red", 1073741824)):
+		return 2
+	if value >= int(t.get("amber", 1073741824)):
+		return 1
+	return 0
+
+
+# The worst grade across the three axes' live readings (cell placements, agents,
+# records) — the one colour the HUD line wears. The counts are handed in (the live
+# reads are glue); the RULE is the max.
+sim func worst_grade(thresholds, c, a, r) -> int:
+	var g = grade(thresholds, c, "cell_placements")
+	var ga = grade(thresholds, a, "agents")
+	var gr = grade(thresholds, r, "records")
+	if ga > g:
+		g = ga
+	if gr > g:
+		g = gr
+	return g
+
+
+# The grade's word: green / amber / red.
+sim func status_word(g) -> string:
+	return ["green", "amber", "red"][g]

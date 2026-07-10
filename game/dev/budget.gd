@@ -49,6 +49,28 @@ var thresholds: Dictionary = {}
 var _pop_sources: Array[Callable] = []
 
 
+# --- Contour routing (PLAN_ENGINE E2, Mission D1b: the P1 RULES TRIO) ----------
+## The GRADING RULE `grade` (the green/amber/red atom over the thresholds table) is
+## ported to the Contour language (game/dev/budget.ct — byte-identical to datum's
+## Plumb-certified port; the .ct also carries the certified `worst_grade`/
+## `status_word`). grade routes; `worst_grade` composes the routed grade in
+## GDScript; `status_word`'s routing is deferred on the string-result C-ABI gap
+## (see the note there). When STRATA_CONTOUR=1 (a
+## boot-time sim flag, read once, DevMode-independent, default OFF) they route
+## through the native VM (Contour.call_fn); flag OFF is byte-identical GDScript.
+## NO SILENT FALLBACK: flag ON with the kernel absent / uncompilable / a refused
+## call is a LOUD push_error, never a quiet twin. Routed calls carry a counter
+## (contour_status). HONEST RECLASSIFICATION: budget is a READ-ONLY meter whose
+## grade is a DEV READOUT — it writes NOTHING to the fingerprinted world — so it
+## is NOT a §6 system; the rules route as call_fn functions, and worst_grade /
+## snapshot / the %-format HUD lines compose the routed grade in GDScript glue.
+const _CONTOUR_MODULE := "res://game/dev/budget.ct"
+## 0 unresolved · 1 off (flag unset) · 2 engaged (VM live) · -1 refused.
+var _contour_mode := 0
+var _contour: Contour = null
+var _contour_calls := 0
+
+
 func _ready() -> void:
 	reload()
 	# The records desk (Strata R5) can re-read a tuned budget live, same door a
@@ -121,6 +143,14 @@ func agent_count() -> int:
 # --- grading ----------------------------------------------------------------
 
 func grade(value: int, axis: String) -> int:
+	var vm := _route_contour()
+	if vm != null:
+		var r: Variant = vm.call_fn("grade", [thresholds, value, axis])
+		if r == null:
+			_refuse("grade")
+			return GREEN
+		_contour_calls += 1
+		return int(r)
 	var t: Dictionary = thresholds.get(axis, {})
 	if value >= int(t.get("red", 1 << 30)):
 		return RED
@@ -129,6 +159,10 @@ func grade(value: int, axis: String) -> int:
 	return GREEN
 
 
+## status_word's RULE is Plumb-certified (datum budget.ct), but its in-game routing
+## is DEFERRED on the same C-ABI gap as items.display_name: a bare String RESULT is
+## not yet marshalable across the Contour ABI. It routes when that kernel increment
+## + a dylib rebuild land.
 func status_word(g: int) -> String:
 	return ["green", "amber", "red"][g]
 
@@ -195,3 +229,44 @@ func summary() -> String:
 		int(s.cell.value), status_word(int(s.cell.grade)),
 		int(s.agents.value), status_word(int(s.agents.grade)),
 		int(s.records.value), status_word(int(s.records.grade))]
+
+
+# --- Contour routing helpers (Mission D1b) ----------------------------------
+
+## The live VM when routing is engaged, else null (flag off, or a loud refusal).
+func _route_contour() -> Contour:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return _contour
+
+
+func _contour_resolve() -> void:
+	if OS.get_environment("STRATA_CONTOUR") != "1":
+		_contour_mode = 1
+		return
+	if not Contour.available():
+		push_error("[budget] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
+			+ "(not macOS / dylib absent) — refusing to silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	var vm := Contour.new()
+	var err := vm.compile_file(_CONTOUR_MODULE)
+	if err != "":
+		push_error("[budget] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	_contour = vm
+	_contour_mode = 2
+
+
+func _refuse(fn: String) -> void:
+	push_error("[budget] STRATA_CONTOUR=1 but the '%s' rule was refused by the VM — " % fn
+		+ "refusing to silently run the GDScript twin")
+
+
+## Routing introspection for the scene test / matrix.
+func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}

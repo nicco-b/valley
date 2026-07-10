@@ -421,6 +421,16 @@ func _execute(line: String) -> String:
 			# under them — a reverted stroke over a fresh tile would be
 			# garbage. Disk is the truth across a reload; the stream restarts.
 			ToolkitHistory.clear()
+			# THE BLESS LANDING (Y2): a reshaped world floods the boot-time
+			# spawn — the frozen walker and the builder camera kept their pose
+			# over the old (now underwater) spot. Re-seat BOTH onto the world's
+			# freshly-recorded landing spot. Gated on the hand being UP: that is
+			# the sanctioned bless transition (the walker is frozen under the
+			# Toolkit), never a live walk — a reload while the player is actually
+			# walking (the standalone `sendToGame` push) leaves them where they
+			# stand. See Toolkit.reseat_after_bless.
+			if Toolkit.active:
+				Toolkit.reseat_after_bless()
 			return "ok reloaded tile=%s biomes" % ("yes" if tile == "reloaded" else "no-tile")
 		"teleport":
 			if parts.size() < 3:

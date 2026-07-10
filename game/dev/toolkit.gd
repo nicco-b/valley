@@ -169,6 +169,12 @@ var _river_preview: MeshInstance3D
 # input live in OrbitRig — the map screen rides the same rig.
 var orbit := false
 var _orbit := OrbitRig.new()
+# The bless landing (Y2): reload_world re-seats the walker over the freshly
+# recorded spawn, but while the viewer is still in orbit the per-frame
+# _orbit.apply would clobber any fly-camera pose we set. So the re-seat defers
+# the fly framing to the very next orbit→fly flip (the `view fly` the in-session
+# bless sends right after reload_world) through this one-shot flag.
+var _frame_spawn_pending := false
 
 # FLY_FOV: Camera3D.new()'s default 75° left explicit — it matches the
 # player's own BASE_FOV (player.gd), the right lens for a human-scale fly
@@ -308,7 +314,66 @@ func set_view_mode(p_orbit: bool) -> void:
 			_cam.far = 8000.0
 			_cam.fov = FLY_FOV
 			_cam.environment = null  # back under the world's real air
+			# The bless landing (Y2): reload_world re-seated the walker over the
+			# new spawn but could not frame the fly camera while orbit still drove
+			# it. This is the orbit→fly flip it deferred to — crane the builder
+			# camera over the spawn instead of leaving it at the tile-framing
+			# altitude (the "arrive in the sky" bug).
+			if _frame_spawn_pending:
+				_frame_spawn_pending = false
+				var reseated := _player()
+				if reseated:
+					_frame_over_spawn(reseated)
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+## THE BLESS LANDING (Y2): a freshly-blessed world reshapes the ground under a
+## pane that booted over the OLD world. reload_world adopts the new tile, but on
+## its own it re-seats nothing — the frozen walker AND the builder camera keep
+## their boot pose over the old spawn, now (on a reshaped or sea-heavy world) in
+## open water, while `view fly` leaves the camera at the orbit-framing altitude
+## ("arrive in the sky"). This lands BOTH onto the world's freshly-recorded
+## landing spot (Terrain.recorded_spawn(), the same record SaveGame._spawn_fresh
+## reads). The sanctioned moment is the bless transition: the hand is UP and the
+## walker is frozen, so this never teleports a live walk — the caller
+## (StrataLink reload_world) gates on Toolkit.active. No recorded spawn (an
+## authored or content-empty world) is a no-op, leaving today's pose untouched.
+## Returns true when it re-seated on a recorded spawn.
+func reseat_after_bless() -> bool:
+	var sp: Variant = Terrain.recorded_spawn()
+	if not (sp is Vector2):
+		return false
+	var player := _player()
+	if player == null:
+		return false
+	var p: Vector2 = sp
+	player.global_position = Vector3(p.x, Terrain.height(p.x, p.y) + 1.2, p.y)
+	player.velocity = Vector3.ZERO
+	# Force-stream the landing cell so real collision stands under the walker
+	# the instant the hand drops (the same synchronous focus _spawn_fresh uses).
+	var streamer := get_tree().get_first_node_in_group("world_streamer")
+	if streamer:
+		streamer._update_cells(true)
+	# Frame the builder camera over the spawn. In fly it lands now (the fresh
+	# --toolkit boot / already-flying case); in orbit the per-frame _orbit.apply
+	# would clobber it, so defer to the next orbit→fly flip (view fly) instead.
+	if orbit:
+		_frame_spawn_pending = true
+	else:
+		_frame_over_spawn(player)
+	return true
+
+
+## Crane the fly camera into the _enter survey posture over the (re-seated)
+## player: the same offset and steep look-down a fresh --toolkit boot lands in,
+## so the builder opens framing the landing instead of a stale altitude.
+func _frame_over_spawn(player: Node3D) -> void:
+	if _cam == null:
+		return
+	_cam.global_position = player.global_position + Vector3(0, 60, 25)
+	_yaw = 0.0
+	_pitch = -1.1
+	_cam.rotation = Vector3(_pitch, _yaw, 0.0)
 
 
 ## The flyover's steering doors (StrataLink `flyover`). The orbit

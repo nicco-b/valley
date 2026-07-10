@@ -36,6 +36,32 @@ extends SceneTree
 ##                    engine-restart blocker). tests/ is exempt, same as
 ##                    asset-preload/content-id/dev-gate — its probes wait
 ##                    on their tasks inline, not from a node lifecycle.
+##   rd-teardown      the RD-RID LAW (teardown-reap's sibling, 2026-07-09's
+##                    leak hunt: 41 leaked RIDs): a framework file that
+##                    calls a RenderingDevice RID creator (texture_create,
+##                    sampler_create, storage_buffer_create,
+##                    shader_create_from_spirv, compute_pipeline_create,
+##                    uniform_buffer_create) must free every such RID in a
+##                    method reachable from _exit_tree while the RD is
+##                    still alive — RID lifetime is manual and a GDScript
+##                    object refcounting to zero does NOT reclaim it.
+##                    The shipping shape is CROSS-FILE: the creator is a
+##                    RefCounted driver (water_gpu.gd, sand_gpu.gd,
+##                    wave_gpu.gd) with no _exit_tree of its own, exposing
+##                    a teardown() that frees every RID it made; the OWNER
+##                    Node (water_field.gd, sand_field.gd, water_waves.gd)
+##                    calls that teardown() from its own _exit_tree. A
+##                    per-file rule would false-flag all three exemplars
+##                    (and every future GPU driver built the same way) and
+##                    demand a standing allowlist entry for the NORMAL
+##                    case — the opposite of the fence's job. So the check
+##                    is honestly cross-file: a creator file passes if (a)
+##                    its own _exit_tree frees the RIDs directly (same-file
+##                    shape), or (b) it defines some method whose body
+##                    frees them AND some framework file's _exit_tree body
+##                    calls that method by name. Fails otherwise, naming
+##                    the creator file — whether it defines no free method
+##                    at all, or defines one nobody ever calls.
 ##
 ## ALLOWLIST is the FW1-era honesty valve: known hits, each tagged with
 ## WHY it's not failing the build today — either a pending FW4 rung that
@@ -123,6 +149,13 @@ const ALLOWLIST: Array[Dictionary] = [
 	# justified exception (a task reaped from somewhere other than
 	# _exit_tree, documented) goes here — clearing it retires the entry
 	# in the same commit, same discipline as every other rule above. --
+	# -- rd-teardown: none today — the three GPU drivers that mint
+	# RenderingDevice RIDs (water_gpu.gd, sand_gpu.gd, wave_gpu.gd) each
+	# expose a teardown() that frees every RID, and each owner
+	# (water_field.gd, sand_field.gd, water_waves.gd) calls it from its
+	# own _exit_tree. A future justified exception (RIDs freed from
+	# somewhere other than an _exit_tree-reachable method, documented)
+	# goes here — same discipline as every other rule above. --
 ]
 
 var _failures := 0
@@ -222,6 +255,48 @@ func _run_probes() -> void:
 	_check(reap_clean_thread.is_empty(),
 		"probe: teardown-reap passes a Thread reaped in _exit_tree")
 
+	# rd-teardown: a creator with a texture_create and no free anywhere in
+	# the file is CAUGHT outright — no teardown/free method exists at all.
+	var rd_dirty := _rd_teardown_hits({"probe/rdgpu_dirty.gd":
+		"func setup() -> void:\n\trd.texture_create(fmt, view)\n"})
+	_check(rd_dirty.size() == 1 and rd_dirty[0].rule == "rd-teardown",
+		"probe: rd-teardown catches texture_create with no free anywhere")
+
+	# rd-teardown: a creator that DOES define a teardown() with free_rid,
+	# but that nobody's _exit_tree ever calls, is still CAUGHT — a free
+	# method that exists but is never wired is exactly as leaky as none.
+	var rd_uncalled := _rd_teardown_hits({
+		"probe/rdgpu_creator2.gd":
+			"func setup() -> void:\n\trd.texture_create(fmt, view)\n\n"
+			+ "func teardown() -> void:\n\trd.free_rid(_tex)\n",
+		"probe/rdgpu_owner2.gd":
+			"func _exit_tree() -> void:\n\tpass  # forgot to call teardown\n",
+	})
+	_check(rd_uncalled.size() == 1 and rd_uncalled[0].rule == "rd-teardown",
+		"probe: rd-teardown catches a teardown() defined but never called from any _exit_tree")
+
+	# rd-teardown: the real three-file shape PASSES — a RefCounted creator
+	# defines teardown() with free_rid, and a separate owner file's own
+	# _exit_tree calls it (water_gpu.gd/water_field.gd's real pattern).
+	var rd_clean_split := _rd_teardown_hits({
+		"probe/rdgpu_creator3.gd":
+			"func setup() -> void:\n\trd.texture_create(fmt, view)\n\n"
+			+ "func teardown() -> void:\n\trd.free_rid(_tex)\n",
+		"probe/rdgpu_owner3.gd":
+			"func _exit_tree() -> void:\n\t_gpu.teardown()\n",
+	})
+	_check(rd_clean_split.is_empty(),
+		"probe: rd-teardown passes the real three-file pattern (creator's teardown() "
+			+ "called from the owner's _exit_tree)")
+
+	# rd-teardown: the same-file shape also PASSES — a Node that creates
+	# RD RIDs directly and frees them in its own _exit_tree, no split.
+	var rd_clean_same := _rd_teardown_hits({"probe/rdgpu_node.gd":
+		"func _ready() -> void:\n\trd.texture_create(fmt, view)\n\n"
+		+ "func _exit_tree() -> void:\n\trd.free_rid(_tex)\n"})
+	_check(rd_clean_same.is_empty(),
+		"probe: rd-teardown passes a same-file create + free-in-_exit_tree pattern")
+
 
 # --- pass 2: the real manifest ------------------------------------------
 
@@ -231,6 +306,7 @@ func _run_real() -> void:
 	var ids := _content_ids(files)
 	print("  scanning %d framework files against %d content ids" % [files.size(), ids.size()])
 
+	var gd_texts: Dictionary = {}  # path -> text, .gd files only (rd-teardown's corpus)
 	for path in files:
 		var ext := path.get_extension()
 		if not SCANNABLE_EXT.has(ext):
@@ -239,6 +315,8 @@ func _run_real() -> void:
 			_check(false, "%s: manifest names a missing file" % path)
 			continue
 		var text := FileAccess.get_file_as_string("res://" + path)
+		if ext == "gd":
+			gd_texts[path] = text
 		for hit: Dictionary in lint_text(path, text, ids):
 			# The verification harness ships in the manifest (FW3) but its
 			# job is to probe CONTENT where it ships — every probe rides a
@@ -262,6 +340,21 @@ func _run_real() -> void:
 			else:
 				_observed += 1
 				print("  OBSERVE [%s] %s: '%s' (%s)" % [hit.rule, hit.path, hit.literal, allowed.reason])
+
+	# rd-teardown is cross-file (see header doc) so it scans the whole .gd
+	# corpus at once rather than one file at a time like the rules above.
+	# tests/ rides the same exemption as teardown-reap — its probes free
+	# any RD resources they make inline, not from a node lifecycle.
+	for hit: Dictionary in _rd_teardown_hits(gd_texts):
+		if hit.path.begins_with("tests/"):
+			continue
+		var allowed := _allowlisted(hit)
+		if allowed.is_empty():
+			_failures += 1
+			print("  FAIL [%s] %s: '%s'" % [hit.rule, hit.path, hit.literal])
+		else:
+			_observed += 1
+			print("  OBSERVE [%s] %s: '%s' (%s)" % [hit.rule, hit.path, hit.literal, allowed.reason])
 
 
 func _allowlisted(hit: Dictionary) -> Dictionary:
@@ -363,6 +456,116 @@ func _exit_tree_body(text: String) -> String:
 			break
 		out.append(lines[i])
 	return "\n".join(out)
+
+
+# --- the RD-RID LAW (rd-teardown), cross-file --------------------------
+
+const RD_CREATE_PATTERN := "(texture_create|sampler_create|storage_buffer_create" \
+	+ "|shader_create_from_spirv|compute_pipeline_create|uniform_buffer_create)\\s*\\("
+
+## True if this file's source calls one of the RD RID creator methods
+## (comment-only lines excluded, same convention as every rule above). The
+## `\s*\(` right after the method name is what keeps this from tripping on
+## texture_create_from_extension (preview_terrain.gd's wrap-not-create
+## call) — that name merely CONTAINS "texture_create" as a substring.
+func _creates_rd_rids(text: String) -> bool:
+	var re := RegEx.create_from_string(RD_CREATE_PATTERN)
+	for line in text.split("\n"):
+		var s := line.strip_edges()
+		if s.begins_with("#"):
+			continue
+		if re.search(line):
+			return true
+	return false
+
+
+## Every top-level `func` in this file, name -> body text (from just after
+## its `func` line to the next top-level `func` or EOF). Same column-0
+## convention as _exit_tree_body, generalized to all functions so
+## rd-teardown can find whichever method (if any) frees the RIDs a
+## RefCounted creator has no _exit_tree to do it in itself.
+func _top_level_func_bodies(text: String) -> Dictionary:
+	var bodies: Dictionary = {}
+	var name := ""
+	var lines_out: Array[String] = []
+	for line in text.split("\n"):
+		if line.begins_with("func "):
+			if name != "":
+				bodies[name] = "\n".join(lines_out)
+			var after := line.substr(5)
+			var paren := after.find("(")
+			name = after.substr(0, paren).strip_edges() if paren != -1 else after.strip_edges()
+			lines_out = []
+		elif name != "":
+			lines_out.append(line)
+	if name != "":
+		bodies[name] = "\n".join(lines_out)
+	return bodies
+
+
+## Method names (excluding _exit_tree itself) whose body contains a
+## free_rid call — candidate teardown/free methods a creator file exposes
+## for an owner elsewhere to invoke from ITS _exit_tree.
+func _free_rid_method_names(text: String) -> Array[String]:
+	var out: Array[String] = []
+	var bodies := _top_level_func_bodies(text)
+	for method_name: String in bodies:
+		if method_name == "_exit_tree":
+			continue
+		var body: String = bodies[method_name]
+		if body.contains("free_rid"):
+			out.append(method_name)
+	return out
+
+
+## True if some framework file's _exit_tree body (any file, including the
+## creator's own — the same-file shape) calls `method_name(...)`. This is
+## the cross-file half of the check: a RefCounted driver has no _exit_tree
+## of its own, so the wiring that actually reaps its RIDs lives in the
+## OWNER Node's _exit_tree instead (water_field.gd calling
+## `_gpu.teardown()`, sand_field.gd, water_waves.gd — the shipping shape).
+func _exit_tree_calls_method(all_texts: Dictionary, method_name: String) -> bool:
+	var call_re := RegEx.create_from_string("\\b" + method_name + "\\s*\\(")
+	for path: String in all_texts:
+		var body := _exit_tree_body(all_texts[path])
+		if body != "" and call_re.search(body):
+			return true
+	return false
+
+
+## The RD-RID LAW over the whole .gd corpus at once (path -> text). A file
+## that creates RD RIDs passes if (a) its OWN _exit_tree frees them
+## directly (a Node driving RD itself, no split needed), or (b) it defines
+## some method whose body frees them and some framework file's _exit_tree
+## calls that method by name (the real three-file shape: a RefCounted
+## creator's teardown(), invoked from its owner Node's _exit_tree). Fails
+## otherwise, naming the creator file — whether no free method exists at
+## all, or one exists but nothing ever calls it.
+func _rd_teardown_hits(all_texts: Dictionary) -> Array[Dictionary]:
+	var hits: Array[Dictionary] = []
+	for path: String in all_texts:
+		var text: String = all_texts[path]
+		if not _creates_rd_rids(text):
+			continue
+		if _exit_tree_body(text).contains("free_rid"):
+			continue  # same-file shape: this file frees what it creates
+		var candidates := _free_rid_method_names(text)
+		if candidates.is_empty():
+			hits.append({"path": path, "rule": "rd-teardown",
+				"literal": "creates RenderingDevice RIDs but defines no teardown/free "
+					+ "method with free_rid, and its own _exit_tree (if any) doesn't "
+					+ "free them either (RD-RID LAW)"})
+			continue
+		var called := false
+		for method_name in candidates:
+			if _exit_tree_calls_method(all_texts, method_name):
+				called = true
+				break
+		if not called:
+			hits.append({"path": path, "rule": "rd-teardown",
+				"literal": ("creates RenderingDevice RIDs; defines %s() with free_rid "
+					+ "but no framework _exit_tree calls it (RD-RID LAW)") % candidates[0]})
+	return hits
 
 
 # --- manifest + content-id corpus ---------------------------------------

@@ -1,0 +1,29 @@
+{
+	"comment": "The on_fill door (DESIGN_QUESTS §4/§6): a hook overrides the data-ranked fill, and reads its own latched binding. reed and wren both pass require and there is no prefer, so the data rank is [reed, wren] (id sort) — the pick would be reed. probe_roles.on_fill returns the LAST candidate (wren), a choice the data alone would never make, so hauler=wren can only mean on_fill fired. on_start then writes q.role('hauler') to a test key, proving a hook reads the REAL binding (not the pre-Q4 empty string) because on_start runs after the roles seal.",
+	"record": {
+		"format": 2, "id": "role_on_fill", "title": "The Chosen Hauler", "tier": "errand",
+		"start_if": { "flag": "test.role.start" },
+		"hooks": "hooks/probe_roles.gd",
+		"roles": {
+			"hauler": {
+				"kind": "npc",
+				"require": [ { "eq": ["npc.$self.region", "$player_region"] } ]
+			}
+		},
+		"stages": [
+			{ "id": "open", "start": true, "journal": "$hauler was chosen to carry it." },
+			{ "id": "done", "terminal": true, "advance_when": { "flag": "test.role.finish" },
+				"journal": "$hauler carried it through." }
+		]
+	},
+	"script": [
+		{ "set": { "player.region": "valley",
+			"npc.reed.region": "valley", "npc.wren.region": "valley" } },
+		{ "set": { "test.role.start": true } },
+		{ "expect_reached": "open" },
+		{ "expect_role": ["hauler", "wren"] },
+		{ "expect_key": ["test.probe.role_on_fill.hauler", "wren"] },
+		{ "set": { "test.role.finish": true } },
+		{ "expect_reached": "done" }
+	]
+}

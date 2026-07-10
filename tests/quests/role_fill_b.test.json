@@ -1,0 +1,33 @@
+{
+	"comment": "The pair of role_fill_a: IDENTICAL role rules, a different world. Here wren knows brook_slump and reed does not, so the same require+prefer query fills wren. reed and wren both pass require; prefer discriminates deterministically — no RNG, the soak's determinism ask made a unit test. Proves 'a role-filled errand names a DIFFERENT NPC in a different world state' (§13).",
+	"record": {
+		"format": 2, "id": "role_fill_b", "title": "Carry the Water", "tier": "errand",
+		"start_if": { "flag": "test.role.start" },
+		"roles": {
+			"hauler": {
+				"kind": "npc",
+				"require": [ { "eq": ["npc.$self.region", "$player_region"] } ],
+				"prefer": [ { "knows": ["$self", "brook_slump"] } ]
+			}
+		},
+		"stages": [
+			{ "id": "open", "start": true, "journal": "$hauler agreed to carry water from the spring.",
+				"objectives": [
+					{ "id": "walk", "text": "Wait for $hauler to reach the far pool.",
+						"done_if": { "flag": "npc.$hauler.arrived" } } ] },
+			{ "id": "done", "terminal": true, "advance_when": { "flag": "npc.$hauler.arrived" },
+				"journal": "$hauler made it to the pool, and the water went with them." }
+		]
+	},
+	"script": [
+		{ "set": { "player.region": "valley",
+			"npc.reed.region": "valley",
+			"npc.wren.region": "valley", "npc.wren.knows.brook_slump": true } },
+		{ "set": { "test.role.start": true } },
+		{ "expect_reached": "open" },
+		{ "expect_role": ["hauler", "wren"] },
+		{ "set": { "npc.wren.arrived": true } },
+		{ "expect_objective": ["open", "walk"] },
+		{ "expect_reached": "done" }
+	]
+}

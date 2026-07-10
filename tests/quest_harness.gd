@@ -30,6 +30,7 @@ extends Node
 ##   {"expect_flag": key}                a hook side-effect key is set
 ##   {"expect_not_flag": key}            — and its negative
 ##   {"expect_key": [key, value]}        a hook wrote value at key
+##   {"expect_role": [role, id]}         the latched role binding (§4)
 ##   {"replay_advance": n}               advance n hours TWICE from a
 ##                                       restored snapshot and assert the
 ##                                       quest namespaces are bit-identical
@@ -152,6 +153,26 @@ func _lint_probes() -> void:
 			"bind": {"threshold": 0.5, "bogus": 1}}, "stages": hook_stages}, "not a declared property")
 	_probe("hook script does not exist", {"format": 2, "id": "p", "title": "p",
 		"tier": "errand", "hooks": "hooks/no_such_hook.gd", "stages": hook_stages}, "does not exist")
+	# -- roles (§4): a MALFORMED role must bounce at commit. rstages is a
+	# minimal valid errand graph so only the role under test is the fault.
+	var rstages: Array = [
+		{"id": "a", "start": true, "journal": "x"},
+		{"id": "end", "terminal": true, "advance_when": {"flag": "k"}, "journal": "x"}]
+	_probe("role with an unknown kind", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "roles": {"hauler": {"kind": "creature"}}, "stages": rstages},
+		"kind must be")
+	_probe("role fills on an unknown stage", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "roles": {"hauler": {"kind": "npc", "fill": "on_stage:ghost"}},
+		"stages": rstages}, "unknown stage")
+	_probe("role with a bad fallback", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "roles": {"hauler": {"kind": "npc", "fallback": "wait"}},
+		"stages": rstages}, "fallback must be")
+	_probe("role require is not an array", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "roles": {"hauler": {"kind": "npc", "require": {"flag": "k"}}},
+		"stages": rstages}, "must be an array")
+	_probe("role require row is an unknown predicate", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "roles": {"hauler": {"kind": "npc",
+			"require": [{"expr": "1 > 0"}]}}, "stages": rstages}, "unknown predicate")
 
 
 func _probe(name: String, record: Dictionary, expect_fragment: String) -> void:
@@ -284,6 +305,10 @@ func _run_test(name: String, test: Dictionary) -> void:
 				"expect_key":
 					var got: Variant = WorldState.get_value(String(arg[0]))
 					_check(_same(got, arg[1]), "%s %s want %s got %s" % [at, arg[0], arg[1], got])
+				"expect_role":
+					var bound := Story.role_of(qid, String(arg[0]))
+					_check(bound == String(arg[1]),
+						"%s role %s want %s got %s" % [at, arg[0], arg[1], bound])
 				"replay_advance":
 					# The hooks door's determinism proof (§10): advance the
 					# same span TWICE from a restored snapshot (clock rewound

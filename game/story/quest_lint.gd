@@ -23,7 +23,11 @@ class_name QuestLint
 ##   endings    sibling terminals disjoint on the same sealed key
 ##              (best-effort: two terminals gating on the identical
 ##              choice.* flag can both latch — refused)
-##   roles      $role references resolve to declared roles or built-ins
+##   roles      $role references resolve to declared roles or built-ins;
+##              each declared role is well shaped (§4): kind enumerated,
+##              pinned `is` a string, require/prefer arrays of role-query
+##              conditions (shared vocabulary + tagged/near), fill on_start
+##              or on_stage:<existing>, fallback hold|abandon
 ##   targets    stage scene ids exist; scene dialogue records exist;
 ##              hooks scripts exist; thread `after` targets exist
 ##   hooks      the named script extends QuestHooks and its `bind`
@@ -45,6 +49,8 @@ const THREADS_DIR := "res://data/threads"
 const DIALOGUE_DIR := "res://data/dialogue"
 const RECURRENT_PATH := "res://data/story/recurrent.json"
 const BUILTIN_ROLES: Array[String] = ["player", "hook", "player_region", "self"]
+## Role kinds the filler queries (§4).
+const ROLE_KINDS: Array[String] = ["npc", "wildlife", "place", "item"]
 ## Key namespaces the player can reach (actions, seals, scenes, elapsed
 ## time, items) — the non-recurrent half of the spine-gating rule.
 const PLAYER_WRITABLE: Array[String] = ["player.", "journal.", "choice.",
@@ -189,10 +195,13 @@ static func lint_quest(q: Dictionary) -> Array[String]:
 					problems.append("%s: terminals '%s' and '%s' both gate on '%s' — endings must be disjoint"
 							% [qid, terminals[i], terminals[j], key])
 
-	# -- roles: every $ref resolves (declared or built-in).
+	# -- roles (§4): every $ref resolves, and every declared role is well
+	# shaped — kind valid, is/require/prefer/fill/fallback checked so a
+	# malformed role bounces at commit, not at fill time.
 	var declared: Array[String] = []
 	for role: String in q.get("roles", {}):
 		declared.append(role)
+		problems.append_array(_lint_role(q, role, q.roles[role], ids))
 	for ref in _role_refs(q):
 		if not declared.has(ref) and not BUILTIN_ROLES.has(ref):
 			problems.append("%s: $%s is not a declared role" % [qid, ref])
@@ -311,6 +320,71 @@ static func _spine_ok(key: String, recurrent: Array[String]) -> bool:
 		if key == prefix or key.begins_with(prefix):
 			return true
 	return false
+
+
+## One role's shape (§4). kind is required and enumerated; a pinned `is`
+## must be a string; require/prefer are arrays of role-query conditions
+## (the shared vocabulary + the role-only `tagged`/`near`); fill is on_start
+## or on_stage:<existing stage>; fallback is hold or abandon.
+static func _lint_role(q: Dictionary, name: String, spec: Variant,
+		stage_ids: Array[String]) -> Array[String]:
+	var problems: Array[String] = []
+	var qid: String = q.id
+	if not (spec is Dictionary):
+		problems.append("%s: role '%s' must be a dictionary" % [qid, name])
+		return problems
+	var s: Dictionary = spec
+	if not (String(s.get("kind", "")) in ROLE_KINDS):
+		problems.append("%s: role '%s' kind must be npc|wildlife|place|item" % [qid, name])
+	if s.has("is") and not (s["is"] is String):
+		problems.append("%s: role '%s' pinned 'is' must be a string id" % [qid, name])
+	for field: String in ["require", "prefer"]:
+		if not s.has(field):
+			continue
+		if not (s[field] is Array):
+			problems.append("%s: role '%s' %s must be an array of conditions" % [qid, name, field])
+			continue
+		for i in (s[field] as Array).size():
+			problems.append_array(_lint_role_cond(s[field][i],
+				"%s: role '%s' %s[%d]" % [qid, name, field, i]))
+	if s.has("fill"):
+		var fill := String(s.fill)
+		if fill != "on_start" and not fill.begins_with("on_stage:"):
+			problems.append("%s: role '%s' fill must be on_start or on_stage:<id>" % [qid, name])
+		elif fill.begins_with("on_stage:"):
+			var sid := fill.trim_prefix("on_stage:")
+			if not stage_ids.has(sid):
+				problems.append("%s: role '%s' fills on unknown stage '%s'" % [qid, name, sid])
+	if s.has("fallback") and not (String(s.fallback) in ["hold", "abandon"]):
+		problems.append("%s: role '%s' fallback must be hold or abandon" % [qid, name])
+	return problems
+
+
+## A role-query condition: the shared closed language PLUS the role-only
+## predicates `tagged`/`near` (which conditions never test — §5). Delegates
+## every standard row to Conditions.lint so unknown/reserved/malformed rows
+## are caught with the game's own words.
+static func _lint_role_cond(c: Variant, context: String) -> Array[String]:
+	var problems: Array[String] = []
+	if not (c is Dictionary):
+		problems.append("%s: condition must be a dictionary" % context)
+		return problems
+	var dict := c as Dictionary
+	for key: String in dict:
+		if key in ["tagged", "near"]:
+			if not (dict[key] is Array) or (dict[key] as Array).size() < 2:
+				problems.append("%s: '%s' takes [$self, value]" % [context, key])
+		elif key in ["all", "any"]:
+			if dict[key] is Array:
+				for i in (dict[key] as Array).size():
+					problems.append_array(_lint_role_cond(dict[key][i], "%s.%s[%d]" % [context, key, i]))
+			else:
+				problems.append("%s: '%s' takes an array of conditions" % [context, key])
+		elif key == "not":
+			problems.append_array(_lint_role_cond(dict[key], context + ".not"))
+		else:
+			problems.append_array(Conditions.lint({key: dict[key]}, context))
+	return problems
 
 
 # --- graph helpers ----------------------------------------------------------

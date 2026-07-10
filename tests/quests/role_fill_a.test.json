@@ -1,0 +1,35 @@
+{
+	"comment": "Roles v1 (DESIGN_QUESTS §4, rung Q4): a role-filled errand. `hauler` is queried from the live world — candidates of kind npc, filtered by require (same region as the player), ranked by prefer (knows the hook fact), ties broken by id sort. In THIS world reed knows brook_slump, so hauler fills reed (its pair fixture role_fill_b flips the knower and fills wren — the SAME rules, a different world, a different NPC, deterministically: the §13 done-criterion). The objective and terminal gate on npc.$hauler.arrived — proving $role substitution resolves the binding into condition keys (npc.reed.arrived), which is also what puts that key in the seed index.",
+	"record": {
+		"format": 2, "id": "role_fill_a", "title": "Carry the Water", "tier": "errand",
+		"start_if": { "flag": "test.role.start" },
+		"roles": {
+			"hauler": {
+				"kind": "npc",
+				"require": [ { "eq": ["npc.$self.region", "$player_region"] } ],
+				"prefer": [ { "knows": ["$self", "brook_slump"] } ]
+			}
+		},
+		"stages": [
+			{ "id": "open", "start": true, "journal": "$hauler agreed to carry water from the spring.",
+				"objectives": [
+					{ "id": "walk", "text": "Wait for $hauler to reach the far pool.",
+						"done_if": { "flag": "npc.$hauler.arrived" } } ] },
+			{ "id": "done", "terminal": true, "advance_when": { "flag": "npc.$hauler.arrived" },
+				"journal": "$hauler made it to the pool, and the water went with them." }
+		]
+	},
+	"script": [
+		{ "set": { "player.region": "valley",
+			"npc.reed.region": "valley", "npc.reed.knows.brook_slump": true,
+			"npc.wren.region": "valley",
+			"npc.stone.region": "hills", "npc.stone.knows.brook_slump": true } },
+		{ "set": { "test.role.start": true } },
+		{ "expect_reached": "open" },
+		{ "expect_role": ["hauler", "reed"] },
+		{ "expect_not_reached": "done" },
+		{ "set": { "npc.reed.arrived": true } },
+		{ "expect_objective": ["open", "walk"] },
+		{ "expect_reached": "done" }
+	]
+}

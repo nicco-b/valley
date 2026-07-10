@@ -1,0 +1,24 @@
+{
+	"comment": "Restore-then-replay bit-identity (DESIGN_QUESTS §10, the determinism ask): a hook-bearing quest whose `custom` predicate fires INSIDE advance_hours catch-up (elapsed-days gate, watched on time.day) and whose on_resolve rolls the sanctioned q.roll dice. replay_advance runs the same advance TWICE from a restored snapshot (clock rewound too) and asserts the journal.*/choice.*/test.* namespaces are byte-identical — the playtest desk's restore-then-replay produces identical latches, and q.roll's dice are stable per day. The gap assert proves the memoir stamps the REPLAYED day (catch-up honesty), not the wall day it was noticed.",
+	"record": {
+		"format": 2, "id": "hook_replay", "title": "Two Days Waiting", "tier": "errand",
+		"start_if": { "flag": "test.hook.start" },
+		"hooks": { "script": "hooks/probe_errand.gd", "bind": { "threshold": 0.5 } },
+		"stages": [
+			{ "id": "open", "start": true, "journal": "Nothing to do until two days pass.",
+				"objectives": [
+					{ "id": "wait", "text": "Let two days pass.",
+						"done_if": { "custom": ["elapsed", "open", 2], "watch": ["time.day"] } } ] },
+			{ "id": "risen", "terminal": true, "journal": "Two days passed, and the wait was over." }
+		]
+	},
+	"script": [
+		{ "set": { "test.hook.start": true } },
+		{ "expect_reached": "open" },
+		{ "expect_not_reached": "risen" },
+		{ "replay_advance": 72 },
+		{ "expect_reached": "risen" },
+		{ "expect_gap": ["open", "risen", 2] },
+		{ "expect_key": ["test.probe.hook_replay.resolved", "risen"] }
+	]
+}

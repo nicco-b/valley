@@ -1,0 +1,30 @@
+{
+	"comment": "The hooks door (Q3, DESIGN_QUESTS §6): a hook-flavored errand proving every lifecycle entry point AND the custom predicate. The objective latches on a `custom` row that Story dispatches to probe_errand.condition — the game's hook is the only interpreter, and it reads the RECORD-BOUND threshold (CK property binding) against a world key it declared in watch. on_start/on_stage/on_objective/on_resolve each leave a namespaced flag the script asserts. Custom fails closed until the level rises past the bound mark, then drives the latch — the predicate that used to fail closed now dispatches.",
+	"record": {
+		"format": 2, "id": "hook_errand", "title": "The Watched Gate", "tier": "errand",
+		"start_if": { "flag": "test.hook.start" },
+		"hooks": { "script": "hooks/probe_errand.gd", "bind": { "threshold": 0.5 } },
+		"stages": [
+			{ "id": "open", "start": true, "journal": "The gate watches the level.",
+				"objectives": [
+					{ "id": "watch_level", "text": "Wait for the water to rise past the mark.",
+						"done_if": { "custom": ["ready"], "watch": ["test.hook.level"] } } ] },
+			{ "id": "risen", "terminal": true, "journal": "The level rose past the mark, and the gate let go." }
+		]
+	},
+	"script": [
+		{ "set": { "test.hook.start": true } },
+		{ "expect_reached": "open" },
+		{ "expect_flag": "test.probe.hook_errand.started" },
+		{ "expect_flag": "test.probe.hook_errand.stage.open" },
+		{ "expect_not_reached": "risen" },
+		{ "set": { "test.hook.level": 0.3 } },
+		{ "expect_not_reached": "risen" },
+		{ "set": { "test.hook.level": 0.7 } },
+		{ "expect_objective": ["open", "watch_level"] },
+		{ "expect_flag": "test.probe.hook_errand.obj.watch_level" },
+		{ "expect_reached": "risen" },
+		{ "expect_flag": "test.probe.hook_errand.stage.risen" },
+		{ "expect_key": ["test.probe.hook_errand.resolved", "risen"] }
+	]
+}

@@ -27,6 +27,14 @@ extends Node
 ##                                       stamps the replayed day
 ##   {"expect_minted": kind}             against Story's mint log
 ##   {"expect_scene_requested": id}      against Story's request log
+##   {"expect_flag": key}                a hook side-effect key is set
+##   {"expect_not_flag": key}            — and its negative
+##   {"expect_key": [key, value]}        a hook wrote value at key
+##   {"replay_advance": n}               advance n hours TWICE from a
+##                                       restored snapshot and assert the
+##                                       quest namespaces are bit-identical
+##                                       (the hooks door's determinism proof,
+##                                       §10 — an impure hook diverges here)
 ##
 ## The world runs REAL under the harness (autoloads tick through
 ## advance_hours — the soak's pattern, no player body), so long advances
@@ -46,6 +54,7 @@ func _ready() -> void:
 
 	_run_lint()
 	_lint_probes()
+	_hook_probes()
 	_run_tests()
 
 	if _failures > 0:
@@ -126,6 +135,23 @@ func _lint_probes() -> void:
 			{"id": "e1", "terminal": true, "advance_when": {"flag": "choice.p.x"}, "journal": "x"},
 			{"id": "e2", "terminal": true, "advance_when": {"flag": "choice.p.x"}, "journal": "x"}]},
 		"disjoint")
+	# -- the hooks door (§6): the bind-vs-properties() catch. probe_errand
+	# declares { threshold: TYPE_FLOAT } — a bind that misses it, mistypes
+	# it, or names a phantom property must bounce at commit, not runtime.
+	var hook_stages: Array = [
+		{"id": "a", "start": true, "journal": "x"},
+		{"id": "end", "terminal": true, "advance_when": {"flag": "k"}, "journal": "x"}]
+	_probe("hook bind missing a declared property", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "hooks": {"script": "hooks/probe_errand.gd", "bind": {}},
+		"stages": hook_stages}, "missing property 'threshold'")
+	_probe("hook bind mistypes a property", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "hooks": {"script": "hooks/probe_errand.gd", "bind": {"threshold": "high"}},
+		"stages": hook_stages}, "mistyped")
+	_probe("hook bind names a phantom property", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "hooks": {"script": "hooks/probe_errand.gd",
+			"bind": {"threshold": 0.5, "bogus": 1}}, "stages": hook_stages}, "not a declared property")
+	_probe("hook script does not exist", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "hooks": "hooks/no_such_hook.gd", "stages": hook_stages}, "does not exist")
 
 
 func _probe(name: String, record: Dictionary, expect_fragment: String) -> void:
@@ -135,6 +161,49 @@ func _probe(name: String, record: Dictionary, expect_fragment: String) -> void:
 			return
 	_check(false, "lint probe '%s' bites (wanted '%s' in %s)"
 			% [name, expect_fragment, problems])
+
+
+# --- pass 2b: the hook surface + purity (the door's own probes) --------------
+
+## The QuestRun surface laws and the visible-violation guarantee (§6):
+##   - q.roll is a PURE function of the day (replay-stable dice)
+##   - q.actor is null headless / q.role empty pre-Q4 (the two-tier law)
+##   - an IMPURE hook (bare randf) is NOT replay-stable — the harness sees
+##     it (run twice from an identical state, the outputs must DIFFER). The
+##     same restore-then-replay identity that keeps honest hooks bit-stable
+##     is what makes a purity violation visible.
+func _hook_probes() -> void:
+	print("  hook probes")
+	# q.roll: same seed + same day + same tag → same value; a new day moves it.
+	WorldState.set_value("world.seed", HARNESS_SEED)
+	var run := QuestRun.new("roll_probe", Story, {})
+	WorldState.set_value("time.day", 5)
+	var r1 := run.roll("t")
+	_check(is_equal_approx(r1, run.roll("t")), "q.roll is stable within a day (same tag)")
+	_check(not is_equal_approx(run.roll("t"), run.roll("u")), "q.roll varies by tag")
+	WorldState.set_value("time.day", 6)
+	_check(not is_equal_approx(run.roll("t"), r1), "q.roll varies by day (catch-up honest)")
+	# the two-tier law at the hook boundary.
+	_check(run.actor("keeper") == null, "q.actor is null headless (data-tier has no body)")
+	_check(run.role("keeper") == "", "q.role is empty until Q4 fills it")
+
+	# the visible-violation guarantee: an impure hook diverges across two
+	# identical runs — the harness would fail a replay-identity assert on it.
+	var impure := {"format": 2, "id": "impure_probe", "title": "Impure", "tier": "errand",
+		"start_if": {"flag": "test.impure.start"}, "hooks": "hooks/probe_impure.gd",
+		"stages": [
+			{"id": "open", "start": true, "journal": "x"},
+			{"id": "done", "terminal": true, "advance_when": {"flag": "test.impure.finish"},
+				"journal": "y"}]}
+	var draws: Array[String] = []
+	for _pass in 2:
+		_reset_world()
+		Story.register_quest(impure)
+		WorldState.set_value("test.impure.start", true)  # latch open → on_stage → randf
+		draws.append(String(WorldState.get_value("test.impure.draw", "")))
+		Story.unregister_quest("impure_probe")
+	_check(not draws[0].is_empty() and draws[0] != draws[1],
+		"purity probe: an impure hook (bare randf) is NOT replay-stable — the harness sees it")
 
 
 # --- pass 3: tests as data ---------------------------------------------------
@@ -208,6 +277,22 @@ func _run_test(name: String, test: Dictionary) -> void:
 						if req == arg or req.ends_with("." + String(arg)):
 							hit = true
 					_check(hit, "%s %s" % [at, arg])
+				"expect_flag":
+					_check(_flag(String(arg)), "%s %s set" % [at, arg])
+				"expect_not_flag":
+					_check(not _flag(String(arg)), "%s %s unset" % [at, arg])
+				"expect_key":
+					var got: Variant = WorldState.get_value(String(arg[0]))
+					_check(_same(got, arg[1]), "%s %s want %s got %s" % [at, arg[0], arg[1], got])
+				"replay_advance":
+					# The hooks door's determinism proof (§10): advance the
+					# same span TWICE from a restored snapshot (clock rewound
+					# too) and demand the journal.*/choice.*/test.* namespaces
+					# match byte-for-byte. Any impurity in a hook fired inside
+					# advance_hours — bare randf, a wall-clock read — diverges
+					# here. Leaves the world in the replayed state so the
+					# asserts after this step run against real latches.
+					_check(_replay_advance(float(arg)), "%s bit-identical replay" % at)
 				_:
 					_check(false, "%s: unknown step verb" % at)
 	if not inline.is_empty():
@@ -224,3 +309,57 @@ func _reset_world() -> void:
 	WorldState.set_value("time.hour", int(GameClock.solar_hours()))
 	WorldState.set_value("time.season", GameClock.season)
 	get_tree().call_group("world_state_reader", "load_state")
+
+
+## "Set" for assertions: present and not false (latch dicts read as set).
+func _flag(key: String) -> bool:
+	var v: Variant = WorldState.get_value(key)
+	return v != null and not (v is bool and v == false)
+
+
+## Loose equality: JSON numbers are floats, so compare numerics approximately.
+func _same(a: Variant, b: Variant) -> bool:
+	if (a is int or a is float) and (b is int or b is float):
+		return is_equal_approx(float(a), float(b))
+	return a == b
+
+
+## Restore-then-replay: snapshot the world AND the clock, advance the span,
+## digest the quest namespaces, rewind everything, advance again, digest
+## again — identical means a deterministic, replay-safe run. Returns true on
+## a match and leaves the world in the (second) replayed state.
+func _replay_advance(hours: float) -> bool:
+	var d0 := GameClock.day
+	var h0 := GameClock.hours
+	var lh0: int = GameClock._last_hour
+	var snap := WorldState.snapshot()
+	GameClock.advance_hours(hours)
+	var first := _replay_digest()
+	# rewind the clock's own state (WorldState alone doesn't carry it), restore
+	# the world, let every world_state_reader rebuild derived runtime, replay.
+	GameClock.day = d0
+	GameClock.hours = h0
+	GameClock._last_hour = lh0
+	WorldState.restore(snap)
+	get_tree().call_group("world_state_reader", "load_state")
+	GameClock.advance_hours(hours)
+	var second := _replay_digest()
+	if first != second:
+		print("    replay diverged:\n      A: ", first, "\n      B: ", second)
+	return first == second
+
+
+## A canonical digest of the quest-owned namespaces (journal.*/choice.*/
+## test.*), key-sorted so insertion order can't fake a mismatch, values
+## JSON-stringified (latch dicts have a fixed key order, so this is stable).
+func _replay_digest() -> String:
+	var snap := WorldState.snapshot()
+	var keys: Array[String] = []
+	for k: String in snap:
+		if k.begins_with("journal.") or k.begins_with("choice.") or k.begins_with("test."):
+			keys.append(k)
+	keys.sort()
+	var parts := PackedStringArray()
+	for k in keys:
+		parts.append("%s=%s" % [k, JSON.stringify(snap[k])])
+	return "\n".join(parts)

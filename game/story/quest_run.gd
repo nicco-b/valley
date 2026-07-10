@@ -50,8 +50,9 @@ func reached_day(stage: String) -> int:
 	return _story.reached_day(id, stage)
 
 
-## The latched role binding (Q4 — until roles land this reads the key and
-## returns "" when unfilled; the surface is stable for the rung that fills it).
+## The latched role binding (§4): the id Story sealed at journal.<q>.role.
+## <name>, or "" when the role is unfilled. on_start runs after the seal, so
+## a hook reads the real id here — the harness holds it (role_on_fill).
 func role(name: String) -> String:
 	var v: Variant = get_value("journal.%s.role.%s" % [id, name], "")
 	return String(v) if v is String else ""

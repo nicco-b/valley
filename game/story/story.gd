@@ -36,9 +36,14 @@ extends Node
 ## to the owning quest (never a Strata-invented semantic). Hooks fire from
 ## latch processing, which is changed-driven, so they replay bit-identically
 ## through advance_hours catch-up (the harness holds us to it).
-## Deferred to their rungs: roles + on_fill (Q4), dialogue (Q5), scenes
-## assembler (Q6 — stage scene ids are recorded as requests so the harness
-## can assert them), expire machinery + on_expire (Q8), world flips (Q10).
+## Q4 (roles, §4) adds: role declarations fill from the LIVE world by a
+## deterministic query (require filter, prefer + id-sort rank, is/near, no
+## RNG); fills LATCH to journal.<q>.role.<name> (replay-safe, never re-roll);
+## $role substitutes into condition keys, the seed index, and memoir prose;
+## and on_fill (§6) gives the hook the last word over the data-ranked pick.
+## Deferred to their rungs: dialogue (Q5), scenes assembler (Q6 — stage scene
+## ids are recorded as requests so the harness can assert them), expire
+## machinery + on_expire (Q8), world flips (Q10).
 ## `mint` records into an in-memory log (harness-visible) and logs once —
 ## it rides Memory v2's fact channels when S1/B3 lands.
 ##
@@ -162,16 +167,21 @@ func _build_index() -> void:
 	for qid: String in quests:
 		var q: Dictionary = quests[qid]
 		var keys: Array[String] = []
+		var smap := _subst_map(q)  # resolve $role/$built-in keys after fill (§5)
 		var conds: Array = [q.get("start_if", {})]
 		if q.has("repeatable"):
 			keys.append("time.day")  # cooldown re-arm rides the day tick
+		if q.has("roles"):
+			keys.append("time.day")  # a HELD role retries on the day tick (§4)
 		for stage: Dictionary in q.stages:
 			conds.append(stage.get("advance_when", {}))
 			for obj: Dictionary in stage.get("objectives", []):
 				conds.append(obj.get("done_if", {}))
 		var hook := _hook_of(q)
 		for cond: Dictionary in conds:
-			keys.append_array(Conditions.keys_of(cond))
+			# $role keys index after fill, on the binding's latch (§5): the
+			# substituted key (npc.wanderer.met) is what a changed touch settles.
+			keys.append_array(Conditions.keys_of(_subst_cond(cond, smap)))
 			# A custom predicate's index keys come from the record's `watch`
 			# (via keys_of above) AND, if a hook is present, whatever it
 			# declares in code via custom_keys — the §6 "records may also
@@ -226,6 +236,8 @@ func _settle(qid: String) -> void:
 		for stage: Dictionary in q.stages:
 			var sid: String = stage.id
 			if reached(qid, sid):
+				if _fill_on_stage(q, sid):  # a held on_stage role got a candidate (§4)
+					moved = true
 				for obj: Dictionary in stage.get("objectives", []):
 					if _try_latch_objective(q, prefix, stage, obj):
 						moved = true
@@ -252,12 +264,26 @@ func _try_start(q: Dictionary) -> bool:
 			return false
 	elif int(cyc.count) > 0:
 		return false  # stories never re-arm (§7)
-	if not Conditions.eval(q.get("start_if", {}), _custom_resolver(q)):
+	if not _eval_cond(q, q.get("start_if", {})):
+		return false
+	# Q4 (§4): fill on_start roles before the quest commits. Filling is a
+	# deterministic query (require filter, prefer + id-sort rank, no RNG); a
+	# role that can't fill HOLDS — the start aborts with NOTHING written and
+	# retries next settle (start_if keys + time.day are indexed). All-or-none:
+	# a partial fill would look like a started quest to _rebuild_cycles.
+	var plan := _plan_on_start(q)
+	if not plan.ok:
 		return false
 	if q.has("repeatable"):
 		cyc.active = int(WorldState.get_value("time.day", 0))
 	cyc.count = int(cyc.count) + 1
 	_cycles[qid] = cyc
+	# Seal the bindings (latched, replay-safe) BEFORE the on_start hook and
+	# the root prose, so q.role and $role substitution resolve them.
+	if not plan.bind.is_empty():
+		for rn: String in plan.bind:
+			WorldState.set_value("journal.%s.role.%s" % [qid, rn], plan.bind[rn])
+		_build_index()  # $role keys index now that the bindings resolve (§5)
 	# on_start (§6): after start_if passes and (Q4) roles fill, BEFORE the
 	# root seals — the hook may set up world keys the root's prose reads.
 	var hook := _hook_of(q)
@@ -289,7 +315,7 @@ func _eligible(q: Dictionary, stage: Dictionary) -> bool:
 ## latched (a parent with no objectives hands off on its own latch).
 func _reach_passes(q: Dictionary, stage: Dictionary) -> bool:
 	if stage.has("advance_when"):
-		return Conditions.eval(stage.advance_when, _custom_resolver(q))
+		return _eval_cond(q, stage.advance_when)
 	for pid: String in _parents(q, stage):
 		if not reached(q.id, pid):
 			continue
@@ -325,9 +351,12 @@ func _parents(q: Dictionary, stage: Dictionary) -> Array[String]:
 ## Seal the latch: memoir prose + the day, written ONCE. Effects run,
 ## mints record, scene requests log, roots and terminals notify (★3).
 func _latch_stage(q: Dictionary, prefix: String, stage: Dictionary) -> void:
+	# Q4 (§4): fill any role that fills on THIS stage, before the prose
+	# resolves — so the memoir names who was actually there (§8).
+	_fill_on_stage(q, String(stage.id))
 	var day := int(WorldState.get_value("time.day", 0))
 	var latch := {"day": day, "season": GameClock.season,
-		"prose": String(stage.get("journal", ""))}
+		"prose": _subst_str(String(stage.get("journal", "")), _subst_map(q))}
 	WorldState.set_value(prefix + String(stage.id), latch)
 	print("[story] %s.%s latched (day %d)" % [q.id, stage.id, day])
 	for effect: Dictionary in stage.get("effects", []):
@@ -359,7 +388,7 @@ func _try_latch_objective(q: Dictionary, prefix: String, stage: Dictionary,
 		obj: Dictionary) -> bool:
 	if objective_done(q.id, stage.id, obj.id):
 		return false
-	if not Conditions.eval(obj.get("done_if", {}), _custom_resolver(q)):
+	if not _eval_cond(q, obj.get("done_if", {})):
 		return false
 	WorldState.set_value("%s%s.%s" % [prefix, stage.id, obj.id],
 		{"day": int(WorldState.get_value("time.day", 0))})
@@ -488,6 +517,290 @@ func hook_mint(qid: String, data: Dictionary) -> void:
 ## q.request_scene — a hook records a scene request (Q6 assembler asserts it).
 func hook_request_scene(qid: String, scene_id: String) -> void:
 	_scene_requests.append("%s.%s" % [qid, scene_id])
+
+
+# --- the roles filler (§4) --------------------------------------------------
+## CK's aliases, sim-native: a role is a named slot Story fills from the
+## LIVE world when the quest needs it. Filling is a DETERMINISTIC query —
+## candidates of the role's `kind` passing `require`, ranked by `prefer` in
+## order, ties broken by id sort; no RNG in the fill path (the soak holds us
+## to it, and the fork determinism trap is armed on this exact surface — so
+## every candidate list is SORTED before it is ranked, never trusting a
+## Dictionary's insertion order). Fills are LATCHED (journal.<q>.role.<name>
+## = the bound id, a WorldState key that rides snapshot/restore untouched) so
+## a bound role survives restore-then-replay bit-identically and NEVER
+## re-rolls — the CK alias-recast bug made structurally impossible.
+##
+## Pinned authored cast (`"is": "keeper"`) fills to the literal id with no
+## query. The on_fill hook (§6) may override the data-ranked pick. A role
+## that can't fill honors `fallback`: hold (default — retry next settle) or
+## abandon (v1: also retried; the "never offers" permanence is a later rung).
+
+
+## The frontier of the fill plan for on_start roles: bind every on_start role
+## into a local map, ALL-OR-NOTHING (a partial commit would look like a
+## started quest). {"ok": bool, "bind": {name: id}} — ok=false means a role
+## held/abandoned and the caller must abort the start with nothing written.
+func _plan_on_start(q: Dictionary) -> Dictionary:
+	var bind: Dictionary = {}
+	for rn: String in _roles_ordered(q):
+		var spec: Dictionary = q.roles[rn]
+		if _role_fill_when(spec) != "on_start":
+			continue
+		if _role_bound(q, rn):
+			continue
+		var known := _subst_map(q)
+		for k: String in bind:  # a later role may reference an earlier binding
+			known[k] = bind[k]
+		var id := _fill_role_now(q, rn, spec, known)
+		if id == "":
+			return {"ok": false, "bind": {}}
+		bind[rn] = id
+	return {"ok": true, "bind": bind}
+
+
+## Fill roles that bind on THIS stage's latch, best-effort (the stage already
+## latched — a hold can't rewind it, so an unfilled role simply retries on the
+## next settle). Returns true if any role bound (drives the fixpoint loop).
+func _fill_on_stage(q: Dictionary, stage_id: String) -> bool:
+	if not q.has("roles"):
+		return false
+	var moved := false
+	for rn: String in _roles_ordered(q):
+		var spec: Dictionary = q.roles[rn]
+		if _role_fill_when(spec) != ("on_stage:" + stage_id):
+			continue
+		if _role_bound(q, rn):
+			continue
+		var id := _fill_role_now(q, rn, spec, _subst_map(q))
+		if id != "":
+			WorldState.set_value("journal.%s.role.%s" % [q.id, rn], id)
+			_build_index()
+			moved = true
+	return moved
+
+
+## Fill ONE role: pinned `is` binds its literal id; otherwise the query —
+## candidates of `kind`, filtered by `require`, ranked by `prefer` + id sort,
+## with on_fill (§6) given the last word. Returns the bound id, or "" when
+## nothing qualifies (the caller reads `fallback`).
+func _fill_role_now(q: Dictionary, role_name: String, spec: Dictionary,
+		known: Dictionary) -> String:
+	if spec.has("is"):
+		return String(spec["is"])  # pinned authored cast — no query
+	var kind := String(spec.get("kind", ""))
+	var passing: Array[String] = []
+	for id: String in _candidates(kind):
+		if _match_all(q, spec.get("require", []), kind, id, known):
+			passing.append(id)
+	var ranked := _rank(q, passing, spec.get("prefer", []), kind, known)
+	var hook := _hook_of(q)
+	if hook != null:
+		var choice := String(hook.on_fill(_run_of(q), role_name, ranked))
+		if choice != "":  # the wit overrides the data-ranked pick (§6)
+			return choice
+	return ranked[0] if not ranked.is_empty() else ""
+
+
+## Candidates of a kind: the ids the live world has mirrored under
+## <kind>.<id>.* (the mirror law — a present entity has mirrored attrs).
+## SORTED, so the ranking never depends on WorldState insertion order (the
+## determinism trap). $player is a built-in binding, never a candidate.
+func _candidates(kind: String) -> Array[String]:
+	var out: Array[String] = []
+	var seen: Dictionary = {}
+	var pre := kind + "."
+	for key: String in WorldState.snapshot():
+		if not key.begins_with(pre):
+			continue
+		var id := key.substr(pre.length()).split(".")[0]
+		if id.is_empty() or id == "player" or seen.has(id):
+			continue
+		seen[id] = true
+		out.append(id)
+	out.sort()
+	return out
+
+
+## Rank passing candidates: `prefer` rows are ordered tie-breakers (first
+## discriminating wins — a passer sorts ahead of a failer); the final,
+## TOTAL tie-break is the id sort, so the order is deterministic regardless
+## of sort stability.
+func _rank(q: Dictionary, cands: Array[String], prefer: Array,
+		kind: String, known: Dictionary) -> Array[String]:
+	var ranked := cands.duplicate()
+	ranked.sort_custom(func(a: String, b: String) -> bool:
+		for cond: Dictionary in prefer:
+			var pa := _match(cond, _match_ctx(q, kind, a, known))
+			var pb := _match(cond, _match_ctx(q, kind, b, known))
+			if pa != pb:
+				return pa
+		return a < b)
+	return ranked
+
+
+## True when EVERY require row matches for this candidate ($self bound to it).
+func _match_all(q: Dictionary, require: Array, kind: String, self_id: String,
+		known: Dictionary) -> bool:
+	var ctx := _match_ctx(q, kind, self_id, known)
+	for cond: Dictionary in require:
+		if not _match(cond, ctx):
+			return false
+	return true
+
+
+func _match_ctx(q: Dictionary, kind: String, self_id: String,
+		known: Dictionary) -> Dictionary:
+	var subst := known.duplicate()
+	subst["self"] = self_id
+	return {"kind": kind, "subst": subst, "resolver": _custom_resolver(q)}
+
+
+## One role-query condition (the shared vocabulary + the role-only predicates
+## `tagged` and `near`, which conditions never test — §5). all/any/not
+## compose; every other row is substituted ($self/$role/$player_region) and
+## delegated to Conditions.eval, so require/prefer speak the same language as
+## every gate in the game.
+func _match(cond: Dictionary, ctx: Dictionary) -> bool:
+	for key: String in cond:
+		match key:
+			"all":
+				for sub: Dictionary in cond.all:
+					if not _match(sub, ctx):
+						return false
+			"any":
+				var passed := false
+				for sub: Dictionary in cond.any:
+					if _match(sub, ctx):
+						passed = true
+						break
+				if not passed:
+					return false
+			"not":
+				if _match(cond["not"], ctx):
+					return false
+			"tagged":
+				# the keyword law: a candidate carries a tag (record data,
+				# mirrored to <kind>.<id>.tags). Identity-free, like every
+				# radiant gate — one authored quest meets many worlds (§4).
+				var id := String(_subst_str(String(cond.tagged[0]), ctx.subst))
+				var tags: Variant = WorldState.get_value(
+					"%s.%s.tags" % [ctx.kind, id], [])
+				if not (tags is Array and (tags as Array).has(cond.tagged[1])):
+					return false
+			"near":
+				# v1 proximity: same region. `near [$self, <region>]` — the
+				# candidate's mirrored region equals the (substituted) region.
+				var id := String(_subst_str(String(cond.near[0]), ctx.subst))
+				var want := _subst_str(String(cond.near[1]), ctx.subst)
+				if String(WorldState.get_value(
+						"%s.%s.region" % [ctx.kind, id], "")) != want:
+					return false
+			_:
+				var single := {key: cond[key]}
+				if not Conditions.eval(_subst_cond(single, ctx.subst), ctx.resolver):
+					return false
+	return true
+
+
+# --- $role substitution (§4: everywhere strings meet the system) ------------
+
+## The binding map for a quest: built-ins ($player, $player_region, $hook)
+## plus every filled role ($<name> -> bound id). Resolved at read time, so a
+## re-index or prose write always sees the freshest bindings.
+func _subst_map(q: Dictionary) -> Dictionary:
+	var m: Dictionary = {"player": "player"}
+	m["player_region"] = String(WorldState.get_value("player.region", ""))
+	if q.has("hook"):
+		m["hook"] = String(q.hook)  # the fact that started the quest (errands love this)
+	for rn: String in q.get("roles", {}):
+		var v: Variant = WorldState.get_value("journal.%s.role.%s" % [q.id, rn])
+		if v is String and v != "":
+			m[rn] = v
+	return m
+
+
+## Substitute $tokens in a string against a binding map ($self/$role/etc.).
+## Only $[a-z_]+ tokens with a binding are replaced; anything else is left
+## verbatim (a literal $ in prose survives).
+func _subst_str(text: String, subst: Dictionary) -> String:
+	if not text.contains("$"):
+		return text
+	var re := RegEx.create_from_string("\\$([a-z_]+)")
+	var out := text
+	# replace longest-first is unnecessary (token boundary is [a-z_]+); walk
+	# matches from the end so earlier offsets stay valid.
+	var matches := re.search_all(text)
+	for i in range(matches.size() - 1, -1, -1):
+		var mm := matches[i]
+		var name := mm.get_string(1)
+		if subst.has(name):
+			out = out.substr(0, mm.get_start()) + String(subst[name]) \
+				+ out.substr(mm.get_end())
+	return out
+
+
+## Deep-copy a condition with $tokens substituted in every string position
+## (keys are predicate names — never substituted; values and nested
+## conditions are). Total over the closed language + role predicates.
+func _subst_cond(cond: Dictionary, subst: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	for key: String in cond:
+		out[key] = _subst_value(cond[key], subst)
+	return out
+
+
+func _subst_value(v: Variant, subst: Dictionary) -> Variant:
+	if v is String:
+		return _subst_str(v, subst)
+	if v is Dictionary:
+		return _subst_cond(v, subst)
+	if v is Array:
+		var arr: Array = []
+		for e in v:
+			arr.append(_subst_value(e, subst))
+		return arr
+	return v
+
+
+## Evaluate a main-quest condition with the quest's role bindings resolved.
+func _eval_cond(q: Dictionary, cond: Dictionary) -> bool:
+	return Conditions.eval(_subst_cond(cond, _subst_map(q)), _custom_resolver(q))
+
+
+# --- role helpers -----------------------------------------------------------
+
+## Declared roles in a deterministic order: pinned (`is`) first — so a queried
+## role may reference the authored cast regardless of name — then queried,
+## each alphabetical.
+func _roles_ordered(q: Dictionary) -> Array[String]:
+	var pinned: Array[String] = []
+	var queried: Array[String] = []
+	for rn: String in q.get("roles", {}):
+		if (q.roles[rn] as Dictionary).has("is"):
+			pinned.append(rn)
+		else:
+			queried.append(rn)
+	pinned.sort()
+	queried.sort()
+	return pinned + queried
+
+
+## When a role fills: "on_start" (default) or "on_stage:<id>".
+func _role_fill_when(spec: Dictionary) -> String:
+	return String(spec.get("fill", "on_start"))
+
+
+func _role_bound(q: Dictionary, role_name: String) -> bool:
+	var v: Variant = WorldState.get_value("journal.%s.role.%s" % [q.id, role_name])
+	return v is String and v != ""
+
+
+## The latched role binding for the desk / harness (q.role reads the same key).
+func role_of(quest_id: String, role_name: String) -> String:
+	var v: Variant = WorldState.get_value(
+		"journal.%s.role.%s" % [quest_id, role_name], "")
+	return String(v) if v is String else ""
 
 
 # --- readings (all derived from WorldState) ---------------------------------

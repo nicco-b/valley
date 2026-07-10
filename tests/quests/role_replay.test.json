@@ -1,0 +1,31 @@
+{
+	"comment": "Restore-then-replay bit-identity for a role filled INSIDE advance_hours (DESIGN_QUESTS §4/§10 — the determinism trap is armed on this surface on fork engines). `hauler` fills on the `crossed` stage, which latches on a `since` gate (2 days after the root) — a clock-RELATIVE gate so the test is robust to the harness's monotonic accumulated day, exactly like hook_replay. replay_advance runs the same span TWICE from a restored snapshot and asserts journal.*/choice.*/test.* are byte-identical: the fill happens during the replayed catch-up, and the binding journal.role_replay.role.hauler rides journal.* into the fingerprint. A candidate enumeration that leaned on Dictionary insertion order (not the id sort) would diverge here; reed sorts before wren with no prefer, so it fills reed identically every run.",
+	"record": {
+		"format": 2, "id": "role_replay", "title": "Waited for the Water", "tier": "errand",
+		"start_if": { "flag": "test.role.start" },
+		"roles": {
+			"hauler": {
+				"kind": "npc",
+				"fill": "on_stage:crossed",
+				"require": [ { "eq": ["npc.$self.region", "$player_region"] } ]
+			}
+		},
+		"stages": [
+			{ "id": "open", "start": true, "journal": "Word came that someone would carry the water once the ground dried." },
+			{ "id": "crossed", "terminal": true,
+				"advance_when": { "since": ["journal.role_replay.open", 2] },
+				"journal": "$hauler came on the second day, as the pools cracked open." }
+		]
+	},
+	"script": [
+		{ "set": { "player.region": "valley",
+			"npc.reed.region": "valley", "npc.wren.region": "valley" } },
+		{ "set": { "test.role.start": true } },
+		{ "expect_reached": "open" },
+		{ "expect_not_reached": "crossed" },
+		{ "replay_advance": 72 },
+		{ "expect_reached": "crossed" },
+		{ "expect_role": ["hauler", "reed"] },
+		{ "expect_gap": ["open", "crossed", 2] }
+	]
+}

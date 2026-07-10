@@ -176,6 +176,21 @@ var _orbit := OrbitRig.new()
 # bless sends right after reload_world) through this one-shot flag.
 var _frame_spawn_pending := false
 
+# THE FLY CAMERA'S OWN POSE, remembered across an orbit peek. Entering orbit
+# (set_view_mode → frame_tile) overwrites _cam.global_position with the whole-
+# tile ride ~13km up, and the orbit _process re-seats it every frame — so
+# "leaving returns the free fly camera where it stands" CANNOT read the pose
+# back off the camera on the way out (orbit already ate it). It has to be
+# saved on the fly→orbit flip and restored on the orbit→fly flip. Without this
+# restore, leaving orbit stranded the fly camera at the tile-framing altitude:
+# a whole-world MAP look where a ground-adjacent World view belongs — the
+# stuck-posture bug (M then toggles to the map screen's OWN whole-world view
+# and back, never reaching the ground). See set_view_mode.
+var _has_fly_pose := false
+var _fly_pos := Vector3.ZERO
+var _fly_yaw := 0.0
+var _fly_pitch := 0.0
+
 # FLY_FOV: Camera3D.new()'s default 75° left explicit — it matches the
 # player's own BASE_FOV (player.gd), the right lens for a human-scale fly
 # camera skimming just above the ground.
@@ -303,8 +318,15 @@ func move_to(xz: Vector2) -> void:
 ## viewport). Entering orbit frames the whole world tile like Strata's
 ## Metal view; leaving returns the free fly camera where it stands.
 func set_view_mode(p_orbit: bool) -> void:
+	var was_orbit := orbit
 	orbit = p_orbit
 	if orbit:
+		# Save the fly camera's pose BEFORE frame_tile clobbers it with the
+		# ~13km tile ride (only on a real fly→orbit flip — an idempotent
+		# `view orbit` while already in orbit would otherwise remember the
+		# orbit altitude AS the "fly pose" and strand the next exit up there).
+		if not was_orbit and _cam:
+			_remember_fly_pose()
 		_orbit.frame_tile()
 		_cam.fov = ORBIT_FOV
 		_ensure_chart_air()
@@ -314,17 +336,62 @@ func set_view_mode(p_orbit: bool) -> void:
 			_cam.far = 8000.0
 			_cam.fov = FLY_FOV
 			_cam.environment = null  # back under the world's real air
-			# The bless landing (Y2): reload_world re-seated the walker over the
-			# new spawn but could not frame the fly camera while orbit still drove
-			# it. This is the orbit→fly flip it deferred to — crane the builder
-			# camera over the spawn instead of leaving it at the tile-framing
-			# altitude (the "arrive in the sky" bug).
-			if _frame_spawn_pending:
-				_frame_spawn_pending = false
-				var reseated := _player()
-				if reseated:
-					_frame_over_spawn(reseated)
+			_land_fly_camera()
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
+## Snapshot the free-fly camera's pose so leaving orbit can return to it (the
+## orbit ride is about to overwrite _cam.global_position and keep overwriting
+## it every frame — see _has_fly_pose).
+func _remember_fly_pose() -> void:
+	_fly_pos = _cam.global_position
+	_fly_yaw = _yaw
+	_fly_pitch = _pitch
+	_has_fly_pose = true
+
+
+## Land the free-fly camera on the orbit→fly flip. Order of honesty:
+##   1. A bless is pending → crane over the freshly-recorded spawn (Y2's
+##      deferred landing: the walker was re-seated but the camera could not be
+##      framed while orbit still drove it).
+##   2. Else return to the remembered fly pose (the fly→orbit→fly peek: fly
+##      somewhere, glance in orbit, come back where you stood).
+##   3. Else (the viewer booted straight into orbit and never flew, and no
+##      spawn to reseat over — a content-empty or spawn-less bless) drop to a
+##      ground-adjacent survey over whatever the orbit was centred on. NEVER
+##      leave the fly camera at the tile-framing altitude — that is the stuck-
+##      posture bug: World view reads as a whole-world map, indistinguishable
+##      from the M map screen it toggles with.
+func _land_fly_camera() -> void:
+	if _cam == null:
+		return
+	if _frame_spawn_pending:
+		_frame_spawn_pending = false
+		var reseated := _player()
+		if reseated:
+			_frame_over_spawn(reseated)
+			return
+	if _has_fly_pose:
+		_cam.global_position = _fly_pos
+		_yaw = _fly_yaw
+		_pitch = _fly_pitch
+		_cam.rotation = Vector3(_pitch, _yaw, 0.0)
+		return
+	_frame_survey_over(_orbit.target)
+
+
+## Crane the fly camera into the survey posture over a world point — the same
+## offset and steep look-down _enter and _frame_over_spawn land in, but framing
+## an arbitrary XZ (the orbit's centre) rather than the player. The ground-
+## adjacent fallback that keeps World view off the tile-framing altitude.
+func _frame_survey_over(where: Vector3) -> void:
+	if _cam == null:
+		return
+	var gy := Terrain.height(where.x, where.z)
+	_cam.global_position = Vector3(where.x, gy + 60.0, where.z + 25.0)
+	_yaw = 0.0
+	_pitch = -1.1
+	_cam.rotation = Vector3(_pitch, _yaw, 0.0)
 
 
 ## THE BLESS LANDING (Y2): a freshly-blessed world reshapes the ground under a
@@ -340,6 +407,10 @@ func set_view_mode(p_orbit: bool) -> void:
 ## authored or content-empty world) is a no-op, leaving today's pose untouched.
 ## Returns true when it re-seated on a recorded spawn.
 func reseat_after_bless() -> bool:
+	# The bless reshaped the ground: any remembered fly pose is now stale (it
+	# framed the OLD surface). Forget it so the orbit→fly flip lands via the
+	# spawn crane or the ground-adjacent fallback, never a stale altitude.
+	_has_fly_pose = false
 	var sp: Variant = Terrain.recorded_spawn()
 	if not (sp is Vector2):
 		return false

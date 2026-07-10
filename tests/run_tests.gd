@@ -14,6 +14,7 @@ func _init() -> void:
 	_test_terrain_determinism()
 	_test_terrain_tile_frame_guard()
 	_test_dev_mode_compute()
+	_test_vernier_registry()
 	if _failures > 0:
 		print("FAIL: %d test(s) failed" % _failures)
 		quit(1)
@@ -130,3 +131,72 @@ func _test_dev_mode_compute() -> void:
 	_check(DM.compute(no_dev, arg, true) == false, "compute: strata_no_dev arg+debug -> dev off (kill switch)")
 	# two-feature collision: no_dev wins (it is checked first)
 	_check(DM.compute(both, arg, true) == false, "compute: no_dev+dev collision -> off (no_dev wins)")
+
+
+## Vernier (P4 — the cvar registry, game/dev/vernier.gd): registration is
+## passive (a getter's current value lands, the setter is never called),
+## list()/get_value()/set_value() find a tunable by name, an unknown name
+## is the ONE honest null/err both share, and a duplicate register() is
+## refused loudly rather than silently replacing a live setter. Loaded
+## directly (like DevMode above) since `godot -s` compiles before class
+## globals register; _reset_for_test() keeps this pass isolated from
+## whatever a real game boot would register into the SAME static registry
+## (the scene tests exercise those real, wired tunables + the link verb).
+## Closures here mutate a Dictionary box, not a local var — GDScript
+## lambdas capture locals by value; a Dictionary's VALUE is a reference,
+## so the box's contents are the one place a setter closure can honestly
+## write. NOTE: lambdas are fine HERE because _reset_for_test() drops
+## them well before the process ever reaches engine shutdown — the real
+## registrations (water_field.gd etc.) bind named methods instead exactly
+## because THEIR entries live for the process's whole life; see
+## vernier.gd's CALLABLE CAUTION doc for the crash that taught this.
+func _test_vernier_registry() -> void:
+	var VN: GDScript = load("res://game/dev/vernier.gd")
+	VN._reset_for_test()
+
+	var box := {"live": 0.0}
+	VN.register("test.knob", TYPE_FLOAT, -1.0,
+		func(v: float) -> void: box["live"] = v,
+		func() -> float: return box["live"], "a test knob")
+
+	_check(VN.has("test.knob"), "register: the tunable exists")
+	_check(box["live"] == 0.0, "register is passive: the setter was never called")
+	_check(VN.get_value("test.knob") == 0.0, "get_value reads through the getter")
+
+	var entry: Object = VN.get_entry("test.knob")
+	_check(entry.provenance == "boot", "a fresh registration stamps provenance 'boot'")
+	_check(entry.default == -1.0, "the default is recorded")
+
+	var landed: Variant = VN.set_value("test.knob", "2.5", "link")
+	_check(landed == 2.5, "set_value coerces wire text to the declared type (got %s)" % str(landed))
+	_check(box["live"] == 2.5, "set_value called the REAL setter")
+	_check(VN.get_entry("test.knob").provenance == "link", "set_value stamps its provenance")
+
+	VN.stamp("test.knob", "debug_key")
+	_check(VN.get_entry("test.knob").provenance == "debug_key",
+		"stamp() updates provenance without calling the setter")
+	_check(box["live"] == 2.5, "stamp() never touches the live value")
+
+	_check(VN.get_value("missing.knob") == null, "an unknown name reads null")
+	_check(not VN.has("missing.knob"), "has() disambiguates null-value from unknown")
+	_check(VN.set_value("missing.knob", 1, "link") == null,
+		"set_value on an unknown name is a null no-op, not a crash")
+
+	# A bool tunable: wire-text coercion for the honest spellings.
+	var flag_box := {"flag": false}
+	VN.register("test.flag", TYPE_BOOL, false,
+		func(v: bool) -> void: flag_box["flag"] = v,
+		func() -> bool: return flag_box["flag"], "a test flag")
+	VN.set_value("test.flag", "on", "link")
+	_check(flag_box["flag"] == true, "bool coercion: 'on' -> true")
+	VN.set_value("test.flag", "0", "link")
+	_check(flag_box["flag"] == false, "bool coercion: '0' -> false")
+
+	# Duplicate registration is a programmer error, refused loudly — the
+	# FIRST registration's setter/getter stay live, untouched.
+	VN.register("test.knob", TYPE_FLOAT, 0.0, func(_v: float) -> void: pass,
+		Callable(), "a colliding second registration")
+	_check(VN.get_entry("test.knob").default == -1.0,
+		"a duplicate register() is refused — the original entry stands")
+
+	VN._reset_for_test()

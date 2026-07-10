@@ -65,6 +65,13 @@ var _probe_pos := Vector2(1e9, 1e9)
 
 
 func _ready() -> void:
+	# Vernier (P4): registered before the headless gate below so the
+	# tunable exists in every posture, including the scene tests — passive
+	# (reads the current false once; never calls set_fill on its own).
+	# Bound-method Callables, NOT lambdas — see get_fill_channels()'s doc.
+	Vernier.register("water.fill_channels", TYPE_BOOL, false,
+		Callable(self, "set_fill"), Callable(self, "get_fill_channels"),
+		"Toolkit key K: sim rivers (fill-channels) vs sculpted ribbons.")
 	_gpu = WaterGpu.new()
 	enabled = _gpu.setup()
 	if not enabled:
@@ -111,12 +118,28 @@ func set_fill(on: bool) -> void:
 	HUD.notify("water: fill channels %s" % ("ON (sim rivers)" if on else "OFF (ribbons)"))
 
 
+## Vernier's getter for water.fill_channels — a named method, not an
+## inline lambda: a GDScript lambda Callable stored in Vernier's STATIC
+## (process-lifetime) registry outlives this Node in a way that crashes
+## the engine's shutdown ordering (`recursive_mutex lock failed` —
+## reproduced empirically; a bound-method Callable via Callable(self, ...)
+## does not carry the same baggage and tears down clean). Every Vernier
+## registration in this codebase binds real methods for exactly this
+## reason — see vernier.gd's file doc.
+func get_fill_channels() -> bool:
+	return fill_channels
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if not enabled or not DevMode.active():
 		return
 	if event is InputEventKey and event.pressed and not event.echo \
 			and event.keycode == KEY_K:
 		set_fill(not fill_channels)
+		# Bookkeeping only (Vernier never called set_fill itself here) —
+		# keeps `vernier get water.fill_channels` honest about who last
+		# flipped it when that was the debug key, not a `vernier set`.
+		Vernier.stamp("water.fill_channels", "debug_key")
 
 
 # The window follows whoever the world streams around (the water_bodies

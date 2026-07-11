@@ -26,6 +26,7 @@
 			"game/world/prefabs.gd",
 			"game/save/save_manager.gd",
 			"game/save/save_migration.gd",
+			"game/save/save_migration.ct",
 			"game/dev/overrides.gd"
 		],
 		"almanac": [
@@ -196,6 +197,8 @@
 			"tests/scene_tests.tscn",
 			"tests/quest_harness.gd",
 			"tests/quest_harness.tscn",
+			"tests/save_load_gate.gd",
+			"tests/save_load_gate.tscn",
 			"tests/soak.gd",
 			"tests/soak.tscn",
 			"tests/quests/catchup_since.test.json",

@@ -17,6 +17,32 @@ echo "$SCENE_OUT" | grep -E "PASS|FAIL|SCRIPT ERROR"
 echo "$SCENE_OUT" | grep -q "SCRIPT ERROR" && exit 1
 echo "$SCENE_OUT" | grep -q "SCENE-TESTS PASS" || exit 1
 
+echo "== save-load gate (the load-time covenant the soak can't see) =="
+# SaveMigration runs at LOAD (save_manager.load_into_world / restore_anchor),
+# never on the sim tick — so the soak's fingerprint is structurally blind to it.
+# This dedicated gate loads every real fixture through the real save path and
+# proves flag-OFF (_migrate_gd) == flag-ON (the native Contour VM) byte-for-byte
+# on the result dict, with the refusal sentences verbatim. Run BOTH ways: flag
+# OFF must PASS on the GDScript twin; STRATA_CONTOUR=1 must PASS *and* route the
+# VM (mode 2, no silent fallback) wherever the native kernel is live — the gate
+# fails LOUDLY itself if the flag is set with a live kernel but does not engage.
+# Same PASS-line backstop as the scene tests (quit-after exits 0 regardless).
+GATE_OFF=$(godot --headless --quit-after 2000 res://tests/save_load_gate.tscn 2>&1)
+echo "$GATE_OFF" | grep -E "SAVE-LOAD-GATE|  FAIL:"
+echo "$GATE_OFF" | grep -q "SCRIPT ERROR" && exit 1
+echo "$GATE_OFF" | grep -q "SAVE-LOAD-GATE PASS" || exit 1
+echo "$GATE_OFF" | grep -q "SAVE-LOAD-GATE OFF" \
+	|| { echo "SAVE-LOAD-GATE FAIL: flag-off run did not report the GDScript twin"; exit 1; }
+GATE_ON=$(STRATA_CONTOUR=1 godot --headless --quit-after 2000 res://tests/save_load_gate.tscn 2>&1)
+echo "$GATE_ON" | grep -E "SAVE-LOAD-GATE|  FAIL:"
+echo "$GATE_ON" | grep -q "SCRIPT ERROR" && exit 1
+echo "$GATE_ON" | grep -q "SAVE-LOAD-GATE PASS" || exit 1
+if echo "$GATE_ON" | grep -q "SAVE-LOAD-GATE ROUTED"; then
+	echo "  save-load gate: STRATA_CONTOUR=1 routed the VM, byte-identical to the flag-off twin"
+else
+	echo "  save-load gate: no native kernel on this host — GDScript twin only (both runs PASS)"
+fi
+
 echo "== quest harness + lint (the Campfire) =="
 # The Q2 robustness spine (DESIGN_QUESTS §10): the quest linter over
 # data/quests + data/threads, then every tests/quests/*.test.json driven

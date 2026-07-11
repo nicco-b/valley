@@ -1,0 +1,88 @@
+# Contour port of valley game/save/save_migration.gd :: SaveMigration
+#
+# The save covenant as a ladder (PLAN_SHIP §1.7 / S4): a save carries its format
+# int, and every build either LADDERS an older save up or REFUSES honestly on a
+# save from a NEWER build — never a crash, never a silent reset. The GDScript
+# twin of Strata's Migration.swift. The whole file (migrate + _apply_step +
+# _refuse) ports mechanically; it `extends RefCounted`, references no autoloads
+# and no other class_names, so it `load()`s bare (the STATIC harness path).
+#
+# What it exercises of the language-surface batch: `match` (int patterns + the
+# `_` wildcard, in _apply_step), `%`-string formatting (`%d`, single-arg and
+# array-arg forms — the refuse sentences, tested VERBATIM), module-level `const`
+# (CURRENT / _RUNGS), dict literals with mixed value types, and dict methods
+# (`has`, `get`, `duplicate`). No structural rewrites: GDScript's short-circuit
+# never bites here (the guards read only ints/`has`). The only shape difference
+# is spelling `data.duplicate(true)` — value semantics make the copy independent
+# for free, so `duplicate` returns the receiver; the computed dict is identical.
+#
+# ROUTING (valley game/save/save_migration.gd behind STRATA_CONTOUR): `migrate`
+# is the ONE door both save-load call sites ride (load_into_world / restore_anchor
+# via _read_anchor). Flag ON, migrate() calls the VM here; flag OFF it runs the
+# byte-identical GDScript twin _migrate_gd. The whole result is a `dict` (the
+# composite ABI, LAT_BUF); the `raw` arg crosses as a Dictionary, a bare
+# String/int, or null. This path runs at LOAD, which the soak never sees — the
+# dedicated save-load gate (tests/save_load_gate.tscn) is its standing byte-
+# identity proof, run BOTH ways every test.sh (see save_migration.gd's covenant
+# note for WHY this gate, not the soak).
+
+## The format snapshot_data() writes today (save v2 — the Threshold).
+const CURRENT = 2
+
+## The source versions that have a migration rung. CONTIGUOUS over 1..CURRENT-1.
+const _RUNGS = [1]
+
+
+## One rung: read `data` at version `from`, return the shape version `from`+1
+## expects. A rung must NOT set "version" — the ladder stamps the counter itself.
+sim func _apply_step(from, data) -> dict:
+	match from:
+		1:
+			# v1 → v2 (the Threshold): v2 only ADDED optional keys. Fill the v2
+			# defaults a v1 save predates (`cells`, `civil`) so today's reader
+			# meets a WHOLE v2 shape.
+			var d = data.duplicate(true)
+			if not d.has("cells"):
+				d["cells"] = {}
+			if not d.has("civil"):
+				d["civil"] = false
+			return d
+		_:
+			# Unreachable — migrate() only calls _apply_step for `from` in _RUNGS.
+			return data
+
+
+## Migrate a raw parsed save up to CURRENT. Returns a result dict; refused_newer
+## marks the covenant's core case (a save from a future build) so the caller can
+## say so instead of silently starting fresh.
+sim func migrate(raw) -> dict:
+	if not (raw is Dictionary):
+		return _refuse("save is not a JSON object")
+	var data = raw
+	if not data.has("version"):
+		return _refuse("save carries no version — refusing to guess its format")
+	var version = int(data.get("version", 0))
+	if version < 1:
+		return _refuse("save version %d is not a known format" % version)
+	if version > CURRENT:
+		# The covenant's whole point: a save written by a NEWER game refuses
+		# honestly, naming the version that could read it.
+		var msg = "this save is from a newer version of the game (save format v%d; this build reads up to v%d) — update the game to open it" % [version, CURRENT]
+		return {"ok": false, "data": {}, "refused_newer": true, "error": msg}
+	var working = data.duplicate(true)
+	# NOTE: the GDScript twin names this local `at`; `at` is a Contour §7
+	# keyword (the time construct), so the port renames it — outputs are
+	# unaffected (Plumb certifies bit-identity on results, not local names).
+	var rung = version
+	while rung < CURRENT:
+		if not (rung in _RUNGS):
+			return _refuse("no migration from save v%d — this build knows up to v%d" % [rung, CURRENT])
+		working = _apply_step(rung, working)
+		# The ladder owns the counter, never the rung (see _apply_step).
+		working["version"] = rung + 1
+		rung = rung + 1
+	return {"ok": true, "data": working, "error": "", "refused_newer": false}
+
+
+sim func _refuse(msg) -> dict:
+	return {"ok": false, "data": {}, "error": msg, "refused_newer": false}

@@ -1083,12 +1083,25 @@ func _river_from_record(rec: Dictionary, fallback_id: String) -> Dictionary:
 	# Downstream flow direction: first node to last, in the XZ plane.
 	var flow: Vector2 = (nodes[nodes.size() - 1].pos - nodes[0].pos)
 	flow = flow.normalized() if flow.length() > 1e-4 else Vector2.ZERO
-	# Waterfalls (Strata hydrology knickpoints): lip position + total drop.
-	# water_bodies foams the ribbon around each lip.
+	# Waterfalls become PLACES (W3): the bake found and chained the
+	# knickpoints into fall SITES — lip (pos) + base (the plunge point) +
+	# drop + width + discharge + lip tangent. water_bodies breaks the ribbon
+	# into a fall face at the lip; water_waves churns the plunge pool at the
+	# base (foam ∝ discharge × drop). The game NEVER re-detects — pre-W3
+	# records (lip + drop only) fall back to lip=base, zero discharge.
 	var falls: Array[Dictionary] = []
 	for w in rec.get("waterfalls", []) as Array:
-		falls.append({"pos": Vector2(float(w["x"]), float(w["z"])),
-			"drop": float(w.get("drop_m", 0.0))})
+		var lip := Vector2(float(w["x"]), float(w["z"]))
+		var base := Vector2(float(w.get("base_x", w["x"])), float(w.get("base_z", w["z"])))
+		var tan := Vector2(float(w.get("tangent_x", 0.0)), float(w.get("tangent_z", 0.0)))
+		falls.append({
+			"pos": lip,
+			"base": base,
+			"drop": float(w.get("drop_m", 0.0)),
+			"width": float(w.get("width_m", 0.0)),
+			"discharge": float(w.get("discharge", 0.0)),
+			"tangent": tan,
+		})
 	return {
 		"id": rec.get("id", fallback_id),
 		"idx": rivers.size(),

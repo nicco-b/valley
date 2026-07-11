@@ -15,6 +15,8 @@ const STEP_SPLIT := 1.1  # a POOL LIP (flat above, cliff below) this tall
 	# splitting every steep row turned cascades into shingles.
 const STEP_FLAT := 0.35  # "flat above" threshold for lip detection
 const FALL_FOAM_R := 10.0  # ribbon foams full within this of a waterfall lip
+const FALL_LIP_SNAP := 24.0  # a fall record binds to the ribbon row within this
+	# of its lip (records are raw D8 cells; nodes are the resampled course).
 # W2 on lakes (ONE_APP P2): a lake with real fetch rides a scaled share
 # of the swell and carries baked bathymetry, so storm chop shoals and
 # dies at its shore exactly like the sea's. Ponds stay glassy.
@@ -845,6 +847,37 @@ func _ribbon(nodes: Array, level: float, depth: float,
 		row_pos.append(rows[i][0])
 		row_surf[i] = rows[i][2]
 	var surf := _drape(row_pos, row_surf, depth, Terrain.height)
+	# W3 · the falls are PLACES now. The bake found and chained the
+	# knickpoints (falls[] records: lip + base + drop); between two ~48m
+	# nodes a 27m fall draped as a ~1m/row ramp — below STEP_SPLIT, so it
+	# read as nothing (STUDY_WATER_TERRAIN §1 fly_fall). Restore the break:
+	# bind each record to its nearest row, hold the pool flat to the brink,
+	# and plunge the reach below it to the base level (kept monotone). The
+	# step is now honest, so the fall face inserts and rapids read full. We
+	# never re-detect — the record IS the truth.
+	var lip_rows := {}  # row index → drop, for the forced fall face below
+	for fl in falls:
+		var drop: float = float(fl.get("drop", 0.0))
+		if drop < STEP_SPLIT:
+			continue
+		var li := -1
+		var best := INF
+		for i in rows.size():
+			var d: float = Vector2(rows[i][0]).distance_to(fl.pos)
+			if d < best:
+				best = d; li = i
+		if li < 0 or li >= rows.size() - 1 or best > FALL_LIP_SNAP:
+			continue
+		var lip_surf: float = surf[li]
+		var target := lip_surf - drop
+		# The brink and the row above it hold the pool level (flat above).
+		if li > 0:
+			surf[li - 1] = lip_surf
+		# The plunge: everything downstream drops to at least the base — but
+		# never rises (the water line is non-increasing head→mouth).
+		for j in range(li + 1, surf.size()):
+			surf[j] = minf(surf[j], target)
+		lip_rows[li] = drop
 	# Seam fixes (2026-07-05, the Skyrim lessons — bed and surface must
 	# AGREE, and where they can't, hide the disagreement):
 	#  - tangents smoothed over ±2 rows so cross-sections stop crossing
@@ -862,13 +895,14 @@ func _ribbon(nodes: Array, level: float, depth: float,
 	var final_rows: Array = []  # [pos, half, surface, tangent]
 	for i in rows.size():
 		final_rows.append([rows[i][0], rows[i][1] + EDGE_TUCK, surf[i], tans[i]])
-		if i > 0 and i < rows.size() - 1 \
+		# A fall face: either a recorded fall lip (W3 — forced, whatever the
+		# flat-above heuristic says) or an organic pool lip (flat water
+		# arriving at a cliff). Carry the upstream surface to the downstream
+		# spot so the next row drops straight down (a vertical sheet) instead
+		# of one long stretched quad the terrain pokes through.
+		if i < rows.size() - 1 and (lip_rows.has(i) or (i > 0 \
 				and surf[i] - surf[i + 1] > STEP_SPLIT \
-				and surf[i - 1] - surf[i] < STEP_FLAT:
-			# A pool lip: flat water arriving at a cliff. Carry the
-			# upstream surface to the downstream spot so the next row
-			# drops straight down (a fall face) instead of one long
-			# stretched quad the terrain pokes through.
+				and surf[i - 1] - surf[i] < STEP_FLAT)):
 			final_rows.append([rows[i + 1][0], rows[i + 1][1] + EDGE_TUCK,
 				surf[i], tans[i + 1]])
 	# Rapids strength from the local grade (COLOR.r → shader foam). A

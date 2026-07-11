@@ -72,6 +72,16 @@ func _ready() -> void:
 	Vernier.register("water.fill_channels", TYPE_BOOL, false,
 		Callable(self, "set_fill"), Callable(self, "get_fill_channels"),
 		"Toolkit key K: sim rivers (fill-channels) vs sculpted ribbons.")
+	# A whole-world reload (reload_world / import — the in-session bless) swaps
+	# the terrain and authored water out from under the window, but the base
+	# bake otherwise refreshes only on a ~384m focus DRIFT. Without this the
+	# sheet keeps riding the PRE-bless base heights + the stale pooled depth: a
+	# flat water sheet floating ABOVE the new shoreline (the reported post-bless
+	# "double water"). _on_water_reloaded forces a base rebake (and restarts the
+	# dynamics dry). Wired BEFORE the enabled gate — the connection is cheap and
+	# fingerprint-neutral, and it lets the headless scene-test gate pin the
+	# wiring even though the field itself only runs with a RenderingDevice.
+	Terrain.water_reloaded.connect(_on_water_reloaded)
 	_gpu = WaterGpu.new()
 	enabled = _gpu.setup()
 	if not enabled:
@@ -128,6 +138,26 @@ func set_fill(on: bool) -> void:
 ## reason — see vernier.gd's file doc.
 func get_fill_channels() -> bool:
 	return fill_channels
+
+
+## A whole-world reload (reload_world / import — the in-session bless) changed
+## the terrain and authored water under the window. Reseat the field to the new
+## ground: force a base rebake (the sheet stops riding the pre-bless heights the
+## instant it lands, one off-thread bake later) and clear the live depth so the
+## stale pooled water — which would otherwise hang as a second sheet above the
+## new shore until it seeped out — is gone at once. Restarting dry mirrors a
+## fresh scroll anchor; the next rain refills the new hollows.
+func _on_water_reloaded() -> void:
+	# Record the rebake intent first, in every posture — _process consumes it on
+	# the next live frame, and headless (field off, set_process disabled) it is
+	# an inert, never-fingerprinted flag the scene-test gate can read to prove
+	# the wiring. The GPU depth clear only makes sense with a live field.
+	_force_bake = true
+	if not enabled or _gpu == null:
+		return
+	var dry := PackedFloat32Array()
+	dry.resize(WaterGpu.GRID * WaterGpu.GRID)
+	_gpu.set_depth(dry)
 
 
 func _unhandled_input(event: InputEvent) -> void:

@@ -28,6 +28,7 @@ var _prev_focus := Vector2.INF
 var _focus_vel := Vector2.ZERO
 var _load_center := Vector2i.ZERO  # lead-biased ring center (see _lead)
 var _focus_cell := Vector2i.ZERO   # the true focus cell (union anchor)
+var _forced_focus := Vector3.INF   # a one-shot explicit stream centre (force_focus_stream)
 
 var _authored: Dictionary = {}  # Vector2i -> scene path
 var _terrain: Dictionary = {}  # Vector2i -> terrain node
@@ -275,7 +276,23 @@ func _scan_authored() -> void:
 				_authored[c] = CELLS_DIR + "/" + f
 
 
+## Synchronously stand terrain (collision + scatter) around an EXPLICIT world
+## point, regardless of the live streaming focus. The bless re-seat and the ⌘T
+## hand-off need real collision under the WALKER's landing spot — but while the
+## Toolkit is up (and for the split second before the camera cranes over the
+## spawn) _focus_position() follows the fly camera, so a plain _update_cells(true)
+## would force-stream the wrong place and leave the walker's cell an in-flight
+## async build. Pinning the focus for one sync pass closes that (2026-07-11 sink).
+func force_focus_stream(world: Vector3) -> void:
+	_forced_focus = world
+	_update_cells(true)
+	_forced_focus = Vector3.INF
+
+
 func _focus_position() -> Vector3:
+	# A pinned one-shot focus (force_focus_stream) wins over everything.
+	if _forced_focus.is_finite():
+		return _forced_focus
 	# Streaming follows the Toolkit camera or map focus when either is active.
 	var p := _player.global_position
 	# An open, streaming map drives the view even in the Toolkit (so
@@ -333,6 +350,13 @@ func _update_cells(sync: bool) -> void:
 			if _chebyshev(c - center) > load_radius \
 					and _chebyshev(c - lcenter) > load_radius:
 				continue  # outside both rings — not in the load zone
+			if sync and _terrain_pending.has(c) and not _terrain.has(c):
+				# A SYNC pass must GUARANTEE collision, even for a cell whose
+				# build is already in flight on a worker: skipping it (the plain
+				# not-pending gate below) left the walker to resume physics over
+				# ground that finishes only frames later - the free-fall the
+				# bless re-seat sank on under load. Land the in-flight build now.
+				_finish_pending_now(c)
 			if not _terrain.has(c) and not _terrain_pending.has(c):
 				if sync:
 					_add_terrain_sync(c)
@@ -570,6 +594,30 @@ func _drain_terrain_results() -> void:
 		# Always land at least one; stop when the frame's budget is spent.
 		if (Time.get_ticks_usec() - t0) / 1000.0 > _finish_budget_ms:
 			break
+
+
+## Block until an in-flight terrain build (queued async by an earlier
+## _update_cells) finishes, then install its cell on the main thread NOW —
+## the sync-focus door for cells a plain _add_terrain_sync would skip because
+## a worker already owns them. Pulls the exact result off the queue so the
+## later _drain_terrain_results sees the cell live and discards the duplicate.
+func _finish_pending_now(c: Vector2i) -> void:
+	if not _terrain_pending.has(c):
+		return
+	WorkerThreadPool.wait_for_task_completion(_terrain_pending[c])
+	_terrain_pending.erase(c)
+	_results_mutex.lock()
+	var r: Array = []
+	for i in _terrain_results.size():
+		if _terrain_results[i][0] == c:
+			r = _terrain_results[i]
+			_terrain_results.remove_at(i)
+			break
+	_results_mutex.unlock()
+	# The worker always leaves a result for a completed task; guard anyway,
+	# and never double-build a cell that raced live in the meantime.
+	if not r.is_empty() and not _terrain.has(c):
+		_finish_terrain(c, r[1], r[2], r[3], r[4])
 
 
 func _add_terrain_sync(c: Vector2i) -> void:

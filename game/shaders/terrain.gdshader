@@ -1,7 +1,10 @@
 shader_type spatial;
 // Painterly terrain: color from height bands + slope, broken up by
 // large noise blotches and fine grain so the ground reads as painted
-// wash instead of a single flat fill.
+// wash instead of a single flat fill. The wash itself lives in
+// gouache.gdshaderinc so the shaping drape (preview_terrain.gdshader)
+// wears the exact same paint — one look, not a fork.
+#include "res://game/shaders/gouache.gdshaderinc"
 
 uniform vec3 sand_floor : source_color = vec3(0.84, 0.785, 0.70);
 uniform vec3 sand_warm : source_color = vec3(0.80, 0.655, 0.46);
@@ -92,14 +95,10 @@ void fragment() {
 	} else if (!far_lod && distance(wpos.xz, patch_center) < PATCH_HOLE) {
 		discard;
 	}
-	float blotch = texture(variation, wpos.xz * 0.006).r;
-	float grain = texture(variation, wpos.xz * 0.09).r;
-
-	float h = wpos.y + (blotch - 0.5) * 9.0;
-	vec3 col = mix(sand_floor, sand_warm, smoothstep(3.0, 20.0, h));
-	col = mix(col, rock_high, smoothstep(24.0, 46.0, h));
-	col = mix(col, rock_steep, smoothstep(0.45, 0.75, wslope));
-	col *= 0.95 + 0.10 * grain;
+	// The painted wash — shared verbatim with the shaping drape
+	// (gouache.gdshaderinc); the ground reads identically here and there.
+	vec3 col = gouache_wash(variation, wpos.xz, wpos.y, wslope,
+			sand_floor, sand_warm, rock_high, rock_steep);
 
 	// Biome ground (Stage B): tint toward the painted biome's albedo.
 	// A tint, not a replace, so the painterly bands/grain/relief survive

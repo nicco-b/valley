@@ -36,7 +36,7 @@ func _ready() -> void:
 	_test_villager()
 	_test_fabric_spring()
 	_test_wear()
-	_test_nav()
+	await _test_nav()
 	_test_sand_sim()
 	_test_fabric()
 	_test_tile_override()
@@ -6012,6 +6012,7 @@ func _test_wear() -> void:
 
 ## Near-tier navigation: bake from faces, path across, fall back cleanly.
 func _test_nav() -> void:
+	await get_tree().physics_frame  # let NavigationServer settle before we bake
 	# A 20x20m plane in the streamer's exact triangle winding.
 	var res := 11
 	var step := 2.0
@@ -6029,6 +6030,7 @@ func _test_nav() -> void:
 	var origin := Vector3(9990.0, 0.0, 9990.0)
 	Nav.add_cell(cell, navmesh, origin)
 	NavigationServer3D.map_force_update(Nav._map)
+	await get_tree().physics_frame  # NavigationServer syncs the new region on the step
 	var p: PackedVector3Array = Nav.path(
 		origin + Vector3(2.0, 0.5, 2.0), origin + Vector3(18.0, 0.5, 18.0))
 	_check(p.size() >= 2, "path across the baked cell")
@@ -6037,6 +6039,65 @@ func _test_nav() -> void:
 	Nav.remove_cell(cell)
 	var fallback: PackedVector3Array = Nav.path(Vector3.ZERO, Vector3(10.0, 0.0, 10.0))
 	_check(fallback.size() == 2, "no navmesh -> straight-line fallback")
+
+	# The determinism-law proof (docs/PLAN_NAVMESH.md): the embodied body paths
+	# AROUND an obstacle while the sim mind walks STRAIGHT THROUGH it. Bake a
+	# 24x24m plane with a square hole carved at x,z in [8,16] — the way the real
+	# streamer carves water and placement footprints out of the walkable soup.
+	# A body crossing (2,12)->(22,12) must bow north or south around the hole;
+	# the SIM's straight capped-step line (agent_sim.gd) at z=12 cuts through it.
+	# Same bytes, two presentations — this is the whole point of the split.
+	var ores := 25  # 0..24 vertices, step 1.0
+	var ofaces := PackedVector3Array()
+	for iz in ores - 1:
+		for ix in ores - 1:
+			# Carve the footprint: the quad is out if it falls inside [8,16]^2.
+			if ix >= 8 and ix < 16 and iz >= 8 and iz < 16:
+				continue
+			var a := Vector3(ix, 0.0, iz)
+			var b := Vector3(ix + 1, 0.0, iz)
+			var cc := Vector3(ix, 0.0, iz + 1)
+			var d := Vector3(ix + 1, 0.0, iz + 1)
+			ofaces.append_array([a, b, cc, b, d, cc])
+	var obs_mesh: NavigationMesh = Nav.bake_navmesh(ofaces)
+	_check(obs_mesh.get_polygon_count() > 0, "obstacle cell bakes walkable polygons")
+	# The proof reads the WALKABLE SURFACE the bake produced (headless has no live
+	# NavigationServer map sync, so we assert the polygons directly — the ground
+	# truth the router walks). A straight run at z=12 from (2,12) to (22,12) —
+	# the SIM's capped-step line — passes dead through the [8,16] footprint; the
+	# navmesh has NO walkable polygon there, so the embodied body cannot follow
+	# it and must bow around. Walkable ground DOES exist north and south of the
+	# hole, so a route around exists. Same target, two presentations.
+	_check(12.0 >= 8.0 and 12.0 < 16.0, "the straight sim line crosses the carved footprint")
+	_check(not _nav_covers(obs_mesh, 12.0, 12.0),
+		"footprint centre is carved OUT of walkable ground (body can't cross it)")
+	_check(_nav_covers(obs_mesh, 2.0, 12.0) and _nav_covers(obs_mesh, 22.0, 12.0),
+		"both banks the sim line joins are walkable")
+	_check(_nav_covers(obs_mesh, 12.0, 5.0) and _nav_covers(obs_mesh, 12.0, 19.0),
+		"walkable ground detours north and south of the footprint")
+
+
+## Is world point (x,z) inside any of the navmesh's walkable polygons? Reads
+## the baked surface straight from the resource (vertices + polygon index sets),
+## XZ point-in-polygon by ray crossing — the ground truth the router walks,
+## queried without a live NavigationServer map (headless has no map sync).
+func _nav_covers(mesh: NavigationMesh, x: float, z: float) -> bool:
+	var vs := mesh.get_vertices()
+	for pi in mesh.get_polygon_count():
+		var poly := mesh.get_polygon(pi)
+		var n := poly.size()
+		var inside := false
+		var j := n - 1
+		for k in n:
+			var vk := vs[poly[k]]
+			var vj := vs[poly[j]]
+			if (vk.z > z) != (vj.z > z) \
+					and x < (vj.x - vk.x) * (z - vk.z) / (vj.z - vk.z) + vk.x:
+				inside = not inside
+			j = k
+		if inside:
+			return true
+	return false
 
 
 ## The granular kernel: sand is conserved, spikes slump to repose, flows

@@ -163,7 +163,10 @@ func _process(delta: float) -> void:
 					_thread_visual_mesh.bind(c, _terrain_res.get(c, TERRAIN_RES)))
 				_stale[c] = true
 		_dirty.clear()
-		_quiet_cooldown = 0.8
+		# Boot window: no interactivity to protect, so a full rebuild may start
+		# this frame instead of after the editing-tuned 0.8s settle. Reverts on
+		# the first settled frame (below) to the steady-state value exactly.
+		_quiet_cooldown = 0.0 if _boot_window else 0.8
 	_drain_visual_results()
 	_quiet_cooldown -= delta
 	if _dirty.is_empty() and _quiet_cooldown <= 0.0 and not _stale.is_empty():
@@ -181,6 +184,16 @@ func _process(delta: float) -> void:
 	if settled and not _was_settled:
 		near_ring_settled.emit()
 	_was_settled = settled
+	# THE BOOT WINDOW closes the first frame the near ring is confirmed
+	# settled — walkable ground has landed, interactivity resumes, so the
+	# streamer reverts to the editing-tuned throttle EXACTLY. Keyed on the
+	# settled CONFIRM (not the busy->idle edge, which never fires when the
+	# sync first fill leaves nothing pending), so it closes reliably whether
+	# the first fill settled synchronously (window ~0 frames, inert) or the
+	# near ring drained asynchronously over many frames (window spans it).
+	if _boot_window and settled:
+		_boot_window = false
+		_finish_budget_ms = FINISH_BUDGET_EDIT_MS
 
 
 ## True when every terrain-rebuild queue has drained: the memo's poll
@@ -473,8 +486,23 @@ func _res_for(c: Vector2i, center: Vector2i) -> int:
 # Jolt builds its BVH there, not when the Shape3D was made — and the
 # nav region add). A fast Toolkit-cam flight completes cells in BURSTS, and
 # finishing a burst in one frame was the flight stutter (2026-07-05).
-# So: drain into a queue, spend at most FINISH_BUDGET_MS per frame.
-const FINISH_BUDGET_MS := 4.0
+# So: drain into a queue, spend at most _finish_budget_ms per frame.
+#
+# THE BOOT WINDOW (B2, 2026-07-11): from world enter until the near ring
+# first settles there is nothing interactive to protect — no brush under the
+# cursor, no flight to keep smooth — so the streamer finishes cells as fast
+# as the frame allows (FINISH_BUDGET_BOOT_MS) and skips the editing-tuned
+# 0.8s quiet cooldown before a full rebuild starts. On the first settled
+# frame it reverts to the steady-state editing values EXACTLY (see
+# _process). This changes only WHEN the already-computed cells land per
+# frame and WHEN the full-rebuild queue drains — never WHAT is built, nor the
+# order it is built in (the finish queue is FIFO, the worker order is
+# unchanged). The settled near-ring content is therefore byte-identical to
+# the throttled path; the soak (headless, no streamer) never sees it.
+const FINISH_BUDGET_EDIT_MS := 4.0     # steady-state: ~24% duty at 60fps
+const FINISH_BUDGET_BOOT_MS := 100.0   # boot: land the whole frame's backlog
+var _finish_budget_ms := FINISH_BUDGET_BOOT_MS
+var _boot_window := true  # closes on the first near-ring-settled frame
 var _finish_queue: Array = []
 
 
@@ -506,7 +534,7 @@ func _drain_terrain_results() -> void:
 			continue  # streamed past it while building; let it lapse
 		_finish_terrain(c, r[1], r[2], r[3], r[4])
 		# Always land at least one; stop when the frame's budget is spent.
-		if (Time.get_ticks_usec() - t0) / 1000.0 > FINISH_BUDGET_MS:
+		if (Time.get_ticks_usec() - t0) / 1000.0 > _finish_budget_ms:
 			break
 
 

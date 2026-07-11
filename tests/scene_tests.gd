@@ -28,6 +28,7 @@ func _ready() -> void:
 	_test_region_reseed()
 	_test_sea_reload_visibility()
 	_test_lake_outline()
+	_test_lake_outline_bathy()
 	_test_water_field()
 	_test_wave_sources()
 	_test_foam_memory()
@@ -5174,6 +5175,52 @@ func _test_lake_outline() -> void:
 	if d != null:
 		for f in d.get_files():
 			d.remove(f)
+
+
+## Fix 4b: an OUTLINE lake sizes its surface grid off the shoreline bbox
+## (_polygon_disc's nx*nz), not off 2*radius, so _bathy_register's disc-formula
+## count check ALWAYS mismatched for outline lakes and dropped their bathymetry
+## (no CUSTOM0 depth channel → no shoaling/wave-break) with a push_warning nobody
+## saw. _bathy_register now takes the actual mesh grid, so the outline path
+## registers correctly; a genuine mismatch is now a loud push_error. Synthetic
+## outline lake (no E2E fixture needed) with radius >= LAKE_SWELL_MIN_R.
+func _test_lake_outline_bathy() -> void:
+	var wb: Node3D = load("res://game/world/water_bodies.gd").new()
+	# An irregular (non-circular) shoreline; bbox ~110×100m, radius ~55 >= 40.
+	var poly := PackedVector2Array([
+		Vector2(-55, -18), Vector2(-8, -50), Vector2(42, -34),
+		Vector2(55, 12), Vector2(18, 48), Vector2(-32, 40), Vector2(-50, 6)])
+	var step := 0.9
+	var mesh: ArrayMesh = wb._polygon_disc(poly, step)
+	var mi := MeshInstance3D.new()
+	mi.name = "lake_bathy_probe"
+	mi.mesh = mesh
+	var vcount: int = (mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+	var grid: Dictionary = wb._poly_grid(poly, step)
+	# The polygon-disc vertex count must equal the grid dims the bake will use —
+	# the invariant the old disc formula (n*n, n from 2*radius) always violated.
+	_check(vcount == int(grid.nx) * int(grid.nz),
+		"outline mesh vertex count == its bbox grid (%d == %d×%d)" % [vcount, grid.nx, grid.nz])
+	# The disc formula the OLD check used would NOT match — proving why outline
+	# lakes were silently skipped before this fix.
+	var disc_n := int(ceil(55.0 * 2.0 / step)) + 2
+	_check(vcount != disc_n * disc_n,
+		"the old disc-formula count (%d²) genuinely mismatches the outline mesh (%d)"
+			% [disc_n, vcount])
+	# Register with the real grid: it lands, no false push_error, CUSTOM0 present.
+	wb._bathy_register("lake:bathy_probe", mi, 55.0, step, 0.0, grid)
+	_check(wb._bathy.has("lake:bathy_probe"),
+		"outline lake registers bathymetry (no false grid mismatch)")
+	if wb._bathy.has("lake:bathy_probe"):
+		var st: Dictionary = wb._bathy["lake:bathy_probe"]
+		_check(int(st.nx) == int(grid.nx) and int(st.nz) == int(grid.nz),
+			"registered grid records the outline mesh dims (%d×%d)" % [st.nx, st.nz])
+		var arrs := mi.mesh.surface_get_arrays(0)
+		var custom: PackedFloat32Array = arrs[Mesh.ARRAY_CUSTOM0]
+		_check(custom.size() == vcount * 3,
+			"outline lake mesh now carries the CUSTOM0 depth channel (%d floats)" % custom.size())
+	mi.free()
+	wb.free()
 
 
 # Fraction of a mesh's triangles whose centroid lies inside `poly` (XZ) —

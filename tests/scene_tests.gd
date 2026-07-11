@@ -397,6 +397,7 @@ func _test_strata_link() -> void:
 	await _test_inspect_notices(peer)
 	await _test_pulse(peer)
 	await _test_boot_phase(peer)
+	await _test_pane_health(peer)
 	await _test_records_desk(peer)
 	await _test_names_verbs(peer)
 	await _test_marker_verbs(peer)
@@ -1084,6 +1085,53 @@ func _test_boot_phase(peer: StreamPeerTCP) -> void:
 		_check(String(got.get("boot", "")).begins_with("ok boot phase="),
 			"pulse boot section is the standalone boot line (got %s)"
 				% String(got.get("boot", "")))
+
+
+## PANE_HEALTH (agent-observability-pipeline item 3): the frame-sanity probe
+## that catches the "white-map" class of degenerate render mechanically — a
+## near-uniform frame (a broken shader, an unshaded flat pane) reads
+## uniform > 0.92 and verdicts degenerate; a varied frame verdicts ok. The
+## headless test scene has no live GPU frame to score (the dummy renderer
+## draws nothing — the same honest gate `flyover`/`thumbnail` already
+## answer), so the WIRE half only pins that honest grammar; the SCORING
+## half is driven directly against synthetic Images through the exact same
+## _pane_health_stats() the live capture calls, so this pins the real math,
+## not a mock of it.
+func _test_pane_health(peer: StreamPeerTCP) -> void:
+	# -- wire grammar: headless has no image, so the honest err answers,
+	# never a hang and never a fake "ok" over nothing.
+	var wr := await _link_send(peer, ["pane_health"])
+	_check(wr.size() == 1, "pane_health answers in one reply (got %d)" % wr.size())
+	if wr.size() == 1:
+		_check(String(wr[0]).begins_with("err pane_health no image"),
+			"pane_health errs honestly headless (got %s)" % wr[0])
+
+	# -- scoring: a fully-flattened frame (the white-map failure's shape)
+	# scores uniform~1.0 and verdicts degenerate.
+	var flat := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	flat.fill(Color(0.9, 0.9, 0.9))
+	var flat_stats: Dictionary = StrataLink._pane_health_stats(flat)
+	_check(float(flat_stats["uniform"]) > 0.99,
+		"a solid-color frame scores uniform~1.0 (got %.3f)" % float(flat_stats["uniform"]))
+	_check(String(flat_stats["verdict"]) == "degenerate",
+		"a solid-color frame verdicts degenerate (got %s)" % flat_stats["verdict"])
+
+	# -- scoring: a varied frame (a checkerboard + per-pixel jitter — the
+	# shape of a real render's sky gradient + ground detail, never one
+	# dominant bucket) scores well under the line and verdicts ok.
+	var varied := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 1
+	for y in range(64):
+		for x in range(64):
+			var base := 0.2 if (x / 8 + y / 8) % 2 == 0 else 0.7
+			var jitter := rng.randf_range(-0.05, 0.05)
+			varied.set_pixel(x, y, Color(base + jitter, base * 0.8 + jitter, base * 0.6 + jitter))
+	var varied_stats: Dictionary = StrataLink._pane_health_stats(varied)
+	_check(float(varied_stats["uniform"]) < StrataLink.PANE_HEALTH_UNIFORM_DEGENERATE,
+		"a varied frame scores under the degenerate line (got %.3f)" % float(varied_stats["uniform"]))
+	_check(String(varied_stats["verdict"]) == "ok",
+		"a varied frame verdicts ok (got %s)" % varied_stats["verdict"])
 
 
 ## The records desk (Strata R5): the game judges an edited record with its

@@ -19,6 +19,7 @@
 			"game/state/conditions.ct",
 			"game/data/records.gd",
 			"game/world/names.gd",
+			"game/world/names.ct",
 			"game/data/cards.gd",
 			"game/world/cell_records.gd",
 			"game/world/interior_records.gd",

@@ -66,7 +66,14 @@ func reload(file: String = FILE) -> void:
 
 ## A place's name, or the id itself when it has none — the honest fallback
 ## that lets every surface print something. Never errors, never blanks.
+## Routes through Contour when STRATA_CONTOUR=1 (see the routing block below):
+## a String does not cross the kernel ABI bare, so the answer rides back inside
+## a one-element LAT_BUF array (the `resolve_abi` wrapper; story.gd's precedent).
 func resolve(id: String) -> String:
+	var vm := _route()
+	if vm != null:
+		_contour_calls += 1
+		return String((vm.call_fn("resolve_abi", [_by_id, id]) as Array)[0])
 	var rec: Variant = _by_id.get(id, null)
 	if rec == null:
 		return id
@@ -77,12 +84,20 @@ func resolve(id: String) -> String:
 ## True when the content file carries a name for this id (surfaces that want
 ## to show a name ONLY for named things — the map's labels — gate on this).
 func has_name(id: String) -> bool:
+	var vm := _route()
+	if vm != null:
+		_contour_calls += 1
+		return bool(vm.call_fn("has_name", [_by_id, id]))  # a bool crosses bare
 	return _by_id.has(id)
 
 
 ## A named place's declared kind ("" when none) — a soft hint the content
 ## may carry (lake/river/region/…), never required, never invented.
 func kind_of(id: String) -> String:
+	var vm := _route()
+	if vm != null:
+		_contour_calls += 1
+		return String((vm.call_fn("kind_of_abi", [_by_id, id]) as Array)[0])
 	var rec: Variant = _by_id.get(id, null)
 	return String((rec as Dictionary).get("kind", "")) if rec != null else ""
 
@@ -192,3 +207,70 @@ func _save(rows: Array, file: String) -> bool:
 			file, error_string(err)])
 		return false
 	return true
+
+
+# --- Contour routing (PLAN_ENGINE E2, the conditions/story precedent) ----------
+## The three pure registry QUERIES above (resolve/has_name/kind_of) are certified
+## bit-identical to their Lattice twin by datum's Plumb harness (names_*.jsonl
+## corpora over the byte-identical vendored names.gd — the queries read only the
+## seeded `_by_id` table). When STRATA_CONTOUR=1 — a boot-time sim flag, read
+## once, DevMode-independent, default OFF — those call sites route through the
+## native Contour VM (game/world/names.ct via game/sim/contour.gd) instead of the
+## GDScript below. Flag OFF is byte-identical GDScript.
+##
+## String results ride the LAT_BUF composite ABI wrapped in a one-element array
+## (resolve_abi/kind_of_abi return `[value]`; the caller unwraps `(… as Array)[0]`)
+## because a bare String does not cross the ContourKernel C ABI yet — that
+## bare-string path is a parallel session's. has_name returns a bool, a scalar the
+## ABI carries bare, so it routes direct.
+##
+## NO SILENT FALLBACK (the honesty law): flag ON with the kernel absent (not
+## macOS / no dylib) or a module that will not compile is a LOUD refusal
+## (push_error, mode -1), never a quiet GDScript pass. The routed queries carry a
+## call counter (contour_status) so a scene test can prove the VM actually
+## answered, flag-on. The IO path (reload/write/_read_all/_save) never routes —
+## it is FileAccess/JSON/Records glue, GDScript by the scope law.
+const _CONTOUR_MODULE := "res://game/world/names.ct"
+
+## 0 unresolved · 1 off (flag unset) · 2 engaged (VM live) · -1 refused (flag
+## set but kernel/module unavailable — loud, not silent).
+static var _contour_mode := 0
+static var _contour_vm: Contour = null
+static var _contour_calls := 0   # VM-answered query calls (the engaged-path probe)
+
+## The live VM when routing is engaged, else null (flag off, or refused). Resolves
+## once at first touch (boot); pure — no side effects, so flag-off is byte-
+## identical to the un-routed code.
+static func _route() -> Contour:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return _contour_vm
+
+
+static func _contour_resolve() -> void:
+	if OS.get_environment("STRATA_CONTOUR") != "1":
+		_contour_mode = 1   # flag off — the GDScript twin, forever byte-identical
+		return
+	# Flag ON: engage the VM, or REFUSE loudly (never a silent GDScript pass).
+	if not Contour.available():
+		push_error("[names] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
+			+ "(not macOS / dylib absent) — refusing to silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	var vm := Contour.new()
+	var err := vm.compile_file(_CONTOUR_MODULE)
+	if err != "":
+		push_error("[names] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	_contour_vm = vm
+	_contour_mode = 2
+
+
+## Routing introspection for the scene test (proves the VM answered, not a silent
+## fallback): the resolved mode, whether it engaged, and the answered-call count.
+static func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}

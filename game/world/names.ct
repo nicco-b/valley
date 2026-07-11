@@ -20,18 +20,33 @@
 #   * kind_of(by_id, id)  -> string  — a named place's declared kind ("" when
 #     none). The `... if rec != null else ""` ternary → an if/else.
 #
+# THIS WAVE (F4 — the names tail): the two deferred sort/keys leaves land now
+# that Lattice carries dict.keys() and a bit-exact array.sort() (see
+# Interpreter.swift's godotSort/godotStringLess — String::operator< is a
+# char32_t CODEPOINT walk, traced verbatim from core/string/ustring.cpp/.h; NOT
+# Swift's default canonical-equivalence `<`):
+#   * named_ids(by_id) -> array  — every named id, SORTED. `by_id.keys()` then
+#     `.sort()`; GDScript's `Array.sort()` mutates in place and returns void —
+#     Contour's `sort()` is value-semantic (like `append()`), so the port
+#     REBINDS the local (`out = out.sort()`) instead. Same computed order,
+#     bit-identical (Plumb: names_named_ids.jsonl).
+#   * entries(by_id) -> array   — the whole table as {id, name, kind} rows,
+#     sorted by id (walks named_ids, same rebind-not-mutate shape for the
+#     `.append()` GDScript does building the row array). Bit-identical (Plumb:
+#     names_entries.jsonl).
+#
 # The one structural change vs GDScript (both preserve the answer bit-for-bit):
 #   * resolve/kind_of's ternary → an explicit if/else + a trailing return.
 #   * GDScript reads the table off the `_by_id` instance field; the port takes it
 #     as the leading `by_id` param (the seeding convention). `(rec as Dictionary)`
 #     is implicit — the table's values are always dicts.
+#   * `Array.sort()`/`.append()`'s in-place-mutate-and-return-void GDScript shape
+#     becomes Contour's rebind-the-local shape throughout (`out = out.sort()`,
+#     `out = out + [...]`) — the append()-established house convention.
 #
-# NOT ported (a sort/keys language increment — DEFERRED honestly, the next rung):
-#   * named_ids/entries — need dict.keys() + a bit-exact array.sort() (Godot's
-#     String::operator< is a char32_t codepoint compare, NOT Swift's canonical
-#     order — a carefully-traced builtin, built the hour a port needs it).
+# NOT ported (STAYS GDScript by the scope law):
 #   * write/reload/_read_all/_save — FileAccess/DirAccess/JSON/Records IO glue,
-#     the atomic temp+rename write path; STAYS GDScript by the scope law.
+#     the atomic temp+rename write path.
 #
 # ROUTING (valley game/world/names.gd behind STRATA_CONTOUR): a bare string does
 # not cross the ContourKernel C ABI yet (that bare-string LAT_STR path is a
@@ -39,6 +54,8 @@
 # wrappers below, which return the result INSIDE a one-element array — a LAT_BUF
 # composite the codec already carries (the story.gd _subst_str_abi precedent).
 # has_name returns a bool (a scalar the ABI carries bare), so it routes direct.
+# named_ids/entries return ARRAYS (a composite the ABI already carries bare, no
+# one-element wrapping needed) — they route direct, no `_abi` wrapper.
 
 
 # The gazetteer's core rule: a place's name, or the id itself when it has none.
@@ -63,6 +80,27 @@ sim func kind_of(by_id, id) -> string:
 	if rec != null:
 		return String(rec.get("kind", ""))
 	return ""
+
+
+# Every named id, sorted — the world panel's HERE/WATER annotations and
+# Strata's Names section walk this. GDScript's `Array.sort()` mutates `out` in
+# place and returns void; Contour's `sort()` is value-semantic (like
+# `append()`), so the local is REBOUND (`out = out.sort()`) — same computed
+# order, bit-identical.
+sim func named_ids(by_id) -> array:
+	var out = by_id.keys()
+	out = out.sort()
+	return out
+
+
+# The whole table as {id, name, kind} rows, sorted by id — the `names` link
+# verb's answer and the desk's list.
+sim func entries(by_id) -> array:
+	var out = []
+	for id in named_ids(by_id):
+		var rec = by_id[id]
+		out = out + [{"id": id, "name": rec.name, "kind": rec.kind}]
+	return out
 
 
 # --- ABI wrappers (valley routing only). A String crosses the composite ABI

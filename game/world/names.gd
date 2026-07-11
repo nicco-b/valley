@@ -103,16 +103,28 @@ func kind_of(id: String) -> String:
 
 
 ## Every named id, sorted — the world panel's HERE/WATER annotations and
-## Strata's Names section walk this.
+## Strata's Names section walk this. Routes through Contour when
+## STRATA_CONTOUR=1 (see the routing block below): the result is an ARRAY, a
+## composite the kernel ABI already carries bare, so — unlike resolve/kind_of
+## — it needs no one-element LAT_BUF wrap.
 func named_ids() -> Array:
+	var vm := _route()
+	if vm != null:
+		_contour_calls += 1
+		return vm.call_fn("named_ids", [_by_id]) as Array
 	var out := _by_id.keys()
 	out.sort()
 	return out
 
 
 ## The whole table as {id, name, kind} rows, sorted by id — the `names`
-## link verb's answer and the desk's list.
+## link verb's answer and the desk's list. Routes through Contour when
+## STRATA_CONTOUR=1 — an array result, same bare-ABI path as named_ids.
 func entries() -> Array:
+	var vm := _route()
+	if vm != null:
+		_contour_calls += 1
+		return vm.call_fn("entries", [_by_id]) as Array
 	var out: Array = []
 	for id: String in named_ids():
 		var rec: Dictionary = _by_id[id]

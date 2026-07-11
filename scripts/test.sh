@@ -48,6 +48,19 @@ else
 	echo "  save-load gate: no native kernel on this host — GDScript twin only (both runs PASS)"
 fi
 
+echo "== held-snapshot gate (substrate Rung 3: save-via-held == save-via-mirror) =="
+# F3 (docs/SUBSTRATE.md §3): under STRATA_CONTOUR_HELD=1 a save SOURCES each held
+# SINGLETON's OWNED keys from its held world (Contour.world_snapshot) instead of
+# the WorldState mirror — proven BYTE-FOR-BYTE identical to the mirror at the
+# bridge level over every real singleton module, and pins the MULTIPLEXED-refuses
+# and clock-not-sourced contract facts the soak can't see. (The soak's own
+# +HELD runs prove the same equality on the real 30-day play state.) SKIPs+PASSes
+# where the native kernel is absent. Same PASS-line backstop as the other gates.
+HELD_OUT=$(STRATA_CONTOUR=1 STRATA_CONTOUR_HELD=1 godot --headless --quit-after 2000 res://tests/held_snapshot_gate.tscn 2>&1)
+echo "$HELD_OUT" | grep -E "HELD-SNAPSHOT-GATE|  FAIL:"
+echo "$HELD_OUT" | grep -q "SCRIPT ERROR" && exit 1
+echo "$HELD_OUT" | grep -q "HELD-SNAPSHOT-GATE PASS" || exit 1
+
 echo "== quest harness + lint (the Campfire) =="
 # The Q2 robustness spine (DESIGN_QUESTS §10): the quest linter over
 # data/quests + data/threads, then every tests/quests/*.test.json driven

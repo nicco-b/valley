@@ -200,6 +200,36 @@ func _invariants(wildlife: Node) -> void:
 		var tier := String((Story.quests.get(qid, {}) as Dictionary).get("tier", "?"))
 		_check(tier == "errand",
 			"playerless soak latched only ambient errands (%s is %s-tier)" % [key, tier])
+	_rung3_snapshot_acceptance()
+
+
+## Substrate Rung 3 acceptance (docs/SUBSTRATE.md §3, Wave F3) — proven on the
+## REAL 30-day play state, incl every timed continuation, in THIS fingerprinted
+## run. Under the held flag the save-tier state SOURCED FROM THE HELD WORLDS
+## (SaveGame._held_sourced_state — Contour.world_snapshot for each held SINGLETON's
+## OWNED keys) must be BYTE-FOR-BYTE the WorldState MIRROR: "snapshot serializes
+## the held world directly; the store IS the world." Runs inside _invariants,
+## BEFORE the PASS/FAIL verdict, so a one-ULP divergence between any held world and
+## its mirror FAILS the soak (the matrix greps SOAK PASS). Flag-OFF / copy-path:
+## inert — no held world lives, so _held_sourced_state == the mirror trivially, and
+## the "sourced" proof below is skipped (nothing to source).
+func _rung3_snapshot_acceptance() -> void:
+	if OS.get_environment("STRATA_CONTOUR_HELD") != "1":
+		return
+	if not SaveGame.has_method("_held_sourced_state"):
+		return
+	var mirror := JSON.stringify(WorldState.snapshot())
+	var held := JSON.stringify(SaveGame._held_sourced_state())
+	_check(held == mirror, "Rung 3: save-via-held == save-via-mirror byte-for-byte")
+	# Not vacuous: at least one held SINGLETON world must have actually sourced
+	# OWNED keys into that save (else the equality above is trivial).
+	var contributed := 0
+	for src in get_tree().get_nodes_in_group("contour_held_source"):
+		if not src.has_method("held_owned_snapshot"):
+			continue
+		if not (src.held_owned_snapshot() as Dictionary).is_empty():
+			contributed += 1
+	_check(contributed > 0, "Rung 3: at least one held world sourced the save")
 
 
 func _grid_digest(grid: PackedFloat32Array) -> String:

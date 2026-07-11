@@ -66,10 +66,40 @@ func snapshot_data() -> Dictionary:
 		"wall_time": Time.get_unix_time_from_system(),
 		"civil": true,  # clock anchored to real local time (1:1 era)
 		"player": pdata,
-		"state": WorldState.snapshot(),
+		"state": _held_sourced_state(),
 		"wear": InteractionField.wear_snapshot(),  # desire paths, world-anchored
 		"cells": {},  # future: per-cell world-state mutations
 	}
+
+
+## The save-tier world state (the "state" leaf of the save doc). Normally the
+## WorldState mirror verbatim — EXCEPT under the substrate Rung 3 flag
+## (STRATA_CONTOUR_HELD=1), where each held SINGLETON system's OWNED keys are
+## sourced from its HELD WORLD (Contour.world_snapshot, via
+## contour_held_source-group members) instead of the mirror the store kept
+## (docs/SUBSTRATE.md §3 — "snapshot serializes the held world directly; the
+## store IS the world"). The held world is the sim-tier truth those systems
+## advance IN PLACE; this makes the SAVE read from it.
+##
+## BYTE-IDENTICAL to the plain mirror, by construction: a SINGLETON held world is
+## kept synced to WorldState every tick by the diff-only apply (WS[owned] ==
+## held[owned] by induction — F2's TRUE Rung 2), so every owned key is already in
+## the mirror at snapshot time and the overlay only re-sources the SAME bytes
+## from their held-world origin — never appending a key, so insertion order (and
+## the serialized bytes) is preserved. That equality IS the rung's acceptance,
+## proven directly in tests/held_snapshot_gate.gd. Flag-OFF this is EXACTLY
+## today's WorldState.snapshot(), byte-for-byte — the copy path stays the floor.
+func _held_sourced_state() -> Dictionary:
+	var state := WorldState.snapshot()
+	if OS.get_environment("STRATA_CONTOUR_HELD") != "1":
+		return state
+	for src in get_tree().get_nodes_in_group("contour_held_source"):
+		if not src.has_method("held_owned_snapshot"):
+			continue
+		var owned: Dictionary = src.held_owned_snapshot()
+		for k in owned:
+			state[k] = owned[k]
+	return state
 
 
 func save_game() -> void:

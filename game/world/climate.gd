@@ -140,6 +140,7 @@ func _ready() -> void:
 	if wet_grid.size() != GRID_N * GRID_N:
 		wet_grid = _fresh_grid()  # the record moved the frame; re-size before load_state
 	add_to_group("world_state_reader")  # SaveGame re-calls load_state post-restore
+	add_to_group("contour_held_source")  # Rung 3: SaveManager sources held-owned keys here
 	load_state()
 	GameClock.hour_tick.connect(_hourly)
 	Terrain.edited.connect(func(_r: Rect2) -> void:
@@ -469,6 +470,33 @@ func contour_status() -> Dictionary:
 		_contour_resolve()
 	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls,
 		"held": _contour_held, "held_ticks": _contour_held_ticks}
+
+
+## Rung 3 (docs/SUBSTRATE.md §3): the held world's OWNED state for the save path.
+## SaveManager.snapshot_data sources this over the WorldState mirror when
+## STRATA_CONTOUR_HELD=1 — the held world is the sim-tier truth for this system's
+## own declared writes (and its continuation), byte-identical to the mirror by the
+## SINGLETON diff-only apply. Empty until the held world is live (the mirror stays
+## authoritative until then); empty off the held path entirely.
+##
+## STORE-FORM RECONCILIATION (climate.wet_grid): climate persists the grid through
+## a float32 buffer — _hourly builds the saved value as `out.append(wet_grid[i])`
+## over the `PackedFloat32Array` wet_grid, so the SAVE stores float32-NARROWED
+## values (0.053 -> 0.0529999993741512). The held world holds the SAME grid at
+## full float64 precision, so we narrow it through the identical float32 round-trip
+## here — the held-sourced save is then byte-for-byte the mirror. (A future rung
+## makes the store natively hold the grid, retiring this reconciliation.)
+func held_owned_snapshot() -> Dictionary:
+	if _contour_bridge == null:
+		return {}
+	var owned := _contour_bridge.held_owned_snapshot()
+	if owned.has("climate.wet_grid"):
+		var pf := PackedFloat32Array(owned["climate.wet_grid"])
+		var narrowed: Array = []
+		for v in pf:
+			narrowed.append(v)
+		owned["climate.wet_grid"] = narrowed
+	return owned
 
 
 func _hourly(_h: int) -> void:

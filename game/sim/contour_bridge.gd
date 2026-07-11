@@ -125,6 +125,49 @@ func held_inject_stats() -> Dictionary:
 		"mode": _held_mode}
 
 
+## Rung 3 (docs/SUBSTRATE.md §2/§3 — "snapshot serializes the held world
+## directly; the store IS the world"): the CURRENT held-world value for exactly
+## the keys THIS bridge OWNS — its declared writes and its timed continuations —
+## pulled from Contour.world_snapshot() (the sim-tier truth), NOT the WorldState
+## mirror. The save path (SaveManager.snapshot_data under STRATA_CONTOUR_HELD=1)
+## overlays this over the mirror so a save sources held-owned state from the held
+## world it already advances in place, instead of the copy the store kept.
+##
+## SINGLETON ONLY, and BYTE-IDENTICAL to the mirror by construction (that is the
+## rung's acceptance): a SINGLETON held world holds ONE system's state, kept
+## synced to WorldState by the diff-only apply — WS[owned] == held[owned] every
+## tick by induction from the create seed — so sourcing from either is the same
+## bytes. A MULTIPLEXED held world holds only the LAST-ticked entity's state
+## between ticks (a sibling's keys read back stale), so it is NOT a faithful
+## per-key snapshot source: this returns {} for it, never a false truth. Empty
+## too when no held world is live (never engaged / the copy path / kernel absent)
+## — the mirror stays authoritative until the held world exists.
+##
+## The reserved CLOCK (time.elapsed) is deliberately NOT sourced here: it is
+## shared bookkeeping each bridge advances on its OWN cadence, so a given held
+## world's elapsed need not equal the mirror's last-writer value. Only genuinely
+## per-system-OWNED keys cross (declared writes + this system's continuations),
+## and those never collide across bridges — so the overlay is order-preserving
+## and conflict-free, and time.elapsed keeps the mirror as its single authority.
+func held_owned_snapshot() -> Dictionary:
+	if _held_mode != HELD_MODE_SINGLETON:
+		return {}
+	if _vm == null or not _vm.world_ready():
+		return {}
+	var snap: Dictionary = _vm.world_snapshot()
+	if snap.is_empty():
+		return {}
+	var owned := {}
+	for w in _writes:
+		if snap.has(w):
+			owned[w] = snap[w]
+	for name in _timed:
+		var ck := String(name) + CONTINUATION_SUFFIX
+		if snap.has(ck):
+			owned[ck] = snap[ck]
+	return owned
+
+
 ## Is the native Contour VM loadable at all (macOS + dylib present)? Consumers
 ## gate their "bridge or GDScript fallback" branch on this — same as Contour.
 static func available() -> bool:

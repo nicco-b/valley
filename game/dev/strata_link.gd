@@ -73,6 +73,49 @@ extends Node
 ##                               (audit QW3).
 ##   teleport <x> <z>         -> fly cam if the Toolkit is open, else player
 ##   screenshot <path>        -> saves the viewport to an absolute png path
+##   pane_health              -> the frame-sanity probe (agent-observability
+##                               pipeline item 3): the SAME in-memory capture
+##                               `screenshot` uses (no file), downsampled to
+##                               64x64 and scored cheap (<10ms budget) for the
+##                               "white-map" class of degenerate render — a
+##                               broken shader or an unshaded flat pane reads
+##                               as one dominant color; a real gouache frame
+##                               never does. "ok pane_health uniform=<0..1>
+##                               mean=<0..1> var=<0..1> verdict=<ok|degenerate>".
+##                               uniform is the fraction of sampled pixels
+##                               within epsilon (quantized to 5 bits/channel)
+##                               of the modal color; mean/var are the sampled
+##                               luma's mean and variance (Rec.601 weights),
+##                               corroborating, not load-bearing. Verdict law:
+##                               uniform > 0.92 => degenerate — MEASURED
+##                               (2026-07-11, this worktree, a real windowed
+##                               launch — headless has no frame to score): a
+##                               real world-live frame off the shipping tile
+##                               (default spawn cam, a hazy near-white sky —
+##                               about as flat as this world's real render
+##                               gets) scored "uniform=0.318 mean=0.901
+##                               var=0.0001", a fully-flattened synthetic
+##                               frame (Image.fill, one solid color — the
+##                               white-map failure's exact shape) scores
+##                               uniform=1.000 — a ~0.6 gap straddling the
+##                               0.92 line with wide margin on the WORST real
+##                               frame this world currently renders. Errs
+##                               "err pane_health no image (headless dummy
+##                               renderer draws nothing — needs the live
+##                               pane)" under --headless, same honesty as
+##                               `flyover`/`thumbnail`. The
+##                               pane-log tee's recent-SCRIPT-ERROR counter
+##                               (pipeline item 1) is not reachable from this
+##                               branch — omitted from the reply rather than
+##                               faked; a later revision adds it as a fresh
+##                               trailing field (old hubs ignore names they
+##                               don't parse, the `pulse` convention). Also
+##                               self-arms ONCE per boot: the moment `boot`
+##                               reads phase=live, the link runs this check
+##                               itself and push_warning + prints a
+##                               bracketed line on a degenerate verdict (the
+##                               pane-log tee + ledger fold carry it from
+##                               there) — never re-armed, never per-frame.
 ##   thumbnail <slot> <path>  -> renders the slot's resolved scene/mesh to
 ##                               a transparent PNG at <path>, orbit-framed
 ##                               in an offscreen SubViewport (the pane has a
@@ -343,7 +386,7 @@ signal preview_sea(active: bool, sea_level: float)
 ## The scene tests assert this list matches the dispatcher's match arms
 ## exactly, both ways: add a verb there and it MUST land here too.
 const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "boot", "reload_world",
-	"teleport", "screenshot", "thumbnail", "flyover", "meshstats", "weather", "time",
+	"teleport", "screenshot", "pane_health", "thumbnail", "flyover", "meshstats", "weather", "time",
 	"time_lock", "weather_lock",
 	"preview_world", "preview_mesh", "preview_shared", "preview_water", "render_device",
 	"camera", "view", "view_layer", "probe",
@@ -375,6 +418,12 @@ var _rendering := false
 ## streaming (see `_marker_place`). Wholesale-cleared by `marker clear all`.
 var _markers: Dictionary = {}
 
+## The pane_health self-arm latch (agent-observability-pipeline item 3): set
+## true the first time `boot` reads phase=live, so the auto-check fires
+## EXACTLY once per process lifetime — never re-armed by a later
+## reload_world or a re-stream, never per-frame.
+var _pane_health_boot_checked := false
+
 
 func _ready() -> void:
 	# Vernier (P4): the living-preview distance gate's one tunable, registered
@@ -403,6 +452,12 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	# The pane_health self-arm (agent-observability-pipeline item 3): fires
+	# EXACTLY once, the frame `boot` first reads phase=live — ahead of the
+	# socket-server gate below, so it still runs when Strata isn't connected
+	# (a second instance with the port taken, or a solo launch). Cheap until
+	# armed: one `boot` phase read per frame, no capture/scoring until live.
+	_pane_health_boot_tick()
 	if _server == null or _rendering:
 		return
 	while _server.is_connection_available():
@@ -547,6 +602,10 @@ func _execute(line: String) -> String:
 				return "err no viewport image (headless?)"
 			var err := img.save_png(parts[1])
 			return ("ok %s" % parts[1]) if err == OK else ("err save_png %d" % err)
+		"pane_health":
+			# The frame-sanity probe (agent-observability-pipeline item 3):
+			# see the header doc for the grammar + the measured threshold.
+			return _pane_health()
 		"thumbnail":
 			# The librarian's eyes (audit R6). The render is ASYNC (an
 			# offscreen SubViewport read-back needs a frame), so the socket
@@ -884,6 +943,114 @@ func _boot() -> String:
 		phase = String(ws.boot_phase())
 	return "ok boot phase=%s first_frame=%d settled=%d" % [
 		phase, 0 if phase == "booting" else 1, 1 if phase == "live" else 0]
+
+
+## PANE_HEALTH — the frame-sanity probe (agent-observability-pipeline item 3):
+## a cheap, mechanical catch for the "white-map" class of degenerate render (a
+## broken shader, an unshaded flat pane) that `boot` can't see — boot only
+## knows the STREAMER settled, not that the frame it drew means anything.
+## Reuses the `screenshot` verb's exact in-memory capture (no file), then
+## hands off to _pane_health_stats so the scoring math is one testable path
+## whether the source is a live viewport or a synthetic Image (see the scene
+## test — it can't get a live GPU frame headless, so it scores synthetic
+## frames directly through the same function this calls).
+func _pane_health() -> String:
+	if DisplayServer.get_name() == "headless":
+		return "err pane_health no image (headless dummy renderer draws nothing — needs the live pane)"
+	var img := get_viewport().get_texture().get_image()
+	if img == null or img.is_empty():
+		return "err no viewport image (headless?)"
+	var stats := _pane_health_stats(img)
+	return "ok pane_health uniform=%.3f mean=%.3f var=%.4f verdict=%s" % [
+		float(stats.uniform), float(stats.mean), float(stats.variance), String(stats.verdict)]
+
+
+## Downsample size for pane_health's scan — cheap and budget-bound (64x64 =
+## 4096 samples) regardless of the source frame's real resolution.
+const PANE_HEALTH_DS := 64
+## Verdict line (header doc has the measured margin): a real world-live frame
+## never gets remotely close to this on the shipping tile; a flattened/
+## broken-shader frame scores ~1.0.
+const PANE_HEALTH_UNIFORM_DEGENERATE := 0.92
+## Color-quantization width for the "near the modal color" bucket — 5 bits
+## (32 levels) per channel, so anti-aliased near-duplicates of what is
+## effectively the same color still land in one bucket.
+const PANE_HEALTH_QUANT_BITS := 5
+
+## The pure scoring core, split out of _pane_health so the scene test can
+## drive it against a SYNTHETIC Image (a real GPU frame needs a live
+## viewport the headless test runner never has; a constructed Image is just
+## data). Downsamples to PANE_HEALTH_DS x PANE_HEALTH_DS with nearest-
+## neighbor (cheap: one pass, no filtering) then computes, over that one
+## downsampled pass:
+##   mean     — Rec.601 luma average (0..1)
+##   variance — luma variance (0..1-ish; a flat frame reads ~0 regardless of
+##              mean, so it corroborates uniform rather than driving verdict)
+##   uniform  — fraction of sampled pixels within epsilon (the quantization
+##              bucket) of the modal color — the primary degenerate signal
+func _pane_health_stats(src: Image) -> Dictionary:
+	var img: Image = src.duplicate()
+	if img.get_format() != Image.FORMAT_RGB8:
+		img.convert(Image.FORMAT_RGB8)
+	img.resize(PANE_HEALTH_DS, PANE_HEALTH_DS, Image.INTERPOLATE_NEAREST)
+	var n := PANE_HEALTH_DS * PANE_HEALTH_DS
+	var levels := (1 << PANE_HEALTH_QUANT_BITS) - 1  # 31 at 5 bits
+	var lumas := PackedFloat32Array()
+	lumas.resize(n)
+	var sum_luma := 0.0
+	var buckets := {}
+	var i := 0
+	for y in range(PANE_HEALTH_DS):
+		for x in range(PANE_HEALTH_DS):
+			var c := img.get_pixel(x, y)
+			var luma := 0.299 * c.r + 0.587 * c.g + 0.114 * c.b
+			lumas[i] = luma
+			sum_luma += luma
+			var key := (int(roundi(c.r * levels)) << (PANE_HEALTH_QUANT_BITS * 2)) \
+				| (int(roundi(c.g * levels)) << PANE_HEALTH_QUANT_BITS) \
+				| int(roundi(c.b * levels))
+			buckets[key] = int(buckets.get(key, 0)) + 1
+			i += 1
+	var mean := sum_luma / float(n)
+	var var_sum := 0.0
+	for l in lumas:
+		var_sum += (l - mean) * (l - mean)
+	var modal_count := 0
+	for count in buckets.values():
+		modal_count = maxi(modal_count, int(count))
+	var uniform := float(modal_count) / float(n)
+	return {
+		"uniform": uniform,
+		"mean": mean,
+		"variance": var_sum / float(n),
+		"verdict": "degenerate" if uniform > PANE_HEALTH_UNIFORM_DEGENERATE else "ok",
+	}
+
+
+## The pane_health self-arm (agent-observability-pipeline item 3): once per
+## boot, the instant `boot` reads phase=live, run pane_health ONCE
+## unprompted and WARN if it comes back degenerate — the white-map class of
+## failure is exactly the case nobody is watching for (Strata not yet
+## connected, or a Finder-launched pane with no hub attached at all). Never
+## re-arms (a reload_world / re-stream does not re-trigger); never runs
+## before live (booting/revealing frames are legitimately unsettled, not
+## degenerate). Silent when there is no image to score (headless) — the
+## latch still sets so a later live-phase frame (impossible headless, but
+## defensive) can't retry every tick.
+func _pane_health_boot_tick() -> void:
+	if _pane_health_boot_checked:
+		return
+	var ws: Node = get_tree().get_first_node_in_group("world_streamer")
+	if ws == null or not ws.has_method("boot_phase") or String(ws.boot_phase()) != "live":
+		return
+	_pane_health_boot_checked = true
+	var reply := _pane_health()
+	if not reply.begins_with("ok pane_health"):
+		return  # no image to score (headless/no viewport) — nothing to warn
+	if "verdict=degenerate" in reply:
+		var msg := "[stratalink] pane_health WARN at world-live: %s" % reply
+		print(msg)
+		push_warning(msg)
 
 
 ## The Toolkit verbs (ONE_APP P9·C): Strata's native toolbar drives the

@@ -89,6 +89,23 @@ extends SceneTree
 ##                    calls that method by name. Fails otherwise, naming
 ##                    the creator file — whether it defines no free method
 ##                    at all, or defines one nobody ever calls.
+##   include-manifest the WHITE-MAP PROMISE (PLAN_FRAMEWORK.md FW5): a
+##                    framework `.gdshader` / `.gdshaderinc` may not
+##                    `#include` a target that is ITSELF absent from
+##                    framework.json. A shipped shader that pulls in an
+##                    include the manifest never names would copy into a
+##                    scaffolded game HALF-BUILT — the dependency invisible to
+##                    the copy/provenance/offered-update machinery, the shader
+##                    broken on the far side (nothing a framework shader
+##                    depends on can be invisible to the manifest). So every
+##                    #include target is resolved (a res:// absolute path, or
+##                    relative to the including file's own directory) and
+##                    asserted present in the manifest's file set; a miss
+##                    fails LOUDLY, naming BOTH the shader file and the
+##                    missing include target. Runs as its own pass (like
+##                    rd-teardown): the `#include` directive starts with '#',
+##                    which every per-line rule above skips as a GDScript
+##                    comment, and .gdshaderinc is not otherwise scanned.
 ##
 ## ALLOWLIST is the FW1-era honesty valve: known hits, each tagged with
 ## WHY it's not failing the build today — either a pending FW4 rung that
@@ -372,6 +389,25 @@ func _run_probes() -> void:
 	_check(rd_clean_same.is_empty(),
 		"probe: rd-teardown passes a same-file create + free-in-_exit_tree pattern")
 
+	# include-manifest: a shader that #includes an UNLISTED target is CAUGHT,
+	# naming both the shader and the missing include (the white-map promise).
+	var inc_dirty := _include_hits_for("probe/shdirty.gdshader",
+		"#include \"res://game/shaders/ghost.gdshaderinc\"\n",
+		{"game/shaders/terrain.gdshader": true})
+	_check(inc_dirty.size() == 1 and inc_dirty[0].rule == "include-manifest"
+			and inc_dirty[0].literal.contains("ghost.gdshaderinc"),
+		"probe: include-manifest catches a #include of an unlisted target and names it")
+
+	# include-manifest: an include of a LISTED target passes, and a commented
+	# include (not a real dependency) is ignored — both res:// and relative.
+	var inc_clean := _include_hits_for("game/shaders/terrain.gdshader",
+		"// #include \"res://game/shaders/ghost.gdshaderinc\" (commented, ignored)\n"
+		+ "#include \"res://game/shaders/gouache.gdshaderinc\"\n"
+		+ "#include \"gouache.gdshaderinc\"\n",  # relative, same dir — also listed
+		{"game/shaders/gouache.gdshaderinc": true})
+	_check(inc_clean.is_empty(),
+		"probe: include-manifest passes listed includes (res:// + relative) and ignores a comment")
+
 
 # --- pass 2: the real manifest ------------------------------------------
 
@@ -421,6 +457,19 @@ func _run_real() -> void:
 	# tests/ rides the same exemption as teardown-reap — its probes free
 	# any RD resources they make inline, not from a node lifecycle.
 	for hit: Dictionary in _rd_teardown_hits(gd_texts):
+		if hit.path.begins_with("tests/"):
+			continue
+		var allowed := _allowlisted(hit)
+		if allowed.is_empty():
+			_failures += 1
+			print("  FAIL [%s] %s: '%s'" % [hit.rule, hit.path, hit.literal])
+		else:
+			_observed += 1
+			print("  OBSERVE [%s] %s: '%s' (%s)" % [hit.rule, hit.path, hit.literal, allowed.reason])
+
+	# include-manifest is its own pass too (the #include line starts with '#',
+	# skipped by every per-line rule, and .gdshaderinc isn't otherwise read).
+	for hit: Dictionary in _include_manifest_hits(files):
 		if hit.path.begins_with("tests/"):
 			continue
 		var allowed := _allowlisted(hit)
@@ -672,6 +721,77 @@ func _rd_teardown_hits(all_texts: Dictionary) -> Array[Dictionary]:
 			hits.append({"path": path, "rule": "rd-teardown",
 				"literal": ("creates RenderingDevice RIDs; defines %s() with free_rid "
 					+ "but no framework _exit_tree calls it (RD-RID LAW)") % candidates[0]})
+	return hits
+
+
+# --- the WHITE-MAP PROMISE (include-manifest) ---------------------------
+
+## Resolve a shader `#include "target"` to a manifest-relative path (no
+## res:// prefix, the same shape framework.json lists): a res:// absolute
+## target strips its scheme; a relative target resolves against the
+## including file's OWN directory (Godot's shader include semantics),
+## normalizing any `.`/`..` segments.
+func _resolve_include(shader_path: String, target: String) -> String:
+	if target.begins_with("res://"):
+		return _normalize_path(target.trim_prefix("res://"))
+	return _normalize_path(shader_path.get_base_dir().path_join(target))
+
+
+func _normalize_path(p: String) -> String:
+	var out: Array[String] = []
+	for seg in p.split("/"):
+		if seg == "" or seg == ".":
+			continue
+		if seg == "..":
+			if not out.is_empty():
+				out.remove_at(out.size() - 1)
+		else:
+			out.append(seg)
+	return "/".join(out)
+
+
+## The white-map promise over one shader's source (unit-testable without
+## disk): every `#include "target"` must resolve to a path present in
+## `listed` (framework.json's file set). Returns {path, rule, literal} per
+## unlisted include, naming the shader AND the missing target. Comment
+## lines (`//` or a `#include` sitting inside `/* */`) never reach here as a
+## real directive — the regex anchors on a line that STARTS with `#include`.
+func _include_hits_for(path: String, text: String, listed: Dictionary) -> Array[Dictionary]:
+	var hits: Array[Dictionary] = []
+	var inc_re := RegEx.create_from_string("^#include\\s+\"([^\"]+)\"")
+	for line in text.split("\n"):
+		var s := line.strip_edges()
+		if s.begins_with("//"):
+			continue
+		var m := inc_re.search(s)
+		if m == null:
+			continue
+		var raw := m.get_string(1)
+		var target := _resolve_include(path, raw)
+		if not listed.has(target):
+			hits.append({"path": path, "rule": "include-manifest",
+				"literal": ("#include \"%s\" -> %s is NOT listed in framework.json "
+					+ "(the white-map promise)") % [raw, target]})
+	return hits
+
+
+## The white-map promise over the manifest: scan every listed .gdshader /
+## .gdshaderinc for #include directives and assert each target is itself
+## listed. (A missing file on disk is already failed by _run_real's
+## manifest-names-a-missing-file check, so skip it silently here.)
+func _include_manifest_hits(framework_files: Array[String]) -> Array[Dictionary]:
+	var listed: Dictionary = {}
+	for f in framework_files:
+		listed[f] = true
+	var hits: Array[Dictionary] = []
+	for path in framework_files:
+		var ext := path.get_extension()
+		if ext != "gdshader" and ext != "gdshaderinc":
+			continue
+		if not FileAccess.file_exists("res://" + path):
+			continue
+		var text := FileAccess.get_file_as_string("res://" + path)
+		hits.append_array(_include_hits_for(path, text, listed))
 	return hits
 
 

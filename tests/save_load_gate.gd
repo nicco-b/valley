@@ -28,6 +28,20 @@ var _checks := 0
 
 
 func _ready() -> void:
+	# HERMETIC user:// — the gate writes its fixtures to the REAL save path
+	# (user://save.json), and the loader's refusal path falls back to
+	# user://anchors. Residue from earlier suites in the same test.sh run
+	# (or a developer's own play) makes the refuse-newer check load a REAL
+	# anchor instead of refusing into nothing — the live-tree "day still 9"
+	# failure. Start from a clean slate; the gate leaves only its own last
+	# fixture behind (test residue, never player data — the real games save
+	# under their own project user dirs).
+	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://save.json"))
+	var anchors := DirAccess.open("user://anchors")
+	if anchors != null:
+		for f in anchors.get_files():
+			DirAccess.remove_absolute(
+				ProjectSettings.globalize_path("user://anchors/" + f))
 	var flag := OS.get_environment("STRATA_CONTOUR")
 	print("[gate] STRATA_CONTOUR=%s  kernel_available=%s" % [
 		flag if flag != "" else "(unset)", Contour.available()])

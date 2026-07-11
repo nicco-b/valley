@@ -15,13 +15,33 @@ shader_type spatial;
 // Metal view's exact hillshade (0.55 + 0.45·lambert, same fixed sun),
 // emitted unlit so scene lighting can't re-grade the measurement (the
 // chart-air environment in preview_terrain.gd handles fog/tonemap).
+//
+// Shaded/world mode wears the GAME's gouache (PLAN_STRATA_TOOL "the gouache
+// gap"): the same painterly wash terrain.gdshader paints, shared through
+// gouache.gdshaderinc, under the world's real sun and air — not the old
+// hypsometric relief chart. Data views (moisture/slope/…) keep their legible
+// ramp look untouched.
 render_mode cull_back;
+#include "res://game/shaders/gouache.gdshaderinc"
 
 uniform sampler2D height_map : filter_linear, repeat_disable;
 uniform sampler2D data_map : filter_linear, repeat_disable;   // gray layer
 uniform sampler2D color_map : filter_linear, repeat_disable;  // biome colormap
 uniform float world_size = 16384.0;
 uniform float sea_level = 0.0;
+
+// The gouache palette + noise — DEFAULTS mirror terrain.gdshader so the drape
+// paints the game's ground even before preview_terrain.gd binds them; the .gd
+// side sets `variation` to the same seamless FastNoiseLite the world_streamer
+// wears (a blank default noise would flatten the blotch/grain to nothing).
+uniform sampler2D variation : filter_linear, repeat_enable;
+uniform vec3 sand_floor : source_color = vec3(0.84, 0.785, 0.70);
+uniform vec3 sand_warm : source_color = vec3(0.80, 0.655, 0.46);
+uniform vec3 rock_high : source_color = vec3(0.63, 0.50, 0.36);
+uniform vec3 rock_steep : source_color = vec3(0.56, 0.48, 0.41);
+// colormap.png (the biome drape's per-cell ground colour) is present -> tint
+// the wash toward it, exactly as terrain.gdshader tints by the biome palette.
+uniform bool has_biome = false;
 // Mode ids mirror render.metal's viewMode:
 // 0 shaded · 1 moisture · 2 temperature · 3 flow · 4 slope · 5 biome
 uniform int mode = 0;
@@ -35,7 +55,6 @@ uniform sampler2D ramp_lut : filter_linear, repeat_disable;
 uniform bool has_lut = false;
 uniform int ramp_row = 0;
 uniform int lut_rows = 4;
-uniform bool contours = true;    // 50m contour lines (shaded mode only)
 
 varying vec2 v_uv;
 varying float v_h;
@@ -108,24 +127,35 @@ void fragment() {
 	vec3 n = height_normal(v_uv);
 	float lambert = clamp(dot(n, normalize(vec3(0.5, 0.8, 0.35))), 0.0, 1.0);
 	if (mode == 0) {
-		// Hypsometric shaded relief under the world's real light and air
-		// (the game look is shaded mode's point).
-		vec3 col;
-		float t = clamp((v_h - sea_level) / 400.0, 0.0, 1.0);
-		col = mix(vec3(0.45, 0.60, 0.35), vec3(0.72, 0.62, 0.48), t);
-		col = mix(col, vec3(0.85, 0.85, 0.88), smoothstep(0.75, 1.0, t));
+		// The game's gouache ground: the shared painted wash (same code the
+		// game terrain runs — gouache.gdshaderinc), lit by the world's REAL
+		// sun and air. slope = 1 - n.y and height in meters mirror the game;
+		// world_xz recentres the drape's UV to origin-centred world metres so
+		// the blotch/grain frequency matches terrain.gdshader.
+		vec2 world_xz = (v_uv - 0.5) * world_size;
+		vec3 col = gouache_wash(variation, world_xz, v_h, 1.0 - n.y,
+			sand_floor, sand_warm, rock_high, rock_steep);
+		// Biome ground: tint toward the painted biome's albedo (colormap.png,
+		// the very colours the biome drape wears) — a tint, not a replace, so
+		// the wash survives. Mirrors terrain.gdshader's biome mix; the PNG is
+		// sRGB display bytes, decoded to the linear albedo the mix works in.
+		if (has_biome) {
+			vec3 g = srgb_to_linear(texture(color_map, v_uv).rgb);
+			col = mix(col, col * 0.5 + g * 0.5, 0.6);
+		}
+		// Submerged ground: the sea SURFACE is E1b's (preview water geometry);
+		// here the ground it covers just darkens toward deep water by depth so
+		// the survey stays legible on its own and reads right once the water
+		// plane composites over it.
 		if (v_h < sea_level) {
 			float d = clamp((sea_level - v_h) / 60.0, 0.0, 1.0);
-			col = mix(vec3(0.45, 0.65, 0.75), vec3(0.10, 0.25, 0.45), d);
+			col = mix(col, vec3(0.10, 0.25, 0.45), 0.35 + 0.5 * d);
 		}
-		col *= 0.35 + 0.75 * lambert;
-		// Contour lines every 50m — a terrain-reading aid for the game
-		// look only; data modes stay honest (the Metal view has none).
-		if (contours && v_h > sea_level) {
-			float c = abs(fract(v_h / 50.0) - 0.5) * 2.0;
-			float w = fwidth(v_h / 50.0) * 2.0;
-			col *= mix(0.75, 1.0, smoothstep(0.0, w * 2.0, 1.0 - c));
-		}
+		// Set a real height-field normal so the scene sun models the relief
+		// exactly like the game ground (no baked hillshade — that was the
+		// chart look). The drape's grid is a scaled unit plane, but this
+		// normal is analytic (world-metre gradients), so scale can't skew it.
+		NORMAL = normalize((VIEW_MATRIX * vec4(normalize(n), 0.0)).xyz);
 		ALBEDO = col;
 	} else {
 		// DATA drape — render.metal's exact recipe: colormap the layer

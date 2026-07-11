@@ -184,6 +184,7 @@ func wear(dir: String) -> String:
 	_mat.set_shader_parameter("world_size", _world_size)
 	_mat.set_shader_parameter("sea_level", sea)
 	_load_ramp_lut()
+	_load_biome_ground()
 	_mesh.scale = Vector3(_world_size / 2.0, 1.0, _world_size / 2.0)
 	if not worn:
 		_enter()
@@ -251,6 +252,14 @@ func wear_shared(params: Dictionary) -> String:
 	_ramp_tex = null
 	_mat.set_shader_parameter("ramp_lut", null)
 	_mat.set_shader_parameter("has_lut", false)
+	# Gouache biome tint: bind the wrapped colormap surface when the shared
+	# push carries one (else plain wash), matching the file path.
+	var ctex := _shared_front("colormap")
+	if ctex != null:
+		_mat.set_shader_parameter("color_map", ctex)
+		_mat.set_shader_parameter("has_biome", true)
+	else:
+		_mat.set_shader_parameter("has_biome", false)
 	_mesh.scale = Vector3(_world_size / 2.0, 1.0, _world_size / 2.0)
 	if not worn:
 		_enter()
@@ -525,6 +534,20 @@ func _load_ramp_lut() -> void:
 	_mat.set_shader_parameter("has_lut", _ramp_tex != null)
 
 
+## The biome ground colour (gouache mode): bind colormap.png (the same
+## per-cell biome albedo the biome drape wears) so shaded mode can TINT the
+## painterly wash toward it — the game's biome-recoloured ground, at survey
+## range. Absent (the Biome stage did not run): has_biome false, plain wash.
+## The biome layer view re-binds the same texture; one cache, no conflict.
+func _load_biome_ground() -> void:
+	var entry: Variant = _cached_layer("colormap.png")
+	if entry is Dictionary:
+		_mat.set_shader_parameter("color_map", entry["tex"])
+		_mat.set_shader_parameter("has_biome", true)
+	else:
+		_mat.set_shader_parameter("has_biome", false)
+
+
 ## Sample a layer image at a world position (nearest texel — the probe
 ## answers what the data SAYS, not a filtered blend). Origin-centered
 ## world frame, +x = +u, +z = +v — the drape's own mapping.
@@ -606,6 +629,19 @@ func _ensure_mesh() -> float:
 	plane.subdivide_depth = GRID
 	_mat = ShaderMaterial.new()
 	_mat.shader = load(SHADER)
+	# The gouache wash (shaded mode) reads the SAME seamless noise the game's
+	# terrain wears (world_streamer.gd: FastNoiseLite seed 11, 256², seamless)
+	# so the drape's blotch/grain character matches terrain.gdshader. The
+	# palette uniforms default to the game's values in the shader; only the
+	# noise must be bound (a blank default would flatten the wash to bands).
+	var vnoise := FastNoiseLite.new()
+	vnoise.seed = 11
+	var vtex := NoiseTexture2D.new()
+	vtex.seamless = true
+	vtex.width = 256
+	vtex.height = 256
+	vtex.noise = vnoise
+	_mat.set_shader_parameter("variation", vtex)
 	_mesh = MeshInstance3D.new()
 	_mesh.mesh = plane
 	_mesh.material_override = _mat

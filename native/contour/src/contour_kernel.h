@@ -27,6 +27,7 @@ class ContourKernel : public RefCounted {
 	GDCLASS(ContourKernel, RefCounted)
 
 	void *handle = nullptr;   // opaque LatticeEmbed module handle
+	void *world = nullptr;    // opaque LatticeEmbed HELD-world handle (Rung 2)
 
 protected:
 	static void _bind_methods();
@@ -56,6 +57,27 @@ public:
 	// and applies declared writes HONESTLY. Empty Array if no module is loaded.
 	// COLD — read once after compile.
 	Array contour_systems();
+
+	// --- the PERSISTENT HELD WORLD (substrate ladder Rung 2) ------------------
+	// The held-world surface over the same module handle: the VM keeps the world
+	// across ticks and crosses only the write-diff (O(writes)), where contour_tick
+	// re-marshals the whole world every tick (O(world size)). One held world per
+	// kernel (the one-handle rule).
+
+	// Create the held world, seeding it ONCE with `seed` (a dotted resource ->
+	// value Dictionary). Returns true on success. COLD — once at engage / restore.
+	bool contour_world_create(const Dictionary &seed);
+	// True once a held world is live.
+	bool contour_world_ready() const { return world != nullptr; }
+	// Release the held world (a no-op if none). The module handle is untouched.
+	void contour_world_destroy();
+	// Advance the held world ONE `dt` step IN PLACE, first injecting `reads` (the
+	// declared reads the host computed fresh this tick; an empty Dictionary = no
+	// injection). Returns the WRITE-DIFF Dictionary (only the keys that moved), or
+	// an EMPTY Dictionary on error. HOT — the sim-tick surface, held mode.
+	Dictionary contour_world_tick(const Dictionary &reads, double dt);
+	// The full held world (save/reconcile + parity oracle). Empty if no held world.
+	Dictionary contour_world_snapshot();
 
 	// Bench the PURE VM path: marshal args once, loop the C-ABI call `iters`
 	// times, return {per_call_us, total_us, ok, result}. Isolates VM+ABI cost.

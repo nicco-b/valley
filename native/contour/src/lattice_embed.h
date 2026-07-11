@@ -146,6 +146,72 @@ int32_t lattice_tick(void *handle, const uint8_t *world, int64_t worldlen, doubl
  * buffer is LATTICE-owned — free it with lattice_buf_free once after decoding. */
 int32_t lattice_systems(void *handle, LatValue *out, char *err, int32_t errcap);
 
+/* ---------------------------------------------------------------------------
+ * The PERSISTENT HELD WORLD — substrate ladder Rung 2 (docs/SUBSTRATE.md §2).
+ * ---------------------------------------------------------------------------
+ * Where lattice_tick is the COPY path (a fresh whole world in, the whole world
+ * out — O(world size) of marshal per tick), the held-world surface keeps the
+ * world INSIDE the VM across ticks and crosses only O(writes-changed):
+ *
+ *   w = lattice_world_create(handle, seed, seedlen, err, errcap);  // seed ONCE
+ *   lattice_world_tick(w, reads, readslen, dt, &out, err, errcap); // per tick
+ *   lattice_world_snapshot(w, &out, err, errcap);                  // save/reconcile
+ *   lattice_world_destroy(w);
+ *
+ * ONE held world per module (the one-handle rule: a held world drives the
+ * module's single, non-re-entrant interpreter — do NOT interleave lattice_tick
+ * copy-path calls with a live held world on the SAME module handle). The world
+ * handle retains the module handle, so it stays valid even if the caller frees
+ * the module first; still, destroy the world before the module by convention.
+ *
+ * This is the Swift `HeldWorld` (Contour.swift) proven BIT-IDENTICAL to the copy
+ * path (SubstrateHeldWorldTests): the held trajectory equals lattice_tick's step
+ * for step, and the write-diff, applied to a host mirror, reconstructs the copy
+ * path's whole world. The copy path stays the reversible floor and the ORACLE.
+ */
+
+/* Create a persistent held world over an already-compiled module. `seed` is a
+ * CompositeCodec DICT buffer (dotted resource -> value) — seed EVERY declared
+ * read the host will inject each tick with an initial value here, so per-tick
+ * injection is a pure in-place update and the held trajectory stays byte-exact
+ * (see lattice_world_tick). Returns an opaque world handle, or NULL on error
+ * (a non-dict seed, a null module) with a NUL-terminated message in err. COLD —
+ * once at load / on a save restore, never on the tick. */
+void *lattice_world_create(void *handle, const uint8_t *seed, int64_t seedlen,
+                           char *err, int32_t errcap);
+
+/* Release a held world created by lattice_world_create. NULL is a no-op. */
+void lattice_world_destroy(void *world);
+
+/* Advance the held world ONE clock step of `dt` seconds IN PLACE, first merging
+ * the partial `reads` DICT (a CompositeCodec buffer of the declared reads the
+ * host computed FRESH this tick — a system's engine-bound inputs) onto the held
+ * world. `reads` may be NULL / a zero-length / an empty dict for no injection.
+ * Returns 0 with *out a LAT_BUF holding the WRITE-DIFF dict: every held-world
+ * key whose value MOVED this tick (the declared writes, the reserved
+ * time.elapsed/time.dt, and any advanced <System>.__time continuation), in
+ * held-world key order — O(writes changed), NOT O(world). A read the host
+ * injects that no system also writes never appears in the diff. Apply the diff's
+ * declared writes back to the host store; the reserved keys ride in it too so a
+ * save/restore replays bit-identically (spec §7).
+ *
+ * OWNERSHIP: the `reads` argument buffer is CALLER-owned (read-only here); the
+ * *out result buffer is LATTICE-owned — hand it to lattice_buf_free exactly once
+ * after decoding, exactly like lattice_tick. On any error (a non-dict reads
+ * buffer, a runtime fault) returns non-zero, *out.tag = LAT_ERR, out->buf NULL,
+ * a NUL-terminated message in err. HOT path — no Foundation. */
+int32_t lattice_world_tick(void *world, const uint8_t *reads, int64_t readslen, double dt,
+                           LatValue *out, char *err, int32_t errcap);
+
+/* The current FULL held world as a LAT_BUF DICT — the snapshot surface (a host
+ * save/reconcile, and the copy-path parity oracle). Returns 0 with *out a
+ * LAT_BUF; the reserved clock and every continuation ride in it under their
+ * reserved keys (the wire form a host persists). OWNERSHIP: the *out buffer is
+ * LATTICE-owned — free it with lattice_buf_free once after decoding. A host that
+ * restores this snapshot into a fresh held world (lattice_world_create with it
+ * as the seed) resumes every suspended timeline bit-identically. */
+int32_t lattice_world_snapshot(void *world, LatValue *out, char *err, int32_t errcap);
+
 #ifdef __cplusplus
 }
 #endif

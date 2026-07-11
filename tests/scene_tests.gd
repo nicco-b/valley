@@ -396,6 +396,7 @@ func _test_strata_link() -> void:
 	await _test_panel_verb(peer)
 	await _test_inspect_notices(peer)
 	await _test_pulse(peer)
+	await _test_boot_phase(peer)
 	await _test_records_desk(peer)
 	await _test_names_verbs(peer)
 	await _test_marker_verbs(peer)
@@ -1042,6 +1043,47 @@ func _test_pulse(peer: StreamPeerTCP) -> void:
 		+ "five-verb %.3fms/tick (5 round-trips) — round-trips/tick 5 -> 1"
 		% [five_us / 1000.0 / reps])
 	_check(true, "pulse measurement recorded (see [pulse] MEASURE line)")
+
+
+## S1 — the pane-reveal boot phase (boot-speed B1, docs/PLAN_STRATA_TOOL.md).
+## `boot` answers the streamer's honest reveal phase over the wire, and rides
+## the `pulse` heartbeat as its own section — Strata's PaneBoot parser pins this
+## grammar. No streamer lives in this headless test scene, so the phase reads
+## "booting" (no honest frame yet) and first_frame=0 settled=0 — exactly the
+## content-empty case the host holds the boot cover through. The grammar is the
+## contract regardless of which phase happens to be live here.
+func _test_boot_phase(peer: StreamPeerTCP) -> void:
+	var br := await _link_send(peer, ["boot"])
+	_check(br.size() == 1, "boot answers in one reply (got %d)" % br.size())
+	if br.size() != 1:
+		return
+	var line := String(br[0])
+	_check(line.begins_with("ok boot phase="),
+		"boot answers the phase grammar (got %s)" % line)
+	_check("first_frame=" in line and "settled=" in line,
+		"boot carries first_frame + settled (got %s)" % line)
+	var phase := ""
+	for tok in line.trim_prefix("ok boot ").split(" ", false):
+		if tok.begins_with("phase="):
+			phase = tok.trim_prefix("phase=")
+	_check(phase in ["booting", "revealing", "live"],
+		"boot phase is one of booting|revealing|live (got '%s')" % phase)
+	# The pulse heartbeat carries boot as its own section (the same VERBATIM
+	# line), so Strata's one-round-trip poll reads the reveal phase too.
+	var RS := char(30)
+	var pr := await _link_send(peer, ["pulse"])
+	_check(pr.size() == 1 and String(pr[0]).begins_with("ok pulse"),
+		"pulse answers for the boot-section check")
+	if pr.size() == 1:
+		var got := {}
+		for c in String(pr[0]).split(RS):
+			var eq := String(c).find("=")
+			if eq > 0:
+				got[String(c).substr(0, eq)] = String(c).substr(eq + 1)
+		_check(got.has("boot"), "pulse carries the 'boot' section")
+		_check(String(got.get("boot", "")).begins_with("ok boot phase="),
+			"pulse boot section is the standalone boot line (got %s)"
+				% String(got.get("boot", "")))
 
 
 ## The records desk (Strata R5): the game judges an edited record with its

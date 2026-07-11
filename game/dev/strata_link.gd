@@ -30,6 +30,26 @@ extends Node
 ##                               ignore unknown names). Strata's GamePulse
 ##                               parser pins this grammar — change both or
 ##                               neither.
+##   boot                     -> the pane-reveal boot phase (boot-speed B1,
+##                               docs/PLAN_STRATA_TOOL.md S1): the earliest
+##                               HONEST frame the host can reveal on. Reads the
+##                               live world_streamer's boot_phase() —
+##                               "ok boot phase=<booting|revealing|live>
+##                                first_frame=<0|1> settled=<0|1>". booting: no
+##                               honest frame yet (engine/world still coming up,
+##                               or a content-empty viewer with no streamer);
+##                               revealing: the sky + near ground are drawn but
+##                               the near ring is still streaming in (B2's boot
+##                               window open); live: the near ring is confirmed
+##                               settled (walkable ground). The host holds a
+##                               dim "engine booting" cover through `booting`,
+##                               DROPS it at `revealing` so the world streams in
+##                               visibly, and flips "world live" at `live`. Data,
+##                               not hand state — answers in every posture; rides
+##                               the `pulse` heartbeat as its own section, and an
+##                               older game omitting it reads as the legacy
+##                               reveal-on-first-heartbeat. Strata's PaneBoot
+##                               parser pins this grammar — change both or neither.
 ##   verbs                    -> every verb this link speaks, one line,
 ##                               space-separated, machine-readable:
 ##                               "ok verbs ping status reload_world ..."
@@ -322,7 +342,7 @@ signal preview_sea(active: bool, sea_level: float)
 ## Every verb _execute answers — the `verbs` discovery reply (audit QW7).
 ## The scene tests assert this list matches the dispatcher's match arms
 ## exactly, both ways: add a verb there and it MUST land here too.
-const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "reload_world",
+const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "boot", "reload_world",
 	"teleport", "screenshot", "thumbnail", "flyover", "meshstats", "weather", "time",
 	"time_lock", "weather_lock",
 	"preview_world", "preview_mesh", "preview_shared", "preview_water", "render_device",
@@ -471,6 +491,12 @@ func _execute(line: String) -> String:
 			return _pulse()
 		"verbs":
 			return "ok verbs " + " ".join(VERBS)
+		"boot":
+			# S1 — the pane-reveal boot phase (B1, docs/PLAN_STRATA_TOOL.md):
+			# the host reveals the world on the first honest frame and narrates
+			# to the settle. Pure observability (reads the streamer); answers in
+			# every posture — "booting" when there is no streamer/world yet.
+			return _boot()
 		"reload_world":
 			# Honest reload (audit QW3): the re-read can FAIL — say so
 			# instead of "ok" over a world that didn't change. The old
@@ -839,9 +865,25 @@ func _pulse() -> String:
 	# key -> verb line; keys are Strata's GamePulse section names.
 	for pair: Array in [["toolkit", "toolkit status"], ["panel", "panel"],
 			["inspect", "inspect"], ["notices", "notices"], ["status", "status"],
-			["budget", "budget"], ["audio", "audio"]]:
+			["budget", "budget"], ["audio", "audio"], ["boot", "boot"]]:
 		out += "%s%s=%s" % [PULSE_SEP, pair[0], _execute(pair[1])]
 	return out
+
+
+## S1 — the pane-reveal boot phase (B1, docs/PLAN_STRATA_TOOL.md). Reads the
+## live world_streamer's boot_phase() so the host reveals the world on the first
+## honest frame (sky + near ground drawn) and narrates progress to the far
+## settle. "booting" when there is no streamer in the tree yet — the engine or
+## world is still coming up, or a content-empty viewer has no streamer — which
+## the host reads as "hold the boot cover". Derives first_frame/settled from the
+## phase so the wire carries one self-consistent truth.
+func _boot() -> String:
+	var ws: Node = get_tree().get_first_node_in_group("world_streamer")
+	var phase := "booting"
+	if ws != null and ws.has_method("boot_phase"):
+		phase = String(ws.boot_phase())
+	return "ok boot phase=%s first_frame=%d settled=%d" % [
+		phase, 0 if phase == "booting" else 1, 1 if phase == "live" else 0]
 
 
 ## The Toolkit verbs (ONE_APP P9·C): Strata's native toolbar drives the

@@ -76,6 +76,18 @@ var _rebuild_cooldown := 0.0
 ## so the soak fingerprint is unmoved.
 signal near_ring_settled
 var _was_settled := true  # start settled: the sync first fill (_ready) has no pending
+
+## S1 — THE FIRST HONEST FRAME (boot-speed B1, docs/PLAN_STRATA_TOOL.md).
+## Fires ONCE, the first _process tick a near-ground VISUAL mesh is present:
+## the sync first fill (_ready) lands the near-ring meshes before any _process
+## runs, so once one exists the frame being drawn THIS tick is the honest
+## coarse world (sky + near ground), seconds before the near ring settles to
+## walkable. The pane host reveals ON this frame instead of holding the boot
+## screen to the far settle — the world then visibly streams in, like weather.
+## A pure observability edge, exactly like near_ring_settled: Weather/Climate/
+## Hydrology never hear it (law 5), so the soak fingerprint is unmoved.
+signal first_frame_rendered
+var _first_frame_seen := false
 # Sculpt-feedback split: while the brush is active only the VISUAL mesh
 # rebuilds (cheap, instant — the clay must move under the cursor); the
 # expensive cell rebuild — trimesh collision, flora scatter, ground
@@ -194,6 +206,28 @@ func _process(delta: float) -> void:
 	if _boot_window and settled:
 		_boot_window = false
 		_finish_budget_ms = FINISH_BUDGET_EDIT_MS
+	# S1 — the first honest frame (B1): a near-ground mesh is present, so the
+	# frame drawn this tick shows the coarse world. Emit once; the host reveals.
+	if not _first_frame_seen and not _mesh_instances.is_empty():
+		_first_frame_seen = true
+		first_frame_rendered.emit()
+
+
+## The pane-reveal boot phase (B1, docs/PLAN_STRATA_TOOL.md S1), read over
+## StrataLink so the host reveals the world on the first honest frame and keeps
+## narrating to the settle:
+##   "booting"   — no honest frame yet (engine/world still coming up);
+##   "revealing" — the near ground is drawn but the ring is still streaming in
+##                 (B2's boot window is open — its exact settled-confirm poll);
+##   "live"      — the near ring is confirmed settled (walkable ground).
+## Reuses B2's _boot_window as the ONE truth for "boot is done": it closes on
+## the first settled-confirm frame, so revealing→live fires exactly when the
+## streamer reverts to the editing throttle. After it closes, later editing
+## re-streams stay "live" — this is a boot-only phase, not a per-edit state.
+func boot_phase() -> String:
+	if not _first_frame_seen:
+		return "booting"
+	return "revealing" if _boot_window else "live"
 
 
 ## True when every terrain-rebuild queue has drained: the memo's poll

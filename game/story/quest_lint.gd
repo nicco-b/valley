@@ -39,10 +39,15 @@ class_name QuestLint
 ##              shot sim events may OPEN spine content, never bar its
 ##              path). §3's spine-gating rule, the checkable part.
 ##
+## World flips (Q10, §3): the `world` stage effect ({enable/disable} group
+## lists) is validated for shape here, and a cross-quest pass warns when one
+## group is flipped the same direction by two quests (contested-flip — one
+## owning quest per direction, the guardrail against two storylines fighting
+## over the same bridge).
+##
 ## Deferred with their rungs: role
 ## query shapes (Q4), dialogue graphs (Q5), scene `where` place records
-## (B7), world-flip group ownership (Q10 — the `world` effect is refused
-## outright until it exists).
+## (B7).
 
 const QUESTS_DIR := "res://data/quests"
 const THREADS_DIR := "res://data/threads"
@@ -66,6 +71,9 @@ static func lint_all() -> Array[String]:
 		"tier": TYPE_STRING, "stages": TYPE_ARRAY})
 	for key: String in quests:
 		problems.append_array(lint_quest(quests[key]))
+	# World flips (Q10, §3): the contested-flip guardrail is cross-quest — one
+	# owning quest per group per direction — so it runs once over the whole set.
+	problems.append_array(_lint_contested_flips(quests))
 	var threads: Dictionary = Records.load_dir(THREADS_DIR, {
 		"format": TYPE_FLOAT, "id": TYPE_STRING, "chapters": TYPE_ARRAY})
 	var by_id: Dictionary = {}
@@ -131,7 +139,7 @@ static func lint_quest(q: Dictionary) -> Array[String]:
 		for effect: Dictionary in stage.get("effects", []):
 			for kind: String in effect:
 				if kind == "world":
-					problems.append("%s.%s: 'world' flips land at Q10 — refused until they exist" % [qid, sid])
+					problems.append_array(_lint_world_effect(qid, sid, effect.world))
 				elif not (kind in EFFECT_KINDS):
 					problems.append("%s.%s: effect '%s' is not in the closed set" % [qid, sid, kind])
 		for pid: String in stage.get("after", []):
@@ -500,6 +508,73 @@ static func _mints(stage: Dictionary) -> bool:
 		if effect.has("mint"):
 			return true
 	return false
+
+
+## Q10 world flip grammar (§3): a `world` effect is a dictionary of `enable`
+## and/or `disable`, each an array of non-empty group-id strings. Anything
+## else is refused — the effect names a set of placements, nothing more.
+const FLIP_DIRS: Array[String] = ["enable", "disable"]
+
+static func _lint_world_effect(qid: String, sid: String, flip: Variant) -> Array[String]:
+	var problems: Array[String] = []
+	if not (flip is Dictionary):
+		problems.append("%s.%s: 'world' flip must be a dictionary of enable/disable group lists" % [qid, sid])
+		return problems
+	var d := flip as Dictionary
+	var groups := 0
+	for dir: String in d:
+		if not (dir in FLIP_DIRS):
+			problems.append("%s.%s: 'world' flip key '%s' — only 'enable'/'disable'" % [qid, sid, dir])
+			continue
+		if not (d[dir] is Array):
+			problems.append("%s.%s: 'world' %s must be an array of group ids" % [qid, sid, dir])
+			continue
+		for gid: Variant in d[dir]:
+			if not (gid is String) or (gid as String).is_empty():
+				problems.append("%s.%s: 'world' %s group id must be a non-empty string" % [qid, sid, dir])
+			else:
+				groups += 1
+	if groups == 0 and problems.is_empty():
+		problems.append("%s.%s: 'world' flip names no groups (a no-op effect)" % [qid, sid])
+	return problems
+
+
+## The contested-flip guardrail (§3): one group, one owning quest per
+## direction. Two different quests enabling (or two disabling) the same group
+## are fighting over the world's furniture — warned, deterministically, in
+## group-then-direction order. Multiple stages of ONE quest flipping a group
+## is fine — the quest owns it.
+static func _lint_contested_flips(quests: Dictionary) -> Array[String]:
+	var owners: Dictionary = {}  # gid -> {"enable": [qids], "disable": [qids]}
+	var qkeys := quests.keys()
+	qkeys.sort()
+	for key: String in qkeys:
+		var q: Dictionary = quests[key]
+		var qid := String(q.get("id", ""))
+		for stage: Dictionary in q.get("stages", []):
+			for effect: Dictionary in stage.get("effects", []):
+				if not effect.has("world") or not (effect.world is Dictionary):
+					continue
+				var flip: Dictionary = effect.world
+				for dir: String in FLIP_DIRS:
+					for gid: Variant in flip.get(dir, []):
+						if not (gid is String) or (gid as String).is_empty():
+							continue
+						var slot: Dictionary = owners.get(gid,
+							{"enable": [] as Array[String], "disable": [] as Array[String]})
+						if not (slot[dir] as Array).has(qid):
+							(slot[dir] as Array).append(qid)
+						owners[gid] = slot
+	var problems: Array[String] = []
+	var gids := owners.keys()
+	gids.sort()
+	for gid: String in gids:
+		for dir: String in FLIP_DIRS:
+			var qs: Array = owners[gid][dir]
+			if qs.size() > 1:
+				problems.append("world flip: group '%s' is %sd by %d quests (%s) — one owning quest per direction (§3 contested-flip)"
+					% [gid, dir, qs.size(), ", ".join(qs)])
+	return problems
 
 
 ## flag-form choice keys inside a condition (choice.<seal>.<value>) —

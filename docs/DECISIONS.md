@@ -276,6 +276,21 @@ All decided 2026-07-01 (first design day) unless noted.*
   undo/history across tools. External apps are asset factories
   (Blender: meshes/rigs/clips; image editors: paintings), never world
   editors.
+- **World flips are persistent WorldState truth, and join the soak
+  fingerprint** *(2026-07-11, Q10, DESIGN_QUESTS §3/§10)*. A quest stage's
+  `world` effect (`{enable/disable}` group lists) sets `world.group.<id>` in
+  WorldState — CK's enable-parents, but saved, restored, caught-up (the flip
+  rides the stage that carries it, and stages re-latch in day order through
+  `advance_hours` replay, so the final group state is deterministic), and —
+  unlike CK's — **fingerprintable**. Wiring the `world.group.*` namespace into
+  the soak fingerprint MOVED it, once, by design (the Q2 way, recorded here):
+  `797289256 → 1453469996`, identical across all six matrix runs (2 off / 2
+  contour / 2 held). A playerless soak flips nothing, so the section is empty;
+  the header rides the digest regardless, so a sim-born flip would latch
+  identically forever. Groups are mutable truth (a later stage may flip one
+  back), not latches; the linter warns when two quests flip one group the same
+  direction (one owning quest per direction). Authored-dark placements
+  (`enabled:false`) start a group off until a stage enables it.
 
 ## Open (deliberately undecided)
 

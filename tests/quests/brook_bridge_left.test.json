@@ -1,0 +1,44 @@
+{
+	"comment": "World flips (Q10, §3), full arc ending 2 of 2 — left broken. The other seal takes the `left` terminal, which flips NOTHING: the group state is never touched, so the broken span stays instanced and the rebuilt span stays authored-dark. Every ending of the storyline gets its own root-to-terminal run (§10). Same record as brook_bridge_rebuilt.test.json.",
+	"record": {
+		"format": 2,
+		"id": "brook_bridge_test",
+		"title": "The Brook Bridge",
+		"tier": "story",
+		"start_if": { "flag": "test.bridge.start" },
+		"stages": [
+			{ "id": "heard", "start": true,
+				"journal": "Word came that the brook bridge gave way in the night." },
+			{ "id": "decide", "after": ["heard"],
+				"advance_when": { "flag": "player.saw.brook_bridge" },
+				"journal": "I stood at the broken span. The far bank waited across the water." },
+			{ "id": "rebuild", "after": ["decide"],
+				"advance_when": { "flag": "choice.brook_bridge.rebuild" },
+				"journal": "We decided to rebuild. The timber came up from the mill." },
+			{ "id": "rebuilt", "terminal": true, "after": ["rebuild"],
+				"advance_when": { "since": ["journal.brook_bridge_test.rebuild", 3] },
+				"journal": "Three days on, the new bridge held our weight. The far bank opens again.",
+				"effects": [ { "world": {
+					"disable": ["brook_bridge.broken"],
+					"enable":  ["brook_bridge.rebuilt"] } } ],
+				"mint": { "kind": "brook_bridge_rebuilt" } },
+			{ "id": "left", "terminal": true, "after": ["decide"],
+				"advance_when": { "flag": "choice.brook_bridge.leave" },
+				"journal": "We left it broken; the ford will have to do.",
+				"mint": { "kind": "brook_bridge_left" } }
+		]
+	},
+	"script": [
+		{ "set": { "test.bridge.start": true } },
+		{ "expect_reached": "heard" },
+		{ "set": { "player.saw.brook_bridge": true } },
+		{ "expect_reached": "decide" },
+		{ "set": { "choice.brook_bridge.leave": true } },
+		{ "expect_reached": "left" },
+		{ "expect_minted": "brook_bridge_left" },
+		{ "expect_not_reached": ["rebuild", "rebuilt"] },
+		{ "expect_group": ["brook_bridge.broken", true] },
+		{ "expect_placement": [ { "group": "brook_bridge.broken" }, true ] },
+		{ "expect_placement": [ { "group": "brook_bridge.rebuilt", "enabled": false }, false ] }
+	]
+}

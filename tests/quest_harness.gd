@@ -31,6 +31,12 @@ extends Node
 ##   {"expect_not_flag": key}            — and its negative
 ##   {"expect_key": [key, value]}        a hook wrote value at key
 ##   {"expect_role": [role, id]}         the latched role binding (§4)
+##   {"expect_group": [gid, enabled]}    a world flip's group state, read
+##                                       through CellRecords (Q10, §3); bare
+##                                       gid means enabled==true
+##   {"expect_placement": [rec, active]} the instancing predicate: does a
+##                                       placement {group, enabled?} instance
+##                                       now (authored-dark default rides here)
 ##   {"replay_advance": n}               advance n hours TWICE from a
 ##                                       restored snapshot and assert the
 ##                                       quest namespaces are bit-identical
@@ -55,6 +61,7 @@ func _ready() -> void:
 
 	_run_lint()
 	_lint_probes()
+	_flip_probes()
 	_hook_probes()
 	_run_tests()
 
@@ -136,6 +143,26 @@ func _lint_probes() -> void:
 			{"id": "e1", "terminal": true, "advance_when": {"flag": "choice.p.x"}, "journal": "x"},
 			{"id": "e2", "terminal": true, "advance_when": {"flag": "choice.p.x"}, "journal": "x"}]},
 		"disjoint")
+	# -- world flips (Q10, §3): a MALFORMED `world` effect must bounce. fstages
+	# is a minimal valid errand graph carrying the flip under test on the root.
+	var fstages: Callable = func(flip: Variant) -> Array:
+		return [{"id": "a", "start": true, "journal": "x", "effects": [{"world": flip}]},
+			{"id": "end", "terminal": true, "advance_when": {"flag": "k"}, "journal": "x"}]
+	_probe("world flip is not a dictionary", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "stages": fstages.call(["brook_bridge.rebuilt"])},
+		"must be a dictionary")
+	_probe("world flip has an unknown key", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "stages": fstages.call({"toggle": ["g"]})},
+		"only 'enable'/'disable'")
+	_probe("world flip direction is not an array", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "stages": fstages.call({"enable": "g"})},
+		"array of group ids")
+	_probe("world flip group id is empty", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "stages": fstages.call({"enable": [""]})},
+		"non-empty string")
+	_probe("world flip names no groups", {"format": 2, "id": "p", "title": "p",
+		"tier": "errand", "stages": fstages.call({"enable": [], "disable": []})},
+		"no-op effect")
 	# -- the hooks door (§6): the bind-vs-properties() catch. probe_errand
 	# declares { threshold: TYPE_FLOAT } — a bind that misses it, mistypes
 	# it, or names a phantom property must bounce at commit, not runtime.
@@ -182,6 +209,46 @@ func _probe(name: String, record: Dictionary, expect_fragment: String) -> void:
 			return
 	_check(false, "lint probe '%s' bites (wanted '%s' in %s)"
 			% [name, expect_fragment, problems])
+
+
+# --- pass 2c: world-flip cross-quest guardrail (Q10, §3) ---------------------
+
+## The contested-flip warning is cross-quest, so it lives in lint_all, not
+## lint_quest. Two quests enabling the same group must be caught; ONE quest
+## flipping a group across two stages must NOT — the quest owns it. A single
+## valid flip on ONE quest must lint clean (the passing case _run_lint over
+## shipped records also proves through the fixture).
+func _flip_probes() -> void:
+	var flip_stage := func(qid: String, dir: String, gid: String) -> Dictionary:
+		return {"format": 2, "id": qid, "title": qid, "tier": "errand", "stages": [
+			{"id": "a", "start": true, "journal": "x", "effects": [{"world": {dir: [gid]}}]},
+			{"id": "end", "terminal": true, "advance_when": {"flag": "k"}, "journal": "x"}]}
+	# Two quests both enabling brook_bridge.rebuilt — contested.
+	var contested: Dictionary = {
+		"q1": flip_stage.call("q1", "enable", "brook_bridge.rebuilt"),
+		"q2": flip_stage.call("q2", "enable", "brook_bridge.rebuilt")}
+	var problems := QuestLint._lint_contested_flips(contested)
+	var bit := false
+	for p in problems:
+		if "contested-flip" in p and "brook_bridge.rebuilt" in p:
+			bit = true
+	_check(bit, "contested flip caught (two quests enable one group): %s" % problems)
+	# One quest, two stages, same group — NOT contested (it owns the group).
+	var owned: Dictionary = {"q1": {"format": 2, "id": "q1", "title": "q1", "tier": "errand",
+		"stages": [
+			{"id": "a", "start": true, "journal": "x", "effects": [{"world": {"enable": ["g"]}}]},
+			{"id": "b", "advance_when": {"flag": "k"}, "journal": "x",
+				"effects": [{"world": {"disable": ["g"]}}]},
+			{"id": "end", "terminal": true, "advance_when": {"flag": "k2"}, "journal": "x"}]}}
+	_check(QuestLint._lint_contested_flips(owned).is_empty(),
+		"one quest flipping its own group both ways is not contested")
+	# Opposite directions by two quests on one group — NOT contested (one owner
+	# per direction; enable and disable are different owners, which is allowed).
+	var opposite: Dictionary = {
+		"q1": flip_stage.call("q1", "enable", "g"),
+		"q2": flip_stage.call("q2", "disable", "g")}
+	_check(QuestLint._lint_contested_flips(opposite).is_empty(),
+		"one quest enables + another disables one group is not contested")
 
 
 # --- pass 2b: the hook surface + purity (the door's own probes) --------------
@@ -309,6 +376,25 @@ func _run_test(name: String, test: Dictionary) -> void:
 					var bound := Story.role_of(qid, String(arg[0]))
 					_check(bound == String(arg[1]),
 						"%s role %s want %s got %s" % [at, arg[0], arg[1], bound])
+				"expect_group":
+					# [gid, enabled] (or bare gid → true): the raw persistent
+					# flip state at world.group.<gid> (default enabled), read
+					# through CellRecords (Q10, §3).
+					var gid := String(arg[0]) if arg is Array else String(arg)
+					var want := bool(arg[1]) if arg is Array else true
+					_check(CellRecords.group_enabled(gid) == want,
+						"%s group %s want %s got %s" % [at, gid, want, CellRecords.group_enabled(gid)])
+				"expect_placement":
+					# [{group, enabled?}, active]: the instancing predicate the
+					# streamer consults — a grouped record instances iff its
+					# group is enabled (the flipped state if present, else the
+					# record's authored `enabled` default; authored-dark rides
+					# HERE, not in the raw group state above).
+					var rec: Dictionary = arg[0]
+					var active := bool(arg[1])
+					_check(CellRecords.placement_active(rec) == active,
+						"%s placement %s want active=%s got %s"
+							% [at, rec, active, CellRecords.placement_active(rec)])
 				"replay_advance":
 					# The hooks door's determinism proof (§10): advance the
 					# same span TWICE from a restored snapshot (clock rewound
@@ -375,13 +461,17 @@ func _replay_advance(hours: float) -> bool:
 
 
 ## A canonical digest of the quest-owned namespaces (journal.*/choice.*/
-## test.*), key-sorted so insertion order can't fake a mismatch, values
-## JSON-stringified (latch dicts have a fixed key order, so this is stable).
+## test.*/world.group.*), key-sorted so insertion order can't fake a
+## mismatch, values JSON-stringified (latch dicts have a fixed key order, so
+## this is stable). world.group.* rides here so a flip that lands during
+## advance_hours catch-up must replay bit-identically — the flip's own
+## catch-up law, asserted (Q10, §3/§10).
 func _replay_digest() -> String:
 	var snap := WorldState.snapshot()
 	var keys: Array[String] = []
 	for k: String in snap:
-		if k.begins_with("journal.") or k.begins_with("choice.") or k.begins_with("test."):
+		if k.begins_with("journal.") or k.begins_with("choice.") \
+				or k.begins_with("test.") or k.begins_with("world.group."):
 			keys.append(k)
 	keys.sort()
 	var parts := PackedStringArray()

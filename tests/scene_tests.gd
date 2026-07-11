@@ -384,6 +384,7 @@ func _test_strata_link() -> void:
 	await _test_reload_honesty(peer)
 	await _test_reload_adopt(peer)
 	await _test_far_terrain_reload()
+	_test_water_field_reseats_on_bless()
 	await _test_preview_world(peer)
 	await _test_preview_mesh(peer)
 	await _test_preview_scatter(peer)
@@ -613,6 +614,29 @@ func _test_far_terrain_reload() -> void:
 		Terrain.sea_level = stash_sea
 		if Terrain.kernel:
 			Terrain.kernel.set_tiles(Terrain._tiles)
+
+
+## The tier-2 water field reseats on an in-session bless (E1a, the post-bless
+## DOUBLE WATER fix). The WaterSheet rides WaterField's baked terrain base +
+## live depth, but that base otherwise rebakes only on a ~384m focus DRIFT — so
+## a bless (reload_world) that swaps the ground leaves the sheet riding the
+## PRE-bless heights: a flat sheet floating above the new shoreline, a second
+## lake over the real one. The fix wires Terrain.water_reloaded → WaterField so
+## the adopt forces a base rebake (and clears the stale pooled depth on the live
+## path). The GPU field is off headless, so this gate can't render the sheet;
+## it pins the WIRING + the recorded rebake intent, which is exactly what a
+## regression (dropping the connection) would break. Before the fix the signal
+## had no WaterField listener and _force_bake stayed false — this FAILS.
+func _test_water_field_reseats_on_bless() -> void:
+	_check(Terrain.water_reloaded.is_connected(WaterField._on_water_reloaded),
+		"WaterField listens for water_reloaded (the bless-reseat wiring)")
+	# The adopt records a base-rebake intent in every posture (headless it is an
+	# inert, never-fingerprinted flag; _process consumes it on the next live
+	# frame). Drive the exact signal a bless emits and assert the intent lands.
+	WaterField._force_bake = false
+	Terrain.water_reloaded.emit()
+	_check(WaterField._force_bake,
+		"a water reload forces a WaterField base rebake (no stale floating sheet)")
 
 
 ## The toolkit verbs (ONE_APP P9·C): Strata's native toolbar drives the

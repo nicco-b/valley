@@ -91,6 +91,27 @@ var _catchments_built := false
 var _catch_task := -1
 var _last_snow := 0.0
 
+# --- Contour routing (PLAN_ENGINE E2, Wave D2: the RIVER RESERVOIR) --------------
+## The hourly per-basin reservoir balance is hydrology's crossing RULE (docs/
+## PORT_LEDGER.md Wave D2). THE SPLIT: the D8 flow-routing that MEASURES each
+## basin's catchment (a 256² heap-flood + steepest-descent — per-cell grid math,
+## loomkernel-class) STAYS engine-side; its output (the catchment aggregate) plus
+## the spatial rain sampling (Weather.rain_at at each river's own midpoint — the
+## rain shadow) are seeded in, exactly the climate DESIGN-CALL precedent. What
+## crosses is the linear-reservoir recession that DECIDES discharge from those
+## aggregates — the region rivers' hourly balance — as the Contour §6 `Hydrology`
+## system (game/world/hydrology.ct, via game/sim/contour_bridge.gd). When
+## STRATA_CONTOUR=1 (boot-time flag, read once, default OFF) the region-river
+## evolution routes native; flag OFF is byte-identical GDScript through the SAME
+## region_river_step body. NO SILENT FALLBACK (the honesty law): flag ON with the
+## kernel absent / the module uncompilable / a refused tick is a LOUD push_error.
+## The routed ticks carry a counter so the soak/scene test proves the system ran.
+const _CONTOUR_MODULE := "res://game/world/hydrology.ct"
+## 0 unresolved · 1 off (flag unset) · 2 engaged (bridge live) · -1 refused.
+var _contour_mode := 0
+var _contour_bridge: ContourBridge = null
+var _contour_calls := 0   # region-river ticks answered by Contour (the engaged probe)
+
 
 func _ready() -> void:
 	add_to_group("world_state_reader")  # SaveGame re-calls load_state post-restore
@@ -247,6 +268,24 @@ func _region_baseflow(r: Dictionary) -> float:
 		REGION_CATCHMENT_FALLBACK) * REGION_BASEFLOW_M
 
 
+## One region river's next reservoir storage, m³ — the linear-reservoir RULE
+## (DECISIONS 2026-07-04: rivers are linear reservoirs whose discharge sets the
+## surface offset). Catchment runoff + baseflow flow in; the reservoir sheds a
+## fixed fraction (RIVER_K) as discharge; the remainder is snapped and carried.
+## The pure per-basin leaf of the hourly balance, extracted so the Contour §6
+## `Hydrology` system and this twin share ONE body (game/world/hydrology.ct),
+## Plumb-certified bit-identical. `area` (the catchment aggregate the D8 routing
+## measured), `rain` (the rain-shadowed local rainfall) and `baseflow` are the
+## host-sampled per-river environment — all engine-bound, seeded in; pure over
+## its args.
+static func region_river_step(storage: float, area: float, rain: float,
+		runoff: float, baseflow: float) -> float:
+	storage += area * rain * runoff + baseflow
+	var q := storage * RIVER_K
+	storage -= q
+	return snappedf(storage, 0.01)
+
+
 # Flow reference for a region river: its own baseflow, weighted so the
 # idle norm lands on the tier's design line (~0.35).
 func _region_qref(r: Dictionary) -> float:
@@ -258,8 +297,15 @@ func _region_qref(r: Dictionary) -> float:
 ## reference the authored-surface Q_REF; region rivers reference their
 ## own baseflow (their real catchments span four orders of magnitude).
 func flow_norm(river_id: String) -> float:
-	var q := discharge(river_id)
-	return q / (q + float(region_qref.get(river_id, Q_REF)))
+	return flow_norm_of(discharge(river_id), float(region_qref.get(river_id, Q_REF)))
+
+
+## Discharge normalized against a flow reference: q/(q+qref), the saturating
+## curve every shader/story reader sees. The pure leaf of flow_norm, extracted so
+## the Contour port (game/world/hydrology.ct) and this twin share ONE body;
+## Plumb-certified bit-identical. Reads only its two args — pure.
+static func flow_norm_of(q: float, qref: float) -> float:
+	return q / (q + qref)
 
 
 ## A basin's world-panel label: its id, with the gazetteer's name beside it
@@ -318,24 +364,10 @@ func _hourly(_h: int) -> void:
 	# Region rivers (generated, off the home watershed grid): the same
 	# reservoir balance, but each one lives under ITS OWN sky — rain_at
 	# its midpoint — and drains the catchment the erosion bake measured.
-	for r in Terrain.rivers:
-		if not r.get("no_sim", false):
-			continue
-		var id: String = r.id
-		var nodes: Array = r.nodes
-		var mid: Vector2 = nodes[nodes.size() >> 1].pos
-		var local_rain := STORM_RAIN_M * Weather.rain_at(mid.x, mid.y)
-		var area: float = maxf(float(r.get("catchment", 0.0)),
-			REGION_CATCHMENT_FALLBACK)
-		var storage: float = region_storage[id]
-		storage += area * local_rain * runoff + _region_baseflow(r)
-		var q := storage * RIVER_K
-		storage -= q
-		region_storage[id] = snappedf(storage, 0.01)
-		Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
-				RIVER_LEVEL_MAX, flow_norm(id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
-		WorldState.set_value("water.%s.storage" % id, region_storage[id])
-		WorldState.set_value("water.%s.flow" % id, snappedf(flow_norm(id), 0.001))
+	# THE RULE crosses to Contour (Wave D2): the per-basin recession
+	# (region_river_step) ticks as the §6 `Hydrology` system when routed; the
+	# spatial rain/catchment sampling stays engine-side and is seeded in.
+	_route_region_rivers(runoff)
 
 	# Lakes: river discharge + own catchment + direct rain in; evaporation
 	# and level-driven outflow/seepage out. Level is depth offset from the
@@ -373,6 +405,111 @@ func _hourly(_h: int) -> void:
 		Terrain.lake_levels[w.idx] = level
 		WorldState.set_value("water.%s.level" % id, level)
 	levels_changed.emit()
+
+
+## The region-river reservoir evolution: routed through the Contour §6 `Hydrology`
+## system when engaged (flag ON), else the byte-identical GDScript twin. Both
+## sample the SAME engine-bound per-river environment (rain shadow at each
+## midpoint, the catchment aggregate, the baseflow floor) and drive the SAME
+## region_river_step body — the routed path just runs it native. Derived writes
+## (river_levels, WorldState mirrors) stay host-side in both, exactly as before.
+func _route_region_rivers(runoff: float) -> void:
+	var bridge := _route_contour()
+	if bridge != null:
+		# Flag ON: seed the per-river environment as parallel arrays and let the
+		# §6 `Hydrology` system map region_river_step over them (native), then read
+		# hydrology.storage back into region_storage and recompute the mirrors.
+		_contour_calls += 1
+		var rivers_ordered: Array[Dictionary] = []
+		var storage_in: Array = []
+		var area_in: Array = []
+		var rain_in: Array = []
+		var baseflow_in: Array = []
+		for r in Terrain.rivers:
+			if not r.get("no_sim", false):
+				continue
+			var nodes: Array = r.nodes
+			var mid: Vector2 = nodes[nodes.size() >> 1].pos
+			rivers_ordered.append(r)
+			storage_in.append(float(region_storage[r.id]))
+			area_in.append(maxf(float(r.get("catchment", 0.0)), REGION_CATCHMENT_FALLBACK))
+			rain_in.append(STORM_RAIN_M * Weather.rain_at(mid.x, mid.y))
+			baseflow_in.append(_region_baseflow(r))
+		if not bridge.tick_seeded({
+				"hydrology.storage": storage_in, "hydrology.area": area_in,
+				"hydrology.rain": rain_in, "hydrology.baseflow": baseflow_in,
+				"hydrology.runoff": runoff}, 3600.0):
+			push_error("[hydrology] STRATA_CONTOUR=1 but the Hydrology system tick was "
+				+ "refused — refusing to silently run the GDScript twin")
+			return
+		var out: Variant = WorldState.get_value("hydrology.storage", null)
+		if not (out is Array and (out as Array).size() == rivers_ordered.size()):
+			push_error("[hydrology] STRATA_CONTOUR=1 but the Hydrology system returned no "
+				+ "storage array — refusing to silently run the GDScript twin")
+			return
+		for i in rivers_ordered.size():
+			var r: Dictionary = rivers_ordered[i]
+			var id: String = r.id
+			region_storage[id] = float(out[i])
+			Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
+					RIVER_LEVEL_MAX, flow_norm(id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
+			WorldState.set_value("water.%s.storage" % id, region_storage[id])
+			WorldState.set_value("water.%s.flow" % id, snappedf(flow_norm(id), 0.001))
+	else:
+		# Flag OFF (default): the GDScript twin, forever byte-identical — each river
+		# soaks its catchment and drains through the shared region_river_step body.
+		for r in Terrain.rivers:
+			if not r.get("no_sim", false):
+				continue
+			var id: String = r.id
+			var nodes: Array = r.nodes
+			var mid: Vector2 = nodes[nodes.size() >> 1].pos
+			var local_rain := STORM_RAIN_M * Weather.rain_at(mid.x, mid.y)
+			var area: float = maxf(float(r.get("catchment", 0.0)),
+				REGION_CATCHMENT_FALLBACK)
+			region_storage[id] = region_river_step(region_storage[id], area,
+				local_rain, runoff, _region_baseflow(r))
+			Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
+					RIVER_LEVEL_MAX, flow_norm(id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
+			WorldState.set_value("water.%s.storage" % id, region_storage[id])
+			WorldState.set_value("water.%s.flow" % id, snappedf(flow_norm(id), 0.001))
+
+
+## The live systems bridge when routing is engaged, else null (flag off, or a
+## loud refusal). Resolves once at first tick (boot); flag-off is pure GDScript.
+func _route_contour() -> ContourBridge:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return _contour_bridge
+
+
+func _contour_resolve() -> void:
+	if OS.get_environment("STRATA_CONTOUR") != "1":
+		_contour_mode = 1   # flag off — the GDScript twin, forever byte-identical
+		return
+	# Flag ON: engage the bridge, or REFUSE loudly (never a silent GDScript pass).
+	if not ContourBridge.available():
+		push_error("[hydrology] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
+			+ "(not macOS / dylib absent) — refusing to silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	var bridge := ContourBridge.new(WorldState)
+	var err := bridge.compile_file(_CONTOUR_MODULE)
+	if err != "":
+		push_error("[hydrology] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	_contour_bridge = bridge
+	_contour_mode = 2
+
+
+## Routing introspection for the scene test / soak (proves the system ran, not a
+## silent fallback): the resolved mode, whether it engaged, and the tick count.
+func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}
 
 
 ## Does this river's mouth (last node) sit on this lake?

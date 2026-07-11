@@ -70,8 +70,12 @@ func _ready() -> void:
 	# run were the Contour §6 system's, not a silent GDScript fallback.
 	if Weather.has_method("contour_status"):
 		var ws: Dictionary = Weather.contour_status()
-		print("SOAK CONTOUR mode=%d engaged=%s weather_ticks=%d"
-			% [int(ws.get("mode", 0)), str(ws.get("engaged", false)), int(ws.get("calls", 0))])
+		# held_ticks (substrate Rung 2, this wave): >0 only on the +HELD runs,
+		# proving the Weather front chain rode the persistent held world in place,
+		# not the copy path — the distinct engagement the six-run matrix demands.
+		print("SOAK CONTOUR-WEATHER mode=%d engaged=%s weather_ticks=%d held=%s held_ticks=%d"
+			% [int(ws.get("mode", 0)), str(ws.get("engaged", false)), int(ws.get("calls", 0)),
+			str(ws.get("held", false)), int(ws.get("held_ticks", 0))])
 	# The SAME proof for the WETNESS FIELD (Mission C2b): the 8×8 grid evolution
 	# ran through the native Contour §6 `Climate` system inside THIS run (mode=2,
 	# climate_ticks climbs to 24*DAYS), or was pure GDScript (mode=1, calls=0).
@@ -79,8 +83,9 @@ func _ready() -> void:
 	# so an engaged run whose Contour cell_step diverged one ULP moves it.
 	if Climate.has_method("contour_status"):
 		var cc: Dictionary = Climate.contour_status()
-		print("SOAK CONTOUR-CLIMATE mode=%d engaged=%s climate_ticks=%d"
-			% [int(cc.get("mode", 0)), str(cc.get("engaged", false)), int(cc.get("calls", 0))])
+		print("SOAK CONTOUR-CLIMATE mode=%d engaged=%s climate_ticks=%d held=%s held_ticks=%d"
+			% [int(cc.get("mode", 0)), str(cc.get("engaged", false)), int(cc.get("calls", 0)),
+			str(cc.get("held", false)), int(cc.get("held_ticks", 0))])
 	# Contour routing proof for the Teller (Mission D1e): whether story's latch/index
 	# RULES (the index construction, the §3 DAG, $role prose, role order + rank) ran
 	# through the native Contour VM inside THIS fingerprinted run, and how many times.
@@ -104,9 +109,10 @@ func _ready() -> void:
 	# one ULP would have moved it. (content-empty scaffold: no minds => calls=0,
 	# and both flag paths contribute nothing — bit-identical either way.) AgentSim
 	# is framework (always registered), so the static reads unconditionally.
-	var cs: Dictionary = AgentSim.contour_status()
-	print("SOAK CONTOUR-AGENT mode=%d engaged=%s agent_ticks=%d"
-		% [int(cs.get("mode", 0)), str(cs.get("engaged", false)), int(cs.get("calls", 0))])
+	var acs: Dictionary = AgentSim.contour_status()
+	print("SOAK CONTOUR-AGENT mode=%d engaged=%s agent_ticks=%d held=%s held_ticks=%d"
+		% [int(acs.get("mode", 0)), str(acs.get("engaged", false)), int(acs.get("calls", 0)),
+		str(acs.get("held", false)), int(acs.get("held_ticks", 0))])
 	# The SAME proof for the RIVER RESERVOIR (Wave D2): whether the region
 	# rivers' hourly linear-reservoir recession ran through the native Contour
 	# §6 `Hydrology` system inside THIS run (mode=2, hydrology_ticks climbs to
@@ -118,8 +124,9 @@ func _ready() -> void:
 	# a divergence would move region_storage.
 	if Hydrology.has_method("contour_status"):
 		var hs: Dictionary = Hydrology.contour_status()
-		print("SOAK CONTOUR-HYDROLOGY mode=%d engaged=%s hydrology_ticks=%d"
-			% [int(hs.get("mode", 0)), str(hs.get("engaged", false)), int(hs.get("calls", 0))])
+		print("SOAK CONTOUR-HYDROLOGY mode=%d engaged=%s hydrology_ticks=%d held=%s held_ticks=%d"
+			% [int(hs.get("mode", 0)), str(hs.get("engaged", false)), int(hs.get("calls", 0)),
+			str(hs.get("held", false)), int(hs.get("held_ticks", 0))])
 	# The SAME proof for the GRAIN RULES (Mission D2d, Wave D2): the sand digest
 	# above was avalanched under the Contour §6 `Sand` system's repose/decay
 	# control (mode=2, sand_ticks climbs 40 per fingerprint), or the pure GDScript
@@ -127,8 +134,9 @@ func _ready() -> void:
 	# repose that diverged one ULP would have moved it.
 	if SandField.has_method("contour_status"):
 		var sd: Dictionary = SandField.contour_status()
-		print("SOAK CONTOUR-SAND mode=%d engaged=%s sand_ticks=%d"
-			% [int(sd.get("mode", 0)), str(sd.get("engaged", false)), int(sd.get("calls", 0))])
+		print("SOAK CONTOUR-SAND mode=%d engaged=%s sand_ticks=%d held=%s held_ticks=%d"
+			% [int(sd.get("mode", 0)), str(sd.get("engaged", false)), int(sd.get("calls", 0)),
+			str(sd.get("held", false)), int(sd.get("held_ticks", 0))])
 	get_tree().quit(1 if _failures > 0 else 0)
 
 

@@ -111,6 +111,14 @@ const _CONTOUR_MODULE := "res://game/world/hydrology.ct"
 var _contour_mode := 0
 var _contour_bridge: ContourBridge = null
 var _contour_calls := 0   # region-river ticks answered by Contour (the engaged probe)
+## The substrate Rung 2 DARK sub-flag: STRATA_CONTOUR_HELD=1 (requires
+## STRATA_CONTOUR=1) routes the same Hydrology system through the PERSISTENT HELD
+## WORLD (bridge.tick_held) — created once, ticked in place, only the write-diff
+## crossing back — instead of the whole-world copy path (tick_seeded). Default OFF
+## and byte-inert; the held ticks carry their OWN counter so the soak proves the
+## in-place path ran (a distinct engagement, not a silent copy-path fallback).
+var _contour_held := false
+var _contour_held_ticks := 0
 
 
 func _ready() -> void:
@@ -472,10 +480,22 @@ func _route_region_rivers(runoff: float) -> void:
 			area_in.append(maxf(float(r.get("catchment", 0.0)), REGION_CATCHMENT_FALLBACK))
 			rain_in.append(STORM_RAIN_M * Weather.rain_at(mid.x, mid.y))
 			baseflow_in.append(_region_baseflow(r))
-		if not bridge.tick_seeded({
-				"hydrology.storage": storage_in, "hydrology.area": area_in,
-				"hydrology.rain": rain_in, "hydrology.baseflow": baseflow_in,
-				"hydrology.runoff": runoff}, 3600.0):
+		var inputs := {
+			"hydrology.storage": storage_in, "hydrology.area": area_in,
+			"hydrology.rain": rain_in, "hydrology.baseflow": baseflow_in,
+			"hydrology.runoff": runoff}
+		# STRATA_CONTOUR_HELD=1: the PERSISTENT HELD WORLD path (substrate Rung 2)
+		# — the held world is created once and ticked IN PLACE, only the write-diff
+		# crossing back. Byte-identical WorldState effect to tick_seeded (the copy
+		# path stays the oracle); its own counter proves the in-place path ran.
+		var applied: bool
+		if _contour_held:
+			applied = bridge.tick_held(inputs, 3600.0)
+			if applied:
+				_contour_held_ticks += 1
+		else:
+			applied = bridge.tick_seeded(inputs, 3600.0)
+		if not applied:
 			push_error("[hydrology] STRATA_CONTOUR=1 but the Hydrology system tick was "
 				+ "refused — refusing to silently run the GDScript twin")
 			return
@@ -539,14 +559,20 @@ func _contour_resolve() -> void:
 		return
 	_contour_bridge = bridge
 	_contour_mode = 2
+	# The Rung 2 DARK sub-flag: only meaningful once the bridge is live. Off by
+	# default; on, the region-river tick routes through the persistent held world.
+	_contour_held = OS.get_environment("STRATA_CONTOUR_HELD") == "1"
 
 
 ## Routing introspection for the scene test / soak (proves the system ran, not a
-## silent fallback): the resolved mode, whether it engaged, and the tick count.
+## silent fallback): the resolved mode, whether it engaged, the tick count, and —
+## for the substrate Rung 2 sub-flag — whether the held path ran and how often
+## (held_ticks climbs only when STRATA_CONTOUR_HELD=1 routed the in-place tick).
 func contour_status() -> Dictionary:
 	if _contour_mode == 0:
 		_contour_resolve()
-	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls,
+		"held": _contour_held, "held_ticks": _contour_held_ticks}
 
 
 ## Does this river's mouth (last node) sit on this lake?

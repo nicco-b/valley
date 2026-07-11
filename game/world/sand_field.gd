@@ -579,6 +579,14 @@ func _apply_crater(delta_field: PackedFloat32Array, active: PackedInt32Array,
 var _contour_mode := 0        # 0 unresolved · 1 GDScript · 2 Contour · -1 refused
 var _contour_bridge: ContourBridge = null
 var _contour_calls := 0       # control ticks answered by Contour (engaged probe)
+## The substrate Rung 2 DARK sub-flag: STRATA_CONTOUR_HELD=1 (requires
+## STRATA_CONTOUR=1) routes the same Sand control through the PERSISTENT HELD
+## WORLD (bridge.tick_held) — created once, ticked in place, only the write-diff
+## crossing back — instead of the whole-world copy path (tick_seeded). Default OFF
+## and byte-inert; the held ticks carry their OWN counter so the soak proves the
+## in-place path ran (a distinct engagement, not a silent copy-path fallback).
+var _contour_held := false
+var _contour_held_ticks := 0
 
 
 func _contour_resolve() -> void:
@@ -599,6 +607,9 @@ func _contour_resolve() -> void:
 		return
 	_contour_bridge = bridge
 	_contour_mode = 2
+	# The Rung 2 DARK sub-flag: only meaningful once the bridge is live. Off by
+	# default; on, the control tick routes through the persistent held world.
+	_contour_held = OS.get_environment("STRATA_CONTOUR_HELD") == "1"
 
 
 ## The per-tick granular CONTROL the relaxation sweep consumes: {repose, decay}.
@@ -613,8 +624,19 @@ func tick_control(wet: float, wind: float, cell_m: float) -> Dictionary:
 		_contour_resolve()
 	if _contour_mode == 2:
 		_contour_calls += 1
-		if not _contour_bridge.tick_seeded(
-				{"sand.wet": wet, "sand.wind": wind, "sand.cell_m": cell_m}, 0.0):
+		# STRATA_CONTOUR_HELD=1: the PERSISTENT HELD WORLD path (substrate Rung 2)
+		# — the held world is created once and ticked IN PLACE, only the write-diff
+		# crossing back. Byte-identical WorldState effect to tick_seeded (the copy
+		# path stays the oracle); its own counter proves the in-place path ran.
+		var inputs := {"sand.wet": wet, "sand.wind": wind, "sand.cell_m": cell_m}
+		var applied: bool
+		if _contour_held:
+			applied = _contour_bridge.tick_held(inputs, 0.0)
+			if applied:
+				_contour_held_ticks += 1
+		else:
+			applied = _contour_bridge.tick_seeded(inputs, 0.0)
+		if not applied:
 			push_error("[sand] STRATA_CONTOUR=1 but the Sand control tick was refused "
 				+ "— refusing, no silent GDScript fallback")
 			_contour_mode = -1
@@ -633,4 +655,5 @@ func tick_control(wet: float, wind: float, cell_m: float) -> Dictionary:
 func contour_status() -> Dictionary:
 	if _contour_mode == 0:
 		_contour_resolve()
-	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls,
+		"held": _contour_held, "held_ticks": _contour_held_ticks}

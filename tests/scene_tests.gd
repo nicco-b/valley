@@ -4891,27 +4891,41 @@ func _test_sea_reload_visibility() -> void:
 	# A content-empty living-preview boot: no sea on disk yet.
 	Terrain.sea_level = -1e12
 	var wb: Node3D = load("res://game/world/water_bodies.gd").new()
-	add_child(wb)  # _ready: joins the steps-aside group, builds no sea (dry)
+	add_child(wb)  # _ready: connects to preview_sea, builds no sea (dry)
 	var ws: Node3D = load("res://game/world/water_sheet.gd").new()
-	add_child(ws)  # the near wave-field tier — also steps aside
+	add_child(ws)  # the near wave-field tier — still steps aside by group
 	_check(wb._sea_far == null,
 		"sea/reload: a content-empty boot builds NO sea (the living-preview pane)")
 
-	# The shaping session: wear a drape, resolve, twice. _enter hides every
-	# steps-aside node (recording its visibility); leave restores it.
+	# THE SHAPING POSTURE (M6c, the game-look water half): the drape wears and
+	# the SEA holds over the preview relief at the export's own level — real
+	# water, not a chart plane — even on a content-empty pane that had no sea.
+	# The tier-2 water sheet (no preview base to ride) still steps aside by
+	# group. Twice (the slider re-wear loop). _enter hides the group; the
+	# preview_sea broadcast (what wear() fires) drives the sea's posture.
 	var drape := PreviewTerrain.new()
 	add_child(drape)
+	drape._sea_level = 8.0
 	for cycle in 2:
 		drape._enter()
-		_check(not wb.visible and not ws.visible,
-			"sea/reload: cycle %d — the drape steps the water aside" % cycle)
-		drape.leave()
-		_check(wb.visible and ws.visible,
-			"sea/reload: cycle %d — leaving the drape restores the water" % cycle)
+		StrataLink.preview_sea.emit(true, drape._sea_level)
+		_check(wb._sea_far != null and wb._sea_far.is_visible_in_tree(),
+			"sea/reload: cycle %d — the shaping sea holds over the drape" % cycle)
+		_check(wb._sea_near != null and is_equal_approx(wb._sea_near.position.y, 8.0),
+			"sea/reload: cycle %d — the shaping sea seats at the export's level" % cycle)
+		_check(not wb._bathy.has("near"),
+			"sea/reload: cycle %d — the shaping sea carries NO bathymetry (deep W1)" % cycle)
+		_check(not ws.visible,
+			"sea/reload: cycle %d — the tier-2 water sheet still steps aside" % cycle)
+		drape.leave()  # restores the group AND broadcasts preview_sea(false)
+		_check(ws.visible,
+			"sea/reload: cycle %d — leaving restores the stepped-aside sheet" % cycle)
+		_check(wb._sea_far == null,
+			"sea/reload: cycle %d — leaving drops the shaping sea (dry live world)" % cycle)
 
-	# The BLESS: the importer wrote a real sea level; reload re-reads it. Mirror
-	# Terrain._reload_water (set the level, emit water_reloaded) without touching
-	# the operator's world on disk.
+	# THE BLESS (no drape worn): the importer wrote a real sea level; reload
+	# re-reads it. Mirror Terrain._reload_water (set the level, emit
+	# water_reloaded) without touching the operator's world on disk.
 	Terrain.sea_level = 12.0
 	Terrain.water_reloaded.emit()
 	_check(wb._sea_far != null,
@@ -4920,20 +4934,24 @@ func _test_sea_reload_visibility() -> void:
 		_check(wb._sea_far.is_visible_in_tree() and wb._sea_near.is_visible_in_tree()
 				and wb._sea_mid.is_visible_in_tree(),
 			"sea/reload: every sea tier is visible after the bless")
-	_check(wb.is_visible_in_tree(),
-		"sea/reload: the water_bodies tier is visible after the bless")
+		_check(wb._bathy.has("near") and wb._bathy.has("mid"),
+			"sea/reload: the LIVE sea carries its bathymetry again after the bless")
 	_check(ws.is_visible_in_tree(),
 		"sea/reload: the water_sheet tier is visible after the bless")
 
-	# The realistic ordering: a bless while the drape is STILL worn (the
-	# crossfade lifts it one beat later) must still land visible sea — the new
-	# discs spawn as hidden children of the stepped-aside tier and show when the
-	# drape leaves.
+	# The realistic ordering: a bless while the drape is STILL worn (reload_world
+	# fires water_reloaded before it lifts the drape) keeps the SHAPING sea at
+	# the export's level; leaving the drape reveals the blessed sea at its live
+	# level — one water truth, both postures.
 	drape._enter()
+	StrataLink.preview_sea.emit(true, drape._sea_level)
 	Terrain.water_reloaded.emit()
+	_check(wb._sea_near != null and is_equal_approx(wb._sea_near.position.y, 8.0),
+		"sea/reload: a bless under the worn drape keeps the shaping sea (8m, not 12m)")
 	drape.leave()
-	_check(wb._sea_far != null and wb._sea_far.is_visible_in_tree() and wb.is_visible_in_tree(),
-		"sea/reload: sea blessed WHILE the drape is worn shows once the drape lifts")
+	_check(wb._sea_near != null and is_equal_approx(wb._sea_near.position.y, 12.0)
+			and wb.is_visible_in_tree(),
+		"sea/reload: leaving the drape reveals the blessed sea at its live level (12m)")
 
 	# Teardown: drop the throwaway nodes, restore the world's sea level so later
 	# tests see an untouched Terrain.

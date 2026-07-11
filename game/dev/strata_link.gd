@@ -307,6 +307,18 @@ extends Node
 const PORT := 46464
 const PROTOCOL := 1
 
+## The pre-bless SHAPING WATER posture (M6c, the game-look water half). While a
+## PreviewTerrain drape is worn, the shipping SEA keeps rendering over the
+## preview relief at the export's own sea level — the real water shader + swell,
+## not a flat chart plane — so the shaping viewport looks like the game. The one
+## broadcaster: PreviewTerrain fires this on wear/re-wear (active, the manifest
+## sea) and on leave (inactive). water_bodies is the one listener — it holds the
+## sea in preview posture (lakes/rivers step aside; bathymetry honestly
+## downgrades to deep W1 since the preview relief can't feed the seabed bake).
+## Autoload-hosted (not on the on-demand PreviewTerrain) so a scene-tree node can
+## connect at _ready without a reference to a drape that may not exist yet.
+signal preview_sea(active: bool, sea_level: float)
+
 ## Every verb _execute answers — the `verbs` discovery reply (audit QW7).
 ## The scene tests assert this list matches the dispatcher's match arms
 ## exactly, both ways: add a verb there and it MUST land here too.

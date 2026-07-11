@@ -54,6 +54,84 @@ static func _ensure_extension() -> bool:
 static func available() -> bool:
 	return _ensure_extension()
 
+
+## --- THE DEFAULT (F1, 2026-07-11): STRATA_CONTOUR defaults ON ----------------
+## Historically each routed twin read `STRATA_CONTOUR != "1"` and ran its
+## GDScript twin unless the operator opted IN. The Contour systems are now
+## matrix-proven (the grand matrix, the save-load gate both ways, held routing),
+## so the DEFAULT flips: the sim routes THROUGH Contour unless STRATA_CONTOUR=0
+## (the escape hatch). This mirrors the Strata app's STRATA_ENGINE_RESTART flip
+## exactly — ProjectSwitch.restartEnabled (Sources/StrataCore/Project): unset ==
+## on, only the literal "0" opts out.
+##
+## THE KERNEL-ABSENT POSTURE — three distinct answers, because the framework
+## ships EVERYWHERE but the native dylib is macOS-only:
+##   • "0"                       -> ROUTE_FALLBACK: the GDScript twin, silent.
+##                                  The operator's explicit escape hatch.
+##   • ON + kernel live          -> ROUTE_ENGAGE the VM (the milestone path).
+##   • ON + kernel ABSENT and the operator DEMANDED it (=1), OR we are on macOS
+##     (where the dylib SHIPS, so its absence is a broken dev build)
+##                               -> ROUTE_REFUSE, loudly (push_error, mode -1).
+##                                  Never a silent GDScript pass under a demand.
+##   • ON + kernel ABSENT, UNSET, on a kernel-less (non-macOS) platform
+##                               -> ROUTE_FALLBACK to the GDScript twin WITH a
+##                                  visible once-per-boot push_warning. A player
+##                                  who never asked for Contour, on a platform
+##                                  the dylib never targets, must get a WORKING
+##                                  game — never a crash. This is a DIFFERENT
+##                                  posture than explicit =1: =1 is a demand that
+##                                  must fail where it cannot be honored; unset
+##                                  is only the default, and the default must
+##                                  degrade gracefully off-platform.
+const ROUTE_FALLBACK := 1    # run the GDScript twin (the "0" hatch, or a lawful
+                             #   kernel-less-platform fallback — see decide())
+const ROUTE_ENGAGE   := 2    # kernel live + routing on — proceed to compile
+const ROUTE_REFUSE   := -1   # loud refusal: a demand (=1), or a macOS build
+                             #   whose shipped dylib is missing. Stored as mode -1.
+
+static var _kernel_less_noted := false   # the once-per-boot fallback-note guard
+static var _engaged_noted := false       # the once-per-boot engage-note guard
+
+## The routing verdict a twin stores as its `_contour_mode`, decided from the
+## boot flag + platform + kernel availability BEFORE it compiles its module.
+## `tag` names the system for the diagnostic. Pure but for available()'s idempotent
+## load and the once-per-boot warning. The returned int IS the stored mode, so the
+## old magic numbers are preserved: ROUTE_ENGAGE(2)=engaged, ROUTE_FALLBACK(1)=
+## GDScript twin, ROUTE_REFUSE(-1)=loud refusal (contour_status().engaged == mode 2
+## still holds). A consumer routes only on ROUTE_ENGAGE, then compiles its module.
+static func decide(tag: String) -> int:
+	var flag := OS.get_environment("STRATA_CONTOUR")
+	if flag == "0":
+		return ROUTE_FALLBACK                # explicit escape hatch — GDScript twin
+	if available():
+		# Default-on engagement — announce it ONCE per boot (informational, not a
+		# warning): the milestone default is live and the native kernel answered.
+		# Bracket-prefixed so the smoke gate reads it as intentional logging; each
+		# routed twin still carries its own `contour_status` for per-system proof.
+		if not _engaged_noted:
+			_engaged_noted = true
+			print("[contour] routing ENGAGED (%s, native Lattice kernel live) — "
+					% ("=1" if flag == "1" else "STRATA_CONTOUR default-on")
+				+ "the sim tier runs through Contour; set STRATA_CONTOUR=0 to opt out")
+		return ROUTE_ENGAGE                  # default-on (or =1) + kernel live
+	# Routing is ON (unset default, or =1) but the native kernel is absent.
+	if flag == "1" or OS.get_name() == "macOS":
+		push_error("[%s] STRATA_CONTOUR routing is on (%s) but the Contour kernel "
+				% [tag, "=1" if flag == "1" else "default-on"]
+			+ "is unavailable (macOS dylib missing, or demanded off-platform) — "
+			+ "refusing to silently run the GDScript twin")
+		return ROUTE_REFUSE
+	# Unset default on a kernel-less platform: the framework ships here, the
+	# dylib does not. Fall back to the GDScript twin — but SAY SO, once per boot.
+	if not _kernel_less_noted:
+		_kernel_less_noted = true
+		push_warning("[contour] no native kernel on %s (the dylib is macOS-only) — "
+				% OS.get_name()
+			+ "STRATA_CONTOUR defaults ON but falls back to the GDScript twin here. "
+			+ "Set STRATA_CONTOUR=0 to opt out silently, or =1 to demand the kernel "
+			+ "(which refuses when it is absent).")
+	return ROUTE_FALLBACK
+
 ## Compile a Contour module from source text. Returns "" on success (the VM is
 ## live for call_fn), else a diagnostic (kernel unavailable, or a compile error).
 ## COLD path — call once at load, never on the tick.

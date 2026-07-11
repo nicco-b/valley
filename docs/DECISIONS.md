@@ -291,6 +291,31 @@ All decided 2026-07-01 (first design day) unless noted.*
   back), not latches; the linter warns when two quests flip one group the same
   direction (one owning quest per direction). Authored-dark placements
   (`enabled:false`) start a group off until a stage enables it.
+- **STRATA_CONTOUR defaults ON — the sim routes through Contour unless
+  STRATA_CONTOUR=0** (noted 2026-07-11, F1 THE FLIP). The seven Contour
+  systems (flora/weather/climate/agent/hydrology/sand/story) plus the pure
+  routes (names/conditions/items/skills/budget/save_migration) were proven
+  matrix-safe — the grand soak matrix, the save-load gate both ways, the
+  held-world routing all bit-identical flag-off == flag-on. So the default
+  flips: unset ENGAGES the native Lattice VM; `STRATA_CONTOUR=0` is the
+  escape hatch back to the GDScript twins. This mirrors the Strata app's
+  STRATA_ENGINE_RESTART flip exactly (ProjectSwitch.restartEnabled: unset ==
+  on, "0" == off). The RULE lives in ONE place — `Contour.decide(tag)`
+  (game/sim/contour.gd) — and every routed twin reads its verdict.
+  - **The kernel-absent posture is three-way, on purpose** (the framework
+    ships everywhere; the native dylib is macOS-only): (1) `=0` runs the
+    GDScript twin, silent; (2) ON + a live kernel ENGAGES; (3) ON + an
+    ABSENT kernel splits by intent — an explicit `=1` (a demand) OR *any*
+    absence on macOS (where the dylib SHIPS, so its absence is a broken
+    build) REFUSES loudly (push_error, mode -1, never a silent pass), while
+    an UNSET default on a kernel-less platform (non-macOS) falls back to the
+    GDScript twin WITH a visible once-per-boot push_warning — never a crash.
+    Why the split: `=1` is a demand that must fail where it cannot be
+    honored; unset is only the default, and a player who never asked for
+    Contour on a platform the dylib never targets must get a working game.
+    Proven: valley `./scripts/test.sh` ×2 green; the six-run soak matrix
+    (2× `=0` hatch / 2× default-on / 2× default-on +HELD) shares one
+    fingerprint with the routing counters earned on the DEFAULT runs.
 
 ## Open (deliberately undecided)
 

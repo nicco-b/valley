@@ -4607,14 +4607,21 @@ func _test_hydrology() -> void:
 		Hydrology._hourly(0)
 	_check(Hydrology.lake_level is Dictionary and Hydrology.river_storage is Dictionary,
 		"hydrology runs clean with no authored water bodies")
-	# Contour routing plumbing (Wave D2): flag OFF (the scene-test default) resolves
-	# to the GDScript twin — mode 1, never engaged, the tick counter never moved by
-	# the 6 _hourly calls above. The ENGAGED path (mode 2, 720 native §6 `Hydrology`
-	# ticks, flag-off == flag-on fingerprint) is proven by the four-run soak matrix.
+	# Contour routing plumbing (Wave D2; F1 THE FLIP): STRATA_CONTOUR now defaults
+	# ON, so a default scene-test boot with a live kernel ENGAGES (mode 2) and the 6
+	# _hourly calls above routed through the native §6 `Hydrology` system — the tick
+	# counter EARNED it, no silent fallback. The escape hatch (STRATA_CONTOUR=0) or a
+	# kernel-less platform resolves to the GDScript twin (mode 1, or a loud -1) with
+	# the counter at 0. Assert whichever posture this boot resolved; the flag-off ==
+	# flag-on fingerprint (identical worlds) is proven by the six-run soak matrix.
 	var hyd_cs: Dictionary = Hydrology.contour_status()
-	_check(int(hyd_cs.get("mode", 0)) == 1 and not bool(hyd_cs.get("engaged", true))
-			and int(hyd_cs.get("calls", -1)) == 0,
-		"hydrology Contour routing OFF by default (GDScript twin, no silent engage)")
+	if bool(hyd_cs.get("engaged", false)):
+		_check(int(hyd_cs.get("mode", 0)) == 2 and int(hyd_cs.get("calls", 0)) > 0,
+			"hydrology Contour routing ENGAGED by default (native §6 ticks earned the counter, no silent fallback)")
+	else:
+		_check((int(hyd_cs.get("mode", 0)) == 1 or int(hyd_cs.get("mode", 0)) == -1)
+				and int(hyd_cs.get("calls", -1)) == 0,
+			"hydrology Contour routing off (=0 hatch / kernel-less) — GDScript twin, no silent engage")
 	for id in Hydrology.lake_level:
 		var lv: float = Hydrology.lake_level[id]
 		_check(lv >= Hydrology.LAKE_LEVEL_MIN and lv <= Hydrology.LAKE_LEVEL_MAX,

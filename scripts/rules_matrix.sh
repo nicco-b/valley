@@ -1,7 +1,8 @@
 #!/bin/sh
 # The P1 RULES TRIO four-run determinism matrix (Mission D1b — items/skills/
 # budget). For EACH file, boot tests/rules_matrix.tscn four times on ONE binary
-# (2× STRATA_CONTOUR unset + 2× =1) and demand:
+# (POST-FLIP: 2× off-hatch STRATA_CONTOUR=0 + 2× =1 — unset now defaults ON, so
+# the "off" runs drive the escape hatch explicitly) and demand:
 #   (a) all four FINGERPRINTS identical — the routed Contour rules == the GDScript
 #       twin, bit-for-bit (items/skills over fingerprinted player.inventory / the
 #       skill stat mirror; budget over its read-only grade output);
@@ -17,7 +18,7 @@ run() { # $1 = file, $2 = flag (0|1)
 	if [ "$2" = "1" ]; then
 		STRATA_CONTOUR=1 D1B_MATRIX_FILE="$1" godot --headless --quit-after 8000 res://tests/rules_matrix.tscn 2>&1
 	else
-		D1B_MATRIX_FILE="$1" godot --headless --quit-after 8000 res://tests/rules_matrix.tscn 2>&1
+		STRATA_CONTOUR=0 D1B_MATRIX_FILE="$1" godot --headless --quit-after 8000 res://tests/rules_matrix.tscn 2>&1
 	fi
 }
 

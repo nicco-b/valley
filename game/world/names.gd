@@ -260,15 +260,11 @@ static func _route() -> Contour:
 
 
 static func _contour_resolve() -> void:
-	if OS.get_environment("STRATA_CONTOUR") != "1":
-		_contour_mode = 1   # flag off — the GDScript twin, forever byte-identical
+	var verdict := Contour.decide("names")
+	if verdict != Contour.ROUTE_ENGAGE:
+		_contour_mode = verdict   # ROUTE_FALLBACK (GDScript twin) or ROUTE_REFUSE (loud, mode -1)
 		return
-	# Flag ON: engage the VM, or REFUSE loudly (never a silent GDScript pass).
-	if not Contour.available():
-		push_error("[names] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
-			+ "(not macOS / dylib absent) — refusing to silently run the GDScript twin")
-		_contour_mode = -1
-		return
+	# Routing engaged — compile the module (a compile failure still refuses loudly).
 	var vm := Contour.new()
 	var err := vm.compile_file(_CONTOUR_MODULE)
 	if err != "":

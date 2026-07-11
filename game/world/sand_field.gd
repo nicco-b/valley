@@ -605,13 +605,9 @@ var _contour_held_ticks := 0
 
 
 func _contour_resolve() -> void:
-	if OS.get_environment("STRATA_CONTOUR") != "1":
-		_contour_mode = 1        # flag off — the GDScript twin, forever byte-identical
-		return
-	if not ContourBridge.available():
-		push_error("[sand] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
-			+ "(non-macOS / dylib absent) — refusing, no silent GDScript fallback")
-		_contour_mode = -1
+	var verdict := Contour.decide("sand")
+	if verdict != Contour.ROUTE_ENGAGE:
+		_contour_mode = verdict   # ROUTE_FALLBACK (GDScript twin) or ROUTE_REFUSE (loud, mode -1)
 		return
 	var bridge := ContourBridge.new(WorldState)
 	var err := bridge.compile_file("res://game/world/sand_field.ct")

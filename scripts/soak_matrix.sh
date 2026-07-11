@@ -1,19 +1,23 @@
 #!/bin/sh
-# The CONTOUR SUBSTRATE six-run soak matrix (Mission D4 opened it for flora; this
-# wave — E1d — extends the persistent HELD WORLD to the other six Contour systems).
+# The CONTOUR SUBSTRATE six-run soak matrix (Mission D4 opened it for flora; E1d
+# extended the persistent HELD WORLD to the other six systems; F1 re-proves it
+# under THE DEFAULT FLIP — STRATA_CONTOUR now defaults ON, so the DEFAULT runs
+# ENGAGE and the escape hatch STRATA_CONTOUR=0 is the "off" case).
 # Boot tests/soak.tscn SIX times on ONE binary/tree and demand:
-#   (a) all SIX SOAK FINGERPRINTs identical — the GDScript twin, the copy-path
-#       Contour bridge (STRATA_CONTOUR=1), and the PERSISTENT HELD WORLD path
-#       (STRATA_CONTOUR=1 STRATA_CONTOUR_HELD=1) produce a bit-for-bit identical
+#   (a) all SIX SOAK FINGERPRINTs identical — the GDScript twin (the =0 hatch),
+#       the copy-path Contour bridge (DEFAULT-ON), and the PERSISTENT HELD WORLD
+#       path (default-on + STRATA_CONTOUR_HELD=1) produce a bit-for-bit identical
 #       30-day world (never a pinned value — same tree, same binary, same seed);
 #   (b) EVERY system's engagement counters EARN it, per system:
 #       - flora / weather / climate / agent / hydrology / sand: calls 0 on both
-#         flag-OFF runs, >0 on all four flag-ON runs; held_ticks 0 everywhere
+#         hatch (=0) runs, >0 on all four routing-ON runs; held_ticks 0 everywhere
 #         EXCEPT the two +HELD runs, where it climbs >0 — proof the in-place held
 #         path actually ran, NOT a silent copy-path fallback.
 #       - story: pure-function VM calls (no §6 world to hold), so it earns the
-#         SAME calls>0-on-flag-ON / 0-on-flag-OFF proof, but no held_ticks column.
-# The six states: 2× flag-OFF, 2× STRATA_CONTOUR=1, 2× +STRATA_CONTOUR_HELD=1.
+#         SAME calls>0-on-routing-ON / 0-on-hatch proof, but no held_ticks column.
+# The six states (POST-FLIP): 2× off-hatch (STRATA_CONTOUR=0), 2× default-on
+# (STRATA_CONTOUR unset — routing ENGAGES by default), 2× default-on +HELD. The
+# counters are now earned on the DEFAULT (unset) runs — that IS the flip.
 # NEVER a live editor port — STRATA_LINK_PORT pinned off the reserved set.
 cd "$(dirname "$0")/.." || exit 1
 
@@ -36,11 +40,11 @@ EOF
 echo "== import (refresh class cache) =="
 godot --headless --import >/dev/null 2>&1
 
-run() { # $1 = "off" | "contour" | "held"
+run() { # $1 = "off" | "contour" | "held"  (POST-FLIP: default ON, =0 is the hatch)
 	case "$1" in
-		off)     godot --headless --quit-after 20000 res://tests/soak.tscn 2>&1 ;;
-		contour) STRATA_CONTOUR=1 godot --headless --quit-after 20000 res://tests/soak.tscn 2>&1 ;;
-		held)    STRATA_CONTOUR=1 STRATA_CONTOUR_HELD=1 godot --headless --quit-after 20000 res://tests/soak.tscn 2>&1 ;;
+		off)     STRATA_CONTOUR=0 godot --headless --quit-after 20000 res://tests/soak.tscn 2>&1 ;;
+		contour) godot --headless --quit-after 20000 res://tests/soak.tscn 2>&1 ;;
+		held)    STRATA_CONTOUR_HELD=1 godot --headless --quit-after 20000 res://tests/soak.tscn 2>&1 ;;
 	esac
 }
 

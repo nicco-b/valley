@@ -169,6 +169,11 @@ var _river_preview: MeshInstance3D
 # input live in OrbitRig — the map screen rides the same rig.
 var orbit := false
 var _orbit := OrbitRig.new()
+# The toolkit's OWN chart-air env (the one _ensure_chart_air seats). Held so the
+# orbit _process can drive its depth-fog density from the framing distance
+# (OrbitRig.chart_fog_density — the whiteout fix) WITHOUT touching a data-layer
+# drape's env (preview_terrain owns that one; its fog is off anyway).
+var _chart_env: Environment
 # The bless landing (Y2): reload_world re-seats the walker over the freshly
 # recorded spawn, but while the viewer is still in orbit the per-frame
 # _orbit.apply would clobber any fly-camera pose we set. So the re-seat defers
@@ -483,7 +488,8 @@ func _ensure_chart_air() -> void:
 		return
 	var world_env := get_viewport().world_3d.environment
 	if world_env:
-		_cam.environment = OrbitRig.chart_environment(world_env)
+		_chart_env = OrbitRig.chart_environment(world_env)
+		_cam.environment = _chart_env
 
 
 ## The world panel's first block: every per-position number the sim
@@ -1465,6 +1471,12 @@ func _process(delta: float) -> void:
 		# the tree — the boot race); land it the instant it is available so
 		# the tile never sits washed to a beige slab under the world's haze.
 		_ensure_chart_air()
+		# The whiteout fix: keep the depth fog a constant faint whisper at every
+		# framing by scaling its density with the orbit distance (far survey =>
+		# thin, wheeled-to-ground => game-like air). Only our own chart env — a
+		# worn data drape carries preview_terrain's fog-off env, left untouched.
+		if _chart_env != null and _cam != null and _cam.environment == _chart_env:
+			_chart_env.fog_density = OrbitRig.chart_fog_density(_orbit.distance)
 		# Spherical ride around the target; WASD pans the target in the
 		# camera's ground plane (the Strata-viewport hand, in-engine).
 		_orbit.pan(Input.get_vector(

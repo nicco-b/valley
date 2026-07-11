@@ -101,19 +101,19 @@ func _ready() -> void:
 	var cs: Dictionary = AgentSim.contour_status()
 	print("SOAK CONTOUR-AGENT mode=%d engaged=%s agent_ticks=%d"
 		% [int(cs.get("mode", 0)), str(cs.get("engaged", false)), int(cs.get("calls", 0))])
-		# The SAME proof for the RIVER RESERVOIR (Wave D2): whether the region
-		# rivers' hourly linear-reservoir recession ran through the native Contour
-		# §6 `Hydrology` system inside THIS run (mode=2, hydrology_ticks climbs to
-		# 24*DAYS), or was pure GDScript (mode=1, calls=0). The region tier is a
-		# regenerable import cache DELIBERATELY off the fingerprint above (the header
-		# law: it must not depend on the cache), so this is engagement + no-corruption
-		# evidence — bit-parity of region_river_step is carried by Plumb (bit-identical
-		# vs real Godot), and flag-off == flag-on holds because the leaf is identical:
-		# a divergence would move region_storage.
-		if Hydrology.has_method("contour_status"):
-			var hs: Dictionary = Hydrology.contour_status()
-			print("SOAK CONTOUR-HYDROLOGY mode=%d engaged=%s hydrology_ticks=%d"
-				% [int(hs.get("mode", 0)), str(hs.get("engaged", false)), int(hs.get("calls", 0))])
+	# The SAME proof for the RIVER RESERVOIR (Wave D2): whether the region
+	# rivers' hourly linear-reservoir recession ran through the native Contour
+	# §6 `Hydrology` system inside THIS run (mode=2, hydrology_ticks climbs to
+	# 24*DAYS), or was pure GDScript (mode=1, calls=0). The region tier is a
+	# regenerable import cache DELIBERATELY off the fingerprint above (the header
+	# law: it must not depend on the cache), so this is engagement + no-corruption
+	# evidence — bit-parity of region_river_step is carried by Plumb (bit-identical
+	# vs real Godot), and flag-off == flag-on holds because the leaf is identical:
+	# a divergence would move region_storage.
+	if Hydrology.has_method("contour_status"):
+		var hs: Dictionary = Hydrology.contour_status()
+		print("SOAK CONTOUR-HYDROLOGY mode=%d engaged=%s hydrology_ticks=%d"
+			% [int(hs.get("mode", 0)), str(hs.get("engaged", false)), int(hs.get("calls", 0))])
 	# The SAME proof for the GRAIN RULES (Mission D2d, Wave D2): the sand digest
 	# above was avalanched under the Contour §6 `Sand` system's repose/decay
 	# control (mode=2, sand_ticks climbs 40 per fingerprint), or the pure GDScript

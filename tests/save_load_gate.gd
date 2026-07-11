@@ -29,14 +29,19 @@ var _checks := 0
 
 func _ready() -> void:
 	# HERMETIC user:// — the gate writes its fixtures to the REAL save path
-	# (user://save.json), and the loader's refusal path falls back to
-	# user://anchors. Residue from earlier suites in the same test.sh run
-	# (or a developer's own play) makes the refuse-newer check load a REAL
-	# anchor instead of refusing into nothing — the live-tree "day still 9"
-	# failure. Start from a clean slate; the gate leaves only its own last
-	# fixture behind (test residue, never player data — the real games save
-	# under their own project user dirs).
-	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://save.json"))
+	# (user://save.json), and the live-save door reads that file THEN its
+	# rotated backups .bak1/.bak2 (save_manager.load_into_world:115) — a
+	# newer/torn save "falls back to a slightly older world, never to nothing."
+	# Residue from earlier suites in the same test.sh run (scene_tests boots the
+	# world; SaveGame's 30s autosave, _process:36, rotates a real day-N world
+	# into .bak1) is NOT player-facing anchor data — it is exactly that backup
+	# rotation. A save.json-only wipe missed it, so the refuse-newer check
+	# lawfully loaded .bak1's day-9 world instead of refusing into nothing —
+	# the live-tree "day still 9" failure. Clear the WHOLE live-save set so the
+	# covenant is asserted against a known fallback state, not test.sh residue.
+	# The gate leaves only its own last fixture behind (test residue, never
+	# player data — the real games save under their own project user dirs).
+	_clear_live_saves()
 	var anchors := DirAccess.open("user://anchors")
 	if anchors != null:
 		for f in anchors.get_files():
@@ -191,14 +196,42 @@ func _gate_real_path() -> void:
 	_check(GameClock.day == 42,
 		"real path: load_into_world migrates+applies a valid save through the live door (day=%d)" % GameClock.day)
 
-	# Newer at the live door: the covenant's whole point — refuse honestly, and
-	# NEVER a silent reset. The clock sentinel must survive untouched.
+	# Newer at the live door: the covenant's whole point — refuse the newer save
+	# honestly, and NEVER apply it. But "refuse" has TWO lawful outcomes at this
+	# door, and the gate must pin BOTH hermetically (owning the .bak fallback set
+	# itself, not leaning on whatever an earlier suite's autosave left in .bak1).
+	#
+	# (a) NO valid fallback — refuse into nothing, and NEVER a silent reset.
+	#     save.json holds the newer save; the backups are empty. The loader
+	#     refuses, finds no older world, and _spawn_fresh does NOT touch the
+	#     clock (save_manager._spawn_fresh:220) — the sentinel survives untouched.
+	_clear_live_saves()
 	_write_save({"version": SaveMigration.CURRENT + 50, "player": {"x": 0.0, "z": 0.0},
 		"hours": 1.0, "day": 3, "state": {}, "wear": {}})
 	GameClock.day = 777
 	await SaveGame.load_into_world()
 	_check(GameClock.day == 777,
-		"real path: a newer save at the live door is refused — the clock is NOT reset (day still %d)" % GameClock.day)
+		"real path: a newer save with no backup is refused into nothing — the clock is NOT reset (day still %d)" % GameClock.day)
+
+	# (b) A VALID older backup present — refuse the newer save, then fall back to
+	#     the last-good world (save_manager.load_into_world:113 — "never to
+	#     nothing"). This is the REAL day-9 behaviour, now made deterministic: a
+	#     KNOWN day-321 world in .bak1 is what the door lands on. The covenant is
+	#     NOT "keep the sentinel" here — it is "never the newer save, never fresh,
+	#     always the best older valid world." Assert exactly that.
+	_clear_live_saves()
+	_write_save({"version": SaveMigration.CURRENT + 50, "player": {"x": 0.0, "z": 0.0},
+		"hours": 1.0, "day": 3, "state": {}, "wear": {}})
+	var backup := {"version": 2, "hours": 4.0, "day": 321,
+		"wall_time": Time.get_unix_time_from_system(), "civil": true,
+		"player": {"x": 0.0, "z": 0.0}, "state": {}, "wear": {}, "cells": {}}
+	var bak1 := FileAccess.open(SaveGame.PATH + ".bak1", FileAccess.WRITE)
+	bak1.store_string(JSON.stringify(backup, "\t"))
+	bak1.close()
+	GameClock.day = 777
+	await SaveGame.load_into_world()
+	_check(GameClock.day == 321,
+		"real path: a newer save is refused and the door falls back to the last-good backup — not the newer save (day 3), not fresh, but the older world (day %d)" % GameClock.day)
 
 	# --- the engagement counter: proof the real door routed (no silent fallback) -
 	# When the flag is set AND the kernel is live, routing MUST engage — anything
@@ -224,12 +257,12 @@ func _gate_real_path() -> void:
 			# cross-platform outcome (the framework file rides every game).
 			print("SAVE-LOAD-GATE REFUSED (mode -1, kernel/module unavailable — loud, not silent)")
 
-	# Housekeeping (the isolated HOME is per-run, but leave no litter).
+	# Housekeeping (the isolated HOME is per-run, but leave no litter). Clear the
+	# whole live-save set — the refuse-newer check now plants a .bak1 backup, so
+	# the save.json-only sweep would leave that behind for the next suite.
 	_rm_anchor("gate_v2")
 	_rm_anchor("gate_future")
-	var save_path := ProjectSettings.globalize_path("user://save.json")
-	if FileAccess.file_exists("user://save.json"):
-		DirAccess.remove_absolute(save_path)
+	_clear_live_saves()
 
 
 # --- helpers ----------------------------------------------------------------
@@ -259,6 +292,18 @@ func _write_save(data: Dictionary) -> void:
 	var f := FileAccess.open("user://save.json", FileAccess.WRITE)
 	f.store_string(JSON.stringify(data, "\t"))
 	f.close()
+
+
+## Clear the entire live-save set the door reads — save.json AND its rotated
+## backups .bak1/.bak2 (and any half-written .tmp). The gate owns this set so
+## the refuse-newer covenant is asserted against a known fallback state, never
+## an earlier suite's autosaved residue (save_manager.load_into_world walks
+## [PATH, .bak1, .bak2] in order — refusal falls back through the backups).
+func _clear_live_saves() -> void:
+	for p: String in [SaveGame.PATH, SaveGame.PATH + ".bak1",
+			SaveGame.PATH + ".bak2", SaveGame.PATH + ".tmp"]:
+		if FileAccess.file_exists(p):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(p))
 
 
 ## Exact structural equality — the byte-for-byte compare. Recurses dicts/arrays

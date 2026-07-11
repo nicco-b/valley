@@ -178,8 +178,9 @@ static void marshal_args(const Array &args, std::vector<LatValue> &argv, std::ve
 	}
 }
 
-// Decode a result LatValue into a Variant. A LAT_BUF result is Lattice-owned;
-// the caller frees it via lattice_buf_free AFTER this returns its decoded copy.
+// Decode a result LatValue into a Variant. A LAT_BUF/LAT_STR result is
+// Lattice-owned; the caller frees it via free_result_buf AFTER this returns
+// its decoded copy.
 static Variant lat_to_variant(const LatValue &v) {
 	switch (v.tag) {
 		case LAT_INT:   return Variant((int64_t)v.i);
@@ -194,8 +195,20 @@ static Variant lat_to_variant(const LatValue &v) {
 			Variant out = cc_decode(r);
 			return r.ok ? out : Variant();
 		}
+		case LAT_STR: {
+			// A bare top-level string result: raw UTF-8 bytes in buf/buflen
+			// (no NUL, no CompositeCodec framing) — see lattice_embed.h.
+			if (!v.buf) return Variant(String());
+			return Variant(String::utf8((const char *)v.buf, (int64_t)v.buflen));
+		}
 		default:        return Variant(); // LAT_ERR
 	}
+}
+
+// Free a Lattice-owned result buffer (a LAT_BUF composite or a LAT_STR string)
+// exactly once after decoding; scalar/error results carry nothing to free.
+static void free_result_buf(LatValue &v) {
+	if (v.tag == LAT_BUF || v.tag == LAT_STR) { lattice_buf_free(v.buf); v.buf = nullptr; }
 }
 
 ContourKernel::~ContourKernel() {
@@ -223,7 +236,7 @@ Variant ContourKernel::contour_call(const String &fn, const Array &args) {
 			&out, err, sizeof(err));
 	if (rc != 0) { UtilityFunctions::push_error("contour_call: ", String(err)); return Variant(); }
 	Variant result = lat_to_variant(out);
-	if (out.tag == LAT_BUF) lattice_buf_free(out.buf);   // Lattice-owned result buffer
+	free_result_buf(out);   // Lattice-owned result buffer (LAT_BUF or LAT_STR)
 	return result;
 }
 
@@ -238,7 +251,7 @@ Dictionary ContourKernel::contour_tick(const Dictionary &world, double dt) {
 	int rc = lattice_tick(handle, store.data(), (int64_t)store.size(), dt, &out, err, sizeof(err));
 	if (rc != 0) { UtilityFunctions::push_error("contour_tick: ", String(err)); return Dictionary(); }
 	Variant result = lat_to_variant(out);
-	if (out.tag == LAT_BUF) lattice_buf_free(out.buf);   // Lattice-owned result buffer
+	free_result_buf(out);   // Lattice-owned result buffer
 	return (result.get_type() == Variant::DICTIONARY) ? (Dictionary)result : Dictionary();
 }
 
@@ -249,7 +262,7 @@ Array ContourKernel::contour_systems() {
 	int rc = lattice_systems(handle, &out, err, sizeof(err));
 	if (rc != 0) { UtilityFunctions::push_error("contour_systems: ", String(err)); return Array(); }
 	Variant result = lat_to_variant(out);
-	if (out.tag == LAT_BUF) lattice_buf_free(out.buf);
+	free_result_buf(out);
 	return (result.get_type() == Variant::ARRAY) ? (Array)result : Array();
 }
 
@@ -264,16 +277,16 @@ Dictionary ContourKernel::bench(const String &fn, const Array &args, int64_t ite
 	char err[1024] = {0};
 	// Warm once (compile is already done; this primes caches/branch predictors).
 	lattice_call(handle, fname.get_data(), argv.data(), (int32_t)argv.size(), &out, err, sizeof(err));
-	if (out.tag == LAT_BUF) lattice_buf_free(out.buf);
+	free_result_buf(out);
 
 	auto t0 = std::chrono::steady_clock::now();
 	int bad = 0;
 	for (int64_t k = 0; k < iters; k++) {
 		if (lattice_call(handle, fname.get_data(), argv.data(), (int32_t)argv.size(),
 				&out, err, sizeof(err)) != 0) bad++;
-		// Free each iteration's result buffer (a composite-returning bench would
-		// otherwise leak one buffer per call).
-		if (out.tag == LAT_BUF) { lattice_buf_free(out.buf); out.buf = nullptr; }
+		// Free each iteration's result buffer (a composite- or string-returning
+		// bench would otherwise leak one buffer per call).
+		free_result_buf(out);
 	}
 	auto t1 = std::chrono::steady_clock::now();
 	double total_us = std::chrono::duration<double, std::micro>(t1 - t0).count();
@@ -283,7 +296,7 @@ Dictionary ContourKernel::bench(const String &fn, const Array &args, int64_t ite
 	d["total_us"] = total_us;
 	d["per_call_us"] = total_us / (double)iters;
 	d["result"] = lat_to_variant(out);
-	if (out.tag == LAT_BUF) lattice_buf_free(out.buf);
+	free_result_buf(out);
 	return d;
 }
 
@@ -303,7 +316,7 @@ Dictionary ContourKernel::bench_marshal(const String &fn, const Array &args, int
 		marshal_args(args, argv, bufs);
 		if (lattice_call(handle, fname.get_data(), argv.data(), (int32_t)argv.size(),
 				&out, err, sizeof(err)) != 0) bad++;
-		if (out.tag == LAT_BUF) { lattice_buf_free(out.buf); out.buf = nullptr; }
+		free_result_buf(out);
 	}
 	auto t1 = std::chrono::steady_clock::now();
 	double total_us = std::chrono::duration<double, std::micro>(t1 - t0).count();

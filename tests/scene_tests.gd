@@ -1265,27 +1265,27 @@ func _test_records_desk(peer: StreamPeerTCP) -> void:
 			"a cyclic quest bounces with QuestLint's cycle words (got %s)" % ereplies[4])
 		_check(ereplies[5] == "ok validate quests",
 			"a sound quest validates ok through the real lint (got %s)" % ereplies[5])
-	# The SHIPPED villagers kind over the wire (CREATION_KIT_REVIEW_V2 #3a):
-	# a creature's day, edited like a quest. `records schema villagers` answers
-	# the shape the desk renders typed editors from; `records validate villagers`
-	# runs the SAME schedule judgement the loader does — a schedule with a
-	# malformed activity bounces with the game's own words, over the link,
-	# before anything lands. This is the acceptance's "edit an activity record
-	# over the link" half, proven headless.
-	var good_villager := '{"id": "wire_v", "name": "Wire", "home": {"x": 0, "z": 0}, "body_scene": "res://game/villagers/villager_body.tscn", "schedule": [{"id": "garden", "at": "roam", "satisfies": "work"}]}'
-	var bad_villager := '{"id": "wire_v", "name": "Wire", "home": {"x": 0, "z": 0}, "body_scene": "res://game/villagers/villager_body.tscn", "schedule": [{"id": "garden", "at": "roam"}]}'
+	# The CAST SHEET's characters kind over the wire (CREATION_KIT_REVIEW_V2
+	# #3a): a creature's or villager's day, edited like a quest. `records schema
+	# characters` answers the shape the desk renders typed editors from;
+	# `records validate characters` runs the SAME whole-record judgement the
+	# loader does — a schedule with a malformed activity bounces with the game's
+	# own words, over the link, before anything lands. This is the acceptance's
+	# "edit an activity record over the link" half, proven headless.
+	var good_villager := '{"id": "wire_v", "identity": {"name": "Wire", "kind": "villager"}, "body": {"card": "chars/villager_keeper"}, "home": {"x": 0, "z": 0}, "schedule": [{"id": "garden", "at": "roam", "satisfies": "work"}]}'
+	var bad_villager := '{"id": "wire_v", "identity": {"name": "Wire", "kind": "villager"}, "body": {"card": "chars/villager_keeper"}, "home": {"x": 0, "z": 0}, "schedule": [{"id": "garden", "at": "roam"}]}'
 	var vreplies := await _link_send(peer, [
-		"records schema villagers",
-		"records validate villagers " + good_villager,
-		"records validate villagers " + bad_villager,
+		"records schema characters",
+		"records validate characters " + good_villager,
+		"records validate characters " + bad_villager,
 	])
-	_check(vreplies.size() == 3, "villager desk replies land (got %d)" % vreplies.size())
+	_check(vreplies.size() == 3, "character desk replies land (got %d)" % vreplies.size())
 	if vreplies.size() == 3:
 		_check("schedule:Array" in String(vreplies[0]),
-			"schema villagers answers the schedule field's shape (got %s)" % vreplies[0])
-		_check(vreplies[1] == "ok validate villagers",
-			"a sound villager validates ok over the link (got %s)" % vreplies[1])
-		_check(String(vreplies[2]).begins_with("err validate villagers:")
+			"schema characters answers the schedule field's shape (got %s)" % vreplies[0])
+		_check(vreplies[1] == "ok validate characters",
+			"a sound character validates ok over the link (got %s)" % vreplies[1])
+		_check(String(vreplies[2]).begins_with("err validate characters:")
 				and "satisfies" in String(vreplies[2]),
 			"a malformed schedule bounces with the game's words (got %s)" % vreplies[2])
 	# Leave no trace: drop the synthetic kinds from the registries.
@@ -5925,23 +5925,27 @@ func _test_wildlife() -> void:
 	_check(noon > moonlit, "but never as much as the sun")
 
 
-## A person in the world (CREATION_KIT_REVIEW_V2 #3, schedules): a named
-## villager follows a daily SCHEDULE by the clock, walks it across
-## advance_hours, targets a placed MARKER by its record id (falling back to
-## home when it's gone), and counts on the budget's agent axis. The mind is
-## AgentSim (framework); VillagerManager is a framework autoload, so — unlike
-## wildlife — there is no content skip. Records ships none, so the SYNTHETIC
-## villager here is the whole coverage, driven through the real doors.
+## A person in the world (CREATION_KIT_REVIEW_V2 #3, THE CAST SHEET): a named
+## CHARACTER (identity/body/home/schedule/mind) follows a daily SCHEDULE by the
+## clock, walks it across advance_hours, targets a placed MARKER by its record
+## id (falling back to home when it's gone), and counts on the budget's agent
+## axis. The mind is AgentSim (framework); VillagerManager is a framework
+## autoload, so — unlike wildlife — there is no content skip. The live dir
+## ships no records, so the SHIPPED EXAMPLE (tests/fixtures/characters/mara.json)
+## is the coverage, driven through the real doors — the same record the
+## character lint proves clean.
 func _test_villager() -> void:
-	# The villagers schema registered at boot (the autoload's _load ran
-	# load_dir even over an empty dir) — the records desk validates a villager
+	# The characters schema registered at boot (the autoload's _load ran
+	# load_dir even over an empty dir) — the records desk validates a character
 	# edit against it, and can re-read the kind live after a landed write.
-	_check(not Records.schema_for("villagers").is_empty(),
-		"the villagers schema registers (the desk validates edits for free)")
-	_check(Records.schema_for("villagers").has("schedule"),
+	_check(not Records.schema_for("characters").is_empty(),
+		"the characters schema registers (the desk validates edits for free)")
+	_check(Records.schema_for("characters").has("schedule"),
 		"the schema covers the schedule field")
-	_check(Records.reloader_for("villagers").is_valid(),
-		"the villagers kind registers a live reloader")
+	_check(Records.schema_for("characters").has("identity"),
+		"the schema covers the identity field (name + kind)")
+	_check(Records.reloader_for("characters").is_valid(),
+		"the characters kind registers a live reloader")
 	# Schedule validation beyond the field schema: every activity needs a
 	# string id + satisfies (the mind scores against the need it names).
 	_check(VillagerManager.validate_schedule([
@@ -5952,17 +5956,22 @@ func _test_villager() -> void:
 		"an activity missing 'satisfies' is caught")
 	# Full validate coverage through the records desk's OWN door (#3a): the
 	# semantic validator is wired, so Records.validate_kind — the truth
-	# `records validate villagers` answers with — runs the schedule judgement,
-	# not just the field types. A malformed activity bounces HERE, before an
-	# edit lands, instead of green-lighting a spawn the loader would drop.
-	var _vbase := {"id": "x", "name": "X", "home": {"x": 0, "z": 0},
-		"body_scene": "res://game/villagers/villager_body.tscn"}
-	_check(Records.validate_kind("villagers",
-		_vbase.duplicate().merged({"schedule": [{"id": "a", "satisfies": "rest"}]})) == "",
-		"a sound villager validates clean through the records desk")
-	_check(Records.validate_kind("villagers",
-		_vbase.duplicate().merged({"schedule": [{"id": "a"}]})) != "",
+	# `records validate characters` answers with — runs the whole CHARACTER
+	# judgement (kind, body, home, schedule, mind), not just the field types. A
+	# malformed record bounces HERE, before an edit lands, instead of
+	# green-lighting a spawn the loader would drop.
+	var _cbase := {"id": "x", "identity": {"name": "X", "kind": "villager"},
+		"body": {"card": "chars/villager_keeper"}, "home": {"x": 0, "z": 0}}
+	_check(Records.validate_kind("characters",
+		_cbase.duplicate().merged({"schedule": [{"id": "a", "satisfies": "rest"}]})) == "",
+		"a sound character validates clean through the records desk")
+	_check(Records.validate_kind("characters",
+		_cbase.duplicate().merged({"schedule": [{"id": "a"}]})) != "",
 		"the desk's validate runs the schedule check, not just field types")
+	_check(Records.validate_kind("characters",
+		_cbase.duplicate().merged({"identity": {"name": "X", "kind": "wizard"},
+			"schedule": []}, true)).contains("villager|creature"),
+		"the desk's validate enumerates identity.kind (villager|creature)")
 	# The marker keyword vocabulary (§4c: a marker is a card with a keyword) —
 	# injected like the records-desk probe, so no marker asset need ship.
 	Cards._slots["probe/marker"] = {"keyword": "marker",
@@ -5981,23 +5990,27 @@ func _test_villager() -> void:
 	var marker: Dictionary = CellRecords.add(
 		Vector3(mx, Terrain.height(mx, mz), mz), "res://kits/probe_marker.glb", 0.0, 1.0)
 	var marker_id := String(marker.id)
-	# A synthetic villager whose morning targets the marker, whose night rests.
-	# A LOCAL manager instance (never in the tree) drives the mind directly —
-	# the WildlifeManager test shape — so no autoload frames perturb it.
+	# The SHIPPED EXAMPLE record (tests/fixtures/characters/mara.json) — the
+	# one the character lint proves clean — drives the whole day. We load it,
+	# re-anchor her home + garden marker at the placed marker (so the marker
+	# resolves to a real placement), and spawn through the real door. A LOCAL
+	# manager instance (never in the tree) drives the mind directly — the
+	# WildlifeManager test shape — so no autoload frames perturb it.
 	var mgr: Node = load("res://game/villagers/villager_manager.gd").new()
 	var home := Vector2(mx - 60.0, mz)
-	var v: Dictionary = mgr.spawn_villager({
-		"id": "test_villager", "name": "Mara",
-		"home": {"x": home.x, "z": home.y},
-		"body_scene": "res://game/villagers/villager_body.tscn",
-		"schedule": [
-			{"id": "garden", "at": {"marker": marker_id}, "satisfies": "work",
-				"rate": 8.0, "hours": [8.0, 12.0], "note": "tending the garden"},
-			{"id": "rest", "at": {"x": home.x, "z": home.y}, "satisfies": "rest",
-				"rate": 10.0, "hours": [20.0, 6.0]},
-		]})
-	_check(not v.is_empty(), "a villager mind rises from its record")
+	var mara: Dictionary = Records.load_json("res://tests/fixtures/characters/mara.json")
+	_check(mara is Dictionary and mara.get("id") == "mara",
+		"the shipped example character record loads")
+	mara.home = {"x": home.x, "z": home.y}
+	mara.schedule[0].at = {"marker": marker_id}  # garden -> the placed marker
+	var v: Dictionary = mgr.spawn_character(mara)
+	_check(not v.is_empty(), "a villager mind rises from the example record")
+	_check(v.name == "Mara" and v.kind == "villager",
+		"identity.name/kind ride onto the entry")
+	_check(v.palette.has("base"), "the record's body.palette rides to embodiment")
 	var sim: AgentSim = v.sim
+	_check(not sim.solar_gate and is_equal_approx(sim.keep_bias, 1.1),
+		"identity.kind=villager keeps the clock; mind.keep_bias tuned the mind")
 	# Mid-morning, work depleted: she chooses the garden, and the marker
 	# target resolves to the placed marker's live XZ (not a raw coordinate).
 	GameClock.hours = 9.0
@@ -6026,13 +6039,15 @@ func _test_villager() -> void:
 	_check(sim.current.id == "rest", "by night she keeps to the rest window")
 	# Persistence: the mind survives a save/restore roundtrip.
 	mgr._save_state()
-	var saved: Dictionary = WorldState.get_value("villager.test_villager", {})
+	var saved: Dictionary = WorldState.get_value("villager.mara", {})
 	_check(not saved.is_empty(), "the villager persists to WorldState")
 	# The embodied presence (deliverable 4): a body wears the name and answers
 	# an examine with "<name> — <what she's doing>", no dialogue. Instantiated
-	# and freed synchronously, so no physics frame runs (no nav, no crash).
+	# and freed synchronously, so no physics frame runs (no nav, no crash). The
+	# record's palette rides on too (CharacterPaint.apply, no crash on a tint).
 	var body: Node = load("res://game/villagers/villager_body.tscn").instantiate()
 	body.villager_name = "Mara"
+	body.palette = v.palette
 	add_child(body)
 	var presences := body.find_children("*", "Interactable", true, false)
 	_check(presences.size() == 1 and (presences[0] as Interactable).prompt == "Mara",
@@ -6048,13 +6063,13 @@ func _test_villager() -> void:
 	# registered its population with the meter at boot). Add one, read the
 	# meter, leave no trace.
 	var before: int = Budget.agent_count()
-	var counted: Dictionary = VillagerManager.spawn_villager({
-		"id": "budget_probe", "name": "Probe",
+	var counted: Dictionary = VillagerManager.spawn_character({
+		"id": "budget_probe", "identity": {"name": "Probe", "kind": "villager"},
+		"body": {"card": "chars/villager_keeper"},
 		"home": {"x": 0.0, "z": 0.0},
-		"body_scene": "res://game/villagers/villager_body.tscn",
 		"schedule": [{"id": "idle", "at": "roam", "satisfies": "wander"}]})
 	_check(Budget.agent_count() == before + 1,
-		"an embodied-or-not villager counts on the budget's agent axis")
+		"an embodied-or-not character counts on the budget's agent axis")
 	VillagerManager.villagers.erase(counted)
 	_check(Budget.agent_count() == before, "removing the villager clears the count")
 	# Leave no trace on disk: drop the marker's cell file.

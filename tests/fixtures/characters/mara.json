@@ -1,0 +1,19 @@
+{
+	"id": "mara",
+	"identity": { "name": "Mara", "kind": "villager" },
+	"body": {
+		"card": "chars/villager_keeper",
+		"palette": { "base": [0.72, 0.55, 0.42] },
+		"scene": "res://game/villagers/villager_body.tscn"
+	},
+	"home": { "x": -120, "z": -300 },
+	"schedule": [
+		{ "id": "garden", "at": { "marker": "garden_marker" }, "satisfies": "work",
+			"rate": 8, "hours": [8, 12], "note": "tending the garden" },
+		{ "id": "rest", "at": { "x": -120, "z": -300 }, "satisfies": "rest",
+			"rate": 10, "hours": [20, 6] },
+		{ "id": "wander", "at": "roam", "satisfies": "wander", "rate": 4 }
+	],
+	"mind": { "needs": { "work": 1.2, "rest": 1.0, "wander": 0.6 },
+		"keep_bias": 1.1, "roam_range": 150 }
+}

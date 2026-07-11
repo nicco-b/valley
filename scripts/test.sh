@@ -73,6 +73,18 @@ echo "$QUEST_OUT" | grep -E "QUEST-HARNESS|LINT|FAIL|SCRIPT ERROR"
 echo "$QUEST_OUT" | grep -q "SCRIPT ERROR" && exit 1
 echo "$QUEST_OUT" | grep -q "QUEST-HARNESS PASS" || exit 1
 
+echo "== character lint (the cast sheet, CREATION_KIT_REVIEW_V2 #3) =="
+# CharacterLint over data/characters (content-empty -> clean) + the shipped
+# example fixture (tests/fixtures/characters/mara.json, full + sound), then
+# deliberately-broken records that MUST bite with the game's own refusal
+# sentences, then the example SPAWNS a living mind (validate_character gates
+# spawn_character). Same PASS-line backstop as the scene tests (quit-after
+# exits 0 regardless of the assertion result).
+CHAR_OUT=$(godot --headless --quit-after 2000 res://tests/character_lint.tscn 2>&1)
+echo "$CHAR_OUT" | grep -E "CHARACTER-LINT|  FAIL:|  LINT"
+echo "$CHAR_OUT" | grep -q "SCRIPT ERROR" && exit 1
+echo "$CHAR_OUT" | grep -q "CHARACTER-LINT PASS" || exit 1
+
 echo "== framework manifest lint (the fence, PLAN_FRAMEWORK FW5) =="
 # Static text scan over every file framework.json lists: no preloading
 # res://assets/ (content), no naming a data/ record's id, no writing an

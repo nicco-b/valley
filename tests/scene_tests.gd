@@ -76,6 +76,7 @@ func _ready() -> void:
 	_test_playtest_anchors()
 	_test_save_migration()
 	await _test_strata_link()
+	_test_teleport_defer()
 	_test_contour()
 	_test_conditions_contour()
 	_test_contour_bridge()
@@ -2406,6 +2407,62 @@ func _link_send(peer: StreamPeerTCP, commands: Array) -> Array:
 	for line in buffer.split("\n", false):
 		out.append(line)
 	return out
+
+
+## A minimal world_streamer stand-in for _test_teleport_defer: it answers the
+## near-ring settle gate (_is_near_ring_settled) and carries the settle signal
+## _teleport listens on, so the deferral path is driven deterministically —
+## no async cell streaming, no world assets (the real streamer's settle edge
+## is exercised end-to-end by _test_living_preview).
+class _FakeStreamer extends Node:
+	signal near_ring_settled
+	var settled := false
+	func _is_near_ring_settled() -> bool:
+		return settled
+
+
+## Fix 4c: a teleport issued before the near ring has settled must NOT drop the
+## walker through the world (during boot / a fresh stream-in the collision mesh
+## for the ring may not exist and Terrain.height is stale). _teleport now DEFERS
+## the ground-snap to the next near_ring_settled edge instead of snapping onto
+## nothing, then lands on the shaped ground. Precedent: commit 911b756 gated a
+## risky action behind the settle state — here we complete rather than refuse.
+func _test_teleport_defer() -> void:
+	var saved_preview: Variant = StrataLink._preview
+	StrataLink._preview = null  # let the drape guard pass through to the gate
+	var fake := _FakeStreamer.new()
+	fake.add_to_group("world_streamer")
+	add_child(fake)
+	var pl := CharacterBody3D.new()
+	pl.add_to_group("player")
+	add_child(pl)
+	# Park the walker "fallen" so a deferred (not-yet-fired) snap is visible.
+	pl.global_position = Vector3(0.0, -9000.0, 0.0)
+	# NOT settled: the teleport must defer, not snap onto absent collision.
+	fake.settled = false
+	var reply := StrataLink._teleport(2000.0, 2000.0)
+	_check(reply.begins_with("ok player") and reply.contains("deferred"),
+		"teleport before settle defers honestly (got %s)" % reply)
+	_check(pl.global_position.y < -1000.0,
+		"the deferred teleport did NOT snap the walker yet (no ground under it)")
+	# The ring settles: the deferred snap fires, landing on Terrain.height+1.5.
+	fake.settled = true
+	fake.near_ring_settled.emit()
+	var want := Terrain.height(2000.0, 2000.0) + 1.5
+	_check(absf(pl.global_position.y - want) < 0.01,
+		"the deferred snap lands on the shaped ground after settle (%.2f ~ %.2f)"
+			% [pl.global_position.y, want])
+	_check(pl.global_position.y > -100.0, "the walker did NOT fall through the world")
+	# ALREADY settled: a teleport snaps immediately, exactly as before the fix.
+	pl.global_position = Vector3(0.0, -9000.0, 0.0)
+	var now := StrataLink._teleport(1500.0, 1500.0)
+	_check(now == "ok player -> (%.0f, %.0f)" % [1500.0, 1500.0],
+		"teleport with a settled ring snaps immediately (got %s)" % now)
+	_check(absf(pl.global_position.y - (Terrain.height(1500.0, 1500.0) + 1.5)) < 0.01,
+		"the immediate snap lands on ground")
+	pl.queue_free()
+	fake.queue_free()
+	StrataLink._preview = saved_preview
 
 
 ## The pen override layer (P0 seam fix): pens add meters OVER the blessed

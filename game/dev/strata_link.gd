@@ -1972,9 +1972,41 @@ func _teleport(x: float, z: float) -> String:
 	if player == null:
 		return "err no player in tree"
 	var body := player as CharacterBody3D
+	# Near-ring honesty: during boot (or right after a fresh stream-in) the
+	# collision mesh for this ring may not exist yet and Terrain.height can be
+	# stale/coarse — snapping now drops the walker THROUGH the world. If the
+	# streamer isn't settled, DEFER the ground-snap to the next
+	# near_ring_settled edge (which is guaranteed to fire, since "not settled"
+	# means work is still draining) rather than refuse-and-give-up: a player-
+	# initiated teleport should still complete, just once there's ground to
+	# stand on. No streamer / already settled → snap now, exactly as before.
+	var streamer := get_tree().get_first_node_in_group("world_streamer")
+	if streamer != null and streamer.has_method("_is_near_ring_settled") \
+			and streamer.has_signal("near_ring_settled") \
+			and not streamer._is_near_ring_settled():
+		var cb := _deferred_teleport_snap.bind(body, x, z)
+		if not streamer.near_ring_settled.is_connected(cb):
+			streamer.near_ring_settled.connect(cb, CONNECT_ONE_SHOT)
+		return "ok player -> (%.0f, %.0f) [deferred: near ring settling]" % [x, z]
+	_snap_body(body, x, z)
+	return "ok player -> (%.0f, %.0f)" % [x, z]
+
+
+## Drop a CharacterBody3D onto the (now-shaped, now-collidable) ground at XZ.
+func _snap_body(body: CharacterBody3D, x: float, z: float) -> void:
+	if not is_instance_valid(body):
+		return
 	body.global_position = Vector3(x, Terrain.height(x, z) + 1.5, z)
 	body.velocity = Vector3.ZERO
-	return "ok player -> (%.0f, %.0f)" % [x, z]
+
+
+## The deferred ground-snap (Fix 4c): fires once on near_ring_settled — the
+## walkable ground with real collision has landed, so Terrain.height is now the
+## shaped height and the body can't fall through. Mirrors commit 911b756's
+## pattern of gating a risky action behind the settle state, but completes the
+## teleport rather than refusing it.
+func _deferred_teleport_snap(body: CharacterBody3D, x: float, z: float) -> void:
+	_snap_body(body, x, z)
 
 
 ## Where the world is being looked at from (fly cam, else player, else origin).

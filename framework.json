@@ -198,6 +198,8 @@
 			"tests/scene_tests.tscn",
 			"tests/quest_harness.gd",
 			"tests/quest_harness.tscn",
+			"tests/desk_verbs.gd",
+			"tests/desk_verbs.tscn",
 			"tests/save_load_gate.gd",
 			"tests/save_load_gate.tscn",
 			"tests/held_snapshot_gate.gd",

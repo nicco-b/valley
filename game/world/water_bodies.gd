@@ -180,8 +180,11 @@ func _build_lakes() -> void:
 		# grid clipped to the REAL polygon (centered on `center`, like the
 		# disc). No outline (authored/pre-outline lake) ⇒ the equal-area disc.
 		var outline: PackedVector2Array = w.get("outline", PackedVector2Array())
-		if outline.size() >= 3:
-			mi.mesh = _polygon_disc(_local_outline(outline, center), lake_step)
+		var is_outline := outline.size() >= 3
+		var local_outline: PackedVector2Array = _local_outline(outline, center) \
+			if is_outline else PackedVector2Array()
+		if is_outline:
+			mi.mesh = _polygon_disc(local_outline, lake_step)
 		else:
 			mi.mesh = _disc(radius, lake_step)
 		var lake_mat := _material(Vector2.ZERO)
@@ -202,8 +205,12 @@ func _build_lakes() -> void:
 		add_child(mi)
 		_lake_meshes[w.id] = mi
 		if radius >= LAKE_SWELL_MIN_R:
+			# Outline lakes carry their real bbox grid so the count check matches
+			# the polygon-disc mesh (not the disc formula); circular lakes pass {}.
+			var grid: Dictionary = _poly_grid(local_outline, lake_step) \
+				if is_outline else {}
 			_bathy_register("lake:" + String(w.id), mi, radius, lake_step,
-					float(w.surface))
+					float(w.surface), grid)
 
 
 ## A whole-water reload (reload_world / import) re-read the sea level and the
@@ -489,16 +496,45 @@ func _sea_material(step: float, fade_radius: float) -> ShaderMaterial:
 ## `level` is the surface the depth is measured from: sea level for the
 ## sea tiers, the authored surface for a lake (ONE_APP P2 — imported
 ## lakes shoal their own chop).
+## `grid` describes the mesh's actual vertex grid — {lo, nx, nz} from
+## _poly_grid for an OUTLINE lake (built by _polygon_disc, sized off the
+## shoreline bbox), or {} for the disc formula (sea tiers + circular lakes,
+## built by _disc: an nx=nz square anchored at center-radius). The bake
+## samples the seabed on THIS grid's own vertex positions, so an outline
+## lake shoals correctly instead of being silently skipped.
 func _bathy_register(tier: String, mi: MeshInstance3D, radius: float, step: float,
-		level: float) -> void:
+		level: float, grid: Dictionary = {}) -> void:
 	var mesh: ArrayMesh = mi.mesh
 	var arrays: Array = mesh.surface_get_arrays(0)
 	var mat: Material = mesh.surface_get_material(0)
 	var vcount: int = (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
-	var n := int(ceil(radius * 2.0 / step)) + 2
-	if vcount != n * n:
-		push_warning("[water] sea %s: %d verts != %d² grid — no bathymetry" % [
-			tier, vcount, n])
+	# The expected grid for whichever mesh-building path built `mi`: the disc
+	# formula by default, or the outline polygon's own bbox grid when passed.
+	# `ox`/`oz` are the local offset from the mesh anchor to vertex (0,0), so
+	# the bake's height_block starts where the mesh's first vertex sits.
+	var nx: int
+	var nz: int
+	var ox: float
+	var oz: float
+	if grid.is_empty():
+		var n := int(ceil(radius * 2.0 / step)) + 2
+		nx = n
+		nz = n
+		ox = -radius
+		oz = -radius
+	else:
+		nx = grid.nx
+		nz = grid.nz
+		ox = grid.lo.x
+		oz = grid.lo.y
+	if vcount != nx * nz:
+		# Loud, not a push_warning skip: after this fix a mismatch is a REAL
+		# mesh/grid bug (the routine outline-lake case now matches), so it must
+		# be impossible to miss — push_error names the tier and both counts, and
+		# a scene test asserts the outline path registers without tripping it.
+		push_error("[water] %s: %d verts != %d×%d grid — bathymetry NOT registered "
+			% [tier, vcount, nx, nz]
+			+ "(a real mesh/grid mismatch, not routine outline-lake usage)")
 		return
 	var custom := PackedFloat32Array()
 	custom.resize(vcount * 3)
@@ -508,7 +544,8 @@ func _bathy_register(tier: String, mi: MeshInstance3D, radius: float, step: floa
 	mesh.clear_surfaces()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, BATHY_FMT)
 	mesh.surface_set_material(0, mat)
-	_bathy[tier] = {"mi": mi, "radius": radius, "step": step, "n": n,
+	_bathy[tier] = {"mi": mi, "radius": radius, "step": step,
+		"nx": nx, "nz": nz, "ox": ox, "oz": oz,
 		"level": level, "arrays": arrays, "anchor": Vector2.INF,
 		"goal": Vector2.INF, "task": -1, "out": PackedFloat32Array()}
 
@@ -566,23 +603,27 @@ func _bathy_follow(tier: String, goal: Vector2) -> void:
 ## grid — one kernel height_block, never per-sample GDScript off-main
 ## (the descent-crash law) — and write depth + central-difference ∇depth.
 func _bathy_bake(st: Dictionary, anchor: Vector2) -> void:
-	var n: int = st.n
+	var nx: int = st.nx
+	var nz: int = st.nz
 	var step: float = st.step
-	var radius: float = st.radius
-	var h := Terrain.height_block(anchor.x - radius, anchor.y - radius, step, n, n)
+	# The grid origin (mesh vertex 0,0) in world space: anchor + local offset.
+	# For a disc ox=oz=-radius (anchor - radius), byte-identical to the old
+	# formula; for an outline lake it's the polygon bbox corner.
+	var h := Terrain.height_block(anchor.x + float(st.ox), anchor.y + float(st.oz),
+		step, nx, nz)
 	var level: float = st.level
 	var custom := PackedFloat32Array()
-	custom.resize(n * n * 3)
+	custom.resize(nx * nz * 3)
 	var inv2 := 1.0 / (2.0 * step)
-	for iz in n:
-		var row := iz * n
-		var zm := maxi(iz - 1, 0) * n
-		var zp := mini(iz + 1, n - 1) * n
-		for ix in n:
+	for iz in nz:
+		var row := iz * nx
+		var zm := maxi(iz - 1, 0) * nx
+		var zp := mini(iz + 1, nz - 1) * nx
+		for ix in nx:
 			var i := row + ix
 			custom[i * 3] = level - h[i]
 			# ∇depth = -∇height (rim rows fall back to one-sided).
-			custom[i * 3 + 1] = -(h[row + mini(ix + 1, n - 1)]
+			custom[i * 3 + 1] = -(h[row + mini(ix + 1, nx - 1)]
 					- h[row + maxi(ix - 1, 0)]) * inv2
 			custom[i * 3 + 2] = -(h[zp + ix] - h[zm + ix]) * inv2
 	st.out = custom
@@ -705,9 +746,14 @@ func _local_outline(outline: PackedVector2Array, center: Vector2) -> PackedVecto
 # the true shore (no floating rim where a disc overhung the pool, no dry
 # gap) while keeping the vertex density the wave field displaces. Plain
 # loops, no lambda captures (the invisible-pond bug of 2026-07-04).
-func _polygon_disc(poly: PackedVector2Array, step: float = DISC_STEP) -> ArrayMesh:
-	var st := SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+# The regular grid a _polygon_disc lays over `poly` at `step`: its lower
+# corner `lo` (the polygon bbox min, with a cell of margin so the boundary
+# ring builds) and the vertex-grid dims nx*nz. Shared by _polygon_disc (which
+# lays those verts, row-major iz*nx+ix) and _build_lakes (which registers
+# bathymetry against the SAME grid), so the seabed sampler reads the exact
+# vertex positions the mesh drew — the 258² mismatch that used to drop every
+# outline lake's bathymetry silently.
+func _poly_grid(poly: PackedVector2Array, step: float) -> Dictionary:
 	var lo := poly[0]
 	var hi := poly[0]
 	for p in poly:
@@ -715,8 +761,18 @@ func _polygon_disc(poly: PackedVector2Array, step: float = DISC_STEP) -> ArrayMe
 		hi = Vector2(maxf(hi.x, p.x), maxf(hi.y, p.y))
 	lo -= Vector2(step, step)  # a cell of margin so the boundary ring builds
 	hi += Vector2(step, step)
-	var nx := int(ceil((hi.x - lo.x) / step)) + 1
-	var nz := int(ceil((hi.y - lo.y) / step)) + 1
+	return {"lo": lo,
+		"nx": int(ceil((hi.x - lo.x) / step)) + 1,
+		"nz": int(ceil((hi.y - lo.y) / step)) + 1}
+
+
+func _polygon_disc(poly: PackedVector2Array, step: float = DISC_STEP) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var g := _poly_grid(poly, step)
+	var lo: Vector2 = g.lo
+	var nx: int = g.nx
+	var nz: int = g.nz
 	var inside := PackedByteArray()
 	inside.resize(nx * nz)
 	for iz in nz:

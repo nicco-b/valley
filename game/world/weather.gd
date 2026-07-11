@@ -458,13 +458,20 @@ func _process(delta: float) -> void:
 ## Dev/test override: drop a full-cover front of `kind` on the whole
 ## world, effective everywhere immediately (the Y key and the scene
 ## tests both use this — forcing .state alone no longer reaches the
-## spatial consumers).
-func force_kind(kind: String) -> void:
+## spatial consumers). Unknown kinds fall back to "calm" — the SAME guard
+## load_state() already carries — so an unrecognized string coming over the
+## untrusted link (an operator/agent typing "weather clear") can never crash
+## on KINDS[kind].speed ("clear" reads as clear/bright skies = calm).
+## Returns the kind actually forced, so the caller can report it honestly.
+func force_kind(kind: String) -> String:
+	if not KINDS.has(kind):
+		kind = "calm"
 	fronts.append({"kind": kind, "dx": wind_dir.x, "dz": wind_dir.y,
 		"edge": WORLD_R, "width": WORLD_R * 2.5,
 		"speed": float(KINDS[kind].speed)})
 	_last_kind = kind
 	state = kind
+	return kind
 
 
 func _unhandled_input(event: InputEvent) -> void:

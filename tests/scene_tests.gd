@@ -13,6 +13,7 @@ func _ready() -> void:
 	_test_clock()
 	_test_clock_lock()
 	_test_weather_lock()
+	_test_weather_clear()
 	_test_seasons()
 	_test_climate()
 	_test_climate_v2()
@@ -27,6 +28,7 @@ func _ready() -> void:
 	_test_region_reseed()
 	_test_sea_reload_visibility()
 	_test_lake_outline()
+	_test_lake_outline_bathy()
 	_test_water_field()
 	_test_wave_sources()
 	_test_foam_memory()
@@ -74,6 +76,7 @@ func _ready() -> void:
 	_test_playtest_anchors()
 	_test_save_migration()
 	await _test_strata_link()
+	_test_teleport_defer()
 	_test_contour()
 	_test_conditions_contour()
 	_test_contour_bridge()
@@ -2406,6 +2409,62 @@ func _link_send(peer: StreamPeerTCP, commands: Array) -> Array:
 	return out
 
 
+## A minimal world_streamer stand-in for _test_teleport_defer: it answers the
+## near-ring settle gate (_is_near_ring_settled) and carries the settle signal
+## _teleport listens on, so the deferral path is driven deterministically —
+## no async cell streaming, no world assets (the real streamer's settle edge
+## is exercised end-to-end by _test_living_preview).
+class _FakeStreamer extends Node:
+	signal near_ring_settled
+	var settled := false
+	func _is_near_ring_settled() -> bool:
+		return settled
+
+
+## Fix 4c: a teleport issued before the near ring has settled must NOT drop the
+## walker through the world (during boot / a fresh stream-in the collision mesh
+## for the ring may not exist and Terrain.height is stale). _teleport now DEFERS
+## the ground-snap to the next near_ring_settled edge instead of snapping onto
+## nothing, then lands on the shaped ground. Precedent: commit 911b756 gated a
+## risky action behind the settle state — here we complete rather than refuse.
+func _test_teleport_defer() -> void:
+	var saved_preview: Variant = StrataLink._preview
+	StrataLink._preview = null  # let the drape guard pass through to the gate
+	var fake := _FakeStreamer.new()
+	fake.add_to_group("world_streamer")
+	add_child(fake)
+	var pl := CharacterBody3D.new()
+	pl.add_to_group("player")
+	add_child(pl)
+	# Park the walker "fallen" so a deferred (not-yet-fired) snap is visible.
+	pl.global_position = Vector3(0.0, -9000.0, 0.0)
+	# NOT settled: the teleport must defer, not snap onto absent collision.
+	fake.settled = false
+	var reply := StrataLink._teleport(2000.0, 2000.0)
+	_check(reply.begins_with("ok player") and reply.contains("deferred"),
+		"teleport before settle defers honestly (got %s)" % reply)
+	_check(pl.global_position.y < -1000.0,
+		"the deferred teleport did NOT snap the walker yet (no ground under it)")
+	# The ring settles: the deferred snap fires, landing on Terrain.height+1.5.
+	fake.settled = true
+	fake.near_ring_settled.emit()
+	var want := Terrain.height(2000.0, 2000.0) + 1.5
+	_check(absf(pl.global_position.y - want) < 0.01,
+		"the deferred snap lands on the shaped ground after settle (%.2f ~ %.2f)"
+			% [pl.global_position.y, want])
+	_check(pl.global_position.y > -100.0, "the walker did NOT fall through the world")
+	# ALREADY settled: a teleport snaps immediately, exactly as before the fix.
+	pl.global_position = Vector3(0.0, -9000.0, 0.0)
+	var now := StrataLink._teleport(1500.0, 1500.0)
+	_check(now == "ok player -> (%.0f, %.0f)" % [1500.0, 1500.0],
+		"teleport with a settled ring snaps immediately (got %s)" % now)
+	_check(absf(pl.global_position.y - (Terrain.height(1500.0, 1500.0) + 1.5)) < 0.01,
+		"the immediate snap lands on ground")
+	pl.queue_free()
+	fake.queue_free()
+	StrataLink._preview = saved_preview
+
+
 ## The pen override layer (P0 seam fix): pens add meters OVER the blessed
 ## tile — commit reshapes, restore returns the ground bit-identical, and
 ## the tile on disk is never written. In-memory only (no save here, so a
@@ -4391,6 +4450,32 @@ func _test_weather_lock() -> void:
 	Weather.set_hold(was_held)
 
 
+## Fix 4a: "weather clear" (and any unrecognized kind coming over the
+## untrusted link) must NEVER crash force_kind on KINDS[kind].speed — the
+## KINDS table has no "clear" key, so an unguarded force_kind died with
+## "Invalid get index on Nil". force_kind now falls back to "calm" (the same
+## guard load_state() carries), and the "weather" link verb reports the kind
+## actually forced, so the reply stays honest.
+func _test_weather_clear() -> void:
+	var was_held: bool = Weather.held
+	# Over the REAL link verb path (the crash's entry point, strata_link.gd).
+	var reply := StrataLink._execute("weather clear")
+	_check(reply == "ok weather calm",
+		"weather clear normalizes to calm and reports it honestly (got %s)" % reply)
+	_check(Weather.state == "calm", "force_kind('clear') leaves a valid state, no crash")
+	_check(Weather.fronts.size() > 0
+			and String(Weather.fronts[Weather.fronts.size() - 1].kind) == "calm",
+		"force_kind('clear') appended a valid full-cover calm front")
+	# A direct call with a bogus kind also normalizes rather than crash, and
+	# returns the resolved kind.
+	_check(Weather.force_kind("nonsense_kind") == "calm",
+		"force_kind normalizes an unknown kind to calm")
+	# A KNOWN kind is untouched (the guard only catches misses).
+	_check(Weather.force_kind("storm") == "storm",
+		"force_kind passes a known kind through unchanged")
+	Weather.set_hold(was_held)
+
+
 ## Seasons follow the real calendar; daylight, solar noon, and the
 ## solar-hour warp derive from the real date and the player's location.
 func _test_seasons() -> void:
@@ -5147,6 +5232,52 @@ func _test_lake_outline() -> void:
 	if d != null:
 		for f in d.get_files():
 			d.remove(f)
+
+
+## Fix 4b: an OUTLINE lake sizes its surface grid off the shoreline bbox
+## (_polygon_disc's nx*nz), not off 2*radius, so _bathy_register's disc-formula
+## count check ALWAYS mismatched for outline lakes and dropped their bathymetry
+## (no CUSTOM0 depth channel → no shoaling/wave-break) with a push_warning nobody
+## saw. _bathy_register now takes the actual mesh grid, so the outline path
+## registers correctly; a genuine mismatch is now a loud push_error. Synthetic
+## outline lake (no E2E fixture needed) with radius >= LAKE_SWELL_MIN_R.
+func _test_lake_outline_bathy() -> void:
+	var wb: Node3D = load("res://game/world/water_bodies.gd").new()
+	# An irregular (non-circular) shoreline; bbox ~110×100m, radius ~55 >= 40.
+	var poly := PackedVector2Array([
+		Vector2(-55, -18), Vector2(-8, -50), Vector2(42, -34),
+		Vector2(55, 12), Vector2(18, 48), Vector2(-32, 40), Vector2(-50, 6)])
+	var step := 0.9
+	var mesh: ArrayMesh = wb._polygon_disc(poly, step)
+	var mi := MeshInstance3D.new()
+	mi.name = "lake_bathy_probe"
+	mi.mesh = mesh
+	var vcount: int = (mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+	var grid: Dictionary = wb._poly_grid(poly, step)
+	# The polygon-disc vertex count must equal the grid dims the bake will use —
+	# the invariant the old disc formula (n*n, n from 2*radius) always violated.
+	_check(vcount == int(grid.nx) * int(grid.nz),
+		"outline mesh vertex count == its bbox grid (%d == %d×%d)" % [vcount, grid.nx, grid.nz])
+	# The disc formula the OLD check used would NOT match — proving why outline
+	# lakes were silently skipped before this fix.
+	var disc_n := int(ceil(55.0 * 2.0 / step)) + 2
+	_check(vcount != disc_n * disc_n,
+		"the old disc-formula count (%d²) genuinely mismatches the outline mesh (%d)"
+			% [disc_n, vcount])
+	# Register with the real grid: it lands, no false push_error, CUSTOM0 present.
+	wb._bathy_register("lake:bathy_probe", mi, 55.0, step, 0.0, grid)
+	_check(wb._bathy.has("lake:bathy_probe"),
+		"outline lake registers bathymetry (no false grid mismatch)")
+	if wb._bathy.has("lake:bathy_probe"):
+		var st: Dictionary = wb._bathy["lake:bathy_probe"]
+		_check(int(st.nx) == int(grid.nx) and int(st.nz) == int(grid.nz),
+			"registered grid records the outline mesh dims (%d×%d)" % [st.nx, st.nz])
+		var arrs := mi.mesh.surface_get_arrays(0)
+		var custom: PackedFloat32Array = arrs[Mesh.ARRAY_CUSTOM0]
+		_check(custom.size() == vcount * 3,
+			"outline lake mesh now carries the CUSTOM0 depth channel (%d floats)" % custom.size())
+	mi.free()
+	wb.free()
 
 
 # Fraction of a mesh's triangles whose centroid lies inside `poly` (XZ) —

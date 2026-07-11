@@ -10,8 +10,12 @@ class_name PreviewTerrain
 ## The lifecycle contract (what "preview" means here):
 ##  - wear() ENTERS preview: this grid becomes the visible ground, and
 ##    every node in the "preview_steps_aside" group (the streamed world's
-##    dress: cells, far quadtree, sea + lakes, water sheet, sand) hides,
-##    each remembering whether it was visible. VISIBILITY ONLY — the
+##    dress: cells, far quadtree, lakes + rivers, water sheet, sand) hides,
+##    each remembering whether it was visible. The SEA is the exception
+##    (M6c, the game-look water half): the shipping sea holds over this
+##    relief at the export's own sea level — real water, not a chart plane —
+##    driven by StrataLink.preview_sea (water_bodies listens). VISIBILITY
+##    ONLY for the group, and posture-only for the sea — the
 ##    sims keep running, streaming keeps streaming, and Terrain (the
 ##    kernel, the height function, sea_level) is NEVER touched. This is
 ##    the deliberate opposite of preview_world, which re-tiles the live
@@ -55,9 +59,11 @@ const SCATTER_CAP := 4000        # max proxy instances the overlay shows
 const SCATTER_MAX_CELLS := 512   # max per-cell files parsed per wear (bounds the slider loop)
 
 ## Nodes that render the streamed world's ground/water join this group
-## in their _ready (world_streamer, far_terrain, water_bodies,
-## water_sheet, sand_patch) — the one place the "steps aside during
-## preview" set is declared.
+## in their _ready (world_streamer, far_terrain, water_sheet, sand_patch)
+## — the one place the "steps aside during preview" set is declared.
+## water_bodies is NOT here: it self-manages its preview posture off
+## StrataLink.preview_sea (the sea holds at the preview level, the lakes
+## and rivers step aside), so the shaping viewport keeps real water (M6c).
 const STEPS_ASIDE_GROUP := "preview_steps_aside"
 
 ## Layer table — MIRRORS Strata (the parity contract, engine-viewport M3):
@@ -92,6 +98,7 @@ var _mat: ShaderMaterial = null
 var _height_tex: ImageTexture = null
 var _height_img: Image = null  # CPU mirror for probe (height + slope)
 var _world_size := 16384.0
+var _sea_level := 0.0      # the worn export's manifest sea (broadcast to the sea; M6c)
 var _dir := ""            # the worn export dir (layers load lazily from it)
 var _layer := "shaded"    # survives re-wears: a slider push keeps the drape
 var _layer_cache: Dictionary = {}  # file -> {img, tex}, valid for _dir
@@ -161,6 +168,7 @@ func wear(dir: String) -> String:
 	var size_arr: Array = world.get("size_m", [16384.0, 16384.0])
 	_world_size = maxf(float(size_arr[0]), float(size_arr[1]))
 	var sea := float(world.get("sea_level_m", Terrain.sea_level))
+	_sea_level = sea
 	var mesh_ms := _ensure_mesh()
 	var t1 := Time.get_ticks_usec()
 	img.convert(Image.FORMAT_RF)
@@ -179,6 +187,10 @@ func wear(dir: String) -> String:
 	_mesh.scale = Vector3(_world_size / 2.0, 1.0, _world_size / 2.0)
 	if not worn:
 		_enter()
+	# The shaping sea (M6c): tell the shipping water to hold the real sea over
+	# this relief at the export's own level — on the first wear (posture enter)
+	# and every re-wear (a new export may float a new sea).
+	StrataLink.preview_sea.emit(true, _sea_level)
 	# The drape survives the push — reload it from the NEW export's bytes.
 	# A layer the new export dropped falls back honestly to shaded.
 	if _layer != "shaded" and set_layer(_layer).begins_with("err"):
@@ -230,6 +242,7 @@ func wear_shared(params: Dictionary) -> String:
 	_clear_scatter()
 	_clear_water()
 	var sea := float(params["sealevel"])
+	_sea_level = sea
 	_mat.set_shader_parameter("height_map", _shared_front("height"))
 	_mat.set_shader_parameter("world_size", _world_size)
 	_mat.set_shader_parameter("sea_level", sea)
@@ -241,6 +254,9 @@ func wear_shared(params: Dictionary) -> String:
 	_mesh.scale = Vector3(_world_size / 2.0, 1.0, _world_size / 2.0)
 	if not worn:
 		_enter()
+	# The shaping sea (M6c): hold the real sea over this relief at the shared
+	# bake's sea level, same as the file path.
+	StrataLink.preview_sea.emit(true, _sea_level)
 	# Re-assert the drape from the new surfaces; a layer the shared push can't
 	# serve (temperature has no raw-field surface yet) falls back to shaded.
 	if _layer != "shaded" and set_layer(_layer).begins_with("err"):
@@ -430,6 +446,9 @@ func leave() -> void:
 		(pair[0] as Node3D).visible = pair[1]
 	_restore.clear()
 	worn = false
+	# The shaping sea steps back down (M6c): the streamed world's own sea (or
+	# none, on a dry live world) returns exactly as the group nodes do above.
+	StrataLink.preview_sea.emit(false, 0.0)
 	_release_chart_air()
 	_clear_scatter()  # the overlay LEAVES with the drape (bless teardown removes it)
 	_clear_water()    # T1 — the water overlay leaves with the drape too

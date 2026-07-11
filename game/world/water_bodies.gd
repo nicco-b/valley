@@ -54,9 +54,24 @@ var _sea_mid: MeshInstance3D
 var _sea_far: MeshInstance3D
 var _bathy: Dictionary = {}  # tier -> bake state (see _bathy_register)
 
+# The shaping-water posture (M6c, the game-look water half). While a
+# PreviewTerrain drape is worn, the SEA holds over the preview relief at the
+# export's own sea level — the real water shader + swell, not a flat chart
+# plane — so the shaping viewport looks like the game. The lakes and rivers
+# step aside (the preview relief has no hydrology bake to seat them on); the
+# sea's bathymetry honestly downgrades to deep W1 (no seabed the preview can
+# feed). Driven by StrataLink.preview_sea (PreviewTerrain is the one
+# broadcaster). Presentation only, off headless like every water tier.
+var _preview_sea := false
+var _preview_level := 0.0
+
 
 func _ready() -> void:
-	add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)  # sea + lakes step aside during preview
+	# water_bodies is NOT in the steps-aside group (unlike the other streamed
+	# dress): the SEA must keep rendering during preview. Instead it self-manages
+	# its preview posture off this signal — the sea holds at the export's level,
+	# the lakes/rivers hide. (M6c; see _on_preview_sea.)
+	StrataLink.preview_sea.connect(_on_preview_sea)
 	_build_sea()
 	_build_lakes()
 	for r in Terrain.rivers:
@@ -90,38 +105,60 @@ func _ready() -> void:
 
 
 ## Build the three world-sea tiers (near wave patch, mid swell disc, coarse
-## far disc) at the live sea level, plus the two shoaling tiers' bathymetry.
-## Extracted from _ready so a live water reload (_on_water_reloaded) can build
-## the sea a content-empty boot never made. Gated on a real sea_level: a dry
-## world (sea_level = -1e12) makes no sea, and the tier vars stay null.
+## far disc) at the sea level of the CURRENT posture, plus (live only) the two
+## shoaling tiers' bathymetry. Extracted from _ready so a live water reload
+## (_on_water_reloaded) can build the sea a content-empty boot never made.
+##
+## Posture (M6c): in preview the sea seats at the export's _preview_level and
+## builds UNCONDITIONALLY (the shaping viewport always gets its sea) with NO
+## bathymetry — the preview relief can't feed the seabed bake, so the swell
+## rides pure deep W1 (bathy_boost=0, an honest downgrade). Live, it gates on a
+## real sea_level (a dry world makes no sea, the tier vars stay null) and the
+## shoaling tiers carry real bathymetry, exactly as before.
 func _build_sea() -> void:
-	if Terrain.sea_level > -1e11:
-		_sea_near = MeshInstance3D.new()
-		_sea_near.name = "sea_near"
-		_sea_near.mesh = _disc(SEA_NEAR_RADIUS, SEA_NEAR_STEP)
-		_sea_near.mesh.surface_set_material(0, _sea_material(SEA_NEAR_STEP, 0.0))
-		_sea_near.extra_cull_margin = 4.0
-		_sea_near.position.y = Terrain.sea_level
-		add_child(_sea_near)
-		_sea_mid = MeshInstance3D.new()
-		_sea_mid.name = "sea_mid"
-		_sea_mid.mesh = _disc(SEA_MID_RADIUS, SEA_MID_STEP)
-		_sea_mid.mesh.surface_set_material(0,
-				_sea_material(SEA_MID_STEP, SEA_MID_RADIUS))
-		_sea_mid.extra_cull_margin = 4.0
-		_sea_mid.position.y = Terrain.sea_level - 0.07
-		add_child(_sea_mid)
-		_sea_far = MeshInstance3D.new()
-		_sea_far.name = "sea_far"
-		_sea_far.mesh = _disc(SEA_FAR_RADIUS, SEA_FAR_STEP)
-		_sea_far.mesh.surface_set_material(0, _material(Vector2.ZERO))
-		_sea_far.position.y = Terrain.sea_level - 0.15
-		add_child(_sea_far)
+	var level: float
+	var register: bool
+	if _preview_sea:
+		level = _preview_level
+		register = false
+	elif Terrain.sea_level > -1e11:
+		level = Terrain.sea_level
+		register = true
+	else:
+		return  # a dry live world with no drape worn: no sea
+	_sea_near = MeshInstance3D.new()
+	_sea_near.name = "sea_near"
+	_sea_near.mesh = _disc(SEA_NEAR_RADIUS, SEA_NEAR_STEP)
+	_sea_near.mesh.surface_set_material(0, _sea_material(SEA_NEAR_STEP, 0.0))
+	_sea_near.extra_cull_margin = 4.0
+	_sea_near.position.y = level
+	add_child(_sea_near)
+	_sea_mid = MeshInstance3D.new()
+	_sea_mid.name = "sea_mid"
+	_sea_mid.mesh = _disc(SEA_MID_RADIUS, SEA_MID_STEP)
+	_sea_mid.mesh.surface_set_material(0,
+			_sea_material(SEA_MID_STEP, SEA_MID_RADIUS))
+	_sea_mid.extra_cull_margin = 4.0
+	_sea_mid.position.y = level - 0.07
+	add_child(_sea_mid)
+	_sea_far = MeshInstance3D.new()
+	_sea_far.name = "sea_far"
+	_sea_far.mesh = _disc(SEA_FAR_RADIUS, SEA_FAR_STEP)
+	_sea_far.mesh.surface_set_material(0, _material(Vector2.ZERO))
+	_sea_far.position.y = level - 0.15
+	add_child(_sea_far)
+	if register:
 		# W2: the shoaling tiers get their bathymetry channel.
-		_bathy_register("near", _sea_near, SEA_NEAR_RADIUS, SEA_NEAR_STEP,
-				Terrain.sea_level)
-		_bathy_register("mid", _sea_mid, SEA_MID_RADIUS, SEA_MID_STEP,
-				Terrain.sea_level)
+		_bathy_register("near", _sea_near, SEA_NEAR_RADIUS, SEA_NEAR_STEP, level)
+		_bathy_register("mid", _sea_mid, SEA_MID_RADIUS, SEA_MID_STEP, level)
+	else:
+		# Preview: no seabed to shoal against — the swell stays pure W1. The
+		# tiers carry no CUSTOM0, so the follow direct-moves them (no bake).
+		(_sea_near.mesh.surface_get_material(0) as ShaderMaterial) \
+			.set_shader_parameter("bathy_boost", 0.0)
+		(_sea_mid.mesh.surface_get_material(0) as ShaderMaterial) \
+			.set_shader_parameter("bathy_boost", 0.0)
+	_set_sea_level = -1e9  # force _process to seat the tide onto the fresh meshes
 
 
 ## Build every lake/pond surface from Terrain.water_bodies (vertex-dense discs
@@ -161,6 +198,7 @@ func _build_lakes() -> void:
 		mi.extra_cull_margin = 2.0  # waves leave the flat AABB
 		mi.position = Vector3(center.x,
 				float(w.surface) + Terrain.lake_levels[w.idx], center.y)
+		mi.visible = not _preview_sea  # lakes step aside in the shaping posture (M6c)
 		add_child(mi)
 		_lake_meshes[w.id] = mi
 		if radius >= LAKE_SWELL_MIN_R:
@@ -178,6 +216,47 @@ func _on_water_reloaded() -> void:
 	_rebuild_sea()
 	_rebuild_lakes()
 	_rebuild_rivers()
+
+
+## The shaping-water posture (M6c). PreviewTerrain fires this on wear/re-wear
+## (active, the export's manifest sea) and on leave (inactive). ENTER: hold the
+## sea over the preview relief at that level (build it if a content-empty pane
+## never made one, or re-seat the live sea to the export's level with bathy
+## off), and step the lakes/rivers aside. RE-WEAR (already in posture): the sea
+## stands — only its level may have moved, which _process re-seats cheaply, so
+## the slider loop never pays a rebuild. LEAVE: the streamed world's own sea
+## (or none, on a dry world) returns, and the lakes/rivers come back.
+func _on_preview_sea(active: bool, level: float) -> void:
+	if active:
+		var need_build := not _preview_sea or _sea_near == null
+		_preview_sea = true
+		_preview_level = level
+		_apply_water_visibility()
+		if need_build:
+			_rebuild_sea()  # tear down any live sea, build the shaping sea
+		else:
+			_set_sea_level = -1e9  # re-wear: _process re-seats the sea's y
+	else:
+		if not _preview_sea:
+			return
+		_preview_sea = false
+		_apply_water_visibility()
+		_rebuild_sea()  # back to the live sea (or none, if the world is dry)
+
+
+## Lakes + rivers step aside in the shaping posture, return with it. Rivers are
+## re-asserted per frame by _process (fill-channels shares the toggle), so this
+## just makes the change show the same frame preview enters/leaves.
+func _apply_water_visibility() -> void:
+	var vis := not _preview_sea
+	for id in _lake_meshes:
+		var mi: MeshInstance3D = _lake_meshes[id]
+		if is_instance_valid(mi):
+			mi.visible = vis
+	for id in _river_meshes:
+		var mi: MeshInstance3D = _river_meshes[id]
+		if is_instance_valid(mi):
+			mi.visible = vis
 
 
 ## Tear down the sea tiers (and their bathymetry registrations) and rebuild
@@ -269,8 +348,9 @@ func _process(_delta: float) -> void:
 	# the map focus below, and the chart palette that used to stand in
 	# for them is retired with the flat map.
 	# Fill-channels experiment (debug K): the sim fills the carved beds,
-	# so hide the sculpted ribbons — the two shouldn't stack.
-	var hide_rivers: bool = WaterField.enabled and WaterField.fill_channels
+	# so hide the sculpted ribbons — the two shouldn't stack. In the shaping
+	# posture (M6c) the rivers step aside too (no preview hydrology to seat).
+	var hide_rivers: bool = _preview_sea or (WaterField.enabled and WaterField.fill_channels)
 	for id in _river_meshes:
 		var mi: MeshInstance3D = _river_meshes[id]
 		if mi.visible == hide_rivers:
@@ -326,8 +406,10 @@ func _process(_delta: float) -> void:
 		far_mat.set_shader_parameter(
 			"rim_fade_radius", SEA_FAR_RADIUS if MapScreen.active else 0.0)
 	# The tide: all sheets ride the live surface, and the strand
-	# shader's dark band follows it via the sea_level global.
-	var live: float = Terrain.sea_surface()
+	# shader's dark band follows it via the sea_level global. In the shaping
+	# posture (M6c) the sea sits STILL at the export's level — a static
+	# snapshot has no tide — and the level tracks re-wears (a new export).
+	var live: float = _preview_level if _preview_sea else Terrain.sea_surface()
 	# Move the sheets and push the global only when the tide has moved a
 	# tenth of a millimeter (perf 2026-07-09): between tide steps these
 	# were redundant transform dirties + RenderingServer traffic at

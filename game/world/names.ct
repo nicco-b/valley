@@ -1,0 +1,77 @@
+# Contour port of valley game/world/names.gd :: Names
+#
+# The gazetteer's id->name REGISTRY RULES. Names is an `extends Node` autoload
+# whose _ready/reload/write/_read_all/_save are FileAccess/JSON/Records IO glue
+# (STAYS GDScript — the content file is data/names/names.json, edited by the
+# records desk); its pure registry QUERIES over the built table port here. The
+# live table `_by_id` (id -> {name, kind}) is seeded as the leading `by_id`
+# param (the scaffold instance-state convention, like sea_swell's amp/wavelength);
+# every query is a pure map over that dict + its id arg — reads nothing else.
+#
+# Ported (pure over their args, NO new Lattice language — dict.get/.has + the
+# String() coercion + str.is_empty, all landed rungs):
+#   * resolve(by_id, id)  -> string  — a place's name, or the id itself when it
+#     has none (the honest fallback so every surface prints SOMETHING and no
+#     panel/label ever shows a blank). GDScript's `name if not name.is_empty()
+#     else id` ternary → an if/else (Contour is ternary-free); the computed
+#     answer is bit-identical (Plumb proves it over names_resolve.jsonl).
+#   * has_name(by_id, id) -> bool    — the content file carries a name for this
+#     id (the map's labels gate on this — show a name ONLY for named things).
+#   * kind_of(by_id, id)  -> string  — a named place's declared kind ("" when
+#     none). The `... if rec != null else ""` ternary → an if/else.
+#
+# The one structural change vs GDScript (both preserve the answer bit-for-bit):
+#   * resolve/kind_of's ternary → an explicit if/else + a trailing return.
+#   * GDScript reads the table off the `_by_id` instance field; the port takes it
+#     as the leading `by_id` param (the seeding convention). `(rec as Dictionary)`
+#     is implicit — the table's values are always dicts.
+#
+# NOT ported (a sort/keys language increment — DEFERRED honestly, the next rung):
+#   * named_ids/entries — need dict.keys() + a bit-exact array.sort() (Godot's
+#     String::operator< is a char32_t codepoint compare, NOT Swift's canonical
+#     order — a carefully-traced builtin, built the hour a port needs it).
+#   * write/reload/_read_all/_save — FileAccess/DirAccess/JSON/Records IO glue,
+#     the atomic temp+rename write path; STAYS GDScript by the scope law.
+#
+# ROUTING (valley game/world/names.gd behind STRATA_CONTOUR): a bare string does
+# not cross the ContourKernel C ABI yet (that bare-string LAT_STR path is a
+# parallel session's), so the string-returning queries route through the *_abi
+# wrappers below, which return the result INSIDE a one-element array — a LAT_BUF
+# composite the codec already carries (the story.gd _subst_str_abi precedent).
+# has_name returns a bool (a scalar the ABI carries bare), so it routes direct.
+
+
+# The gazetteer's core rule: a place's name, or the id itself when it has none.
+sim func resolve(by_id, id) -> string:
+	var rec = by_id.get(id, null)
+	if rec == null:
+		return id
+	var name = String(rec.get("name", ""))
+	if not name.is_empty():
+		return name
+	return id
+
+
+# True when the content file carries a name for this id.
+sim func has_name(by_id, id) -> bool:
+	return by_id.has(id)
+
+
+# A named place's declared kind ("" when none — never invented).
+sim func kind_of(by_id, id) -> string:
+	var rec = by_id.get(id, null)
+	if rec != null:
+		return String(rec.get("kind", ""))
+	return ""
+
+
+# --- ABI wrappers (valley routing only). A String crosses the composite ABI
+#     wrapped in a one-element array; the caller unwraps `(result as Array)[0]`.
+#     Not separately certified — a trivial re-wrap of the certified body above
+#     (the story _subst_str / _subst_str_abi precedent). ---
+sim func resolve_abi(by_id, id) -> array:
+	return [resolve(by_id, id)]
+
+
+sim func kind_of_abi(by_id, id) -> array:
+	return [kind_of(by_id, id)]

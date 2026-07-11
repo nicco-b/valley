@@ -1,28 +1,41 @@
 # Contour port of valley game/state/conditions.gd :: Conditions
 #
-# The Campfire condition language's honestly-PURE leaf statics — the helpers
-# that read only their arguments. These four are the FIRST Contour code to run
-# inside valley's shipping sim (PLAN_ENGINE E2): game/state/conditions.gd routes
-# latch_day/_truthy/_loose_eq/_one_of here when STRATA_CONTOUR=1 (a boot-time
-# sim flag, DevMode-independent, default OFF). Flag OFF is byte-identical
-# GDScript; flag ON answers the SAME call from the Lattice VM through the native
-# ContourKernel extension. The soak proves it: the fingerprint is unmoved.
+# The Campfire condition language — the WHOLE closed evaluator now: the pure leaf
+# statics (latch_day/_truthy/_loose_eq/_one_of) AND the four higher functions the
+# language-surface batch unlocked — `eval`, `keys_of`, `custom_names`, `lint`.
+# The file `class_name Conditions` and references the WorldState/Items autoloads
+# in eval(), so it cannot `load()` bare: the harness boots it under the
+# conditions scaffold (autoload stubs) and calls these as STATIC functions. See
+# plumb/scaffold/conditions/.
 #
-# PROVENANCE: verbatim from datum plumb/ports/conditions.ct (datum main ca0b83f),
-# certified bit-identical to the GDScript twin by the Plumb harness over
-# plumb/corpus/conditions_{latch_day,truthy,loose_eq,one_of}.jsonl. The vendored
-# twin (plumb/vendor/conditions.gd, sha 3673117…) is byte-identical to valley's
-# shipping game/state/conditions.gd — the port certifies the EXACT statics below.
+# These grew Lattice to exactly what the language demands (minimalism law): the
+# `is`/`in` operators + `float`/`is_equal_approx` (the leaves), then `match`,
+# for-in over dict KEYS (insertion order by law), `%`-string formatting, and
+# module-level `const` (the eval/keys_of/custom_names/lint batch). No more.
 #
-# eval/keys_of/custom_names/lint are a later rung (they read WorldState/Items or
-# iterate dict keys + match + %-format). The four leaves are exactly the pure
-# statics the current operator surface (is / in / float / is_equal_approx)
-# reaches — the minimalism law.
-#
-# The one structural change vs GDScript: GDScript `and` short-circuits, Contour's
-# is eager, so latch_day's `value is Dictionary and value.has("day")` becomes a
-# NESTED if (the .has() would error on a non-dict under eager evaluation). The
-# computed answer is identical (Plumb proves it).
+# The faithful STRUCTURAL rewrites (Contour is eager where GDScript short-circuits;
+# it has no ternary; arrays are value-typed so `.append` is `= a + [x]`). Each
+# preserves the computed answer bit-for-bit (Plumb proves it):
+#   * latch_day's `value is Dictionary and value.has("day")` → a NESTED if.
+#   * eval's `A if a<=b else B` ternary → an if/else that assigns `inside`.
+#   * eval's `any` short-circuit `break` → a `passed` guard that stops eval'ing.
+#   * eval's `custom` Callable dispatch is OUT OF SCOPE — Contour has no Callable,
+#     BY DESIGN (not a missing feature). The resolver `Callable(name, args) -> bool`
+#     is an unbounded escape into arbitrary GDScript (it can read the wall clock /
+#     draw RNG — the exact nondeterminism §4 forbids), and interpreting an
+#     open-vocabulary custom predicate is quest-hook work, not the closed sim RULES
+#     tier. So the port does what Godot does with NO resolver bound (dialogue rows /
+#     an unhooked quest): `custom` FAILS CLOSED (returns false), bit-identical to
+#     `eval(c)` with a default `Callable()`; the corpus drives that path. The
+#     lawful sim-side shape, if ever wanted, is a REGISTERED pure predicate table
+#     (a §6-style named-`sim`-function registry), never a first-class Callable.
+#     See the design note in docs/CONTOUR.md §4.
+#   * eval reads WorldState/Items via the seeded autoloads on the GDScript side;
+#     the port takes the world + items dicts as its two LEADING params (the
+#     scaffold-seeding convention), and reads them with the helpers below.
+#   * lint's `X as Array; X.is_empty()/.size()` guarded by a short-circuit `or`
+#     → a `bad` flag computed under an `is Array` test (eager-safe).
+#   * lint's ternary `"a, b" if key=="time_between" else "key, value"` → a var.
 
 
 # The day sealed into a latch value: latches store {day, ...}; a bare int/float
@@ -56,3 +69,203 @@ sim func _one_of(value, allowed) -> bool:
 	if allowed is Array:
 		return value in allowed
 	return value == allowed
+
+
+# --- The closed tables (spec §2 const). lint reads these; eval/keys_of match
+#     the spellings inline (the language is closed — §14 fence). ---
+const PREDICATES = ["flag", "not_flag", "eq", "gte", "lte", "item", "item_tag", "season", "time_between", "since", "knows", "weather", "custom"]
+const RESERVED = ["told", "opinion_band"]
+const COMPOSE = ["all", "any", "not"]
+
+
+# WorldState/Items reads, over the two seeded dicts (see the header). `_wv` is
+# WorldState.get_value(key) with no default (null when absent); the two-default
+# callers spell world.get(key, default) directly. _count/_count_tag mirror the
+# Items stub (int of the counts/tags lookup, 0 when absent).
+sim func _count(items, id) -> int:
+	return int(items.get("counts", {}).get(id, 0))
+
+
+sim func _count_tag(items, tag) -> int:
+	return int(items.get("tags", {}).get(tag, 0))
+
+
+# The evaluator (the mirror law: reads WorldState keys + Items counts, nothing
+# else). Composition all/any/not; the predicate table; reserved fail closed; an
+# unknown predicate fails closed (GDScript push_error's to stderr — a filtered
+# side effect, not the returned bool). `custom` fails closed (see header).
+sim func eval(world, items, c) -> bool:
+	for key in c:
+		match key:
+			"all":
+				for sub in c.all:
+					if not eval(world, items, sub):
+						return false
+			"any":
+				var passed = false
+				for sub in c.any:
+					if not passed:
+						if eval(world, items, sub):
+							passed = true
+				if not passed:
+					return false
+			"not":
+				if eval(world, items, c["not"]):
+					return false
+			"flag":
+				if not _truthy(world.get(c.flag)):
+					return false
+			"not_flag":
+				if _truthy(world.get(c.not_flag)):
+					return false
+			"eq":
+				if not _loose_eq(world.get(c.eq[0]), c.eq[1]):
+					return false
+			"gte":
+				if float(world.get(c.gte[0], 0)) < float(c.gte[1]):
+					return false
+			"lte":
+				if float(world.get(c.lte[0], 0)) > float(c.lte[1]):
+					return false
+			"item":
+				if _count(items, c.item[0]) < int(c.item[1]):
+					return false
+			"item_tag":
+				if _count_tag(items, c.item_tag[0]) < int(c.item_tag[1]):
+					return false
+			"season":
+				if not _one_of(world.get("time.season", ""), c.season):
+					return false
+			"time_between":
+				var h = int(world.get("time.hour", -1))
+				var a = int(c.time_between[0])
+				var b = int(c.time_between[1])
+				var inside = false
+				if a <= b:
+					inside = h >= a and h <= b
+				else:
+					inside = h >= a or h <= b
+				if h < 0 or not inside:
+					return false
+			"since":
+				var day = latch_day(world.get(c.since[0]))
+				if day < 0:
+					return false
+				if int(world.get("time.day", 0)) - day < int(c.since[1]):
+					return false
+			"knows":
+				if not _truthy(world.get("npc.%s.knows.%s" % [c.knows[0], c.knows[1]])):
+					return false
+			"weather":
+				if not _one_of(world.get("weather.state", ""), c.weather):
+					return false
+			"custom":
+				return false
+			"watch":
+				pass
+			"told", "opinion_band":
+				return false
+			_:
+				return false
+	return true
+
+
+# Mechanical key extraction — the seed of Story's condition index. Total because
+# the language is closed: every predicate's watched keys are in the table.
+sim func keys_of(c) -> array:
+	var keys = []
+	for key in c:
+		match key:
+			"all", "any":
+				for sub in c[key]:
+					keys = keys + keys_of(sub)
+			"not":
+				keys = keys + keys_of(c["not"])
+			"flag":
+				keys = keys + [c.flag]
+			"not_flag":
+				keys = keys + [c.not_flag]
+			"eq":
+				keys = keys + [c.eq[0]]
+			"gte":
+				keys = keys + [c.gte[0]]
+			"lte":
+				keys = keys + [c.lte[0]]
+			"item", "item_tag":
+				keys = keys + ["player.inventory"]
+			"season":
+				keys = keys + ["time.season"]
+			"time_between":
+				keys = keys + ["time.hour"]
+			"since":
+				keys = keys + [c.since[0]]
+				keys = keys + ["time.day"]
+			"knows":
+				keys = keys + ["npc.%s.knows.%s" % [c.knows[0], c.knows[1]]]
+			"weather":
+				keys = keys + ["weather.state"]
+			"custom":
+				for k in c.get("watch", []):
+					keys = keys + [k]
+	return keys
+
+
+# The custom-predicate names inside a condition (mechanical, like keys_of).
+sim func custom_names(c) -> array:
+	var out = []
+	for key in c:
+		match key:
+			"all", "any":
+				for sub in c[key]:
+					out = out + custom_names(sub)
+			"not":
+				out = out + custom_names(c["not"])
+			"custom":
+				out = out + [c.custom[0]]
+	return out
+
+
+# Schema check against the closed table — the linter's condition rows. Returns
+# human-readable problems ([] = clean). `context` names the row. Every message
+# is the exact sentence the linter asserts (the %-format is load-bearing).
+sim func lint(c, context) -> array:
+	var problems = []
+	if not (c is Dictionary):
+		problems = problems + ["%s: condition must be a dictionary" % context]
+		return problems
+	for key in c:
+		if key in RESERVED:
+			problems = problems + ["%s: '%s' is reserved until S1/S2 lands" % [context, key]]
+		elif key == "custom":
+			var w = c.get("watch")
+			var bad = true
+			if w is Array:
+				if not w.is_empty():
+					bad = false
+			if bad:
+				problems = problems + ["%s: 'custom' requires a non-empty 'watch' key list beside it" % context]
+		elif key == "watch":
+			if not c.has("custom"):
+				problems = problems + ["%s: 'watch' only rides beside 'custom'" % context]
+		elif key in COMPOSE:
+			if key == "not":
+				problems = problems + lint(c["not"], context + ".not")
+			elif c[key] is Array:
+				for i in c[key].size():
+					problems = problems + lint(c[key][i], "%s.%s[%d]" % [context, key, i])
+			else:
+				problems = problems + ["%s: '%s' takes an array of conditions" % [context, key]]
+		elif not (key in PREDICATES):
+			problems = problems + ["%s: unknown predicate '%s' — the language is closed (§14)" % [context, key]]
+		elif key in ["eq", "gte", "lte", "item", "item_tag", "since", "knows", "time_between"]:
+			var v = c[key]
+			var bad2 = true
+			if v is Array:
+				if v.size() >= 2:
+					bad2 = false
+			if bad2:
+				var shape = "key, value"
+				if key == "time_between":
+					shape = "a, b"
+				problems = problems + ["%s: '%s' takes [%s]" % [context, key, shape]]
+	return problems

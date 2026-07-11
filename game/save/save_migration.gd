@@ -55,7 +55,31 @@ static func _apply_step(from: int, data: Dictionary) -> Dictionary:
 ##   {ok=false, data={}, error=<the honest sentence>, refused_newer=<bool>}
 ## refused_newer marks the covenant's core case — a save from a future build —
 ## so the caller can say so to the player instead of silently starting fresh.
+##
+## THE ONE DOOR. Both save-load call sites (save_manager.load_into_world and
+## restore_anchor via _read_anchor) ride this, so routing it once routes the
+## whole covenant. When STRATA_CONTOUR=1 the ladder runs on the native Contour
+## VM (game/save/save_migration.ct — the datum-certified §5 twin); flag OFF it
+## is the byte-identical GDScript twin _migrate_gd below (see the routing block
+## and its covenant note at the foot of this file for WHY this gate exists).
 static func migrate(raw: Variant) -> Dictionary:
+	var vm := _route()
+	if vm != null:
+		# Routed: the native VM computes the whole result dict. NO silent
+		# fallback — a null here (a VM/marshalling break) surfaces loudly at the
+		# caller rather than quietly reverting to GDScript, which would hide a
+		# covenant regression at the one moment the law is absolute.
+		_contour_calls += 1
+		return vm.call_fn("migrate", [raw])
+	return _migrate_gd(raw)
+
+
+## The GDScript twin of the ladder — the forever-byte-identical flag-OFF path,
+## and the oracle the save-load gate compares the VM against (SaveMigration.ct
+## flag-on == this flag-off, byte-for-byte over every real fixture). This body
+## is unchanged from the pre-routing SaveMigration.migrate; the routing above is
+## a pure prepend, so flag-off is bit-for-bit what shipped.
+static func _migrate_gd(raw: Variant) -> Dictionary:
 	if not (raw is Dictionary):
 		return _refuse("save is not a JSON object")
 	var data: Dictionary = raw
@@ -91,3 +115,74 @@ static func migrate(raw: Variant) -> Dictionary:
 
 static func _refuse(msg: String) -> Dictionary:
 	return {"ok": false, "data": {}, "error": msg, "refused_newer": false}
+
+
+# --- Contour routing (PLAN_ENGINE E2, the conditions/names/hydrology precedent) --
+## WHY THIS GATE EXISTS — the covenant stance, in one paragraph:
+## migrate() runs at LOAD (save_manager.load_into_world / restore_anchor), ONCE,
+## before the world exists — NEVER on the sim tick. The standing determinism gate
+## is the soak, which starts a FRESH seeded world and advances 30 game-days; it
+## NEVER loads a save from disk. So the soak is structurally blind to this path:
+## routing migrate behind STRATA_CONTOUR and claiming the soak proves flag-on
+## inert would be a lie — the fingerprint cannot see load-time work. And this is
+## the single most fragile covenant moment (opening a player's save, where "never
+## a crash / never a silent reset" is the whole law), so a VM dependency here
+## demands a STANDING byte-identity proof of its own. That proof is the dedicated
+## save-load gate (tests/save_load_gate.tscn), a DIFFERENT harness from the soak:
+## it loads every real fixture through the real save path and asserts _migrate_gd
+## (flag-off) == the VM (flag-on) byte-for-byte on the result dict AND the refusal
+## sentences verbatim, plus this call counter to prove the VM actually answered.
+## test.sh runs that gate BOTH ways every gate — so the load-time path the soak
+## can't watch is watched here instead. Flag OFF (the shipping default) is the
+## byte-identical GDScript twin: the covenant moment is untouched in production.
+##
+## The whole result is a `dict` (composite ABI, LAT_BUF); the arg `raw` may be a
+## Dictionary, a bare String/int (adversarial), or null (a torn parse) — all cross
+## the kernel arg codec (LAT_STR/LAT_INT/LAT_NULL/composite). NO SILENT FALLBACK
+## (the honesty law): flag ON with the kernel absent or a module that will not
+## compile is a LOUD refusal (push_error, mode -1), never a quiet GDScript pass.
+const _CONTOUR_MODULE := "res://game/save/save_migration.ct"
+
+## 0 unresolved · 1 off (flag unset) · 2 engaged (VM live) · -1 refused (flag set
+## but kernel/module unavailable — loud, not silent).
+static var _contour_mode := 0
+static var _contour_vm: Contour = null
+static var _contour_calls := 0   # VM-answered migrate() calls (the engaged-path probe)
+
+## The live VM when routing is engaged, else null (flag off, or refused). Resolves
+## once at first migrate (load time); pure — no side effects, so flag-off is byte-
+## identical to the un-routed ladder.
+static func _route() -> Contour:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return _contour_vm
+
+
+static func _contour_resolve() -> void:
+	if OS.get_environment("STRATA_CONTOUR") != "1":
+		_contour_mode = 1   # flag off — the GDScript twin, forever byte-identical
+		return
+	# Flag ON: engage the VM, or REFUSE loudly (never a silent GDScript pass).
+	if not Contour.available():
+		push_error("[save_migration] STRATA_CONTOUR=1 but the Contour kernel is unavailable "
+			+ "(not macOS / dylib absent) — refusing to silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	var vm := Contour.new()
+	var err := vm.compile_file(_CONTOUR_MODULE)
+	if err != "":
+		push_error("[save_migration] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	_contour_vm = vm
+	_contour_mode = 2
+
+
+## Routing introspection for the save-load gate (proves the VM answered, not a
+## silent fallback): the resolved mode, whether it engaged, and the answered-call
+## count. Resolves the flag on first call so the gate can read it before any load.
+static func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}

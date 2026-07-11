@@ -244,6 +244,29 @@ func contour_status() -> Dictionary:
 		"held": _contour_held, "held_ticks": _contour_held_ticks}
 
 
+## Rung 3 (docs/SUBSTRATE.md §3): the held world's OWNED state for the save path.
+## SaveManager.snapshot_data sources this over the WorldState mirror when
+## STRATA_CONTOUR_HELD=1 — the held world is the sim-tier truth for this system's
+## own declared writes (and its continuation), byte-identical to the mirror by the
+## SINGLETON diff-only apply. Empty until the held world is live (the mirror stays
+## authoritative until then); empty off the held path entirely.
+##
+## GDSCRIPT-CANONICAL KEY (weather.wind_angle): weather SNAPS the angle before
+## persisting — `WorldState.set_value("weather.wind_angle", snappedf(_wind_angle,
+## 0.001))` — so the store's canonical wind_angle is the SNAPPED value, while the
+## held world holds the raw pre-snap angle (the .ct does not snap). The held world
+## is therefore NOT the byte-source for this one key: drop it so the mirror stays
+## authoritative. Every other weather write (state / wind / fronts) is byte-source
+## from the held world. (A future rung moves the snap into weather.ct, at which
+## point the held world holds the canonical angle and this drop is retired.)
+func held_owned_snapshot() -> Dictionary:
+	if _contour_bridge == null:
+		return {}
+	var owned := _contour_bridge.held_owned_snapshot()
+	owned.erase("weather.wind_angle")
+	return owned
+
+
 func _ready() -> void:
 	# Vernier (P4): passive registration (reads -1.0 once; never calls the
 	# setter on its own) — a Toolkit knob nothing ever wired a UI to yet.
@@ -252,6 +275,7 @@ func _ready() -> void:
 		"Pins ground fog 0..1; < 0 lets Climate/time-of-day drive it.")
 	_load_climate_records()
 	add_to_group("world_state_reader")  # SaveGame re-calls load_state post-restore
+	add_to_group("contour_held_source")  # Rung 3: SaveManager sources held-owned keys here
 	load_state()
 	GameClock.hour_tick.connect(_transition)
 

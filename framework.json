@@ -200,6 +200,8 @@
 			"tests/quest_harness.tscn",
 			"tests/save_load_gate.gd",
 			"tests/save_load_gate.tscn",
+			"tests/held_snapshot_gate.gd",
+			"tests/held_snapshot_gate.tscn",
 			"tests/soak.gd",
 			"tests/soak.tscn",
 			"tests/quests/catchup_since.test.json",

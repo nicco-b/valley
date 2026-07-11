@@ -110,6 +110,7 @@ func _cell_m() -> float:
 
 
 func _ready() -> void:
+	add_to_group("contour_held_source")  # Rung 3: SaveManager sources held-owned keys here
 	_masks = [
 		_signed_mask(_foot_shape(false), 0.085),
 		_signed_mask(_foot_shape(true), 0.085),
@@ -663,3 +664,13 @@ func contour_status() -> Dictionary:
 		_contour_resolve()
 	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls,
 		"held": _contour_held, "held_ticks": _contour_held_ticks}
+
+
+## Rung 3 (docs/SUBSTRATE.md §3): the held world's OWNED state for the save path.
+## SaveManager.snapshot_data sources this over the WorldState mirror when
+## STRATA_CONTOUR_HELD=1 — the held world is the sim-tier truth for sand's pure
+## persistent writes (sand.repose / sand.decay), byte-identical to the mirror by
+## the SINGLETON diff-only apply. Empty until the held world is live (the mirror
+## stays authoritative until then); empty off the held path entirely.
+func held_owned_snapshot() -> Dictionary:
+	return _contour_bridge.held_owned_snapshot() if _contour_bridge != null else {}

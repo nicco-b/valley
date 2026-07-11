@@ -26,14 +26,41 @@ extends SceneTree
 ##                    DevMode.active() or they fail the fence.
 ##   teardown-reap    the TEARDOWN-REAP LAW: a framework file that submits
 ##                    a WorkerThreadPool task (add_task/add_group_task) or
-##                    spins a Thread must reap it in _exit_tree — a
+##                    spins a Thread must reap THAT SAME stored task id /
+##                    thread variable in _exit_tree — a
 ##                    wait_for_task_completion/wait_to_finish call in that
-##                    function's own body — before the tree (and the
+##                    function's own body that names the identical LHS
+##                    token the submit assigned — before the tree (and the
 ##                    autoloads an in-flight task reads) tears down under
-##                    it. Four crashes earned this one (hydrology
-##                    catchments, the toolkit ghost player, sand_patch's
-##                    build, water_field's base bake — the last was the
-##                    engine-restart blocker). tests/ is exempt, same as
+##                    it. The check is PER TOKEN, not "does _exit_tree
+##                    contain a wait call anywhere": a file with two
+##                    independent submit sites where only one is reaped
+##                    (e.g. a CPU-fallback Thread joined correctly while a
+##                    sibling WorkerThreadPool bake task is never waited)
+##                    must still fail — an early whole-file version of this
+##                    check let exactly that shape through (sand_field.gd's
+##                    _base_task: reaped nowhere, caught and fixed building
+##                    this lint — same commit). Four crashes earned the law
+##                    itself (hydrology catchments, the toolkit ghost
+##                    player, sand_patch's build, water_field's base bake —
+##                    the last was the engine-restart blocker). Token
+##                    extraction handles both a plain variable
+##                    (`_task = WorkerThreadPool.add_task(...)`, reaped by
+##                    `WorkerThreadPool.wait_for_task_completion(_task)`), a
+##                    dict-keyed one (`_terrain_pending[c] = ...add_task(...)`,
+##                    reaped by a loop over `_terrain_pending`), and a
+##                    struct-field one (`st.task = ...add_task(...)`,
+##                    reaped via `int(st.task)`) — the token is the LHS
+##                    text up to any `[`, matched as a literal substring of
+##                    the _exit_tree body. That is a text-containment
+##                    heuristic, not a data-flow proof — good enough for
+##                    this codebase's naming discipline, and strictly
+##                    stronger than "some wait call exists somewhere in
+##                    _exit_tree" (the version that missed sand_field.gd).
+##                    A future shape it can't see (reap wired through a
+##                    same-named local alias, say) is a new ALLOWLIST entry
+##                    with its own justification, same discipline as every
+##                    other rule here. tests/ is exempt, same as
 ##                    asset-preload/content-id/dev-gate — its probes wait
 ##                    on their tasks inline, not from a node lifecycle.
 ##   rd-teardown      the RD-RID LAW (teardown-reap's sibling, 2026-07-09's
@@ -255,6 +282,54 @@ func _run_probes() -> void:
 	_check(reap_clean_thread.is_empty(),
 		"probe: teardown-reap passes a Thread reaped in _exit_tree")
 
+	# teardown-reap: the PER-TOKEN regression this lint itself found and
+	# fixed (sand_field.gd, 2026-07): a Thread reaped correctly sits beside
+	# a WorkerThreadPool task _exit_tree never names. A whole-file "some
+	# wait call exists somewhere" version of this check passes this file
+	# (it sees _thread.wait_to_finish() and stops looking) — the honest
+	# per-token law must still catch the unreaped _base_task.
+	var reap_partial := lint_text("probe/reap_dirty_partial.gd",
+		"func _ready() -> void:\n"
+		+ "\t_thread = Thread.new()\n"
+		+ "\t_thread.start(_build)\n"
+		+ "\n"
+		+ "func _start_base_bake() -> void:\n"
+		+ "\t_base_task = WorkerThreadPool.add_task(_bake)\n"
+		+ "\n"
+		+ "func _exit_tree() -> void:\n"
+		+ "\tif _thread and _thread.is_started():\n"
+		+ "\t\t_thread.wait_to_finish()\n",
+		[])
+	_check(reap_partial.size() == 1 and reap_partial[0].rule == "teardown-reap"
+			and reap_partial[0].literal.contains("_base_task"),
+		"probe: teardown-reap catches a reaped Thread beside an unreaped "
+			+ "WorkerThreadPool task (the sand_field.gd shape) and names the culprit")
+
+	# teardown-reap: the dict-keyed and struct-field token shapes both pass
+	# when genuinely reaped (world_streamer.gd's _terrain_pending[c],
+	# water_bodies.gd's st.task — the real cross-cell/cross-tier patterns).
+	var reap_clean_dict := lint_text("probe/reap_clean_dict.gd",
+		"func _ready() -> void:\n"
+		+ "\t_terrain_pending[c] = WorkerThreadPool.add_task(_build)\n"
+		+ "\n"
+		+ "func _exit_tree() -> void:\n"
+		+ "\tfor c in _terrain_pending:\n"
+		+ "\t\tWorkerThreadPool.wait_for_task_completion(_terrain_pending[c])\n",
+		[])
+	_check(reap_clean_dict.is_empty(),
+		"probe: teardown-reap passes a dict-keyed task id reaped by iterating the dict")
+
+	var reap_clean_field := lint_text("probe/reap_clean_field.gd",
+		"func _ready() -> void:\n"
+		+ "\tst.task = WorkerThreadPool.add_task(_build)\n"
+		+ "\n"
+		+ "func _exit_tree() -> void:\n"
+		+ "\tif int(st.task) >= 0:\n"
+		+ "\t\tWorkerThreadPool.wait_for_task_completion(int(st.task))\n",
+		[])
+	_check(reap_clean_field.is_empty(),
+		"probe: teardown-reap passes a struct-field task id (st.task) reaped by name")
+
 	# rd-teardown: a creator with a texture_create and no free anywhere in
 	# the file is CAUGHT outright — no teardown/free method exists at all.
 	var rd_dirty := _rd_teardown_hits({"probe/rdgpu_dirty.gd":
@@ -411,29 +486,61 @@ func lint_text(path: String, text: String, ids: Array) -> Array[Dictionary]:
 	return hits
 
 
-## The TEARDOWN-REAP LAW, static: does this file submit a WorkerThreadPool
-## task or spin a Thread, and if so does its _exit_tree actually wait on
-## it? Comment-only lines are skipped, same as the per-line rules above.
-## Returns a single {path, rule, literal} hit, or {} if clean.
-func _reap_hit(path: String, text: String) -> Dictionary:
-	var submit_re := RegEx.create_from_string(
-		"WorkerThreadPool\\.(add_task|add_group_task)\\s*\\(|Thread\\.new\\s*\\(")
-	var submits := false
+## Every distinct LHS token a submit statement assigns its task id / Thread
+## into, in first-seen order: `_task = WorkerThreadPool.add_task(...)` ->
+## "_task"; `_terrain_pending[c] = WorkerThreadPool.add_task(...)` ->
+## "_terrain_pending" (bracket index stripped — the reap loops over the
+## dict by name, not the index); `st.task = WorkerThreadPool.add_task(...)`
+## -> "st.task" (struct-field form, kept whole — the reap names it the
+## same way, e.g. `int(st.task)`). Comment-only lines are skipped, same
+## convention as every rule in this file.
+func _task_submit_tokens(text: String) -> Array[String]:
+	var out: Array[String] = []
+	var seen: Dictionary = {}
+	var pool_re := RegEx.create_from_string(
+		"([\\w.]+(?:\\[[^\\]]*\\])?)\\s*=\\s*WorkerThreadPool\\.(add_task|add_group_task)\\s*\\(")
+	var thread_re := RegEx.create_from_string(
+		"([\\w.]+)\\s*=\\s*Thread\\.new\\s*\\(")
 	for line in text.split("\n"):
 		var s := line.strip_edges()
 		if s.begins_with("#"):
 			continue
-		if submit_re.search(line):
-			submits = true
-			break
-	if not submits:
+		for m in pool_re.search_all(line):
+			var token: String = m.get_string(1).split("[")[0]
+			if not seen.has(token):
+				seen[token] = true
+				out.append(token)
+		for m in thread_re.search_all(line):
+			var token: String = m.get_string(1)
+			if not seen.has(token):
+				seen[token] = true
+				out.append(token)
+	return out
+
+
+## The TEARDOWN-REAP LAW, static and PER TOKEN: for every distinct task
+## id / Thread this file's source stores (see _task_submit_tokens), does
+## its _exit_tree body reference that SAME token in a
+## wait_for_task_completion/wait_to_finish call? A whole-file check ("does
+## _exit_tree contain a wait call anywhere") passes a file with two
+## independent submit sites where only one is reaped — the honest law is
+## per stored id, not per file. Returns a single {path, rule, literal}
+## hit naming every unreaped token, or {} if every token the file submits
+## is named somewhere in _exit_tree's body.
+func _reap_hit(path: String, text: String) -> Dictionary:
+	var tokens := _task_submit_tokens(text)
+	if tokens.is_empty():
 		return {}
 	var body := _exit_tree_body(text)
-	if body.contains("wait_for_task_completion") or body.contains("wait_to_finish"):
+	var unreaped: Array[String] = []
+	for token in tokens:
+		if not body.contains(token):
+			unreaped.append(token)
+	if unreaped.is_empty():
 		return {}
 	return {"path": path, "rule": "teardown-reap",
-		"literal": "WorkerThreadPool/Thread task with no _exit_tree reap "
-			+ "(TEARDOWN-REAP LAW)"}
+		"literal": ("unreaped WorkerThreadPool/Thread id(s) [%s] — no _exit_tree wait "
+			+ "names them (TEARDOWN-REAP LAW)") % ", ".join(unreaped)}
 
 
 ## Extracts the body of this file's top-level `func _exit_tree` (from its

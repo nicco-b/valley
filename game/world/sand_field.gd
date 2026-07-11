@@ -138,9 +138,23 @@ func _exit_tree() -> void:
 	_run = false
 	if _thread and _thread.is_started():
 		_thread.wait_to_finish()
+	# Reap the in-flight base bake before the tree (and the autoloads it
+	# reads — Terrain and its native kernel above all) tears down under it.
+	# _start_base_bake samples Terrain.height_block on a worker thread; a
+	# quit (or an embedded engine-restart destroy) landing inside the bake
+	# window otherwise dereferences this freed node from the pool thread
+	# and aborts the process — the hydrology catchment / sand_patch /
+	# water_field lesson, same shape here (water_field.gd's _exit_tree is
+	# the sibling precedent). _base_pending is true exactly while a bake
+	# is submitted and not yet drained.
+	if _base_pending and _base_task != -1:
+		WorkerThreadPool.wait_for_task_completion(_base_task)
+		_base_task = -1
+		_base_pending = false
 	# Reap the GPU driver's RD resources (5 Texture RIDs + sampler + buffer
 	# + shaders/pipelines) while the RenderingDevice is still alive — after
-	# the sim thread is joined so no concurrent RD use races the free.
+	# the sim thread and the base bake are joined so no concurrent RD use
+	# races the free.
 	if _gpu != null:
 		_gpu.teardown()
 

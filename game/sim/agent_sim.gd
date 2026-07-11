@@ -146,6 +146,13 @@ static func _contour_resolve() -> void:
 			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
 		_contour_mode = -1
 		return
+	# agent_sim MULTIPLEXES the whole herd through ONE held world — every mind is
+	# re-injected and read back each tick, so the held path MUST keep full-set
+	# injection + diff-or-inject apply (a between-mind WorldState holds the prior
+	# mind's value; a singleton diff-only apply would read back stale). Declared
+	# EXPLICITLY (never inferred) so a future default flip can't silently break it
+	# — this is E1d's hard lesson (docs/SUBSTRATE.md §1, the F2 rung).
+	bridge.set_held_mode(ContourBridge.HELD_MODE_MULTIPLEXED)
 	_contour_bridge = bridge
 	_contour_mode = 2
 	# The Rung 2 DARK sub-flag: only meaningful once the bridge is live. Off by

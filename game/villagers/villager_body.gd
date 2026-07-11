@@ -20,6 +20,7 @@ const ARRIVE := 4.0
 const RIDE_HEIGHT := 0.4  # body origin sits about this far above its feet
 
 var villager_name := "Someone"  # set by the manager before add_child
+var palette: Dictionary = {}  # the CHARACTER record's body.palette (empty = flat art)
 var sim: AgentSim = null  # the live mind (shared reference with the manager)
 
 var _sim_target := Vector3.ZERO
@@ -37,7 +38,7 @@ func _ready() -> void:
 			_anim.get_animation(n).loop_mode = Animation.LOOP_LINEAR
 	if _anim.has_animation("Idle"):
 		_anim.play("Idle")
-	CharacterPaint.apply($Body/Model)
+	CharacterPaint.apply($Body/Model, palette)
 	# The presence: one Interactable the walker can examine (group
 	# "interactable"; the player finds it by proximity + facing). The prompt
 	# is the villager's name; using it says what she's doing right now.

@@ -12,7 +12,12 @@ echo "== scene tests (autoload context) =="
 # --quit-after backstop: if the test script itself fails to parse, the
 # scene runs empty and never quits — without this the suite hangs forever.
 # Success is the PASS line, not the exit code (quit-after exits 0).
-SCENE_OUT=$(godot --headless --quit-after 2000 res://tests/scene_tests.tscn 2>&1)
+# STRATA_CLOCK_PIN freezes the scene-test world's clock (and thereby weather /
+# tide) at a fixed hour — without it the world boots at real wall time and the
+# click-together socket gate flakes ~1 in 3 under whatever weather that draws.
+# Env-gated + test-only: unset everywhere else (the soak included), so shipping
+# behaviour and the determinism fingerprint are untouched (game_clock.gd).
+SCENE_OUT=$(STRATA_CLOCK_PIN=9.0 godot --headless --quit-after 2000 res://tests/scene_tests.tscn 2>&1)
 echo "$SCENE_OUT" | grep -E "PASS|FAIL|SCRIPT ERROR"
 echo "$SCENE_OUT" | grep -q "SCRIPT ERROR" && exit 1
 echo "$SCENE_OUT" | grep -q "SCENE-TESTS PASS" || exit 1

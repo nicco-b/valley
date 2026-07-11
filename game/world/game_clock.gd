@@ -89,16 +89,32 @@ var _daylight := Vector2(6.0, 18.0)  # today's (sunrise, sunset), civil game-hou
 var _det_available := false
 var _det_armed := false  # true while inside advance_hours' guarded section
 
+## TEST HERMETICS (STRATA_CLOCK_PIN) — env-gated, test-only, INERT when unset.
+## scene_tests boots the world at real wall time (civil_now), so weather and
+## tide draw differently every run and the click-together socket gate flakes
+## (~1 in 3). Set STRATA_CLOCK_PIN to an hour (e.g. "9.0") and the clock pins
+## there: civil_now returns it (so return_to_now re-anchors to the pin, not the
+## wall) AND the automatic 1:1 wall advance in _process freezes, so every
+## scene-test run replays the same hour and weather is deterministic. Unset —
+## every shipping run and the soak — none of this fires: GameClock stays the
+## stock 1:1 real-time clock byte-for-byte (the soak fingerprint cannot move).
+var _pin_active := false
+var _pin_hours := 0.0
+
 
 func _ready() -> void:
 	_det_available = Engine.has_method(&"set_deterministic_section")
-	hours = civil_now()  # new world: the valley wakes at your local time
+	_read_clock_pin()    # test-only wall-clock pin (inert unless STRATA_CLOCK_PIN)
+	hours = civil_now()  # new world: the valley wakes at your local time (or the pin)
 	refresh_daylight()   # (Settings loads after us and pokes this again)
 	WorldState.set_value("time.hour", int(solar_hours()))  # B9 mirror, from boot
 	held = bool(WorldState.get_value("time.hold", false))  # the lock survives save/load
 
 
 func _process(_delta: float) -> void:
+	if _pin_active:
+		return  # test pin (STRATA_CLOCK_PIN): freeze the 1:1 wall advance so
+		# weather/tide stay put — explicit advance_hours (tests) still moves it.
 	var now := Time.get_unix_time_from_system()
 	if _last_unix == 0.0:
 		_last_unix = now
@@ -193,10 +209,23 @@ func _advance(dh: float) -> void:
 
 ## The real local civil time as fractional hours.
 func civil_now() -> float:
+	if _pin_active:
+		return _pin_hours  # test pin: a fixed hour, no wall-clock read
 	_clock_read_begin()
 	var t := Time.get_time_dict_from_system()
 	_clock_read_end()
 	return float(t.hour) + float(t.minute) / 60.0 + float(t.second) / 3600.0
+
+
+## Read the test-only wall-clock pin (STRATA_CLOCK_PIN=<hour>). Env-gated so it
+## is inert on every shipping run and in the soak — the fingerprint cannot move.
+func _read_clock_pin() -> void:
+	var raw := OS.get_environment("STRATA_CLOCK_PIN")
+	if raw == "":
+		return
+	_pin_active = true
+	_pin_hours = fposmod(float(raw), 24.0)
+	print("[clock] test pin: hours frozen at %.2f (STRATA_CLOCK_PIN)" % _pin_hours)
 
 
 ## Today's (sunrise, sunset) in civil game-hours, from the real date and

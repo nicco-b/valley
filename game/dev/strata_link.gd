@@ -636,8 +636,10 @@ func _execute(line: String) -> String:
 		"weather":
 			if parts.size() < 2:
 				return "err weather needs a kind"
-			Weather.force_kind(parts[1])
-			return "ok weather %s" % parts[1]
+			# Report the kind actually forced — force_kind normalizes an
+			# unrecognized string (e.g. "clear") to "calm" rather than crash,
+			# so the reply must reflect the resolved state, not the raw arg.
+			return "ok weather %s" % Weather.force_kind(parts[1])
 		"time":
 			if parts.size() < 2:
 				return "err time needs +<h> or <0..24>"

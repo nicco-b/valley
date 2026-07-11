@@ -13,6 +13,7 @@ func _ready() -> void:
 	_test_clock()
 	_test_clock_lock()
 	_test_weather_lock()
+	_test_weather_clear()
 	_test_seasons()
 	_test_climate()
 	_test_climate_v2()
@@ -4388,6 +4389,32 @@ func _test_weather_lock() -> void:
 	_check(StrataLink._execute("weather_lock wobble").begins_with("err weather_lock"),
 		"weather_lock rejects a bad arg")
 	# Leave no trace.
+	Weather.set_hold(was_held)
+
+
+## Fix 4a: "weather clear" (and any unrecognized kind coming over the
+## untrusted link) must NEVER crash force_kind on KINDS[kind].speed — the
+## KINDS table has no "clear" key, so an unguarded force_kind died with
+## "Invalid get index on Nil". force_kind now falls back to "calm" (the same
+## guard load_state() carries), and the "weather" link verb reports the kind
+## actually forced, so the reply stays honest.
+func _test_weather_clear() -> void:
+	var was_held: bool = Weather.held
+	# Over the REAL link verb path (the crash's entry point, strata_link.gd).
+	var reply := StrataLink._execute("weather clear")
+	_check(reply == "ok weather calm",
+		"weather clear normalizes to calm and reports it honestly (got %s)" % reply)
+	_check(Weather.state == "calm", "force_kind('clear') leaves a valid state, no crash")
+	_check(Weather.fronts.size() > 0
+			and String(Weather.fronts[Weather.fronts.size() - 1].kind) == "calm",
+		"force_kind('clear') appended a valid full-cover calm front")
+	# A direct call with a bogus kind also normalizes rather than crash, and
+	# returns the resolved kind.
+	_check(Weather.force_kind("nonsense_kind") == "calm",
+		"force_kind normalizes an unknown kind to calm")
+	# A KNOWN kind is untouched (the guard only catches misses).
+	_check(Weather.force_kind("storm") == "storm",
+		"force_kind passes a known kind through unchanged")
 	Weather.set_hold(was_held)
 
 

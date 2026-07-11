@@ -49,7 +49,15 @@ target_compile_features(contourkernel PRIVATE cxx_std_17)
 # bit-identically on template_debug AND template_release (the Swift math is the
 # same archive; the C++ boundary is contraction-free in either config). -O2
 # matches loomkernel (debugger-friendly backtraces over the marginal -O3 win).
-target_compile_options(contourkernel PRIVATE -O2 -ffp-contract=off)
+target_compile_options(contourkernel PRIVATE -O2 -ffp-contract=off
+	# ENGINE-RESTART (P2): kill cross-image weak-symbol coalescing — same
+	# rationale as loomkernel's native/CMakeLists.txt. Required (not merely
+	# preferred) for contour: its Swift/objc-pinned image can never be
+	# unloaded, so a fresh per-game copy always coexists with a resident one
+	# and would otherwise coalesce onto it. The entry symbol stays exported:
+	# GDE_EXPORT (godot_cpp/core/defs.hpp) is
+	# `__attribute__((visibility("default")))`, overriding this per-symbol.
+	-fvisibility=hidden -fvisibility-inlines-hidden)
 
 # The Swift runtime: absolute /usr/lib/swift/*.dylib (ABI-stable) resolves the
 # archive's autolink -lswift* refs; the rpath is belt-and-braces.

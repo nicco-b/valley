@@ -502,8 +502,13 @@ func _import_hydrology(world_dir: String, out_dir: String, manifest: Dictionary)
 		var nodes: Array = r.get("nodes", [])
 		if nodes.size() < 2:
 			continue
-		# Channel depth/feather from the river's size (the solver emits
-		# width∝√discharge; surface == ground, so the carve makes the bed).
+		# Channel depth/feather from the river's size (width ∝ √discharge). The
+		# nodes are carried through VERBATIM — one water truth: STUDY_WATER_TERRAIN
+		# §4 W2 makes each node's `surface` the honest ε=0 water line (monotone
+		# non-increasing head→mouth), curvature-resampled and Chaikin-smoothed at
+		# the bake, and adds per-node `discharge` + `grade`. The game ribbon reads
+		# that surface straight (W1's carve already seated the bed under it), so
+		# the burial the study photographed is gone with no second river renderer.
 		var mean_w := 0.0
 		for n: Dictionary in nodes:
 			mean_w += float(n["width"])

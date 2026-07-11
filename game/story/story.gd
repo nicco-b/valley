@@ -41,9 +41,21 @@ extends Node
 ## RNG); fills LATCH to journal.<q>.role.<name> (replay-safe, never re-roll);
 ## $role substitutes into condition keys, the seed index, and memoir prose;
 ## and on_fill (§6) gives the hook the last word over the data-ranked pick.
+## Q10 (world flips, §3) adds: the `world` stage effect flips persistent world
+## GROUPS — {"enable": [...], "disable": [...]} sets world.group.<id> in
+## WorldState. Groups are MUTABLE world truth, not latches (a later stage may
+## flip one back — the camp struck, the barrier removed); the value is a plain
+## WorldState key, so it is saved/restored verbatim (zero new save code) and
+## caught up FOR FREE — a flip rides the stage that carries it, and stages
+## re-latch in day order through advance_hours replay, so the final group
+## state is deterministic by construction (the catch-up law). CellRecords
+## consults world.group.<id> when instancing (placement_active); authored-dark
+## placements (`enabled:false`) start a group off until a stage enables it.
+## The world.group.* namespace joins the soak fingerprint (§10/B13) so a
+## playerless year latches groups identically every run.
 ## Deferred to their rungs: dialogue (Q5), scenes assembler (Q6 — stage scene
 ## ids are recorded as requests so the harness can assert them), expire
-## machinery + on_expire (Q8), world flips (Q10).
+## machinery + on_expire (Q8).
 ## `mint` records into an in-memory log (harness-visible) and logs once —
 ## it rides Memory v2's fact channels when S1/B3 lands.
 ##
@@ -507,7 +519,7 @@ func _try_latch_objective(q: Dictionary, prefix: String, stage: Dictionary,
 	return true
 
 
-## The small closed effect set (§3). `world` flips are Q10; `hook` is Q3.
+## The small closed effect set (§3). `world` flips groups (Q10); `hook` is Q3.
 func _run_effect(q: Dictionary, effect: Dictionary) -> void:
 	for kind: String in effect:
 		match kind:
@@ -523,8 +535,23 @@ func _run_effect(q: Dictionary, effect: Dictionary) -> void:
 				seal(effect.latch[0], effect.latch[1])
 			"mint":
 				_mint(q, {}, effect.mint)
+			"world":
+				_flip_groups(effect.world)
 			_:
 				push_error("[story] %s: effect '%s' is not in the closed set" % [q.id, kind])
+
+
+## Q10 world flips (§3): set the persistent group state at world.group.<id>.
+## disable before enable, so a group named in both (an author slip the linter
+## also warns) resolves enabled. The value is a plain WorldState key — saved,
+## restored, and caught up with the stage that carries it; CellRecords reads it
+## through placement_active. Groups are mutable truth, so a later stage flipping
+## a group back is ordinary (never a latch that could un-happen).
+func _flip_groups(flip: Dictionary) -> void:
+	for gid: String in flip.get("disable", []):
+		WorldState.set_value("world.group." + gid, false)
+	for gid: String in flip.get("enable", []):
+		WorldState.set_value("world.group." + gid, true)
 
 
 ## The R2 choice seal: the value AND its flag spelling (conditions gate

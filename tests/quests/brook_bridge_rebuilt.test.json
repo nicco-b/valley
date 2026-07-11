@@ -1,0 +1,52 @@
+{
+	"comment": "World flips (Q10, §3), full arc ending 1 of 2 — the rebuild. Authored-dark: the rebuilt span is placed `enabled:false`, so it is dark (not instanced) until a stage enables it, while the broken span is instanced. The choice to rebuild latches immediately, but the WORK takes three days: the terminal gates on `since` its rebuild-decision, so the flip LANDS DURING advance_hours catch-up (replay_advance runs the span twice and demands the flipped world.group.* replay bit-identically — the flip's catch-up law asserted). When it lands the broken group flips off and the rebuilt group flips on: the far bank the sequel walks through opens. Same record as brook_bridge_left.test.json; the other ending.",
+	"record": {
+		"format": 2,
+		"id": "brook_bridge_test",
+		"title": "The Brook Bridge",
+		"tier": "story",
+		"start_if": { "flag": "test.bridge.start" },
+		"stages": [
+			{ "id": "heard", "start": true,
+				"journal": "Word came that the brook bridge gave way in the night." },
+			{ "id": "decide", "after": ["heard"],
+				"advance_when": { "flag": "player.saw.brook_bridge" },
+				"journal": "I stood at the broken span. The far bank waited across the water." },
+			{ "id": "rebuild", "after": ["decide"],
+				"advance_when": { "flag": "choice.brook_bridge.rebuild" },
+				"journal": "We decided to rebuild. The timber came up from the mill." },
+			{ "id": "rebuilt", "terminal": true, "after": ["rebuild"],
+				"advance_when": { "since": ["journal.brook_bridge_test.rebuild", 3] },
+				"journal": "Three days on, the new bridge held our weight. The far bank opens again.",
+				"effects": [ { "world": {
+					"disable": ["brook_bridge.broken"],
+					"enable":  ["brook_bridge.rebuilt"] } } ],
+				"mint": { "kind": "brook_bridge_rebuilt" } },
+			{ "id": "left", "terminal": true, "after": ["decide"],
+				"advance_when": { "flag": "choice.brook_bridge.leave" },
+				"journal": "We left it broken; the ford will have to do.",
+				"mint": { "kind": "brook_bridge_left" } }
+		]
+	},
+	"script": [
+		{ "set": { "test.bridge.start": true } },
+		{ "expect_reached": "heard" },
+		{ "expect_placement": [ { "group": "brook_bridge.broken" }, true ] },
+		{ "expect_placement": [ { "group": "brook_bridge.rebuilt", "enabled": false }, false ] },
+		{ "set": { "player.saw.brook_bridge": true } },
+		{ "expect_reached": "decide" },
+		{ "set": { "choice.brook_bridge.rebuild": true } },
+		{ "expect_reached": "rebuild" },
+		{ "expect_not_reached": "rebuilt" },
+		{ "expect_placement": [ { "group": "brook_bridge.rebuilt", "enabled": false }, false ] },
+		{ "replay_advance": 96 },
+		{ "expect_reached": "rebuilt" },
+		{ "expect_gap": ["rebuild", "rebuilt", 3] },
+		{ "expect_minted": "brook_bridge_rebuilt" },
+		{ "expect_group": ["brook_bridge.broken", false] },
+		{ "expect_group": ["brook_bridge.rebuilt", true] },
+		{ "expect_placement": [ { "group": "brook_bridge.broken" }, false ] },
+		{ "expect_placement": [ { "group": "brook_bridge.rebuilt", "enabled": false }, true ] },
+		{ "expect_not_reached": "left" }
+	]
+}

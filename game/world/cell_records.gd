@@ -126,6 +126,27 @@ func records(cell: Vector2i) -> Array:
 	return _cells.get(cell, [])
 
 
+## Q10 world flips (DESIGN_QUESTS §3). A placement may carry `group` — a
+## stable name for a set of records a quest stage flips on/off — and
+## `enabled:false` to start authored-dark (a bridge the world rebuilds only
+## in chapter two, CK's enable-parents). The effective group state lives at
+## world.group.<id> in WorldState, set by Story's `world` effect and saved /
+## caught up for free. The streamer/CellRecords consults THIS when instancing:
+## an ungrouped record always instances; a grouped one instances iff its group
+## is enabled — the flipped WorldState value if present, else the record's
+## authored `enabled` default (true unless authored-dark). Pure read, no
+## side effects.
+func group_enabled(gid: String, default_enabled := true) -> bool:
+	return bool(WorldState.get_value("world.group." + gid, default_enabled))
+
+
+func placement_active(rec: Dictionary) -> bool:
+	var gid := String(rec.get("group", ""))
+	if gid == "":
+		return true
+	return group_enabled(gid, bool(rec.get("enabled", true)))
+
+
 ## Every cell that currently holds records — the overrides emitter (P4)
 ## walks the whole Chronicle through this; nobody else should need it.
 func all_cells() -> Array:

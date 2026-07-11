@@ -289,6 +289,17 @@ func _fingerprint(wildlife: Node) -> int:
 	parts.append("story:%d:%d" % [Story.quests.size(), story_keys.size()])
 	for key: String in story_keys:
 		parts.append("%s=%s" % [key, JSON.stringify(WorldState.get_value(key))])
+	# The world.group.* namespace rides the digest whole (DESIGN_QUESTS §3/§10,
+	# B13 squared): world flips are persistent, saved, caught-up world truth, so
+	# a playerless year must latch groups IDENTICALLY every run — flip
+	# determinism asserted for free, forever. This soak flips NOTHING (no story
+	# latches, asserted above), so the section is empty; the header (always
+	# digested) still moves the fingerprint the moment the namespace is wired —
+	# the designed, one-time move Q10 records. A sim-born flip would ride here.
+	var flip_keys := _flip_keys()
+	parts.append("flips:%d" % flip_keys.size())
+	for key: String in flip_keys:
+		parts.append("%s=%s" % [key, JSON.stringify(WorldState.get_value(key))])
 	return hash("|".join(parts.map(func(p: Variant) -> String: return str(p))))
 
 
@@ -297,6 +308,18 @@ func _story_keys() -> Array[String]:
 	var keys: Array[String] = []
 	for key: String in WorldState.snapshot():
 		if key.begins_with("journal.") or key.begins_with("choice."):
+			keys.append(key)
+	keys.sort()
+	return keys
+
+
+## Every persistent world-flip key, sorted (world.group.* — Q10, §3). Set only
+## by a stage's `world` effect, so empty in a playerless soak; fingerprinted so
+## any flip on a sim-born path would latch identically every run.
+func _flip_keys() -> Array[String]:
+	var keys: Array[String] = []
+	for key: String in WorldState.snapshot():
+		if key.begins_with("world.group."):
 			keys.append(key)
 	keys.sort()
 	return keys

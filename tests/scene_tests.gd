@@ -6561,6 +6561,18 @@ func _test_story_dry_spell_real() -> void:
 	_check(Story.cycle_count("dry_spell") == 1, "the errand opens off the real mirror")
 	_check(Story.reached("dry_spell", "open"), "open latched")
 	_check(not Story.reached("dry_spell", "rains"), "rains waits for the weather")
+	# The Story Debugger's live frontier (gap #2b): while open is the frontier
+	# and flora.parched still holds, the journal verb reports the watching
+	# condition as a W row keyed on flora.parched, its LIVE value true, NOT
+	# passing yet — the exact wire the desk renders a value-crossing-threshold
+	# from. (parched is true here, so not_flag flora.parched fails → pass 0.)
+	var watching := StrataLink._execute("journal")
+	_check("W|open|" in watching and "flora.parched" in watching,
+		"journal reports open's watching condition on flora.parched (got %s)"
+			% watching.substr(0, 200))
+	_check("|0|flora.parched|true" in watching,
+		"the frontier watch shows the LIVE value (true) NOT passing yet (got %s)"
+			% watching.substr(0, 240))
 	var prefix: String = Story._latch_prefix(Story.quests["dry_spell"])
 	var latch: Variant = WorldState.get_value(prefix + "open")
 	_check(latch is Dictionary and String((latch as Dictionary).get("prose", ""))
@@ -6593,6 +6605,11 @@ func _test_story_dry_spell_real() -> void:
 	_check("The valley is parched" in page, "entry one reads in the journal")
 	_check("It rained" in page, "entry two reads in the journal")
 	_check("Remembered" in page, "a resolved errand rests under Remembered")
+	# Resolved: the frontier is empty, so the debugger's watch rows are gone —
+	# there is nothing left to wait on (a remembered quest shows history only).
+	var after := StrataLink._execute("journal")
+	_check(not ("W|open|" in after) and not ("W|rains|" in after),
+		"a resolved quest emits NO watching-condition rows (frontier empty)")
 
 
 ## The playtest desk (CREATION_KIT_REVIEW_V2 gap #2): named save-v2 anchors,

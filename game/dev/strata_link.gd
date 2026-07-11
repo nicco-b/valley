@@ -1574,6 +1574,13 @@ func _journal() -> String:
 			for obj: Dictionary in _stage(q, sid).get("objectives", []):
 				if not Story.objective_done(qid, sid, obj.id):
 					rows.append("  ○ %s" % _clean(String(obj.get("text", ""))))
+		# The Story Debugger's live frontier (gap #2): every condition an active
+		# quest is WAITING on, flattened to one row per watched WorldState key —
+		# the key's LIVE value and whether the enclosing condition passes now.
+		# Pure reads (the mirror law): the SAME Conditions.eval/keys_of Story
+		# gates on, so the desk watches a value cross its threshold and the stage
+		# latch in the very next poll. Rows: W|<stage>|<target>|<0/1>|<key>|<value>.
+		rows.append_array(_frontier_watch_rows(q))
 		rows.append("")
 	if not remembered.is_empty():
 		rows.append("~ Remembered")
@@ -1625,6 +1632,85 @@ func _stage(q: Dictionary, stage_id: String) -> Dictionary:
 		if stage.id == stage_id:
 			return stage
 	return {}
+
+
+## The frontier's watching conditions for the Story Debugger (gap #2b): every
+## condition an active quest is WAITING on, flattened to one row per watched
+## WorldState key. A frontier stage waits on two kinds of gate: its own
+## incomplete objectives' `done_if`, and the not-yet-reached child stages'
+## `advance_when`. Each is evaluated through the SAME door Story latches on
+## (Conditions.eval over the $role-substituted condition, the quest's own
+## custom resolver bound) so `pass` is the truth that will fire the latch, and
+## each watched key carries its LIVE WorldState value — a pure READ, the mirror
+## law (conditions read WorldState and nothing else, so the debugger perturbs
+## nothing). Row grammar: W|<stage>|<target>|<0/1 pass>|<key>|<value>; fields
+## are '|'-joined (keys/values are slashed free of '|', and _clean already
+## stripped tabs) so the tab row separator that carries them stays intact.
+func _frontier_watch_rows(q: Dictionary) -> PackedStringArray:
+	var rows := PackedStringArray()
+	var qid: String = q.id
+	var smap := Story._subst_map(q)
+	var resolver := Story._custom_resolver(q)
+	for sid: String in Story.frontier(qid):
+		var stage := _stage(q, sid)
+		# (1) the stage's own incomplete objectives — done_if gates the advance.
+		for obj: Dictionary in stage.get("objectives", []):
+			if Story.objective_done(qid, sid, obj.id):
+				continue
+			_append_watch(rows, sid, "✓ " + String(obj.get("text", obj.id)),
+				obj.get("done_if", {}), smap, resolver)
+		# (2) not-yet-reached child stages with an explicit advance_when — the
+		# next stage the frontier hands off to (a child that advances on the
+		# parent's objectives instead is already covered by (1)).
+		for child: Dictionary in q.stages:
+			if child.id == sid or Story.reached(qid, String(child.id)):
+				continue
+			if not Story._parents(q, child).has(String(sid)):
+				continue
+			if not child.has("advance_when"):
+				continue
+			_append_watch(rows, sid, "→ " + String(child.id),
+				child.advance_when, smap, resolver)
+	return rows
+
+
+## Emit the W rows for one watched condition: its pass state (through the real
+## evaluator) and one row per key it reads (with that key's live value). A
+## condition with no keys (a pure custom/time gate) still emits one row so the
+## desk shows it and its pass state.
+func _append_watch(rows: PackedStringArray, stage: String, target: String,
+		cond: Dictionary, smap: Dictionary, resolver: Callable) -> void:
+	var subst: Dictionary = Story._subst_cond(cond, smap)
+	var pass01 := "1" if Conditions.eval(subst, resolver) else "0"
+	var keys := Conditions.keys_of(subst)
+	if keys.is_empty():
+		rows.append("W|%s|%s|%s||" % [_pipe(stage), _pipe(target), pass01])
+		return
+	for key: String in keys:
+		rows.append("W|%s|%s|%s|%s|%s" % [_pipe(stage), _pipe(target), pass01,
+			_pipe(key), _pipe(_watch_value(WorldState.get_value(key)))])
+
+
+## Stringify a live WorldState value for the debugger. Bools read as the
+## flag words conditions gate on; a journal-latch dict reads as "latched"
+## (its prose lives in the memoir rows, not here); numbers keep three places.
+func _watch_value(v: Variant) -> String:
+	if v == null:
+		return "unset"
+	if v is bool:
+		return "true" if v else "false"
+	if v is float:
+		return "%.3f" % v
+	if v is int:
+		return str(v)
+	if v is Dictionary:
+		return "latched"
+	return str(v)
+
+
+## '|'-free (the W-row field separator) and control-char-free (_clean).
+func _pipe(s: String) -> String:
+	return _clean(s).replace("|", "/")
 
 
 ## Scrub to an absolute game-hour. FORWARD (target ≥ now) simply advances the

@@ -44,6 +44,17 @@ const BREAKER_NEAR := 14.0  # meters of scatter around the last hit
 # a swimmer. One vector for the whole window: approximate, paints true.
 const DRIFT_SWELL := 1.1  # m/s of foam ride at full storm swell
 const DRIFT_MAX := 1.5  # m/s cap on the summed window drift
+# S2 waterfall plunge pools (W3): each fall base churns a foam curd cluster,
+# deposit rate scaled by discharge and drop (STUDY_WATER_TERRAIN §4 W3). Foam
+# only — transient, GPU-only, never fingerprinted (off headless like the
+# breaker band). The bake FOUND the falls (falls.json / river records); we
+# never re-detect. `_falls` is a flat cache rebuilt on water reload.
+const PLUNGE_R_MIN := 2.5  # meters, the smallest plunge-pool churn radius
+const PLUNGE_R_MAX := 11.0  # ...the largest (a trunk-scale cataract)
+const PLUNGE_FOAM := 0.30  # foam per curd at a reference fall (accumulates)
+const PLUNGE_DROP_REF := 12.0  # m — the drop that reads as a "full" fall
+const PLUNGE_DISCH_REF := 400_000.0  # m² — discharge that earns the max curds
+const PLUNGE_CURDS_MAX := 4  # curds a single big fall lands per frame
 
 # ★ Foam decay (PLAN_SUBSTANCES S2): the taste knob — seconds for a
 # deposit to fall to 1/e. ~6s reads as memory without wearing a scum;
@@ -65,6 +76,36 @@ var _stroke := 0  # swim stride parity: the wake alternates sides by count, not 
 var _emit_accum := 0.0
 var _band_seed := Vector2.INF  # last breaker hit — biases the next tries
 var _rng := RandomNumberGenerator.new()
+# S2 plunge pools: [{base: Vector2, radius: float, foam: float, curds: int,
+# jitter: float}] — the bake's fall sites, churn params pre-scaled once.
+var _falls: Array = []
+
+
+## Rebuild the plunge-pool cache from the live river records (the bake's
+## fall sites). Radius grows with the curtain width and drop; curds/frame
+## and per-curd foam grow with discharge and drop — the churn a big cataract
+## throws vs a brook's step. Pure read of Terrain.rivers; no randomness.
+func _refresh_falls() -> void:
+	_falls.clear()
+	for r in Terrain.rivers:
+		for fl in r.get("falls", []) as Array:
+			var drop: float = float(fl.get("drop", 0.0))
+			if drop < 1.0:
+				continue
+			var base: Vector2 = fl.get("base", fl.get("pos", Vector2.ZERO))
+			var width: float = float(fl.get("width", 0.0))
+			var disch: float = float(fl.get("discharge", 0.0))
+			var drop_n := clampf(drop / PLUNGE_DROP_REF, 0.15, 1.5)
+			var disch_n := clampf(disch / PLUNGE_DISCH_REF, 0.0, 1.0)
+			var radius := clampf(maxf(width * 0.5, 2.0) + drop * 0.15,
+				PLUNGE_R_MIN, PLUNGE_R_MAX)
+			_falls.append({
+				"base": base,
+				"radius": radius,
+				"foam": PLUNGE_FOAM * (0.5 + 0.5 * drop_n),
+				"curds": 1 + int(round((PLUNGE_CURDS_MAX - 1) * maxf(disch_n, drop_n * 0.5))),
+				"jitter": radius * 1.3,
+			})
 
 
 func _ready() -> void:
@@ -77,6 +118,12 @@ func _ready() -> void:
 	_rng.randomize()
 	RenderingServer.global_shader_parameter_set("wave_map", _gpu.display_texture)
 	RenderingServer.global_shader_parameter_set("wave_size", WaveGpu.REGION)
+	# S2 plunge pools: cache the bake's fall sites (never re-detect) and
+	# refresh whenever the water layer re-reads (reload_world / import) or a
+	# river is penned. Only paid when the GPU field is live — off headless.
+	Terrain.water_reloaded.connect(_refresh_falls)
+	Terrain.river_added.connect(func(_r): _refresh_falls())
+	_refresh_falls.call_deferred()
 
 
 func _exit_tree() -> void:
@@ -248,6 +295,28 @@ func _process(delta: float) -> void:
 			_band_seed = q
 			deposit_foam(q, BREAKER_RADIUS,
 				BREAKER_FOAM * (0.6 + 0.4 * _rng.randf()))
+
+	# S2 plunge pools (W3): each fall base within the window churns. The bake
+	# gave us the sites and their scale; we scatter a few curds per frame at
+	# each, and the field's decay + drift do the rest — the curtain's foot
+	# stays white without a single per-water-column solve. Off headless (this
+	# whole _process never runs there), so the soak fingerprint never sees it.
+	if not _falls.is_empty():
+		var half_win := WaveGpu.REGION * 0.5
+		for fl in _falls:
+			if _foam_count >= WaveGpu.FOAM_OPS:
+				break
+			var base: Vector2 = fl.base
+			if absf(base.x - _anchor.x) > half_win or absf(base.y - _anchor.y) > half_win:
+				continue
+			var jitter: float = fl.jitter
+			var radius: float = fl.radius
+			var foam: float = fl.foam
+			for c in int(fl.curds):
+				if _foam_count >= WaveGpu.FOAM_OPS:
+					break
+				var j := Vector2(_rng.randf() - 0.5, _rng.randf() - 0.5) * jitter
+				deposit_foam(base + j, radius, foam * (0.6 + 0.4 * _rng.randf()))
 
 	# The window's one current: swell travel (shoreward wherever it can
 	# break — the lee gate killed the rest) + the river/field current at

@@ -39,6 +39,7 @@
 			"game/world/scatter_bake.gd",
 			"game/world/far_terrain.gd",
 			"game/world/nav.gd",
+			"game/shaders/gouache.gdshaderinc",
 			"game/shaders/terrain.gdshader",
 			"native/bin/loomkernel.gdext",
 			"native/bin/libloomkernel.macos.dylib",

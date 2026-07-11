@@ -427,9 +427,12 @@ func reseat_after_bless() -> bool:
 	player.velocity = Vector3.ZERO
 	# Force-stream the landing cell so real collision stands under the walker
 	# the instant the hand drops (the same synchronous focus _spawn_fresh uses).
+	# Center the force on the WALKER's spawn, not the streaming focus: the hand
+	# is still up here, so _update_cells' own focus is the Toolkit camera (the
+	# old, pre-bless pose) — streaming there leaves the spawn cell unbuilt.
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:
-		streamer._update_cells(true)
+		streamer.force_focus_stream(player.global_position)
 	# Frame the builder camera over the spawn. In fly it lands now (the fresh
 	# --toolkit boot / already-flying case); in orbit the per-frame _orbit.apply
 	# would clobber it, so defer to the next orbit→fly flip (view fly) instead.
@@ -1987,6 +1990,18 @@ func _exit() -> void:
 			else Terrain.height(_cam.global_position.x, _cam.global_position.z)
 	player.global_position = Vector3(_cam.global_position.x, gy + 1.5, _cam.global_position.z)
 	player.velocity = Vector3.ZERO
+	# Stand REAL collision under the walker before physics resumes. The
+	# streaming focus follows the Toolkit camera while the hand is up, so the
+	# walker's landing cell (the fly camera's XZ) may still be an in-flight
+	# async terrain build — resuming physics over it drops the walker through
+	# the not-yet-built ground into the sea (the bless-reseat sink, 2026-07-11).
+	# Force-stream the landing point synchronously (Toolkit.active is already
+	# false above, so the streamer now focuses the re-seated player). A no-op
+	# when the cell is already built (the common ⌘T-over-your-own-ground case).
+	if not Interiors.inside:
+		var streamer := get_tree().get_first_node_in_group("world_streamer")
+		if streamer:
+			streamer.force_focus_stream(player.global_position)
 	player.set_physics_process(true)
 	player.set_process_unhandled_input(true)
 	(player.get_node("CameraRig/SpringArm3D/Camera3D") as Camera3D).current = true

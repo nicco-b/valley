@@ -286,6 +286,25 @@ static func region_river_step(storage: float, area: float, rain: float,
 	return snappedf(storage, 0.01)
 
 
+## One WATERSHED (sim-tier) river's next reservoir storage, m³ — the SIBLING of
+## region_river_step for the home-grid rivers (docs/PORT_LEDGER.md Wave D3). Same
+## linear reservoir (RIVER_K recession, snappedf 0.01) but a DIFFERENT inflow
+## grouping: the sim tier folds meltwater into the runoff term and adds a
+## catchment-flat spring — area*(rain*runoff+melt)+spring — where the region tier
+## is area*rain*runoff+baseflow. Float add is not associative, so the two
+## groupings differ bit-for-bit; each tier keeps its OWN certified leaf (NOT a
+## reuse of region_river_step). The pure per-basin leaf of the sim-tier balance,
+## extracted so the Contour §6 port (game/world/hydrology.ct) and this twin share
+## ONE body, Plumb-certified bit-identical. `area`/`rain`/`melt`/`spring` are the
+## host-sampled per-river environment — pure over its args.
+static func sim_river_step(storage: float, area: float, rain: float,
+		runoff: float, melt: float, spring: float) -> float:
+	storage += area * (rain * runoff + melt) + spring
+	var q := storage * RIVER_K
+	storage -= q
+	return snappedf(storage, 0.01)
+
+
 # Flow reference for a region river: its own baseflow, weighted so the
 # idle norm lands on the tier's design line (~0.35).
 func _region_qref(r: Dictionary) -> float:
@@ -306,6 +325,24 @@ func flow_norm(river_id: String) -> float:
 ## Plumb-certified bit-identical. Reads only its two args — pure.
 static func flow_norm_of(q: float, qref: float) -> float:
 	return q / (q + qref)
+
+
+## One lake's next level offset, m — the level-integration RULE (docs/
+## PORT_LEDGER.md Wave D3). Inflow (river discharges + own catchment runoff +
+## direct rain, all summed by the caller) raises the level; evaporation (warmer
+## water loses more) and a level-driven outflow/seepage above the deep rail lower
+## it; the result is clamped to the lake's deep/brim rails and snapped. Extracted
+## so the Contour §6 port (game/world/hydrology.ct) and this twin share ONE body,
+## Plumb-certified bit-identical. The CROSS-BASIN outlet coupling (this lake's
+## outflow feeding a DOWNSTREAM river's storage — a different basin) stays
+## orchestrated host-side, recomputing the same level-driven outflow from the
+## pre-tick level; this leaf is the pure per-lake integration over its four args.
+static func lake_step(level: float, inflow: float, lake_area: float,
+		lake_t: float) -> float:
+	var evap := EVAP_M_PER_DEG * maxf(lake_t, 0.0)
+	var outflow := LAKE_OUT_K * maxf(level - LAKE_LEVEL_MIN, 0.0)
+	level += inflow / lake_area - evap - outflow
+	return snappedf(clampf(level, LAKE_LEVEL_MIN, LAKE_LEVEL_MAX), 0.001)
 
 
 ## A basin's world-panel label: its id, with the gazetteer's name beside it
@@ -346,16 +383,15 @@ func _hourly(_h: int) -> void:
 	_last_snow = Climate.snow
 	var t := Climate.temperature(center.x, center.y)
 
-	# Rivers: catchment runoff + springs in, reservoir recession out.
+	# Rivers: catchment runoff + springs in, reservoir recession out. The
+	# per-basin recession is the sim_river_step leaf (Wave D3) — the sim tier's
+	# own inflow grouping, area*(rain*runoff+melt)+spring, distinct from the
+	# region tier's. The spatial rain/catchment sampling stays host-side.
 	for r in Terrain.sim_rivers():
 		var id: String = r.id
 		var area: float = catchment_area.get(id, 0.0)
 		var spring := SPRING_M3H * lerpf(0.3, 1.3, Climate.wetness)
-		var storage: float = river_storage[id]
-		storage += area * (rain * runoff + melt_m) + spring
-		var q := storage * RIVER_K
-		storage -= q
-		river_storage[id] = snappedf(storage, 0.01)
+		river_storage[id] = sim_river_step(river_storage[id], area, rain, runoff, melt_m, spring)
 		Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
 				RIVER_LEVEL_MAX, flow_norm(id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
 		WorldState.set_value("water.%s.storage" % id, river_storage[id])
@@ -388,16 +424,17 @@ func _hourly(_h: int) -> void:
 		inflow += catchment_area.get(id, 0.0) * (lake_rain * runoff + melt_m)
 		inflow += lake_area * lake_rain  # rain falls on the water too
 		var level: float = region_lake_level[id] if is_region else lake_level[id]
-		var evap := EVAP_M_PER_DEG * maxf(lake_t, 0.0)
+		# The CROSS-BASIN outlet coupling stays host-side (Wave D3): the outflow
+		# goes where the record says — into a DOWNSTREAM river's storage (a
+		# different basin, chained water bodies), or "aquifer", the ground, until
+		# the underworld exists to receive it. Recompute the same level-driven
+		# outflow the lake_step leaf uses (from the pre-tick level) to feed the
+		# outlet, then let the leaf integrate this lake's own level.
 		var outflow := LAKE_OUT_K * maxf(level - LAKE_LEVEL_MIN, 0.0)
-		# The outflow goes where the record says: into a downstream
-		# river's storage (chained water bodies), or "aquifer" — the
-		# ground, until the underworld exists to receive it.
 		var outlet: String = w.get("outlet", "aquifer")
 		if river_storage.has(outlet):
 			river_storage[outlet] = float(river_storage[outlet]) + outflow * lake_area
-		level += inflow / lake_area - evap - outflow
-		level = snappedf(clampf(level, LAKE_LEVEL_MIN, LAKE_LEVEL_MAX), 0.001)
+		level = lake_step(level, inflow, lake_area, lake_t)
 		if is_region:
 			region_lake_level[id] = level
 		else:

@@ -70,6 +70,16 @@ const _CONTOUR_MODULE := "res://game/sim/agent_sim.ct"
 static var _contour_mode := 0
 static var _contour_bridge: ContourBridge = null
 static var _contour_calls := 0  # advance()s answered by Contour (engaged-path probe)
+## The substrate Rung 2 DARK sub-flag: STRATA_CONTOUR_HELD=1 (requires
+## STRATA_CONTOUR=1) routes the same AgentMind system through the PERSISTENT HELD
+## WORLD (bridge.tick_held) — created once, ticked in place, only the write-diff
+## crossing back — instead of the whole-world copy path (tick_seeded). The full
+## mind record is re-injected every tick (as tick_seeded seeds it), so every mind
+## sharing the ONE held world overwrites it in place and the WorldState effect is
+## byte-identical to the copy path. Default OFF; CLASS-STATIC like the counter, so
+## the soak proves the in-place path ran across the whole herd.
+static var _contour_held := false
+static var _contour_held_ticks := 0
 
 
 func setup(agent_id: String, agent_home: Vector2, acts: Array,
@@ -138,15 +148,21 @@ static func _contour_resolve() -> void:
 		return
 	_contour_bridge = bridge
 	_contour_mode = 2
+	# The Rung 2 DARK sub-flag: only meaningful once the bridge is live. Off by
+	# default; on, every mind's advance() routes through the persistent held world.
+	_contour_held = OS.get_environment("STRATA_CONTOUR_HELD") == "1"
 
 
 ## Routing introspection for the soak (proves the herd's minds ran through
-## Contour, not a silent fallback): the resolved mode, whether it engaged, and the
-## class-wide advance() tick count. Static — the counter is shared by every mind.
+## Contour, not a silent fallback): the resolved mode, whether it engaged, the
+## class-wide advance() tick count, and — for the substrate Rung 2 sub-flag —
+## whether the held path ran and how often (held_ticks climbs only when
+## STRATA_CONTOUR_HELD=1 routed the in-place tick). Static — shared by every mind.
 static func contour_status() -> Dictionary:
 	if _contour_mode == 0:
 		_contour_resolve()
-	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls,
+		"held": _contour_held, "held_ticks": _contour_held_ticks}
 
 
 ## The flag-ON tick: hand this mind's whole record + live environment to the
@@ -188,7 +204,20 @@ func _advance_contour(bridge: ContourBridge, dt_hours: float) -> bool:
 		"agent.rng": int(stream.state),
 	}
 	_contour_calls += 1
-	if not bridge.tick_seeded(inputs, dt_hours):
+	# STRATA_CONTOUR_HELD=1: the PERSISTENT HELD WORLD path (substrate Rung 2) —
+	# the ONE held world (shared across every mind) is created once and ticked IN
+	# PLACE, only the write-diff crossing back. Each tick re-injects this mind's
+	# whole record, so the held world is fully overwritten per mind and the
+	# WorldState effect is byte-identical to tick_seeded (the copy path stays the
+	# oracle); its own class-wide counter proves the in-place path ran.
+	var applied: bool
+	if _contour_held:
+		applied = bridge.tick_held(inputs, dt_hours)
+		if applied:
+			_contour_held_ticks += 1
+	else:
+		applied = bridge.tick_seeded(inputs, dt_hours)
+	if not applied:
 		push_error("[agent_sim] STRATA_CONTOUR=1 but the AgentMind system tick was refused"
 			+ " — refusing to silently run the GDScript twin")
 		return false

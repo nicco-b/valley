@@ -229,13 +229,18 @@ func tick_seeded(inputs: Dictionary, dt: float) -> bool:
 ## gets back ONLY the WRITE-DIFF (the keys whose value moved) — O(writes) across
 ## the boundary, where tick_seeded re-marshals the whole world (O(world size)).
 ##
-## The APPLY is identical to tick_seeded's: declared writes only, plus the reserved
-## clock + each timed continuation, back into WorldState. Because the full declared
-## set is re-injected each tick, the held path's WorldState effects are
-## BYTE-IDENTICAL to tick_seeded's — the copy path stays the bit-parity oracle, and
-## the six-run soak (2×off / 2×STRATA_CONTOUR / 2×+STRATA_CONTOUR_HELD) shares one
-## fingerprint. The held world persisting across ticks + the diff-return ABI are
-## the mechanism under test; the injected reconcile keeps it provably equal.
+## The APPLY reconstructs tick_seeded's whole-world write-back from the diff: a
+## declared write in the diff MOVED (apply the new value), one absent did NOT move
+## (apply the pre-tick INJECTED value), plus the reserved clock + each timed
+## continuation the same way. Because the full declared set is re-injected each
+## tick AND the full declared-write set is applied each tick, the held path's
+## WorldState effects are BYTE-IDENTICAL to tick_seeded's — even when ONE bridge
+## multiplexes MANY entities through the held world (agent_sim's herd), where the
+## between-tick WorldState holds another entity's value and a diff-ONLY apply would
+## read back stale. The copy path stays the bit-parity oracle, and the six-run soak
+## (2×off / 2×STRATA_CONTOUR / 2×+STRATA_CONTOUR_HELD) shares one fingerprint. The
+## held world persisting across ticks + the diff-return ABI are the mechanism under
+## test; the injected reconcile keeps it provably equal.
 ##
 ## Same DECLARED-ACCESS-ONLY discipline as tick_seeded: every `inputs` key MUST be
 ## a declared read (refused LOUDLY otherwise). Returns true when a tick applied.
@@ -279,17 +284,34 @@ func tick_held(inputs: Dictionary, dt: float) -> bool:
 	var diff: Dictionary = _vm.world_tick(inject, dt)
 	if diff.is_empty():
 		return false   # the VM refused (a fault surfaced through push_error)
-	# APPLY the declared writes back — writes-only, never a blind overwrite —
-	# plus the reserved clock + continuations (identical to tick_seeded).
+	# APPLY the declared writes back — writes-only, never a blind overwrite — plus
+	# the reserved clock + continuations. We apply the FULL declared-write set, not
+	# just the diff: a write present in the diff MOVED this tick (apply the new
+	# value); one ABSENT from the diff did NOT move (apply the pre-tick INJECTED
+	# value). This mirrors tick_seeded EXACTLY — the copy path returns the whole
+	# world and applies every declared write each tick, so an unchanged write still
+	# overwrites WorldState with the value THIS tick injected. It matters when ONE
+	# bridge multiplexes MANY entities through the held world (agent_sim's herd of
+	# minds): WorldState between ticks holds the PREVIOUS mind's value, so a
+	# diff-only apply would leave an unchanged write reading back stale. For a
+	# singleton system (flora/weather/…) WorldState already holds its own prior
+	# value, so the injected fallback is a same-value write — bit-identical, the
+	# reason the copy path stays the parity oracle.
 	for w in _writes:
 		if diff.has(w):
 			_ws.set_value(w, diff[w])
+		elif inject.has(w):
+			_ws.set_value(w, inject[w])
 	if diff.has(CLOCK_ELAPSED):
 		_ws.set_value(CLOCK_ELAPSED, diff[CLOCK_ELAPSED])
+	elif inject.has(CLOCK_ELAPSED):
+		_ws.set_value(CLOCK_ELAPSED, inject[CLOCK_ELAPSED])
 	for name in _timed:
 		var ck := String(name) + CONTINUATION_SUFFIX
 		if diff.has(ck):
 			_ws.set_value(ck, diff[ck])
+		elif inject.has(ck):
+			_ws.set_value(ck, inject[ck])
 	return true
 
 

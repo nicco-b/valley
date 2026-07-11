@@ -110,3 +110,48 @@ func systems() -> Array:
 	if _kernel == null:
 		return []
 	return _kernel.contour_systems()
+
+
+## --- the PERSISTENT HELD WORLD (substrate ladder Rung 2) ---------------------
+## The held-world surface over the same compiled module: the VM keeps the world
+## across ticks and world_tick crosses only the write-diff (O(writes)), where
+## tick() re-marshals the whole world every call (O(world size)). One held world
+## per host (the one-handle rule). See docs/SUBSTRATE.md §2 Rung 2.
+
+## Create the held world, seeding it ONCE with `seed` (a dotted resource -> value
+## Dictionary — seed every declared read the host will inject each tick). Returns
+## true on success. COLD path — once at engage / on a save restore.
+func world_create(seed: Dictionary) -> bool:
+	if _kernel == null:
+		return false
+	return _kernel.contour_world_create(seed)
+
+
+## True once a held world is live (created and not destroyed).
+func world_ready() -> bool:
+	return _kernel != null and _kernel.contour_world_ready()
+
+
+## Advance the held world ONE clock step of `dt` seconds IN PLACE, first injecting
+## `reads` (the declared reads the host computed fresh this tick; an empty
+## Dictionary means no injection). Returns the WRITE-DIFF Dictionary — only the
+## keys whose value moved (declared writes + reserved time.*/<System>.__time) —
+## or an EMPTY Dictionary on error. HOT path — the sim-tick surface, held mode.
+func world_tick(reads: Dictionary, dt: float) -> Dictionary:
+	if _kernel == null:
+		return {}
+	return _kernel.contour_world_tick(reads, dt)
+
+
+## The full held world (save/reconcile + the parity oracle). Empty Dictionary
+## when no held world is live.
+func world_snapshot() -> Dictionary:
+	if _kernel == null:
+		return {}
+	return _kernel.contour_world_snapshot()
+
+
+## Release the held world (a no-op if none live). The compiled module is untouched.
+func world_destroy() -> void:
+	if _kernel != null:
+		_kernel.contour_world_destroy()

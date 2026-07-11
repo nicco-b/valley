@@ -57,8 +57,14 @@ func _ready() -> void:
 	# engaged run whose Contour ease diverged one ULP would have moved it.
 	if FloraLife.has_method("contour_status"):
 		var cs: Dictionary = FloraLife.contour_status()
-		print("SOAK CONTOUR mode=%d engaged=%s flora_ticks=%d"
-			% [int(cs.get("mode", 0)), str(cs.get("engaged", false)), int(cs.get("calls", 0))])
+		# held/held_ticks (substrate Rung 2): held_ticks climbs only when
+		# STRATA_CONTOUR_HELD=1 routed the persistent-world in-place tick — the
+		# distinct engagement counter the six-run soak matrix demands (proving the
+		# held path ran, not a silent copy-path fallback). flora_ticks (calls) is
+		# >0 on BOTH flag-ON variants; held_ticks separates the +HELD runs.
+		print("SOAK CONTOUR mode=%d engaged=%s flora_ticks=%d held=%s held_ticks=%d"
+			% [int(cs.get("mode", 0)), str(cs.get("engaged", false)), int(cs.get("calls", 0)),
+			str(cs.get("held", false)), int(cs.get("held_ticks", 0))])
 	# Weather's front chain (Mission C2a) — same engaged-path proof: mode=2 +
 	# weather_ticks climbing means the fingerprinted Weather.state/wind_dir this
 	# run were the Contour §6 system's, not a silent GDScript fallback.

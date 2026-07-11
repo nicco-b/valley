@@ -212,6 +212,9 @@ static void free_result_buf(LatValue &v) {
 }
 
 ContourKernel::~ContourKernel() {
+	// Destroy the held world BEFORE the module (the world handle retains the
+	// module, but destroy in dependency order by convention).
+	if (world) { lattice_world_destroy(world); world = nullptr; }
 	if (handle) { lattice_module_destroy(handle); handle = nullptr; }
 }
 
@@ -264,6 +267,47 @@ Array ContourKernel::contour_systems() {
 	Variant result = lat_to_variant(out);
 	free_result_buf(out);
 	return (result.get_type() == Variant::ARRAY) ? (Array)result : Array();
+}
+
+// --- the PERSISTENT HELD WORLD (substrate ladder Rung 2) --------------------
+
+bool ContourKernel::contour_world_create(const Dictionary &seed) {
+	if (!handle) return false;
+	if (world) { lattice_world_destroy(world); world = nullptr; }
+	std::vector<uint8_t> store;
+	cc_encode(store, Variant(seed));   // caller-owned; need only outlive the call
+	char err[1024] = {0};
+	world = lattice_world_create(handle, store.data(), (int64_t)store.size(), err, sizeof(err));
+	if (!world) { UtilityFunctions::push_error("contour_world_create: ", String(err)); return false; }
+	return true;
+}
+
+void ContourKernel::contour_world_destroy() {
+	if (world) { lattice_world_destroy(world); world = nullptr; }
+}
+
+Dictionary ContourKernel::contour_world_tick(const Dictionary &reads, double dt) {
+	if (!world) return Dictionary();
+	std::vector<uint8_t> store;
+	cc_encode(store, Variant(reads));   // the partial declared-reads dict to inject
+	LatValue out{};
+	char err[1024] = {0};
+	int rc = lattice_world_tick(world, store.data(), (int64_t)store.size(), dt, &out, err, sizeof(err));
+	if (rc != 0) { UtilityFunctions::push_error("contour_world_tick: ", String(err)); return Dictionary(); }
+	Variant result = lat_to_variant(out);
+	free_result_buf(out);   // Lattice-owned result buffer (the write-diff)
+	return (result.get_type() == Variant::DICTIONARY) ? (Dictionary)result : Dictionary();
+}
+
+Dictionary ContourKernel::contour_world_snapshot() {
+	if (!world) return Dictionary();
+	LatValue out{};
+	char err[1024] = {0};
+	int rc = lattice_world_snapshot(world, &out, err, sizeof(err));
+	if (rc != 0) { UtilityFunctions::push_error("contour_world_snapshot: ", String(err)); return Dictionary(); }
+	Variant result = lat_to_variant(out);
+	free_result_buf(out);
+	return (result.get_type() == Variant::DICTIONARY) ? (Dictionary)result : Dictionary();
 }
 
 Dictionary ContourKernel::bench(const String &fn, const Array &args, int64_t iters) {
@@ -332,6 +376,11 @@ void ContourKernel::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("contour_call", "fn", "args"), &ContourKernel::contour_call);
 	ClassDB::bind_method(D_METHOD("contour_tick", "world", "dt"), &ContourKernel::contour_tick);
 	ClassDB::bind_method(D_METHOD("contour_systems"), &ContourKernel::contour_systems);
+	ClassDB::bind_method(D_METHOD("contour_world_create", "seed"), &ContourKernel::contour_world_create);
+	ClassDB::bind_method(D_METHOD("contour_world_ready"), &ContourKernel::contour_world_ready);
+	ClassDB::bind_method(D_METHOD("contour_world_destroy"), &ContourKernel::contour_world_destroy);
+	ClassDB::bind_method(D_METHOD("contour_world_tick", "reads", "dt"), &ContourKernel::contour_world_tick);
+	ClassDB::bind_method(D_METHOD("contour_world_snapshot"), &ContourKernel::contour_world_snapshot);
 	ClassDB::bind_method(D_METHOD("bench", "fn", "args", "iters"), &ContourKernel::bench);
 	ClassDB::bind_method(D_METHOD("bench_marshal", "fn", "args", "iters"), &ContourKernel::bench_marshal);
 }

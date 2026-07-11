@@ -220,6 +220,79 @@ func tick_seeded(inputs: Dictionary, dt: float) -> bool:
 	return true
 
 
+## tick_seeded(), but through the PERSISTENT HELD WORLD (substrate ladder Rung 2,
+## docs/SUBSTRATE.md §2). The held world is created ONCE (Contour.world_create,
+## seeded from the declared reads/writes/clock/continuations pulled from
+## WorldState) and thereafter ticked IN PLACE: each tick injects the SAME declared
+## resources tick_seeded seeds (reads + own writes + the transient `inputs` overlay
+## + the resumed clock/continuations), advances the held world one `dt` step, and
+## gets back ONLY the WRITE-DIFF (the keys whose value moved) — O(writes) across
+## the boundary, where tick_seeded re-marshals the whole world (O(world size)).
+##
+## The APPLY is identical to tick_seeded's: declared writes only, plus the reserved
+## clock + each timed continuation, back into WorldState. Because the full declared
+## set is re-injected each tick, the held path's WorldState effects are
+## BYTE-IDENTICAL to tick_seeded's — the copy path stays the bit-parity oracle, and
+## the six-run soak (2×off / 2×STRATA_CONTOUR / 2×+STRATA_CONTOUR_HELD) shares one
+## fingerprint. The held world persisting across ticks + the diff-return ABI are
+## the mechanism under test; the injected reconcile keeps it provably equal.
+##
+## Same DECLARED-ACCESS-ONLY discipline as tick_seeded: every `inputs` key MUST be
+## a declared read (refused LOUDLY otherwise). Returns true when a tick applied.
+func tick_held(inputs: Dictionary, dt: float) -> bool:
+	if not is_ready():
+		return false
+	for k in inputs:
+		if not (String(k) in _reads):
+			push_error("contour_bridge: tick_held input '%s' is not a declared read %s"
+				% [String(k), str(_reads)])
+			return false
+	# Build the inject payload — exactly tick_seeded's seed set: declared reads +
+	# declared writes (own persistent state) from WorldState, the resumed clock +
+	# timed continuations, then the transient `inputs` overlay (wins for this tick).
+	var inject := {}
+	for r in _reads:
+		var rv: Variant = _ws.get_value(r)
+		if rv != null:
+			inject[r] = rv
+	for w in _writes:
+		var wv: Variant = _ws.get_value(w)
+		if wv != null:
+			inject[w] = wv
+	var elapsed: Variant = _ws.get_value(CLOCK_ELAPSED)
+	if elapsed != null:
+		inject[CLOCK_ELAPSED] = elapsed
+	for name in _timed:
+		var ck := String(name) + CONTINUATION_SUFFIX
+		var cont: Variant = _ws.get_value(ck)
+		if cont != null:
+			inject[ck] = cont
+	for k in inputs:
+		inject[k] = inputs[k]
+	# Create the held world ONCE (first tick), seeded with this same set so every
+	# injected key is present from the start (a pure in-place update thereafter).
+	if not _vm.world_ready():
+		if not _vm.world_create(inject):
+			push_error("contour_bridge: world_create refused (held mode)")
+			return false
+	# Advance the held world IN PLACE; get back ONLY the write-diff.
+	var diff: Dictionary = _vm.world_tick(inject, dt)
+	if diff.is_empty():
+		return false   # the VM refused (a fault surfaced through push_error)
+	# APPLY the declared writes back — writes-only, never a blind overwrite —
+	# plus the reserved clock + continuations (identical to tick_seeded).
+	for w in _writes:
+		if diff.has(w):
+			_ws.set_value(w, diff[w])
+	if diff.has(CLOCK_ELAPSED):
+		_ws.set_value(CLOCK_ELAPSED, diff[CLOCK_ELAPSED])
+	for name in _timed:
+		var ck := String(name) + CONTINUATION_SUFFIX
+		if diff.has(ck):
+			_ws.set_value(ck, diff[ck])
+	return true
+
+
 ## Index the compiled manifest into the seed set (_reads), the apply allow-list
 ## (_writes), and the timed-system names (_timed). Refuses LOUDLY (a diagnostic)
 ## if a system declares a reserved write (time.*/*.__time) — that would corrupt

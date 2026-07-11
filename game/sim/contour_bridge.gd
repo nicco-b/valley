@@ -39,18 +39,90 @@ const CLOCK_ELAPSED := "time.elapsed"
 const CLOCK_DT := "time.dt"
 const CONTINUATION_SUFFIX := ".__time"
 
+## The HELD-WORLD injection mode (substrate ladder Rung 2 → TRUE Rung 2, F2 —
+## docs/SUBSTRATE.md §1/§2). Set EXPLICITLY per system (set_held_mode), NEVER
+## inferred — the two modes differ ONLY on the held path (tick_held); tick() /
+## tick_seeded (the copy oracle) are mode-agnostic.
+##
+##   HELD_MODE_MULTIPLEXED (default) — one held world drives MANY entities
+##     (agent_sim's herd): between ticks the held world holds ANOTHER entity's
+##     state, so every tick RE-INJECTS the full declared set (reads + own writes +
+##     clock + continuations) and APPLIES the full declared-write set (the diff,
+##     or the injected value for a write that did not move). This is E1d's held
+##     routing — the always-correct floor, byte-identical to tick_seeded.
+##
+##   HELD_MODE_SINGLETON — one held world IS the sim-tier truth for ONE system's
+##     own state (weather / climate / hydrology / sand / flora). Its persistent
+##     declared WRITES live in the held world across ticks, so they are NOT
+##     re-injected: each tick injects ONLY the declared reads the held world does
+##     not own (external environment written elsewhere + the transient `inputs`
+##     overlay) plus the reserved clock / continuations, and APPLIES only the
+##     write-diff. The pure-persistent-write re-injection E1d paid on the INPUT
+##     side is retired — O(reads-not-held) in, O(writes-moved) out. It is
+##     bit-identical to the copy oracle because a diff-only apply keeps WorldState
+##     synced to the held world every tick (WS[write] == held[write] by
+##     induction from the create seed), so the copy path re-seeds the same value.
+##     UNSAFE for a multiplexed world (a between-tick sibling value would read
+##     back stale) — hence the mode is explicit, never inferred.
+const HELD_MODE_MULTIPLEXED := 0
+const HELD_MODE_SINGLETON := 1
+
 var _vm: Contour = null
 var _ws: Object = null                 # the WorldState store (get_value/set_value)
 var _reads: PackedStringArray = []      # union of declared reads (the seed set)
 var _writes: PackedStringArray = []     # union of declared writes (the apply allow-list)
 var _timed: PackedStringArray = []      # names of timed systems (continuation keys)
 var _ready := false
+var _held_mode := HELD_MODE_MULTIPLEXED  # the held-path injection mode (explicit per system)
+# Input-side measurement (the F2 rung's payoff, docs/SUBSTRATE.md §1): the count
+# of declared keys the LAST held tick injected, and the cumulative total. A
+# SINGLETON tick omits the pure-persistent-write keys a MULTIPLEXED tick re-sends.
+# `_held_measure` (env STRATA_CONTOUR_MEASURE=1) additionally records the injected
+# BYTES and the MULTIPLEXED counterfactual, so a probe can size the saving; it is
+# OFF in production (var_to_bytes per tick is a measurement-only cost).
+static var _held_measure := OS.get_environment("STRATA_CONTOUR_MEASURE") == "1"
+var _held_last_inject_keys := 0
+var _held_inject_keys_total := 0
+var _held_last_inject_bytes := 0
+var _held_last_full_keys := 0    # counterfactual: keys a MULTIPLEXED tick would inject
+var _held_last_full_bytes := 0   # counterfactual bytes (measure mode only)
 
 
 ## Construct over a WorldState-shaped store (anything with get_value(key,default)
 ## and set_value(key,value) — the autoload in-game, a stub in a unit test).
 func _init(world_state: Object) -> void:
 	_ws = world_state
+
+
+## Declare the held-world injection mode EXPLICITLY (substrate Rung 2, F2). A
+## SINGLETON system (its held world holds its OWN state alone — weather/climate/
+## hydrology/sand/flora) drops the pure-persistent-write re-injection; a
+## MULTIPLEXED module (agent_sim's herd, one held world for many minds) keeps the
+## full-set injection. Never inferred — a system opts in by NAME. Call once,
+## before the first tick_held (a mid-stream change would re-mode the live held
+## world). The mode is inert for tick()/tick_seeded (the copy oracle).
+func set_held_mode(mode: int) -> void:
+	assert(mode == HELD_MODE_MULTIPLEXED or mode == HELD_MODE_SINGLETON,
+		"contour_bridge: unknown held mode %d" % mode)
+	_held_mode = mode
+
+
+## The declared held-injection mode (introspection).
+func held_mode() -> int:
+	return _held_mode
+
+
+## Input-side measurement (docs/SUBSTRATE.md §1): the declared payload the LAST
+## held tick injected vs the MULTIPLEXED counterfactual E1d would have re-sent.
+## `full_*` and `*_bytes` are populated only under STRATA_CONTOUR_MEASURE=1. The
+## saving a SINGLETON earns is exactly the pure-persistent-write keys/bytes it
+## stops re-sending each tick (full minus last).
+func held_inject_stats() -> Dictionary:
+	return {
+		"last": _held_last_inject_keys, "total": _held_inject_keys_total,
+		"last_bytes": _held_last_inject_bytes,
+		"full_keys": _held_last_full_keys, "full_bytes": _held_last_full_bytes,
+		"mode": _held_mode}
 
 
 ## Is the native Contour VM loadable at all (macOS + dylib present)? Consumers
@@ -222,25 +294,32 @@ func tick_seeded(inputs: Dictionary, dt: float) -> bool:
 
 ## tick_seeded(), but through the PERSISTENT HELD WORLD (substrate ladder Rung 2,
 ## docs/SUBSTRATE.md §2). The held world is created ONCE (Contour.world_create,
-## seeded from the declared reads/writes/clock/continuations pulled from
-## WorldState) and thereafter ticked IN PLACE: each tick injects the SAME declared
-## resources tick_seeded seeds (reads + own writes + the transient `inputs` overlay
-## + the resumed clock/continuations), advances the held world one `dt` step, and
-## gets back ONLY the WRITE-DIFF (the keys whose value moved) — O(writes) across
-## the boundary, where tick_seeded re-marshals the whole world (O(world size)).
+## seeded from the full declared reads/writes/clock/continuations pulled from
+## WorldState) and thereafter ticked IN PLACE: advances one `dt` step and gets
+## back ONLY the WRITE-DIFF (the keys whose value moved) — O(writes) OUT, where
+## tick_seeded re-marshals the whole world (O(world size)).
 ##
-## The APPLY reconstructs tick_seeded's whole-world write-back from the diff: a
-## declared write in the diff MOVED (apply the new value), one absent did NOT move
-## (apply the pre-tick INJECTED value), plus the reserved clock + each timed
-## continuation the same way. Because the full declared set is re-injected each
-## tick AND the full declared-write set is applied each tick, the held path's
-## WorldState effects are BYTE-IDENTICAL to tick_seeded's — even when ONE bridge
-## multiplexes MANY entities through the held world (agent_sim's herd), where the
-## between-tick WorldState holds another entity's value and a diff-ONLY apply would
-## read back stale. The copy path stays the bit-parity oracle, and the six-run soak
-## (2×off / 2×STRATA_CONTOUR / 2×+STRATA_CONTOUR_HELD) shares one fingerprint. The
-## held world persisting across ticks + the diff-return ABI are the mechanism under
-## test; the injected reconcile keeps it provably equal.
+## The per-tick injection + apply depend on the EXPLICIT held mode (set_held_mode):
+##
+##   MULTIPLEXED (default, E1d) — re-inject the FULL declared set (reads + own
+##     writes + clock + continuations + the `inputs` overlay), and apply the full
+##     declared-write set (the diff, or the injected value for a write that did
+##     not move). REQUIRED when ONE bridge multiplexes MANY entities (agent_sim's
+##     herd): the between-tick held world holds a sibling's state, so both the
+##     input re-inject and the diff-or-inject apply are load-bearing.
+##
+##   SINGLETON (F2, TRUE Rung 2) — the held world IS this system's sole state, so
+##     its pure persistent WRITES are NOT re-injected (held-world truth); each
+##     tick injects only the reads it does not own + reserved clock/continuations
+##     + `inputs` overlay, and applies DIFF-ONLY. WorldState stays synced to the
+##     held world (WS[write] == held[write] by induction from the create seed), so
+##     it is BYTE-IDENTICAL to tick_seeded while retiring the input-side
+##     round-trip of state the store already owns (docs/SUBSTRATE.md §1).
+##
+## Either way the copy path (tick_seeded) stays the bit-parity ORACLE, and the
+## six-run soak (2×off / 2×STRATA_CONTOUR / 2×+STRATA_CONTOUR_HELD) shares one
+## fingerprint. The held world persisting across ticks + the diff-return ABI are
+## the mechanism under test; the mode-correct reconcile keeps it provably equal.
 ##
 ## Same DECLARED-ACCESS-ONLY discipline as tick_seeded: every `inputs` key MUST be
 ## a declared read (refused LOUDLY otherwise). Returns true when a tick applied.
@@ -252,18 +331,103 @@ func tick_held(inputs: Dictionary, dt: float) -> bool:
 			push_error("contour_bridge: tick_held input '%s' is not a declared read %s"
 				% [String(k), str(_reads)])
 			return false
-	# Build the inject payload — exactly tick_seeded's seed set: declared reads +
-	# declared writes (own persistent state) from WorldState, the resumed clock +
-	# timed continuations, then the transient `inputs` overlay (wins for this tick).
+	var singleton := _held_mode == HELD_MODE_SINGLETON
+	# The CREATE seed is ALWAYS the full declared set (both modes) so the held
+	# world starts equal to WorldState — its held writes/clock/continuations are
+	# correct from tick 1, and every later injection is a pure in-place update.
+	if not _vm.world_ready():
+		if not _vm.world_create(_build_inject(inputs, true)):
+			push_error("contour_bridge: world_create refused (held mode)")
+			return false
+	# The per-tick INJECT:
+	#   MULTIPLEXED re-injects the full declared set (the held world may hold a
+	#     sibling entity's state between ticks — it must be re-established).
+	#   SINGLETON injects only the reads the held world does NOT own — reads that
+	#     are not the system's own writes, the reserved clock/continuations, and
+	#     the transient `inputs` overlay. The system's pure persistent WRITES are
+	#     held-world truth and are NOT re-sent (the F2 rung's input-side payoff).
+	var inject := _build_inject(inputs, not singleton)
+	_held_last_inject_keys = inject.size()
+	_held_inject_keys_total += inject.size()
+	if _held_measure:
+		_held_last_inject_bytes = var_to_bytes(inject).size()
+		# The MULTIPLEXED counterfactual — what E1d re-injects every tick — so the
+		# probe can size exactly the pure-persistent-write payload this rung retires.
+		var full := inject if not singleton else _build_inject(inputs, true)
+		_held_last_full_keys = full.size()
+		_held_last_full_bytes = var_to_bytes(full).size()
+	# Advance the held world IN PLACE; get back ONLY the write-diff.
+	var diff: Dictionary = _vm.world_tick(inject, dt)
+	if diff.is_empty():
+		return false   # the VM refused (a fault surfaced through push_error)
+	# APPLY the writes back — writes-only, never a blind overwrite.
+	if singleton:
+		# DIFF-ONLY: the held world is the sim-tier truth for its own writes /
+		# clock / continuations, and WorldState stays synced to it (WS[write] ==
+		# held[write] by induction from the create seed — a moved write rides the
+		# diff, an unmoved one is unchanged in both). No inject fallback: a write
+		# absent from the diff did not move, and WorldState already holds it. This
+		# is bit-identical to tick_seeded for a SINGLETON world and is the whole
+		# point of the rung — the store no longer round-trips state it already owns.
+		for w in _writes:
+			if diff.has(w):
+				_ws.set_value(w, diff[w])
+		if diff.has(CLOCK_ELAPSED):
+			_ws.set_value(CLOCK_ELAPSED, diff[CLOCK_ELAPSED])
+		for name in _timed:
+			var ck := String(name) + CONTINUATION_SUFFIX
+			if diff.has(ck):
+				_ws.set_value(ck, diff[ck])
+	else:
+		# FULL declared-write set, diff-or-inject fallback: a write present in the
+		# diff MOVED (apply the new value); one ABSENT did NOT move (apply the
+		# pre-tick INJECTED value). This mirrors tick_seeded EXACTLY, and it is
+		# REQUIRED when ONE bridge multiplexes MANY entities (agent_sim's herd):
+		# WorldState between ticks holds the PREVIOUS mind's value, so an unchanged
+		# write must still overwrite it with THIS mind's injected value.
+		for w in _writes:
+			if diff.has(w):
+				_ws.set_value(w, diff[w])
+			elif inject.has(w):
+				_ws.set_value(w, inject[w])
+		if diff.has(CLOCK_ELAPSED):
+			_ws.set_value(CLOCK_ELAPSED, diff[CLOCK_ELAPSED])
+		elif inject.has(CLOCK_ELAPSED):
+			_ws.set_value(CLOCK_ELAPSED, inject[CLOCK_ELAPSED])
+		for name in _timed:
+			var ck := String(name) + CONTINUATION_SUFFIX
+			if diff.has(ck):
+				_ws.set_value(ck, diff[ck])
+			elif inject.has(ck):
+				_ws.set_value(ck, inject[ck])
+	return true
+
+
+## Build the held-world injection dict. `include_writes` seeds the system's OWN
+## persistent declared writes from WorldState (the MULTIPLEXED / world_create
+## path); a SINGLETON per-tick inject sets it FALSE, so a read that is ALSO a
+## write is skipped from the WorldState pull (held-world truth — re-supplied by
+## the `inputs` overlay only when the host explicitly owns it). The reserved
+## clock + timed continuations ride BOTH modes (shared/reserved bookkeeping, not
+## "persistent writes" — the F2 rung retires only the pure-write re-injection).
+## The transient `inputs` overlay always wins (the host's fresh declared reads).
+func _build_inject(inputs: Dictionary, include_writes: bool) -> Dictionary:
 	var inject := {}
+	var writeset := {}
+	if not include_writes:
+		for w in _writes:
+			writeset[w] = true
 	for r in _reads:
+		if writeset.has(r):
+			continue   # a read that is ALSO a write — held-world truth this tick
 		var rv: Variant = _ws.get_value(r)
 		if rv != null:
 			inject[r] = rv
-	for w in _writes:
-		var wv: Variant = _ws.get_value(w)
-		if wv != null:
-			inject[w] = wv
+	if include_writes:
+		for w in _writes:
+			var wv: Variant = _ws.get_value(w)
+			if wv != null:
+				inject[w] = wv
 	var elapsed: Variant = _ws.get_value(CLOCK_ELAPSED)
 	if elapsed != null:
 		inject[CLOCK_ELAPSED] = elapsed
@@ -274,45 +438,7 @@ func tick_held(inputs: Dictionary, dt: float) -> bool:
 			inject[ck] = cont
 	for k in inputs:
 		inject[k] = inputs[k]
-	# Create the held world ONCE (first tick), seeded with this same set so every
-	# injected key is present from the start (a pure in-place update thereafter).
-	if not _vm.world_ready():
-		if not _vm.world_create(inject):
-			push_error("contour_bridge: world_create refused (held mode)")
-			return false
-	# Advance the held world IN PLACE; get back ONLY the write-diff.
-	var diff: Dictionary = _vm.world_tick(inject, dt)
-	if diff.is_empty():
-		return false   # the VM refused (a fault surfaced through push_error)
-	# APPLY the declared writes back — writes-only, never a blind overwrite — plus
-	# the reserved clock + continuations. We apply the FULL declared-write set, not
-	# just the diff: a write present in the diff MOVED this tick (apply the new
-	# value); one ABSENT from the diff did NOT move (apply the pre-tick INJECTED
-	# value). This mirrors tick_seeded EXACTLY — the copy path returns the whole
-	# world and applies every declared write each tick, so an unchanged write still
-	# overwrites WorldState with the value THIS tick injected. It matters when ONE
-	# bridge multiplexes MANY entities through the held world (agent_sim's herd of
-	# minds): WorldState between ticks holds the PREVIOUS mind's value, so a
-	# diff-only apply would leave an unchanged write reading back stale. For a
-	# singleton system (flora/weather/…) WorldState already holds its own prior
-	# value, so the injected fallback is a same-value write — bit-identical, the
-	# reason the copy path stays the parity oracle.
-	for w in _writes:
-		if diff.has(w):
-			_ws.set_value(w, diff[w])
-		elif inject.has(w):
-			_ws.set_value(w, inject[w])
-	if diff.has(CLOCK_ELAPSED):
-		_ws.set_value(CLOCK_ELAPSED, diff[CLOCK_ELAPSED])
-	elif inject.has(CLOCK_ELAPSED):
-		_ws.set_value(CLOCK_ELAPSED, inject[CLOCK_ELAPSED])
-	for name in _timed:
-		var ck := String(name) + CONTINUATION_SUFFIX
-		if diff.has(ck):
-			_ws.set_value(ck, diff[ck])
-		elif inject.has(ck):
-			_ws.set_value(ck, inject[ck])
-	return true
+	return inject
 
 
 ## Index the compiled manifest into the seed set (_reads), the apply allow-list

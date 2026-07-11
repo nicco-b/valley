@@ -605,6 +605,12 @@ func _contour_resolve() -> void:
 			% err + "refusing, no silent GDScript fallback")
 		_contour_mode = -1
 		return
+	# Sand is a SINGLETON held-world system whose declared writes (sand.repose /
+	# sand.decay) are PURE persistent writes — not among its reads, not handed in
+	# as inputs. The held path stops re-injecting them (held-world truth) and
+	# reconciles WorldState diff-only (TRUE Rung 2, docs/SUBSTRATE.md §1) — the
+	# concrete input-side saving this rung earns.
+	bridge.set_held_mode(ContourBridge.HELD_MODE_SINGLETON)
 	_contour_bridge = bridge
 	_contour_mode = 2
 	# The Rung 2 DARK sub-flag: only meaningful once the bridge is live. Off by

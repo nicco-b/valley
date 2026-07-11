@@ -239,6 +239,10 @@ func _contour_resolve() -> void:
 			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
 		_contour_mode = -1
 		return
+	# Flora is a SINGLETON held-world system (its held world holds flora.vitality
+	# alone), so the held path drops the pure-persistent-write re-injection and
+	# reconciles WorldState diff-only (substrate TRUE Rung 2, docs/SUBSTRATE.md §1).
+	bridge.set_held_mode(ContourBridge.HELD_MODE_SINGLETON)
 	_contour_bridge = bridge
 	_contour_mode = 2
 	# The Rung 2 DARK sub-flag: only meaningful once the bridge is live. Off by

@@ -26,13 +26,15 @@ echo "== save-load gate (the load-time covenant the soak can't see) =="
 # SaveMigration runs at LOAD (save_manager.load_into_world / restore_anchor),
 # never on the sim tick — so the soak's fingerprint is structurally blind to it.
 # This dedicated gate loads every real fixture through the real save path and
-# proves flag-OFF (_migrate_gd) == flag-ON (the native Contour VM) byte-for-byte
-# on the result dict, with the refusal sentences verbatim. Run BOTH ways: flag
-# OFF must PASS on the GDScript twin; STRATA_CONTOUR=1 must PASS *and* route the
-# VM (mode 2, no silent fallback) wherever the native kernel is live — the gate
-# fails LOUDLY itself if the flag is set with a live kernel but does not engage.
+# proves the hatch (_migrate_gd) == flag-ON (the native Contour VM) byte-for-byte
+# on the result dict, with the refusal sentences verbatim. Run BOTH ways: POST-
+# FLIP the escape hatch STRATA_CONTOUR=0 must PASS on the GDScript twin;
+# STRATA_CONTOUR=1 must PASS *and* route the VM (mode 2, no silent fallback)
+# wherever the native kernel is live — the gate fails LOUDLY itself if the flag is
+# set with a live kernel but does not engage. (Unset would now ENGAGE by default;
+# we drive =0 here so the twin half is exercised explicitly, mirroring the flip.)
 # Same PASS-line backstop as the scene tests (quit-after exits 0 regardless).
-GATE_OFF=$(godot --headless --quit-after 2000 res://tests/save_load_gate.tscn 2>&1)
+GATE_OFF=$(STRATA_CONTOUR=0 godot --headless --quit-after 2000 res://tests/save_load_gate.tscn 2>&1)
 echo "$GATE_OFF" | grep -E "SAVE-LOAD-GATE|  FAIL:"
 echo "$GATE_OFF" | grep -q "SCRIPT ERROR" && exit 1
 echo "$GATE_OFF" | grep -q "SAVE-LOAD-GATE PASS" || exit 1

@@ -89,8 +89,9 @@ after the day officially closed.
 - **Housekeeping:** `~/code/valley-p2` is REMOVED — the parked P2
   eye-check fixture is obsolete now that the water is live in games
   (mygame's water tour, in ONE_APP's queue, absorbs those checks).
-  The spawn-on-land test wart below is still open
-  (`agent/spawn-on-land`, unmerged). This roof supersedes the
+  The spawn-on-land test wart below is CLOSED — the fix landed on
+  main in `ca0c35a` (the map-orbit wave); the `agent/spawn-on-land`
+  branch this roof once pointed at never existed. This roof supersedes the
   2026-07-08 roof's "in flight: substances" and valley-p2 lines.
 
 ## ⭐ Session handoff (2026-07-08, end of day): THE GAME GREW A STORY LAYER, INTERIORS, AND FABRIC
@@ -164,11 +165,12 @@ P2 water checks — the parked `~/code/valley-p2` worktree holds the P2
 fixture state, remove it after) lives in ONE_APP's next steps, with
 the open-★ table calls beside it.
 
-Known wart for fresh checkouts: the spawn-on-land unit test only
-SKIPS when a live tile is cached — a fresh worktree has no tile, so
-`test.sh` fails one test ("spawn is on land") against the committed
-procedural world. Pre-existing, documented in the map handoff below;
-the fix is in flight on `agent/spawn-on-land`.
+Historical wart (now fixed): the spawn-on-land unit test used to only
+SKIP when a live tile was cached — a fresh worktree had no tile, so
+`test.sh` failed one test ("spawn is on land") against the committed
+procedural world. The fix landed on main in `ca0c35a` (the map-orbit
+wave); there was never an `agent/spawn-on-land` branch. Kept here for
+the map handoff below, which still references the old behavior.
 
 ## ⭐ Session handoff (2026-07-08, worktree agent): THE TELLER'S FIRST LATCH (Q1+Q2)
 

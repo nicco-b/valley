@@ -56,6 +56,64 @@ need, where, when preferred); behavior emerges — watch it with the
 inspector. **WorldState** remembers everything (flags/counters; the whole
 store saves). **HUD** shows all text. **Items** live in WorldState.
 
+## WorldState & the substrate — the mirror retirement (engine tail)
+
+`WorldState` (`game/state/world_state.gd`) is the dotted-key store AND, under
+`STRATA_CONTOUR_HELD=1`, a MIRROR of the held world the 7 Contour SINGLETON
+systems (weather, climate, flora, hydrology, sand, story, AgentMind) advance in
+place: `ContourBridge.tick_held` keeps `WS[owned] == held[owned]` every tick by a
+diff-only `set_value` (F2). The last substrate rung retires that second copy for
+SINGLETON domains — the held world becomes the single sim truth, `changed` is
+re-provided as a post-tick diff, and `get_value` reads a held-owned key THROUGH to
+the held world.
+
+**The canonical design + the full consumer map live in datum
+`docs/SUBSTRATE.md §2a`** — every writer/reader/`changed`-subscriber classified,
+the per-SINGLETON design, and the shim that stays. Read it before touching this.
+Load-bearing valley facts:
+
+- **`WorldState` is NOT deleted** — it stays the store for every key no Contour
+  system owns (`journal.*`, `player.inventory`, `skill.*`, NPC opinions, flags),
+  the save serializer, and the presentation-`changed` bus.
+- **Per-SINGLETON only.** agent_sim's MULTIPLEXED herd keeps the mirror (F2 law) —
+  a between-tick sibling reads back stale from a multiplexed held world.
+- **`changed` presentation readers are disjoint from the retired set:** HUD
+  (`player.inventory`) and skills (`skill.*`) watch non-held keys, so the post-tick
+  diff never perturbs them. **Story `_on_changed`** is the one subscriber that can
+  watch a held-owned key (a quest gating on `weather.state`) — it is re-provided
+  the moved write from the bridge's post-commit diff.
+- **The B12 forcing door** (`strata_link.gd:_state_set`, `state set <key> <value>`)
+  must write THROUGH to the held world for a held-owned key post-retirement, else
+  the forced value is clobbered next tick.
+
+**Gating remainder (why the flip is NOT landed here):**
+
+1. **Read-through kernel binding.** Datum landed the O(1) primitive
+   `lattice_world_read` (proven bit-identical to snapshot-index — SUBSTRATE.md
+   §2a). The valley `Contour` GDExtension (`native/contour/contour_kernel.cpp`)
+   still needs a `world_read(key)` method wrapping it — an engine kernel rebuild.
+   Until then `WorldState` cannot read through and the SINGLETON copy cannot be
+   removed.
+2. **Forcing-door write-through** needs the matching `world_write` kernel binding.
+3. **Sequencing law (planner):** the retirement lands only AFTER restore-into-held
+   (Rung 3's other half) is matrix-proven — the mirror is that rung's parity ORACLE
+   and must survive until then. The `agent/g1-restore-held` lane owns restore +
+   save_migration + the `.ct` canonical-form move; do not touch save/load here.
+
+**Deferred gate protocol (ALL mandatory before the flip merges):**
+
+1. `./test.sh` green **twice** (parse + behavior + the held-snapshot gate).
+2. The **six-run soak matrix** bit-stable: `2×off / 2×STRATA_CONTOUR /
+   2×+STRATA_CONTOUR_HELD` share ONE fingerprint, `held_ticks` earned — AND the
+   new mirror-retire flag run must join it bit-identical (identity is the law; a
+   moved fingerprint means the post-tick-diff or read-through changed truth — a red
+   flag to redesign, not to re-pin).
+3. **Plumb re-certification** of every affected leaf (the 7 SINGLETON `.ct`s) vs the
+   tree, bit-identical.
+4. A **save/load covenant pass**: a save written pre-flip loads post-flip and back,
+   byte-for-byte (the save format is a substrate invariant), and a windowed load
+   over a real multi-day world settles quests identically.
+
 ## Recipes
 
 **Add a flora painting** — export transparent PNG into `assets/paintings/`,

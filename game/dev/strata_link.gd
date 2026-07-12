@@ -382,6 +382,16 @@ const PROTOCOL := 1
 ## connect at _ready without a reference to a drape that may not exist yet.
 signal preview_sea(active: bool, sea_level: float)
 
+## W4 (STUDY_WATER_TERRAIN §W4, "one river renderer for both faces"): fired by
+## PreviewTerrain whenever the near/far hydrology posture changes — active=true
+## with a payload {dir, height_fn, world_size} below the M6a distance gate (the
+## drape's real water_bodies ribbons/lakes should hold, mirroring the sea's
+## M6c posture above), active=false above the gate or on leave (the T1 chart
+## takes the far face back). water_bodies is the one listener — it builds/frees
+## a SEPARATE set of preview meshes; the live game's Terrain.rivers/water_bodies
+## records are never touched.
+signal preview_hydrology(active: bool, payload: Dictionary)
+
 ## Every verb _execute answers — the `verbs` discovery reply (audit QW7).
 ## The scene tests assert this list matches the dispatcher's match arms
 ## exactly, both ways: add a verb there and it MUST land here too.
@@ -1776,6 +1786,24 @@ func _preview_world(dir: String) -> String:
 		"height_min": 0.0, "height_max": 1.0}
 	if not Terrain.preview_tile(rec, float(world.get("sea_level_m", Terrain.sea_level))):
 		return "err could not load %s" % rec["heightmap"]
+	# W4 — ONE RIVER RENDERER (STUDY_WATER_TERRAIN §4): the resolve imports the
+	# export's hydrology.json into the LIVE water stack, in memory, pre-bless —
+	# the water half of the re-tile above. The sea already held this posture
+	# (preview_sea, M6c); rivers/lakes now arrive the same way, so when the M6a
+	# gate lifts the drape below resolve_max_dist the revealed world carries the
+	# SAME water_bodies ribbons/lakes a blessed world would — one builder, two
+	# distances, zero duplicated water renderers. An export without
+	# hydrology.json (thin drag bake, plain viewer) changes nothing — today's
+	# behavior, exactly.
+	var water_tail := ""
+	var hydro_path := dir.path_join("hydrology.json")
+	if FileAccess.file_exists(hydro_path):
+		var hydro: Variant = JSON.parse_string(FileAccess.get_file_as_string(hydro_path))
+		if hydro is Dictionary and (hydro as Dictionary).has("rivers"):
+			var counts: Vector3i = Terrain.preview_water(hydro)
+			water_tail = " water=%dr/%dl" % [counts.x, counts.y]
+		else:
+			print("[link] preview_world: unreadable hydrology.json — water unchanged")
 	# M6a — the RESOLVE (PLAN_LIVING_PREVIEW §3): when a drape is currently
 	# worn (the living preview's sub-0.4s drag proxy), preview_world PROMOTES
 	# it to the real world UNDERNEATH — the kernel now carries the shape (Walk
@@ -1792,8 +1820,8 @@ func _preview_world(dir: String) -> String:
 		_near_ring_confirmed = false
 		_living_gate = true
 		_arm_drape_crossfade()
-	return "ok preview %.0fm sea=%.1fm (in memory — Send persists)" % [
-		size, Terrain.sea_level]
+	return "ok preview %.0fm sea=%.1fm (in memory — Send persists)%s" % [
+		size, Terrain.sea_level, water_tail]
 
 
 ## M6a — the living-preview CROSSFADE arm (§3): after a resolve re-tiles the

@@ -128,6 +128,26 @@ var _water_on := true
 const WATER_RIVER := Color(0.13, 0.42, 0.72, 0.92)
 const WATER_LAKE := Color(0.09, 0.30, 0.60, 0.92)
 const WATER_FALL := Color(0.86, 0.95, 1.0, 0.92)
+# W4 — the HONEST chart (STUDY_WATER_TERRAIN §4 W4 + ★6). The old overlay was
+# a road map: every ribbon 3× wide (clamped 8..40m) floating a flat 2m over
+# the relief. Now each ribbon vertex drapes to the export's own height field
+# (+ this z-guard epsilon — a lift you can't see, not a float you can), and
+# the vertex positions carry TRUE 1× width. The survey exaggeration survives
+# as a SHADER term: NORMAL.xz stores each vertex's extra offset out to the
+# legible survey width, and `survey_fade` (0..1, driven per frame from camera
+# height over the relief) lerps between honest-close and legible-far — the ★6
+# ruling: keep the cartographic lie at 16km, fade it out as the camera drops
+# toward the M6a gate where the REAL water_bodies ribbons take over.
+const CHART_LIFT := 0.3
+const RIVER_CHART_SHADER := "
+shader_type spatial;
+render_mode unshaded, cull_disabled;
+uniform vec4 tint : source_color = vec4(0.13, 0.42, 0.72, 0.92);
+uniform float survey_fade : hint_range(0.0, 1.0) = 1.0;
+void vertex() { VERTEX.xz += NORMAL.xz * survey_fade; }
+void fragment() { ALBEDO = tint.rgb; ALPHA = tint.a; }
+"
+var _water_river_mat: ShaderMaterial = null  # the ★6 fade's per-frame target
 
 # The chart air (data layers only — see _apply_chart_air).
 var _chart_env: Environment = null
@@ -470,6 +490,9 @@ func leave() -> void:
 func _process(_delta: float) -> void:
 	if worn and _layer != "shaded":
 		_apply_chart_air()
+	# ★6 — the chart's width exaggeration follows the camera every frame.
+	if worn:
+		_update_survey_fade()
 
 
 # Enter preview: record + hide the streamed world's dress. New cells and
@@ -811,14 +834,16 @@ func _wear_water(dir: String) -> String:
 		return ""
 
 	# Display tuning in world meters (mirrors WaterOverlay.Style): the solver's
-	# channel widths are a pixel on a 16 km chart, so scale + clamp for legibility.
+	# channel widths are a pixel on a 16 km chart, so the SURVEY face scales +
+	# clamps for legibility — but only as the shader's fade-in term (★6). The
+	# geometry itself is honest: 1× width, draped to the export height field.
 	var s := maxf(_world_size, 1.0)
 	var min_w := maxf(s * 0.0018, 8.0)
 	var max_w := maxf(s * 0.010, 40.0)
-	var y_lift := maxf(s * 0.0008, 2.0)
 	var fall_half := maxf(s * 0.004, 20.0)
 
 	var river_tris := PackedVector3Array()
+	var river_norms := PackedVector3Array()
 	for r: Variant in rivers:
 		if not (r is Dictionary):
 			continue
@@ -836,22 +861,35 @@ func _wear_water(dir: String) -> String:
 				continue  # coincident nodes: no ribbon (no NaN normal)
 			dx /= seg_len; dz /= seg_len
 			var px := -dz; var pz := dx  # XZ-plane perpendicular
-			var ha := clampf(float(a.get("width", 1.0)) * 3.0, min_w, max_w) * 0.5
-			var hb := clampf(float(b.get("width", 1.0)) * 3.0, min_w, max_w) * 0.5
-			var ay := float(a.get("surface", 0.0)) + y_lift
-			var by := float(b.get("surface", 0.0)) + y_lift
-			var a0 := Vector3(ax + px * ha, ay, az + pz * ha)
-			var a1 := Vector3(ax - px * ha, ay, az - pz * ha)
-			var b0 := Vector3(bx + px * hb, by, bz + pz * hb)
-			var b1 := Vector3(bx - px * hb, by, bz - pz * hb)
+			# TRUE half-widths in the vertex positions (the honest close face);
+			# the extra reach out to the survey width rides NORMAL.xz and only
+			# arrives scaled by the shader's survey_fade (★6).
+			var ha := maxf(float(a.get("width", 1.0)), 0.0) * 0.5
+			var hb := maxf(float(b.get("width", 1.0)), 0.0) * 0.5
+			var ea := clampf(float(a.get("width", 1.0)) * 3.0, min_w, max_w) * 0.5 - ha
+			var eb := clampf(float(b.get("width", 1.0)) * 3.0, min_w, max_w) * 0.5 - hb
+			# Drape each vertex to the export's own relief (no 2m float).
+			var a0 := Vector3(ax + px * ha, 0.0, az + pz * ha)
+			var a1 := Vector3(ax - px * ha, 0.0, az - pz * ha)
+			var b0 := Vector3(bx + px * hb, 0.0, bz + pz * hb)
+			var b1 := Vector3(bx - px * hb, 0.0, bz - pz * hb)
+			a0.y = _chart_ground(a0.x, a0.z)
+			a1.y = _chart_ground(a1.x, a1.z)
+			b0.y = _chart_ground(b0.x, b0.z)
+			b1.y = _chart_ground(b1.x, b1.z)
+			var na0 := Vector3(px * ea, 0.0, pz * ea)
+			var na1 := -na0
+			var nb0 := Vector3(px * eb, 0.0, pz * eb)
+			var nb1 := -nb0
 			river_tris.append_array([a0, b0, a1, a1, b0, b1])
+			river_norms.append_array([na0, nb0, na1, na1, nb0, nb1])
 
 	var lake_lines := PackedVector3Array()
 	var fall_lines := PackedVector3Array()
 	for lake: Variant in lakes:
 		if not (lake is Dictionary):
 			continue
-		var ly := float(lake.get("surface", 0.0)) + y_lift
+		var ly := float(lake.get("surface", 0.0)) + CHART_LIFT
 		var outline: Array = lake.get("outline", [])
 		if outline.size() >= 3:
 			for i in outline.size():
@@ -883,7 +921,7 @@ func _wear_water(dir: String) -> String:
 			if not (wf is Dictionary):
 				continue
 			var fx := float(wf.get("x", 0.0)); var fz := float(wf.get("z", 0.0))
-			var fy := _nearest_surface(fx, fz, nodes) + y_lift
+			var fy := _nearest_surface(fx, fz, nodes) + CHART_LIFT
 			fall_lines.append(Vector3(fx - fall_half, fy, fz))
 			fall_lines.append(Vector3(fx + fall_half, fy, fz))
 			fall_lines.append(Vector3(fx, fy, fz - fall_half))
@@ -893,8 +931,9 @@ func _wear_water(dir: String) -> String:
 		return ""
 
 	var mesh := ArrayMesh.new()
+	_water_river_mat = null
 	if not river_tris.is_empty():
-		_add_surface(mesh, Mesh.PRIMITIVE_TRIANGLES, river_tris, WATER_RIVER)
+		_add_river_surface(mesh, river_tris, river_norms)
 	if not lake_lines.is_empty():
 		_add_surface(mesh, Mesh.PRIMITIVE_LINES, lake_lines, WATER_LAKE)
 	if not fall_lines.is_empty():
@@ -909,6 +948,52 @@ func _wear_water(dir: String) -> String:
 	_water_mi.visible = _water_on
 	add_child(_water_mi)
 	return " water=%dr/%dl" % [rivers.size(), lakes.size()]
+
+
+## The export relief under a chart vertex (+ the z-guard lift) — the honest
+## drape (W4). The CPU height mirror always exists on the file path (the only
+## path that carries hydrology.json; the shared path clears the overlay).
+func _chart_ground(x: float, z: float) -> float:
+	if _height_img == null:
+		return CHART_LIFT
+	return _sample(_height_img, x, z) + CHART_LIFT
+
+
+## The river ribbons' surface: honest 1× geometry + the survey width in
+## NORMAL.xz, expanded by the ★6 fade shader (built inline — the overlay is
+## dev dressing, not a manifest-listed shader of the shipping look).
+func _add_river_surface(mesh: ArrayMesh, verts: PackedVector3Array,
+		norms: PackedVector3Array) -> void:
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = norms
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var sh := Shader.new()
+	sh.code = RIVER_CHART_SHADER
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("tint", WATER_RIVER)
+	mat.set_shader_parameter("survey_fade", 1.0)  # survey until a camera says otherwise
+	mesh.surface_set_material(mesh.get_surface_count() - 1, mat)
+	_water_river_mat = mat
+
+
+## ★6 — drive the chart's width exaggeration from camera height over the
+## relief, per frame: 0 (true width) at/below the M6a gate distance where the
+## resolve's REAL ribbons take over, easing to 1 (the legible survey chart) by
+## 3× the gate. One image sample + one uniform — chart-priced.
+func _update_survey_fade() -> void:
+	if _water_river_mat == null:
+		return
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if cam == null:
+		return  # headless / no view: stay the survey chart (the safe face)
+	var p := cam.global_position
+	var over := maxf(p.y - (_chart_ground(p.x, p.z) - CHART_LIFT), 0.0)
+	var gate: float = maxf(StrataLink._resolve_max_dist, 1.0)
+	var fade := smoothstep(gate, gate * 3.0, over)
+	_water_river_mat.set_shader_parameter("survey_fade", fade)
 
 
 ## Add one flat-colour surface (unshaded, alpha-blended, both faces) to `mesh`.
@@ -948,6 +1033,7 @@ func _clear_water() -> void:
 		if is_instance_valid(_water_mi):
 			_water_mi.queue_free()
 		_water_mi = null
+	_water_river_mat = null
 
 
 ## Strata's "Hydrology: live ⏸" toggle (link verb preview_water on|off): show or

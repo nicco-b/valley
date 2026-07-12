@@ -137,6 +137,31 @@ func _ready() -> void:
 		print("SOAK CONTOUR-SAND mode=%d engaged=%s sand_ticks=%d held=%s held_ticks=%d"
 			% [int(sd.get("mode", 0)), str(sd.get("engaged", false)), int(sd.get("calls", 0)),
 			str(sd.get("held", false)), int(sd.get("held_ticks", 0))])
+	# THE PER-KEY MIRROR FLIP proof (docs/SUBSTRATE.md §2a) — earned, not vacuous.
+	# Under STRATA_CONTOUR_MIRROR=0 the store keeps NO copy of an eligible held-owned
+	# key; get_value routes through the held world. sand.repose is NEVER set_value'd
+	# by any twin (only read back), so under the flip it lives ONLY in the held world
+	# — a finite read-through value PROVES the flip served it (a silent fallback would
+	# read _state's absent key as null). `providers>0` proves the SINGLETON bridges
+	# registered; `leaked=0` proves the _state copy was actually retired, not shadowed.
+	# The fingerprint identity above is the deciding proof — sand.repose feeds the
+	# sand digest, so a broken read-through moves the fingerprint. Inert off the flip.
+	if OS.get_environment("STRATA_CONTOUR_MIRROR") == "0" \
+			and WorldState.has_method("mirror_flipped"):
+		var armed: bool = WorldState.mirror_flipped()
+		var providers: int = WorldState.read_through_count()
+		var leaked: int = WorldState.mirror_copies_of_eligible()
+		var repose: Variant = WorldState.get_value("sand.repose")
+		print("SOAK MIRROR-FLIP armed=%s providers=%d leaked=%d sand.repose=%s"
+			% [str(armed), providers, leaked, str(repose)])
+		# Only demand engagement when Contour+HELD actually routed (the flip needs a
+		# live held world); off the held path the flip is lawfully inert.
+		if OS.get_environment("STRATA_CONTOUR_HELD") == "1" \
+				and OS.get_environment("STRATA_CONTOUR") != "0":
+			_check(armed, "mirror flip armed under STRATA_CONTOUR_MIRROR=0")
+			_check(providers > 0, "SINGLETON bridges registered read-through providers")
+			_check(leaked == 0, "eligible keys retired from _state (no shadowed copy)")
+			_check(repose != null, "read-through served sand.repose (held-only key)")
 	get_tree().quit(1 if _failures > 0 else 0)
 
 

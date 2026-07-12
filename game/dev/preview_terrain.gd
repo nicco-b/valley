@@ -680,6 +680,10 @@ func _ensure_mesh() -> float:
 	vtex.height = 256
 	vtex.noise = vnoise
 	_mat.set_shader_parameter("variation", vtex)
+	# E3.3: bind the SAME gouache look record world_streamer.gd binds, so the
+	# drape's palette/bands/frequencies can never drift from the game's —
+	# a load failure leaves the shader on its own (identical) defaults.
+	LookData.bind_gouache(_mat, LookData.load_gouache())
 	_mesh = MeshInstance3D.new()
 	_mesh.mesh = plane
 	_mesh.material_override = _mat

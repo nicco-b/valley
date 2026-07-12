@@ -622,6 +622,10 @@ func _contour_resolve() -> void:
 	# reconciles WorldState diff-only (TRUE Rung 2, docs/SUBSTRATE.md §1) — the
 	# concrete input-side saving this rung earns.
 	bridge.set_held_mode(ContourBridge.HELD_MODE_SINGLETON)
+	# Arm the per-key mirror flip (docs/SUBSTRATE.md §2a): register this SINGLETON
+	# bridge as the read-through provider for its MIRROR_ELIGIBLE keys. Inert unless
+	# STRATA_CONTOUR_MIRROR=0 AND the held world is live; a NO-OP otherwise.
+	bridge.register_read_through()
 	_contour_bridge = bridge
 	_contour_mode = 2
 	# The Rung 2 DARK sub-flag: only meaningful once the bridge is live. Off by

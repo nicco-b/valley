@@ -67,6 +67,59 @@ const CONTINUATION_SUFFIX := ".__time"
 const HELD_MODE_MULTIPLEXED := 0
 const HELD_MODE_SINGLETON := 1
 
+## THE ELIGIBILITY TABLE (the per-KEY mirror flip — docs/SUBSTRATE.md §2a).
+##
+## A SINGLETON held-owned key is FLIPPABLE only when the value the held world holds
+## is BYTE-FOR-BYTE the value WorldState's mirror stores — so routing get_value
+## through the held world (held_read) is invisible to the fingerprint by
+## construction. This table is EXACTLY the key domain each SINGLETON system's
+## `held_owned_snapshot()` returns — the set F3's SAVE gate already proves
+## byte-identical held-vs-mirror every soak (soak.gd::_rung3_snapshot_acceptance:
+## `save-via-held == save-via-mirror byte-for-byte`). If a key is a faithful save
+## byte-source from the held world, it is a faithful read byte-source too.
+##
+## MIRROR-AUTHORITATIVE keys (deliberately ABSENT here, kept on the mirror):
+##   • weather.wind_angle — the held world holds the RAW pre-snap angle; the store's
+##     canonical form is snappedf(_,0.001) (weather.gd:540). weather ERASES it from
+##     held_owned_snapshot (weather.gd:275) precisely because held(raw) ≠ mirror(snap).
+##     The snap is a SAVE-representation narrowing that must NOT feed the sim chain
+##     (the raw angle is what the next hour's drift accumulates on), so it cannot move
+##     into the .ct like climate.wet_grid's f32 did — it stays mirror-authoritative
+##     until a rung retires the mirror itself (out of this flip's scope; the g1 lane).
+##   • time.elapsed / *.__time — reserved shared bookkeeping, each bridge on its own
+##     cadence; held_owned_snapshot deliberately omits time.elapsed (contour_bridge.gd
+##     §held_owned_snapshot). The bridge KEEPS writing these to the mirror.
+##   • Every non-.ct-declared key a SINGLETON's GDScript twin also set_values
+##     (climate.wetness/snow/temperature, weather.state/wind, water.*.storage/flow/
+##     level, flora.bloom/parched/cells) — these are NOT held-owned (no held world
+##     writes them), so they stay plain mirror keys, untouched by the flip.
+##
+## AUDIT (grep every set_value of a held-owned key, per system — the exhaustive pass):
+##   climate.ct  writes {climate.wet_grid}. The .ct writes f32(cell_step(...)) — the
+##     canonical float32 form is IN the .ct (the g1 move already landed), so the held
+##     grid == the mirror's PackedFloat32Array grid byte-for-byte. FLIPPABLE.
+##   weather.ct  writes {fronts, wind_angle, last_kind, rng}. fronts/last_kind/rng are
+##     held byte-source (save-gate proven, not erased). wind_angle is EXCLUDED (above).
+##   hydrology.ct writes {hydrology.storage} — the .ct snaps (snappedf 0.01) so the held
+##     array == the mirror; the twin does NOT re-write it (reads it back into
+##     region_storage only). FLIPPABLE. (Feeds region_storage, off the fingerprint.)
+##   flora.ct    writes {flora.vitality} — .ct snaps (snappedf 0.001); the twin's tail
+##     write echoes the held read-back exactly. FLIPPABLE.
+##   sand.ct     writes {sand.repose, sand.decay} — Plumb-certified leaves; the twin
+##     only reads them back (never re-writes). FLIPPABLE.
+## No .ct among the five declares a `timed` system, so there are NO continuations to
+## classify for the SINGLETON set.
+const MIRROR_ELIGIBLE := {
+	"climate.wet_grid": true,
+	"weather.fronts": true,
+	"weather.last_kind": true,
+	"weather.rng": true,
+	"hydrology.storage": true,
+	"flora.vitality": true,
+	"sand.repose": true,
+	"sand.decay": true,
+}
+
 var _vm: Contour = null
 var _ws: Object = null                 # the WorldState store (get_value/set_value)
 var _reads: PackedStringArray = []      # union of declared reads (the seed set)
@@ -160,12 +213,83 @@ func held_owned_snapshot() -> Dictionary:
 	var owned := {}
 	for w in _writes:
 		if snap.has(w):
+			# Do NOT source a declared write the STORE never tracked (its mirror
+			# get_value is null) — the held world may seed it (e.g. an empty region
+			# array `[]` on a riverless soak) while the mirror, which only ever gets
+			# the diff-applied MOVED writes, holds nothing. Sourcing `[]` over `null`
+			# diverges the held-save from the mirror-save byte-for-byte (soak.gd's
+			# Rung 3 acceptance). Under the flip get_value routes to held_read, so a
+			# live held-owned write reads its held value (non-null) and IS sourced —
+			# the two save doors stay in lockstep in both postures.
+			if _ws.get_value(w) == null:
+				continue
 			owned[w] = snap[w]
 	for name in _timed:
 		var ck := String(name) + CONTINUATION_SUFFIX
 		if snap.has(ck):
 			owned[ck] = snap[ck]
 	return owned
+
+
+## Rung 3 READ-THROUGH (docs/SUBSTRATE.md §2a): the O(1) held-world value for ONE
+## key THIS bridge owns — a {key: value} Dictionary when held, an EMPTY {} when the
+## key is not held (or this is not a live SINGLETON held world). The mirror
+## retirement routes WorldState.get_value(owned_key) HERE instead of keeping a
+## second _state copy: a store that owns no copy of a held-owned key answers the
+## read from the sim-tier truth. SINGLETON ONLY (a MULTIPLEXED held world holds only
+## the last-ticked entity between ticks — a sibling reads back stale, so it never
+## read-through-serves; it keeps its mirror, the F2 law). Empty when no held world
+## is live — the mirror stays authoritative until the held world exists.
+##
+## HONESTY BOUNDARY (docs/SUBSTRATE.md §2, the two named reconciliations): the held
+## world carries RAW float64 values. A key whose mirror form is a system-canonical
+## REPRESENTATION the held world does not hold (weather.wind_angle snappedf,
+## climate.wet_grid float32-narrowed, climate.temperature snappedf) MUST NOT be
+## read-through-served raw — it would diverge from the mirror byte value. Such keys
+## stay mirror-authoritative until the narrow/snap moves into the .ct (the g1 lane);
+## this primitive is the raw surface, and the owning system decides which keys are
+## eligible (never the generic bridge). See held_owned_snapshot's save-side twin.
+func held_read(key: String) -> Dictionary:
+	if _held_mode != HELD_MODE_SINGLETON:
+		return {}
+	if _vm == null or not _vm.world_ready():
+		return {}
+	return _vm.world_read(key)
+
+
+## Rung 3 WRITE-THROUGH (docs/SUBSTRATE.md §2a, the forcing-door move): write ONE
+## held-owned key IN PLACE so the next tick_held resumes from the forced value
+## instead of clobbering it with held truth. The B12 forcing door (`state set
+## <key> <value>`) that targets a held-owned resource routes HERE after the mirror
+## retires. Returns true when the write landed in a live SINGLETON held world; false
+## otherwise (the caller falls back to the plain WorldState.set_value for a key no
+## held world owns). SINGLETON ONLY (same F2 law as held_read).
+func held_write(key: String, value: Variant) -> bool:
+	if _held_mode != HELD_MODE_SINGLETON:
+		return false
+	if _vm == null or not _vm.world_ready():
+		return false
+	return _vm.world_write(key, value)
+
+
+## Register this SINGLETON bridge as the READ-THROUGH PROVIDER on WorldState for
+## every declared write that is MIRROR_ELIGIBLE (the per-key mirror flip,
+## docs/SUBSTRATE.md §2a). After the flip (STRATA_CONTOUR_MIRROR=0) WorldState
+## routes get_value/snapshot of these keys THROUGH this bridge's held_read instead
+## of keeping a second _state copy, and set_value of them becomes a no-op (the held
+## world is authoritative). A key not in the table (weather.wind_angle, the reserved
+## clock, every non-held key) is never registered — it stays a plain mirror key.
+## Idempotent; a NO-OP for a MULTIPLEXED bridge (the herd keeps its mirror, F2 law)
+## or a WorldState without the read-through surface (a unit-test stub). Call once,
+## at engage, after compile + set_held_mode(SINGLETON).
+func register_read_through() -> void:
+	if _held_mode != HELD_MODE_SINGLETON:
+		return
+	if _ws == null or not _ws.has_method("register_read_through"):
+		return
+	for w in _writes:
+		if MIRROR_ELIGIBLE.has(String(w)):
+			_ws.register_read_through(String(w), self)
 
 
 ## Is the native Contour VM loadable at all (macOS + dylib present)? Consumers
@@ -412,9 +536,23 @@ func tick_held(inputs: Dictionary, dt: float) -> bool:
 		# absent from the diff did not move, and WorldState already holds it. This
 		# is bit-identical to tick_seeded for a SINGLETON world and is the whole
 		# point of the rung — the store no longer round-trips state it already owns.
+		# THE PER-KEY MIRROR FLIP (STRATA_CONTOUR_MIRROR=0, docs/SUBSTRATE.md §2a):
+		# a MIRROR_ELIGIBLE write no longer gets a mirror COPY — the held world
+		# answers get_value through read-through — so its apply is a `changed`
+		# EMISSION from this commit point (the coalesced post-tick diff), not a
+		# _state write. WorldState.set_value silently SKIPS an eligible key under the
+		# flip anyway (held is authoritative), which would eat the `changed` a story
+		# subscriber rides — notify_changed re-provides exactly that signal for the
+		# moved write. A NON-eligible write (weather.wind_angle, mirror-authoritative)
+		# and the reserved clock KEEP their mirror write: their canonical/shared form
+		# lives in the store, not the held world.
+		var flipped: bool = _ws.has_method("mirror_flipped") and _ws.mirror_flipped()
 		for w in _writes:
 			if diff.has(w):
-				_ws.set_value(w, diff[w])
+				if flipped and MIRROR_ELIGIBLE.has(String(w)):
+					_ws.notify_changed(String(w), diff[w])
+				else:
+					_ws.set_value(w, diff[w])
 		if diff.has(CLOCK_ELAPSED):
 			_ws.set_value(CLOCK_ELAPSED, diff[CLOCK_ELAPSED])
 		for name in _timed:

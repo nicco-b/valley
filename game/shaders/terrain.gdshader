@@ -10,6 +10,17 @@ uniform vec3 sand_floor : source_color = vec3(0.84, 0.785, 0.70);
 uniform vec3 sand_warm : source_color = vec3(0.80, 0.655, 0.46);
 uniform vec3 rock_high : source_color = vec3(0.63, 0.50, 0.36);
 uniform vec3 rock_steep : source_color = vec3(0.56, 0.48, 0.41);
+// E3.3: gouache_wash's band/frequency/blotch/grain constants, promoted to
+// uniforms so game/world/look_data.gd can bind them from data/looks/gouache.json.
+// Defaults here are the exact literals that used to live in gouache.gdshaderinc —
+// a look-record load failure decays to this, not a different look.
+uniform vec2 band_sand_to_warm = vec2(3.0, 20.0);
+uniform vec2 band_warm_to_rock = vec2(24.0, 46.0);
+uniform vec2 band_slope_to_steep = vec2(0.45, 0.75);
+uniform float freq_blotch = 0.006;
+uniform float freq_grain = 0.09;
+uniform float blotch_amp = 9.0;
+uniform vec2 grain_mix = vec2(0.95, 0.10);
 uniform sampler2D variation : filter_linear, repeat_enable;
 global uniform sampler2D trace_map;
 global uniform vec2 trace_center;
@@ -98,7 +109,9 @@ void fragment() {
 	// The painted wash — shared verbatim with the shaping drape
 	// (gouache.gdshaderinc); the ground reads identically here and there.
 	vec3 col = gouache_wash(variation, wpos.xz, wpos.y, wslope,
-			sand_floor, sand_warm, rock_high, rock_steep);
+			sand_floor, sand_warm, rock_high, rock_steep,
+			band_sand_to_warm, band_warm_to_rock, band_slope_to_steep,
+			freq_blotch, freq_grain, blotch_amp, grain_mix);
 
 	// Biome ground (Stage B): tint toward the painted biome's albedo.
 	// A tint, not a replace, so the painterly bands/grain/relief survive

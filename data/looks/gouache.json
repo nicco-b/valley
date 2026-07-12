@@ -1,0 +1,24 @@
+{
+	"format": 1,
+	"look_family": "gouache",
+	"note": "A Look record: family-generic envelope, gouache-specific payload. `look_family` selects which shader/pipeline reads `params` (gouache.gdshaderinc's gouache_wash() here) — games will not always be gouache. gouache is look #1, not the schema: a game declares its own look by shipping a different record with a different look_family and its own params shape; an unknown family fails LOUDLY (game/world/look_data.gd, Wash's look registry) rather than silently falling back to gouache. E3.3: promoted verbatim from gouache.gdshaderinc's literals (palette, band thresholds, variation frequencies, blotch amplitude, grain mix) — a MOVE, not a retune; the values below are byte-identical to what shipped before this record existed.",
+	"params": {
+		"palette": {
+			"sand_floor": [0.84, 0.785, 0.70],
+			"sand_warm": [0.80, 0.655, 0.46],
+			"rock_high": [0.63, 0.50, 0.36],
+			"rock_steep": [0.56, 0.48, 0.41]
+		},
+		"bands": {
+			"sand_to_warm": [3.0, 20.0],
+			"warm_to_rock": [24.0, 46.0],
+			"slope_to_steep": [0.45, 0.75]
+		},
+		"variation_freqs": {
+			"blotch": 0.006,
+			"grain": 0.09
+		},
+		"blotch_amp": 9.0,
+		"grain_mix": [0.95, 0.10]
+	}
+}

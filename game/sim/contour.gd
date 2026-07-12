@@ -233,3 +233,32 @@ func world_snapshot() -> Dictionary:
 func world_destroy() -> void:
 	if _kernel != null:
 		_kernel.contour_world_destroy()
+
+
+## ONE key of the held world — the O(1) READ-THROUGH (substrate Rung 3, the
+## mirror-retirement move; docs/SUBSTRATE.md §2a). Returns a {key: value}
+## Dictionary when the key is held, an EMPTY Dictionary {} when it is not — the
+## same envelope world_tick/world_snapshot speak, so the present/absent
+## distinction survives (a held `null` crosses as {key: null}, distinct from
+## the unheld {}). Where world_snapshot copies the WHOLE world (O(world) — once
+## per save/reconcile), this crosses O(1): a store that no longer keeps a SECOND
+## copy of a held-owned key answers get_value HERE. Pure read, no advance. Empty
+## when no held world is live (kernel absent / never engaged).
+func world_read(key: String) -> Dictionary:
+	if _kernel == null:
+		return {}
+	return _kernel.contour_world_read(key)
+
+
+## Write ONE key of the held world IN PLACE — the O(1) WRITE-THROUGH (substrate
+## Rung 3, the forcing-door move; docs/SUBSTRATE.md §2a). The next world_tick
+## resumes from the written value, so a forcing door (`state set weather.state
+## storm`) that targets a held-owned key writes the sim-tier truth HERE instead
+## of the mirror — the forced value survives the next tick's read-through instead
+## of being clobbered by held truth. Returns true on success, false when no held
+## world is live (kernel absent / never engaged — the caller falls back to the
+## plain mirror write for an unowned key).
+func world_write(key: String, value: Variant) -> bool:
+	if _kernel == null:
+		return false
+	return _kernel.contour_world_write(key, value)

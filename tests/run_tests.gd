@@ -77,8 +77,17 @@ func _test_terrain_determinism() -> void:
 			"spawn is on land (above sea at high tide)")
 	else:
 		print("  spawn-on-land: SKIP (no recorded spawn — import a world to bind it)")
-	_check(t.valley_factor(0.0, -100.0) < 0.1, "valley floor factor ~0")
-	_check(t.valley_factor(900.0, -100.0) > 0.9, "far plateau factor ~1")
+	# The valley floor/plateau shape is a LANDFORM record (data/world/landform.json)
+	# — content, excluded from framework.json (valley ships it; a scaffolded /
+	# content-empty tree has none, so _valley_path is empty and valley_factor is
+	# degenerate). SKIP honestly when the record is absent, exactly like the
+	# spawn-on-land probe above; valley's own gate (which ships the landform)
+	# still asserts the floor≈0 / plateau≈1 shape.
+	if t._valley_path.is_empty():
+		print("  valley-factor: SKIP (no landform record — content-empty tree)")
+	else:
+		_check(t.valley_factor(0.0, -100.0) < 0.1, "valley floor factor ~0")
+		_check(t.valley_factor(900.0, -100.0) > 0.9, "far plateau factor ~1")
 	t.free()
 
 

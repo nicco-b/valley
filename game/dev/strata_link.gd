@@ -1327,7 +1327,12 @@ func _state_set(key: String, raw: String) -> String:
 	var value: Variant = JSON.parse_string(raw)
 	if value == null and raw != "null":
 		value = raw  # a bare word is a string
-	WorldState.set_value(key, value)
+	# force_value (not set_value): under the mirror flip (docs/SUBSTRATE.md §2a) a
+	# held-owned key is authoritative in the held world, so a plain set_value would
+	# be a no-op and the force would be clobbered next tick. force_value WRITES
+	# THROUGH to the held world (`state set weather.state storm` survives the read-
+	# through) and still emits `changed`; for any unowned key it is a plain set_value.
+	WorldState.force_value(key, value)
 	return "ok state %s=%s" % [key, JSON.stringify(value)]
 
 

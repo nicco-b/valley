@@ -320,6 +320,15 @@ func _run_test(name: String, test: Dictionary) -> void:
 	if not inline.is_empty():
 		Story.register_quest(inline)
 	var qid := String(test.get("quest", inline.get("id", "")))
+	if inline.is_empty() and not Story.quests.has(qid):
+		# A fixture with no inline `record` drives a SHIPPED quest (content —
+		# dry_spell.test.json drives valley's data/quests). On a content-empty
+		# tree that quest isn't loaded, so SKIP honestly (mirrors scene_tests'
+		# dry-spell SKIP). The manifest's own synthetic fixtures EMBED their
+		# quest via `record`, so they always run — this only spares the
+		# content-driven ones.
+		print("  %s: SKIP (quest '%s' not shipped — content-empty tree)" % [name, qid])
+		return
 	_check(Story.quests.has(qid), "%s: quest '%s' exists" % [name, qid])
 	var world: Dictionary = test.get("world", {})
 	for key: String in world:

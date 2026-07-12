@@ -124,6 +124,10 @@ func _ready() -> void:
 	_ground_material = ShaderMaterial.new()
 	_ground_material.shader = load("res://game/shaders/terrain.gdshader")
 	_ground_material.set_shader_parameter("variation", vtex)
+	# E3.3: the gouache look record binds the SAME palette/band/frequency
+	# constants the shader used to hardcode — a load failure leaves the
+	# shader on its own (identical) uniform defaults, never a broken look.
+	LookData.bind_gouache(_ground_material, LookData.load_gouache())
 
 	# Model scatter: category rules + a category->slots index from the Cards
 	# catalog, so every placeable slot auto-dresses the world by biome.

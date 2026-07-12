@@ -39,6 +39,15 @@ uniform vec3 sand_floor : source_color = vec3(0.84, 0.785, 0.70);
 uniform vec3 sand_warm : source_color = vec3(0.80, 0.655, 0.46);
 uniform vec3 rock_high : source_color = vec3(0.63, 0.50, 0.36);
 uniform vec3 rock_steep : source_color = vec3(0.56, 0.48, 0.41);
+// E3.3: same promoted constants as terrain.gdshader — SAME defaults, SAME
+// look_data.gd binding, so the drape can never drift from the game's wash.
+uniform vec2 band_sand_to_warm = vec2(3.0, 20.0);
+uniform vec2 band_warm_to_rock = vec2(24.0, 46.0);
+uniform vec2 band_slope_to_steep = vec2(0.45, 0.75);
+uniform float freq_blotch = 0.006;
+uniform float freq_grain = 0.09;
+uniform float blotch_amp = 9.0;
+uniform vec2 grain_mix = vec2(0.95, 0.10);
 // colormap.png (the biome drape's per-cell ground colour) is present -> tint
 // the wash toward it, exactly as terrain.gdshader tints by the biome palette.
 uniform bool has_biome = false;
@@ -134,7 +143,9 @@ void fragment() {
 		// the blotch/grain frequency matches terrain.gdshader.
 		vec2 world_xz = (v_uv - 0.5) * world_size;
 		vec3 col = gouache_wash(variation, world_xz, v_h, 1.0 - n.y,
-			sand_floor, sand_warm, rock_high, rock_steep);
+			sand_floor, sand_warm, rock_high, rock_steep,
+			band_sand_to_warm, band_warm_to_rock, band_slope_to_steep,
+			freq_blotch, freq_grain, blotch_amp, grain_mix);
 		// Biome ground: tint toward the painted biome's albedo (colormap.png,
 		// the very colours the biome drape wears) — a tint, not a replace, so
 		// the wash survives. Mirrors terrain.gdshader's biome mix; the PNG is

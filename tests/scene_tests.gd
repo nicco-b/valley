@@ -225,9 +225,17 @@ func _test_ambience() -> void:
 		"ambience: reload counts the registered nested dir, not data/audio_ambience")
 	_check(Records.dir_for(Audio.SFX_KIND) == Audio.SFX_DIR,
 		"ambience: audio_sfx dir registered (A1 wart: was counting data/audio_sfx)")
-	_check(Records.count_dir(Ambience.AMBIENCE_KIND) == 3,
-		"ambience: count_dir tallies the three shipped beds — wind/night plus W10's shore_lap (got %d)"
-			% Records.count_dir(Ambience.AMBIENCE_KIND))
+	# The beds themselves are CONTENT (data/audio_ambience — valley ships
+	# wind/night/shore_lap; a content-empty tree has none). The desk wiring
+	# above is framework and always asserts; the shipped-bed tallies/parse/
+	# live-load below SKIP honestly when the beds are absent.
+	var have_beds := Records.count_dir(Ambience.AMBIENCE_KIND) > 0
+	if have_beds:
+		_check(Records.count_dir(Ambience.AMBIENCE_KIND) == 3,
+			"ambience: count_dir tallies the three shipped beds — wind/night plus W10's shore_lap (got %d)"
+				% Records.count_dir(Ambience.AMBIENCE_KIND))
+	else:
+		print("  ambience: SKIP shipped-bed checks (no audio_ambience content — content-empty tree)")
 	# The desk judges a bed by the game's own loader: a bed missing `bus`
 	# is caught; a complete one passes.
 	var bad_bed := {"id": "b", "file": "x.wav"}  # no bus
@@ -258,8 +266,9 @@ func _test_ambience() -> void:
 	# are the old code, as data.
 	var wind_rec: Variant = Records.load_json(Ambience.AMBIENCE_DIR + "/wind_bed.json")
 	var night_rec: Variant = Records.load_json(Ambience.AMBIENCE_DIR + "/night_bed.json")
-	_check(wind_rec is Dictionary and night_rec is Dictionary,
-		"ambience: the two shipped beds parse")
+	if have_beds:
+		_check(wind_rec is Dictionary and night_rec is Dictionary,
+			"ambience: the two shipped beds parse")
 	if wind_rec is Dictionary and night_rec is Dictionary:
 		var mismatch := 0
 		for h in [0.0, 3.0, 5.5, 7.0, 12.0, 18.0, 20.0, 21.5, 23.0]:
@@ -285,7 +294,8 @@ func _test_ambience() -> void:
 	amb._process(0.016)
 	var h: float = GameClock.solar_hours()
 	var loaded: Array = amb.get("_beds")
-	_check(loaded.size() == 3, "ambience: all three shipped beds loaded live (got %d)" % loaded.size())
+	if have_beds:
+		_check(loaded.size() == 3, "ambience: all three shipped beds loaded live (got %d)" % loaded.size())
 	for bed: Dictionary in loaded:
 		var id := String(bed.rec["id"])
 		var want := 0.0
@@ -310,11 +320,17 @@ func _test_ambience() -> void:
 	_check(is_equal_approx(Audio.bus_duck("Ambience"), 1.0) and Audio.active_ducks() == "-",
 		"ambience: no duck when outside (bus_duck 1.0, token '-')")
 	Interiors.inside = true
-	_check(is_equal_approx(Audio.bus_duck("Ambience"), 0.08),
-		"ambience: interior ducks the Ambience bus to 0.08 (got %f)"
-			% Audio.bus_duck("Ambience"))
-	_check(Audio.active_ducks() == "interior_hush",
-		"ambience: the duck token names the active rule (got %s)" % Audio.active_ducks())
+	# The interior duck rule lives in data/audio/mix.json (content). No mix,
+	# no rule — the bus stays open (the outside case above already proved the
+	# neutral 1.0/'-'); SKIP the ducked assertion on a content-empty tree.
+	if FileAccess.file_exists("res://data/audio/mix.json"):
+		_check(is_equal_approx(Audio.bus_duck("Ambience"), 0.08),
+			"ambience: interior ducks the Ambience bus to 0.08 (got %f)"
+				% Audio.bus_duck("Ambience"))
+		_check(Audio.active_ducks() == "interior_hush",
+			"ambience: the duck token names the active rule (got %s)" % Audio.active_ducks())
+	else:
+		print("  ambience: SKIP interior-duck (no data/audio/mix.json — content-empty tree)")
 	Interiors.inside = was_inside
 	amb.queue_free()  # leave no bed players behind
 
@@ -336,9 +352,16 @@ func _test_water_audio() -> void:
 		"water_audio: audio_water_emitter schema registered for the desk")
 	_check(Records.dir_for(WaterAudio.WATER_AUDIO_KIND) == WaterAudio.WATER_AUDIO_DIR,
 		"water_audio: reload counts the registered data/audio/water dir")
-	_check(Records.count_dir(WaterAudio.WATER_AUDIO_KIND) == 2,
-		"water_audio: count_dir tallies the two shipped rows (got %d)"
-			% Records.count_dir(WaterAudio.WATER_AUDIO_KIND))
+	# The emitter rows are CONTENT (data/audio_water — valley ships two); a
+	# content-empty tree has none, so the desk wiring above always asserts but
+	# the shipped-row tally SKIPs honestly (the emitter checks below already
+	# SKIP on an empty-river world).
+	if Records.count_dir(WaterAudio.WATER_AUDIO_KIND) > 0:
+		_check(Records.count_dir(WaterAudio.WATER_AUDIO_KIND) == 2,
+			"water_audio: count_dir tallies the two shipped rows (got %d)"
+				% Records.count_dir(WaterAudio.WATER_AUDIO_KIND))
+	else:
+		print("  water_audio: SKIP shipped-row check (no audio_water content — content-empty tree)")
 
 	if Terrain.rivers.is_empty():
 		_check(true, "water_audio: content-empty world (no rivers) — skipped emitter checks")
@@ -2334,10 +2357,14 @@ func _test_names() -> void:
 		"names: resolve falls back to the id itself")
 	_check(not Names.has_name("no_such_place"), "names: an unnamed id has_name=false")
 
-	# The few names valley ships for its own places (content).
-	_check(Names.has_name("hyd_l1") and Names.resolve("hyd_l1") == "The Aquifer Pool",
-		"names: a shipped name resolves (got %s)" % Names.resolve("hyd_l1"))
-	_check(Names.kind_of("hyd_l1") == "lake", "names: a shipped name carries its kind")
+	# The few names valley ships for its own places (content — data/names).
+	# A content-empty tree has no gazetteer, so these SKIP honestly.
+	if Names.has_name("hyd_l1"):
+		_check(Names.resolve("hyd_l1") == "The Aquifer Pool",
+			"names: a shipped name resolves (got %s)" % Names.resolve("hyd_l1"))
+		_check(Names.kind_of("hyd_l1") == "lake", "names: a shipped name carries its kind")
+	else:
+		print("  names: SKIP shipped-name checks (no data/names content — content-empty tree)")
 
 	# The write round trip on a TEMP file — the real content stays untouched.
 	var tmp := "user://names_test.json"
@@ -2395,8 +2422,11 @@ func _test_names() -> void:
 	# see the real gazetteer again).
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
 	Names.reload()
-	_check(Names.resolve("hyd_l1") == "The Aquifer Pool",
-		"names: the live table restored from shipped content")
+	if Names.has_name("hyd_l1"):
+		_check(Names.resolve("hyd_l1") == "The Aquifer Pool",
+			"names: the live table restored from shipped content")
+	else:
+		print("  names: SKIP restore-from-shipped (no data/names content — content-empty tree)")
 
 
 ## The naming desk over the link: `names` reads the table, `name <id> <text>`
@@ -2405,14 +2435,18 @@ func _test_names() -> void:
 ## worktree byte-identical.
 func _test_names_verbs(peer: StreamPeerTCP) -> void:
 	var file := ProjectSettings.globalize_path("res://data/names/names.json")
+	var had_file := FileAccess.file_exists(file)
 	var original := FileAccess.get_file_as_string(file)
 
 	# names: the shipped table, rows tab-separated, fields unit-separated.
 	var before := await _link_send(peer, ["names"])
 	_check(before.size() == 1 and String(before[0]).begins_with("ok names count="),
 		"names: the table answers ok with a count (got %s)" % str(before))
-	_check("hyd_l1" in String(before[0]) and "The Aquifer Pool" in String(before[0]),
-		"names: the table carries a shipped named place")
+	if had_file:
+		_check("hyd_l1" in String(before[0]) and "The Aquifer Pool" in String(before[0]),
+			"names: the table carries a shipped named place")
+	else:
+		print("  names: SKIP shipped-place check (no data/names content — content-empty tree)")
 
 	# name: create-or-update, validated and reloaded; then it reads back.
 	var wrote := await _link_send(peer, [
@@ -2431,10 +2465,16 @@ func _test_names_verbs(peer: StreamPeerTCP) -> void:
 	_check(Names.resolve("hyd_l7") == "North Tarn", "name: the live table reflects the write")
 
 	# Restore the shipped file byte-for-byte and rebind — no test residue.
-	var f := FileAccess.open(file, FileAccess.WRITE)
-	if f != null:
-		f.store_string(original)
-		f.close()
+	# Content-empty tree: the `name` verb above CREATED data/names/names.json
+	# (and its dir); remove them so the gate leaves the tree as it found it.
+	if had_file:
+		var f := FileAccess.open(file, FileAccess.WRITE)
+		if f != null:
+			f.store_string(original)
+			f.close()
+	else:
+		DirAccess.remove_absolute(file)
+		DirAccess.remove_absolute(ProjectSettings.globalize_path("res://data/names"))
 	Names.reload()
 	_check(Names.resolve("hyd_l7") == "hyd_l7",
 		"name: restoring the file returns the gazetteer to shipped content")
@@ -3858,6 +3898,25 @@ func _wipe_records(ids: Array) -> void:
 			var path := "%s/cell_%d_%d.json" % [CellRecords.DIR, c.x, c.y]
 			if FileAccess.file_exists(path):
 				DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	# A group MOVE empties its SOURCE cell (the records migrate to the target),
+	# and flush() writes that source as "[]" — a cell no tracked id sits in, so
+	# the loop above never visits it. Sweep the dir for any empty cell file and
+	# drop it (content-empty hermeticity: the far synthetic cells leave NO
+	# residue). Only "[]"/blank files are removed — cells with real records
+	# (valley's own gazetteer of placements) are never touched.
+	var cdir := ProjectSettings.globalize_path(CellRecords.DIR)
+	var da := DirAccess.open(cdir)
+	if da != null:
+		for fn: String in da.get_files():
+			if fn.begins_with("cell_") and fn.ends_with(".json"):
+				var body := FileAccess.get_file_as_string(cdir.path_join(fn)).strip_edges()
+				if body == "[]" or body == "":
+					DirAccess.remove_absolute(cdir.path_join(fn))
+	# If the sweep left the dir empty, it was created by this run on a
+	# content-empty tree — remove it so `git status` stays clean.
+	var da2 := DirAccess.open(cdir)
+	if da2 != null and da2.get_files().is_empty() and da2.get_directories().is_empty():
+		DirAccess.remove_absolute(cdir)
 
 
 ## Undo v2 (audit R3) — a carved river joins the stack (node ops). Enter
@@ -6832,6 +6891,11 @@ func _test_interior_hand() -> void:
 				"x": 0.0, "y": 0.0, "z": 2.0, "yaw": 0.0, "scale": 1.0,
 				"door": {"exit": true}}]}
 	var pre_existed := FileAccess.file_exists(tpath)
+	# Content-empty tree: data/interiors may not exist yet. The real
+	# InteriorRecords writer make_dir_recursive's before WRITE; this test
+	# opens the file directly, so mirror that (else open() returns null and
+	# store_string crashes). Idempotent where the dir already exists.
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(InteriorRecords.DIR))
 	var f0 := FileAccess.open(tpath, FileAccess.WRITE)
 	f0.store_string(JSON.stringify(seed, "\t"))
 	f0.close()

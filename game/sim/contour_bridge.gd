@@ -446,6 +446,29 @@ func tick_held(inputs: Dictionary, dt: float) -> bool:
 	return true
 
 
+## RESTORE-INTO-HELD (substrate Rung 3's other half — docs/SUBSTRATE.md §2, the
+## restore side of "the store IS the world"). A LOAD replaced WorldState wholesale
+## (SaveManager.apply_snapshot -> WorldState.restore), so the live held world now
+## holds the PRE-LOAD trajectory, not the restored save. This DESTROYS it: the next
+## tick_held re-creates it via world_create, seeded from the (now restored)
+## WorldState + that tick's fresh declared-read inputs — so the held world RESUMES
+## from the loaded snapshot, exactly the create-seed path already tested, never a
+## stale sibling of the mirror. Between the reset and that first tick the held world
+## is absent, so held_owned_snapshot() returns {} and the save falls back to the
+## restored mirror (correct) — no window where a save reads stale held state.
+##
+## Why reset here, re-create lazily on the first tick (not an eager create now): the
+## create seed needs the fresh per-tick `inputs` (the transient declared reads the
+## host samples live — climate.rain, weather's stream, ...), which do not exist at
+## load time. Re-creating on the first tick reuses the one tested seeding path with
+## the real inputs; an eager load-time create would seed those reads from a stale or
+## absent mirror. Idempotent + inert off the held path (no held world -> a no-op),
+## so it is byte-inert under STRATA_CONTOUR_HELD unset.
+func reset_held() -> void:
+	if _vm != null and _vm.world_ready():
+		_vm.world_destroy()
+
+
 ## Build the held-world injection dict. `include_writes` seeds the system's OWN
 ## persistent declared writes from WorldState (the MULTIPLEXED / world_create
 ## path); a SINGLETON per-tick inject sets it FALSE, so a read that is ALSO a

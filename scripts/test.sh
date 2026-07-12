@@ -63,6 +63,19 @@ echo "$HELD_OUT" | grep -E "HELD-SNAPSHOT-GATE|  FAIL:"
 echo "$HELD_OUT" | grep -q "SCRIPT ERROR" && exit 1
 echo "$HELD_OUT" | grep -q "HELD-SNAPSHOT-GATE PASS" || exit 1
 
+echo "== restore-into-held gate (substrate Rung 3: a load restores INTO the held world) =="
+# G1 (docs/SUBSTRATE.md §2, Rung 3's other half): under STRATA_CONTOUR_HELD=1 a LOAD
+# restores the save INTO each held world (reset_held -> world_create seeded from the
+# restored mirror), so a timeline resumes from the loaded snapshot, not the pre-load
+# trajectory. That path runs at LOAD, before the world exists — the soak is BLIND to
+# it, like save_migration. This gate proves the contract at the bridge level over
+# every real singleton module + re-pins the migration engagement counter. SKIPs (held
+# checks) + PASSes where the native kernel is absent. Same PASS-line backstop.
+RESTORE_OUT=$(STRATA_CONTOUR=1 STRATA_CONTOUR_HELD=1 godot --headless --quit-after 2000 res://tests/restore_held_gate.tscn 2>&1)
+echo "$RESTORE_OUT" | grep -E "RESTORE-HELD-GATE|  FAIL:"
+echo "$RESTORE_OUT" | grep -q "SCRIPT ERROR" && exit 1
+echo "$RESTORE_OUT" | grep -q "RESTORE-HELD-GATE PASS" || exit 1
+
 echo "== quest harness + lint (the Campfire) =="
 # The Q2 robustness spine (DESIGN_QUESTS §10): the quest linter over
 # data/quests + data/threads, then every tests/quests/*.test.json driven

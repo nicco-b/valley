@@ -191,6 +191,20 @@ func apply_snapshot(data: Dictionary, replay_away: bool) -> bool:
 	# _ready runs before the save loads, so boot-time reads see defaults.
 	get_tree().call_group("world_state_reader", "load_state")
 	get_tree().call_group("npc", "load_state")
+	# RESTORE-INTO-HELD (substrate Rung 3's other half — docs/SUBSTRATE.md §2). Under
+	# the held flag the sim-tier truth is each SINGLETON's PERSISTENT HELD WORLD, not
+	# the WorldState mirror the restore above replaced. So the load must restore the
+	# save INTO those held worlds too: reset each (ContourBridge.reset_held), and the
+	# next tick re-creates it via world_create seeded from the RESTORED mirror + that
+	# tick's fresh reads — so every timeline resumes from the loaded snapshot, not the
+	# pre-load trajectory. For a live load the advance_hours replay below drives those
+	# re-creating ticks (each replayed hour hits the held path); for an anchor restore
+	# (replay_away=false) there is no replay, so the held world stays absent until the
+	# next natural tick and the save meanwhile sources the restored mirror (correct —
+	# held_owned_snapshot returns {} with no live held world). Byte-inert with the flag
+	# unset (no held world exists, so reset_held is a no-op).
+	if OS.get_environment("STRATA_CONTOUR_HELD") == "1":
+		get_tree().call_group("contour_held_source", "reset_held_world")
 	InteractionField.wear_restore(data.get("wear", {}))
 	# The world ran 1:1 while the app was closed — live the missed hours.
 	# UNLESS the clock was LOCKED at save time: a held clock did not live the

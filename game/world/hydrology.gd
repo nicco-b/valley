@@ -586,6 +586,15 @@ func held_owned_snapshot() -> Dictionary:
 	return _contour_bridge.held_owned_snapshot() if _contour_bridge != null else {}
 
 
+## RESTORE-INTO-HELD (G1, docs/SUBSTRATE.md §2 Rung 3): SaveManager.apply_snapshot
+## calls this on the contour_held_source group after WorldState.restore, so a LOAD
+## rebuilds the held world from the restored save (the next tick re-creates it),
+## not the pre-load trajectory. Inert with no bridge / off the held path.
+func reset_held_world() -> void:
+	if _contour_bridge != null:
+		_contour_bridge.reset_held()
+
+
 ## Does this river's mouth (last node) sit on this lake?
 func _river_feeds_lake(r: Dictionary, w: Dictionary) -> bool:
 	var nodes: Array = r.nodes

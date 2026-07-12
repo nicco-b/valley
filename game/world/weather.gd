@@ -247,20 +247,42 @@ func contour_status() -> Dictionary:
 ## SINGLETON diff-only apply. Empty until the held world is live (the mirror stays
 ## authoritative until then); empty off the held path entirely.
 ##
-## GDSCRIPT-CANONICAL KEY (weather.wind_angle): weather SNAPS the angle before
-## persisting — `WorldState.set_value("weather.wind_angle", snappedf(_wind_angle,
-## 0.001))` — so the store's canonical wind_angle is the SNAPPED value, while the
-## held world holds the raw pre-snap angle (the .ct does not snap). The held world
-## is therefore NOT the byte-source for this one key: drop it so the mirror stays
-## authoritative. Every other weather write (state / wind / fronts) is byte-source
-## from the held world. (A future rung moves the snap into weather.ct, at which
-## point the held world holds the canonical angle and this drop is retired.)
+## SAVE-FORM KEY (weather.wind_angle): weather SNAPS the angle before persisting —
+## `WorldState.set_value("weather.wind_angle", snappedf(_wind_angle, 0.001))` — so
+## the store's canonical wind_angle is the SNAPPED value, while the held world holds
+## the raw pre-snap angle (the .ct does not snap). The held world is therefore NOT
+## the byte-source for this one key: drop it so the mirror stays authoritative.
+## Every other weather write (state / wind / fronts) is byte-source from the held
+## world.
+##
+## WHY THE SNAP CANNOT MOVE INTO weather.ct (unlike climate.wet_grid's f32, G1):
+## the snap is a SAVE-representation narrowing that must NOT feed the simulation.
+## The twin keeps `_wind_angle` RAW across ticks (`_wind_angle = fposmod(_wind_angle
+## + drift, TAU)`) and snaps ONLY at the store boundary; the raw angle is what the
+## next hour's drift accumulates on. If the .ct snapped `weather.wind_angle`, the
+## read-back at _transition_contour would feed the SNAPPED angle into the chain, so
+## the accumulation would diverge from the flag-off twin after tick 1 — moving the
+## soak fingerprint AND breaking the STRATA_CONTOUR=0 hatch (byte-identical to
+## pre-change is the law). climate.wet_grid's f32 is safe precisely because the twin
+## ALREADY re-narrows it every tick (PackedFloat32Array), so the narrow is idempotent
+## in the chain; the wind snap is not. So this drop is the one honest reconciliation
+## that stays — the mirror is authoritative for wind_angle until a rung retires the
+## mirror itself (out of G1's scope).
 func held_owned_snapshot() -> Dictionary:
 	if _contour_bridge == null:
 		return {}
 	var owned := _contour_bridge.held_owned_snapshot()
 	owned.erase("weather.wind_angle")
 	return owned
+
+
+## RESTORE-INTO-HELD (G1, docs/SUBSTRATE.md §2 Rung 3): SaveManager.apply_snapshot
+## calls this on the contour_held_source group after WorldState.restore, so a LOAD
+## rebuilds the held world from the restored save (the next _transition re-creates
+## it), not the pre-load trajectory. Inert with no bridge / off the held path.
+func reset_held_world() -> void:
+	if _contour_bridge != null:
+		_contour_bridge.reset_held()
 
 
 func _ready() -> void:

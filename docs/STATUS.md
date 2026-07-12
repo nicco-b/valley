@@ -58,7 +58,8 @@ after the day officially closed.
   beside it — deleted after the M5 soak week.
 - **FW1 · the framework era** ([PLAN_FRAMEWORK.md](PLAN_FRAMEWORK.md)
   is the plan AND carries the ★ rulings — 2026-07-09, Nicco: all
-  defaults; mygame the guinea pig): **valley IS the engine.**
+  defaults; mygame the guinea pig): **valley IS the engine**
+  (transitional — see PLAN_ENGINE).
   `framework.json` v0 names the world spine — **90 files across 18
   systems** (Chronicle/Almanac/Loom/Elements/the whole Watershed + the
   parse-time closure); `scripts/framework_dist.sh` audits (census +

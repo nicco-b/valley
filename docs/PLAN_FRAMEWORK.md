@@ -12,6 +12,14 @@ its structural sibling: the copy + provenance + offered-updates
 pattern, generalized here from assets to code. Same laws, same voice
 as PLAN_PHYSICS/PLAN_FABRIC.*
 
+*2026-07-11, Nicco: this plan is TRANSITIONAL. It stands under
+`strata/docs/PLAN_ENGINE.md` — valley hosts the framework only until
+the Datum extraction ladder's rungs absorb it, rung by rung, not
+forever. End state (PLAN_ENGINE E5): Plat is the editor, Datum is the
+engine, and the Godot fork plus valley/native retire to museum
+branches. Everything below is the interim shape, not the
+destination.*
+
 ## Executive summary
 
 Nicco is right, and the codebase already agrees with him. DECISIONS

@@ -1159,13 +1159,17 @@ func _test_boot_phase(peer: StreamPeerTCP) -> void:
 ## PANE_HEALTH (agent-observability-pipeline item 3): the frame-sanity probe
 ## that catches the "white-map" class of degenerate render mechanically — a
 ## near-uniform frame (a broken shader, an unshaded flat pane) reads
-## uniform > 0.92 and verdicts degenerate; a varied frame verdicts ok. The
-## headless test scene has no live GPU frame to score (the dummy renderer
-## draws nothing — the same honest gate `flyover`/`thumbnail` already
-## answer), so the WIRE half only pins that honest grammar; the SCORING
-## half is driven directly against synthetic Images through the exact same
-## _pane_health_stats() the live capture calls, so this pins the real math,
-## not a mock of it.
+## uniform > 0.92 and verdicts degenerate; a varied frame verdicts ok. Since
+## the 2026-07-11 recalibration there's a third case, pinned below: a frame
+## that's near-flat by VARIANCE without ever saturating a uniform bucket
+## (per-pixel dither/noise scattered a real pink-wash failure across too
+## many quantized buckets for the old uniform-only rule to see) verdicts
+## suspect, not ok. The headless test scene has no live GPU frame to score
+## (the dummy renderer draws nothing — the same honest gate `flyover`/
+## `thumbnail` already answer), so the WIRE half only pins that honest
+## grammar; the SCORING half is driven directly against synthetic Images
+## through the exact same _pane_health_stats() the live capture calls, so
+## this pins the real math, not a mock of it.
 func _test_pane_health(peer: StreamPeerTCP) -> void:
 	# -- wire grammar: headless has no image, so the honest err answers,
 	# never a hang and never a fake "ok" over nothing.
@@ -1199,8 +1203,48 @@ func _test_pane_health(peer: StreamPeerTCP) -> void:
 	var varied_stats: Dictionary = StrataLink._pane_health_stats(varied)
 	_check(float(varied_stats["uniform"]) < StrataLink.PANE_HEALTH_UNIFORM_DEGENERATE,
 		"a varied frame scores under the degenerate line (got %.3f)" % float(varied_stats["uniform"]))
+	_check(float(varied_stats["variance"]) > StrataLink.PANE_HEALTH_VARIANCE_SUSPECT_MAX,
+		"a varied frame scores well clear of the suspect line too (got %.4f)"
+			% float(varied_stats["variance"]))
 	_check(String(varied_stats["verdict"]) == "ok",
 		"a varied frame verdicts ok (got %s)" % varied_stats["verdict"])
+
+	# -- scoring: THE PINNED REGRESSION (2026-07-11) — tonight's real live-
+	# pane failure. The pane rendered a near-uniform pink wash and pane_health
+	# answered "ok pane_health uniform=0.370 mean=0.644 var=0.0003
+	# verdict=ok": the old uniform-only rule missed it because the wash
+	# carried enough per-pixel dither/noise/gradient to spread across
+	# multiple 5-bit-quantized buckets (no single bucket cleared 0.92) even
+	# though the frame was, by luma variance, nearly flat — this world's
+	# known-flattest REAL frame (the hazy-sky reference, header doc above)
+	# scores var=0.0001, same order of magnitude. Tonight's exact pixels
+	# weren't logged, so this fixture reproduces the FAILURE SHAPE
+	# deterministically instead of guessing an exact match: three distinct
+	# near-pink bands (rows, not noise, so the math below is exact and
+	# doesn't depend on an RNG seed), none dominant, each landing in its own
+	# quantization bucket — uniform=0.375, mean=0.6365, var=0.00065 by
+	# construction (hand-derived, not measured: p_A=1536/4096, p_B=p_C=
+	# 1280/4096; luma_A=0.63652, luma_B=0.60436, luma_C=0.66868). Close to
+	# tonight's real numbers and squarely the same class. Must NOT verdict
+	# ok — that would be this exact regression happening again silently.
+	var wash := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	var band_a := Color(0.66, 0.62, 0.66)  # rows 0..23  (1536px, 37.5% — modal)
+	var band_b := Color(0.74, 0.54, 0.58)  # rows 24..43 (1280px)
+	var band_c := Color(0.58, 0.70, 0.74)  # rows 44..63 (1280px)
+	for y in range(64):
+		var band := band_a if y < 24 else (band_b if y < 44 else band_c)
+		for x in range(64):
+			wash.set_pixel(x, y, band)
+	var wash_stats: Dictionary = StrataLink._pane_health_stats(wash)
+	_check(float(wash_stats["uniform"]) < StrataLink.PANE_HEALTH_UNIFORM_DEGENERATE,
+		"the pink-wash regression never trips the old uniform-only line (got %.3f) — that's WHY it slipped through"
+			% float(wash_stats["uniform"]))
+	_check(float(wash_stats["variance"]) < StrataLink.PANE_HEALTH_VARIANCE_SUSPECT_MAX,
+		"the pink-wash regression reads as near-flat by variance (got %.5f, want < %.4f)"
+			% [float(wash_stats["variance"]), StrataLink.PANE_HEALTH_VARIANCE_SUSPECT_MAX])
+	_check(String(wash_stats["verdict"]) == "suspect",
+		"THE FIX: a near-uniform, low-variance frame like tonight's must not verdict ok (got %s, uniform=%.3f var=%.5f)"
+			% [wash_stats["verdict"], float(wash_stats["uniform"]), float(wash_stats["variance"])])
 
 
 ## The records desk (Strata R5): the game judges an edited record with its

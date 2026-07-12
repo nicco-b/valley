@@ -5030,12 +5030,21 @@ func _test_hydrology_sim_lakes_contour() -> void:
 	# point so both feed one authored sim-tier lake there — the cross-basin
 	# coupling this system split keeps host-side (THE lake sums both).
 	var mouth := Vector2(9000.0, 9000.0)  # far outside the home watershed grid
+	# Record -> _index_river -> append: the SAME seating _load_rivers/add_river
+	# perform (terrain.gd). EVERY river in Terrain's registry must carry the
+	# renderer index fields (bbox/grid/grid_w — built by _index_river) or
+	# _river_probe script-errors on every height/carve query for as long as the
+	# fixture is spliced in (caught by the gate's script-error tripwire: ~1400
+	# 'bbox' errors from the Climate/Weather terrain sampling inside the four
+	# _hourly ticks below). The W4 one-river-renderer law: one registry, fully
+	# indexed records only, never a half-record.
 	var r1 := Terrain._river_from_record({
 		"id": "g2_test_r1",
 		"nodes": [
 			{"x": mouth.x - 40.0, "z": mouth.y, "width": 3.0, "surface": 10.0},
 			{"x": mouth.x, "z": mouth.y, "width": 3.0, "surface": 9.0}]},
 		"g2_test_r1")
+	Terrain._index_river(r1)
 	Terrain.rivers.append(r1)
 	var r2 := Terrain._river_from_record({
 		"id": "g2_test_r2",
@@ -5043,6 +5052,7 @@ func _test_hydrology_sim_lakes_contour() -> void:
 			{"x": mouth.x, "z": mouth.y - 40.0, "width": 2.5, "surface": 10.5},
 			{"x": mouth.x, "z": mouth.y, "width": 2.5, "surface": 9.0}]},
 		"g2_test_r2")
+	Terrain._index_river(r2)
 	Terrain.rivers.append(r2)
 	Terrain.river_levels.resize(Terrain.rivers.size())
 	Terrain.river_levels[r1.idx] = 0.0

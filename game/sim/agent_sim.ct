@@ -24,7 +24,7 @@
 # impossible). So the owning manager PRE-RESOLVES every marker an activity names
 # into a live XZ GDScript-side — the same door the bridge resolves declared reads
 # through — and hands them in as the declared read `agent.markers` (a dict
-# marker-id -> vec2). resolve_target reads that map: a named marker that is
+# marker-id -> {x,z} wire dict). resolve_target reads that map: a named marker that is
 # present resolves to its position; one that is ABSENT (deleted, or an agent with
 # no resolver — wildlife) falls back to home, byte-identical to the twin's
 # `marker_resolver` returning INF / being unbound. The RESOLVER stays valley-side
@@ -37,6 +37,16 @@
 # declared reads. The persistent state it owns (needs / pos / target / current /
 # produced / rng) round-trips through its declared writes. roam_center's INF
 # sentinel is a boolean read `agent.has_cohesion` (vec2 has no is_finite()).
+#
+# THE {x,z} WIRE SHAPE (the JSON-safe twin contract, weather's dx/dz precedent):
+# every position-shaped resource crossing the WorldState mirror — pos / target /
+# home / jitter / roam_center, and each agent.markers value — is an {x,z} DICT,
+# never a raw vec2. WorldState values are JSON-compatible by contract (they ride
+# SaveGame's JSON round trip; a mirrored vec2 came back from a reload as a
+# stringified "(x, y)" and wedged every mind — the 2026-07-11 windowed bug).
+# step() constructs vec2s from the wire dicts for the math and decomposes its
+# writes back; the widen/narrow at this boundary is bit-identical to the
+# CompositeCodec vec2 path, so parity with the GDScript twin is unchanged.
 #
 # STATUS: authored + compiles clean under the cold gate; its five numeric leaves
 # (drain_need / satisfy_need / utility / hours_gate / step_toward — the last
@@ -100,7 +110,9 @@ sim func step_toward(pos, target, speed, dt_real) -> vector2:
 # present, else home (gone / no resolver); "roam" -> a seeded draw within the
 # range (or the herd's cohesion disk); anything else -> home. Only the roam path
 # draws the stream (randf for the angle, then randf_range for the magnitude — the
-# twin's order), so rng is threaded back through the returned dict.
+# twin's order), so rng is threaded back through the returned dict. A marker's
+# map value is an {x,z} wire dict (the JSON-safe twin contract) — rebuilt into a
+# vec2 here, the same construction as the raw-{x,z} branch below it.
 #
 # IN-PORT RENAME: the twin's local is `at` (the activity's `at` field), but `at`
 # is a Contour reserved word (the §7 `at MOMENT` time construct — fleet-law
@@ -111,7 +123,8 @@ sim func resolve_target(a, home, roam_center, has_cohesion, roam_range, cohesion
 		if dest.has("marker"):
 			var mid = dest.marker
 			if markers.has(mid):
-				return {"pos": markers[mid], "rng": rng}
+				var m = markers[mid]
+				return {"pos": vec2(m.x, m.z), "rng": rng}
 			return {"pos": home, "rng": rng}
 		return {"pos": vec2(dest.x, dest.z), "rng": rng}
 	if dest == "roam":
@@ -140,10 +153,21 @@ system AgentMind:
 		var needs_def = agent.needs_def
 		var activities = agent.activities
 		var current = agent.current
-		var pos = agent.pos
-		var target = agent.target
-		var home = agent.home
-		var jitter = agent.jitter
+		# Positions arrive as {x,z} wire dicts (the JSON-safe twin contract —
+		# header note); rebuild the vec2s the math runs on. Same widen/narrow
+		# as the codec's vec2 path, so bit-parity with the twin holds. (Hoist
+		# each resource to a local first — a resource is a dotted NAME, so a
+		# chained `agent.pos.x` would read as a three-part resource.)
+		var pos_w = agent.pos
+		var target_w = agent.target
+		var home_w = agent.home
+		var jitter_w = agent.jitter
+		var roam_center_w = agent.roam_center
+		var pos = vec2(pos_w.x, pos_w.z)
+		var target = vec2(target_w.x, target_w.z)
+		var home = vec2(home_w.x, home_w.z)
+		var jitter = vec2(jitter_w.x, jitter_w.z)
+		var roam_center = vec2(roam_center_w.x, roam_center_w.z)
 		var storminess = agent.storminess
 		var hour = agent.hour
 		var drain_scale = agent.drain_scale
@@ -203,13 +227,14 @@ system AgentMind:
 					keep = true
 		if not keep:
 			if best != current:
-				var r = resolve_target(best, home, agent.roam_center, agent.has_cohesion, agent.roam_range, agent.cohesion_radius, agent.markers, rng)
+				var r = resolve_target(best, home, roam_center, agent.has_cohesion, agent.roam_range, agent.cohesion_radius, agent.markers, rng)
 				current2 = best
 				target2 = r.pos + jitter
 				rng2 = r.rng
 		agent.needs = needs2
-		agent.pos = pos2
-		agent.target = target2
+		# Decompose the vec2s back to the {x,z} wire shape (the twin contract).
+		agent.pos = {"x": pos2.x, "z": pos2.y}
+		agent.target = {"x": target2.x, "z": target2.y}
 		agent.current = current2
 		agent.produced = produced2
 		agent.rng = rng2

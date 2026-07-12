@@ -18,7 +18,13 @@ var _state: Dictionary = {}
 
 
 func set_value(key: String, value: Variant) -> void:
-	if _state.get(key) == value:
+	# Same-type compare only: `==` across mismatched Variant types (String vs
+	# Vector2) is a RUNTIME ERROR that aborts this function BEFORE the store —
+	# the new value never lands and the stale one wedges in forever. Seen live:
+	# a pre-contract save's stringified vector met a typed rewrite and froze
+	# every agent mind. A type CHANGE is always a real change; store it.
+	var prior: Variant = _state.get(key)
+	if typeof(prior) == typeof(value) and prior == value:
 		return
 	_state[key] = value
 	changed.emit(key, value)

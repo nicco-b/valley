@@ -78,6 +78,11 @@ const STEPS_ASIDE_GROUP := "preview_steps_aside"
 ##        curve baked into the LUT, slope 0..1 as 1-n.y).
 ##  row:  the layer's row in ramps.png (DataRamps.lutRows order).
 ##  fmt:  probe value format — mirrors Strata's LayerProbe.format table.
+## biome and province BOTH ride mode 5 (the pre-coloured color_map arm): each
+## binds its own per-cell tint file for the drape (colormap.png / province_color.png,
+## from Strata's DataRamps) while the probe VALUE is the id from the sibling
+## r8 file (biome.png / province.png — province's byte is the land index 0..count-1,
+## count 3..7). No shader change: province is biome's idiom with a second file pair.
 const LAYERS := {
 	"shaded": {"mode": 0, "fmt": "%.1f"},
 	"moisture": {"mode": 1, "file": "moisture.png",
@@ -88,6 +93,7 @@ const LAYERS := {
 		"enc": [0.0, 1.0], "view": [0.0, 60.0], "row": 2, "fmt": "%.2f"},
 	"slope": {"mode": 4, "view": [0.0, 1.0], "row": 3, "fmt": "%.2f"},
 	"biome": {"mode": 5, "file": "colormap.png", "fmt": "%d"},
+	"province": {"mode": 5, "file": "province_color.png", "fmt": "%d"},
 }
 
 ## True while this grid is the visible ground (between wear and leave).
@@ -382,7 +388,7 @@ func set_layer(name: String) -> String:
 		if entry is String:
 			return entry  # the honest missing-file err
 		_mat.set_shader_parameter(
-			"color_map" if name == "biome" else "data_map", entry["tex"])
+			"color_map" if name in ["biome", "province"] else "data_map", entry["tex"])
 	_apply_layer(name)
 	return "ok layer %s (%.0fms)" % [name, (Time.get_ticks_usec() - t0) / 1000.0]
 
@@ -405,6 +411,8 @@ func _set_layer_shared(name: String, t0: int) -> String:
 			_mat.set_shader_parameter("color_map", ctex)
 		"temperature":
 			return "err temperature has no shared surface (Metal view only)"
+		"province":
+			return "err province has no shared surface (file path only)"
 		_:
 			var dtex := _shared_front(name)
 			if dtex == null:
@@ -444,6 +452,13 @@ func probe(x: float, z: float) -> String:
 			# The drape wears colormap.png (pre-coloured); the VALUE is the
 			# id, which lives in biome.png — loaded lazily like any layer.
 			var entry: Variant = _cached_layer("biome.png")
+			if entry is String:
+				return entry
+			value = roundf(_sample(entry["img"], x, z) * 255.0)
+		"province":
+			# The drape wears province_color.png (pre-coloured); the VALUE is the
+			# land index, which lives in province.png — loaded lazily like biome.
+			var entry: Variant = _cached_layer("province.png")
 			if entry is String:
 				return entry
 			value = roundf(_sample(entry["img"], x, z) * 255.0)

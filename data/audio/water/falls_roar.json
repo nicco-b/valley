@@ -1,0 +1,10 @@
+{
+	"_comment": "W10a waterfall roar: one positional emitter per Terrain fall site (falls[] on each river record, planted at the bake's plunge base). Gain scales with drop_m (clamped against drop_ref) times Hydrology.flow_norm(river.id) — the flow_norm loudness value W10 asks for. Reuses the existing wind_loop.wav placeholder (no new sound card).",
+	"id": "falls_roar",
+	"file": "res://assets/audio/wind_loop.wav",
+	"bus": "Ambience",
+	"gain_ref": 0.55,
+	"drop_ref": 12.0,
+	"max_distance": 90.0,
+	"unit_size": 10.0
+}

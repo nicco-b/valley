@@ -1,4 +1,4 @@
-[gd_scene load_steps=21 format=3]
+[gd_scene load_steps=22 format=3]
 
 [ext_resource type="PackedScene" path="res://game/player/player.tscn" id="1_player"]
 [ext_resource type="Script" path="res://game/world/water_bodies.gd" id="6_water"]
@@ -13,6 +13,7 @@
 [ext_resource type="Script" path="res://game/wildlife/wildlife_manager.gd" id="16_wildlife"]
 [ext_resource type="Script" path="res://game/world/sand_patch.gd" id="17_sandpatch"]
 [ext_resource type="Script" path="res://game/world/water_sheet.gd" id="18_watersheet"]
+[ext_resource type="Script" path="res://game/world/water_audio.gd" id="19_wateraudio"]
 
 [sub_resource type="ParticleProcessMaterial" id="Particles_dust"]
 direction = Vector3(1, 0, 0.2)
@@ -84,6 +85,9 @@ script = ExtResource("3_streamer")
 
 [node name="Ambience" type="Node" parent="."]
 script = ExtResource("8_ambience")
+
+[node name="WaterAudio" type="Node" parent="."]
+script = ExtResource("19_wateraudio")
 
 [node name="FarTerrain" type="Node3D" parent="."]
 script = ExtResource("14_far")

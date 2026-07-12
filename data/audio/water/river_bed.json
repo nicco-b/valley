@@ -1,0 +1,9 @@
+{
+	"_comment": "W10a river reach bed: one positional emitter per Terrain river, planted at the reach's midpoint node. Gain scales with Hydrology.flow_norm(river.id) (live discharge, 0..1ish) times gain_ref. Reuses the existing wind_loop.wav placeholder (no new sound card); WaterAudio.gd is the one emitter node type this row and falls_roar.json share.",
+	"id": "river_bed",
+	"file": "res://assets/audio/wind_loop.wav",
+	"bus": "Ambience",
+	"gain_ref": 0.22,
+	"max_distance": 60.0,
+	"unit_size": 6.0
+}

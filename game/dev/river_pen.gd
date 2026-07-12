@@ -77,6 +77,13 @@ static func erase(id: String, path: String) -> void:
 
 
 static func _write(rec: Dictionary, path: String) -> void:
+	# Ensure the pen dir exists before opening — the InteriorRecords /
+	# CellRecords writer convention (make_dir_recursive before WRITE). A
+	# scaffolded/content-empty game has no data/water/rivers yet; without
+	# this the first carve's FileAccess.open returns null and the river
+	# never persists (idempotent no-op wherever the dir already exists).
+	DirAccess.make_dir_recursive_absolute(
+		ProjectSettings.globalize_path(path).get_base_dir())
 	var fh := FileAccess.open(path, FileAccess.WRITE)
 	if fh == null:
 		push_error("[riverpen] cannot write %s: %s" % [path,

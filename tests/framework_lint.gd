@@ -152,6 +152,10 @@ const ALLOWLIST: Array[Dictionary] = [
 	{"path": "game/world/terrain.gd", "rule": "content-id",
 		"literal": "sea",
 		"reason": "schema field key (water-body bool flag), not an id reference"},
+	{"path": "game/world/water_bodies.gd", "rule": "content-id",
+		"literal": "shore_lap",
+		"reason": "shader parameter name (W5.4 lake foam), not an id reference — "
+			+ "coincides with W10's shore_lap ambience record id"},
 	# (PLAN_AUDIO A1 removed player.gd's res://assets/audio/steps literal —
 	# footsteps are data now, data/audio/footsteps.json — so its
 	# asset-preload allowlist entry retired with it.)

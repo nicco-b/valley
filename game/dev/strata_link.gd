@@ -382,16 +382,6 @@ const PROTOCOL := 1
 ## connect at _ready without a reference to a drape that may not exist yet.
 signal preview_sea(active: bool, sea_level: float)
 
-## W4 (STUDY_WATER_TERRAIN §W4, "one river renderer for both faces"): fired by
-## PreviewTerrain whenever the near/far hydrology posture changes — active=true
-## with a payload {dir, height_fn, world_size} below the M6a distance gate (the
-## drape's real water_bodies ribbons/lakes should hold, mirroring the sea's
-## M6c posture above), active=false above the gate or on leave (the T1 chart
-## takes the far face back). water_bodies is the one listener — it builds/frees
-## a SEPARATE set of preview meshes; the live game's Terrain.rivers/water_bodies
-## records are never touched.
-signal preview_hydrology(active: bool, payload: Dictionary)
-
 ## Every verb _execute answers — the `verbs` discovery reply (audit QW7).
 ## The scene tests assert this list matches the dispatcher's match arms
 ## exactly, both ways: add a verb there and it MUST land here too.

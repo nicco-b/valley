@@ -50,6 +50,7 @@ static func river_records(hydro: Dictionary) -> Array[Dictionary]:
 			"catchment_m2": float((r as Dictionary).get("catchment_m2", 0.0)),
 			"nodes": nodes,
 			"waterfalls": falls,
+			"source": "strata_hydrology",
 		})
 	return out
 
@@ -68,7 +69,7 @@ static func lake_records(hydro: Dictionary) -> Array[Dictionary]:
 				and (l as Dictionary).has("surface")):
 			continue
 		var lk: Dictionary = l
-		out.append({
+		var rec := {
 			"id": "hyd_%s" % String(lk.get("id", "l")),
 			"no_sim": true,
 			"center": {"x": float(lk["x"]), "z": float(lk["z"])},
@@ -77,8 +78,19 @@ static func lake_records(hydro: Dictionary) -> Array[Dictionary]:
 			"depth": float(lk.get("depth", 0.0)),
 			"basin": {"radius": float(lk["radius"]), "depth": 0.0},
 			"outlet": "aquifer",
-			"outline": lk.get("outline", []),
-		})
+			"source": "strata_hydrology",
+		}
+		# The solver's TRUE shoreline (P2+): an ordered closed polygon in world
+		# meters, normalized to plain floats. A pre-outline export simply omits
+		# the key (the disc fallback) — and so does the written record, so
+		# re-imported blessed files stay byte-identical to the pre-W4 importer.
+		var outline_raw: Array = lk.get("outline", [])
+		if not outline_raw.is_empty():
+			var ring: Array = []
+			for p: Dictionary in outline_raw:
+				ring.append({"x": float(p["x"]), "z": float(p["z"])})
+			rec["outline"] = ring
+		out.append(rec)
 	return out
 
 

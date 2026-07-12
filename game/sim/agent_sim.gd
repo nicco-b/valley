@@ -151,9 +151,10 @@ static func _contour_resolve() -> void:
 	bridge.set_held_mode(ContourBridge.HELD_MODE_MULTIPLEXED)
 	_contour_bridge = bridge
 	_contour_mode = 2
-	# The Rung 2 DARK sub-flag: only meaningful once the bridge is live. Off by
-	# default; on, every mind's advance() routes through the persistent held world.
-	_contour_held = OS.get_environment("STRATA_CONTOUR_HELD") == "1"
+	# The Rung 2 sub-flag: only meaningful once the bridge is live. ON by
+	# default (landing-round flip; STRATA_CONTOUR_HELD=0 is the legacy hatch);
+	# on, every mind's advance() routes through the persistent held world.
+	_contour_held = ContourPosture.held_enabled()  # ruled default: unset => ON (=0 legacy hatch)
 
 
 ## Routing introspection for the soak (proves the herd's minds ran through

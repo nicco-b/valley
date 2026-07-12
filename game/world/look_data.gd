@@ -14,6 +14,7 @@ extends RefCounted
 ## just the shader code.
 
 const GOUACHE_PATH := "res://data/looks/gouache.json"
+const SKY_PATH := "res://data/looks/sky.json"
 
 
 ## Load a look record from `path` and return its params dict IF its
@@ -45,6 +46,37 @@ static func load_params(path: String, family: String) -> Dictionary:
 ## site both terrain.gd and preview_terrain.gd use.
 static func load_gouache() -> Dictionary:
 	return load_params(GOUACHE_PATH, "gouache")
+
+
+## The sky family's params, from the shipped record (E3.4). Returns the dome
+## CONSTANTS (`params`) only — the palette the hour is resolved against is a
+## SEPARATE record named by the record's `palette_ref` (load_sky_palette_ref).
+## Same loud-on-mismatch contract as load_gouache: {} means "something is
+## wrong, look at the log", never "use defaults". sky is look #2, not the
+## schema — a game with a different sky ships a different look_family.
+static func load_sky() -> Dictionary:
+	return load_params(SKY_PATH, "sky")
+
+
+## The palette res:// path the sky record references (its `palette_ref`), or
+## the empty string if the record is missing/malformed/not-sky or carries no
+## ref. The sky look resolves palette(hour) from THIS one source; a game whose
+## palette record is absent falls back to day_night.gd's DEFAULT_KEYS, exactly
+## as day_night.gd already does when res://data/sky/day_night.json is content-
+## empty.
+static func load_sky_palette_ref() -> String:
+	if not FileAccess.file_exists(SKY_PATH):
+		push_error("[look_data] missing sky record: %s" % SKY_PATH)
+		return ""
+	var parsed = JSON.parse_string(FileAccess.get_file_as_string(SKY_PATH))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		push_error("[look_data] %s did not parse as an object" % SKY_PATH)
+		return ""
+	var record: Dictionary = parsed
+	if String(record.get("look_family", "")) != "sky":
+		push_error("[look_data] %s is not a sky record" % SKY_PATH)
+		return ""
+	return String(record.get("palette_ref", ""))
 
 
 ## Bind a gouache params dict onto a ShaderMaterial's uniforms (the exact

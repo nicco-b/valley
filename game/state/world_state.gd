@@ -21,12 +21,15 @@ var _state: Dictionary = {}
 ## held-owned key that is MIRROR_ELIGIBLE: get_value/snapshot of it READ THROUGH to
 ## the owning bridge's held world (the sim-tier truth), and set_value of it is a
 ## no-op (the held world is authoritative — mutated only by the tick, or by the
-## forcing door's write-through). Default UNCHANGED (unset / any value but "0" ==
-## mirror-on, byte-identical to before). The flip only BITES once a SINGLETON bridge
-## has registered its eligible keys AND its held world is live — under the copy path
-## (no held world) held_read returns {} and every key falls to the plain _state
-## fast path, so STRATA_CONTOUR_MIRROR=0 is inert without STRATA_CONTOUR_HELD=1.
-static var _mirror_flip := OS.get_environment("STRATA_CONTOUR_MIRROR") == "0"
+## forcing door's write-through). LANDING-ROUND DEFAULT FLIP (ruled 2026-07-12):
+## unset now means the mirror is RETIRED for eligible keys (flip ON);
+## STRATA_CONTOUR_MIRROR=1 is the legacy hatch restoring the per-key mirror
+## copies. Resolved by ContourPosture (the single posture file). The flip only
+## BITES once a SINGLETON bridge has registered its eligible keys AND its held
+## world is live — under the copy path (no held world) held_read returns {} and
+## every key falls to the plain _state fast path, so the flip is inert when the
+## held path is off (STRATA_CONTOUR_HELD=0).
+static var _mirror_flip := ContourPosture.mirror_flipped()
 
 ## Read-through provider registry: an eligible held-owned key -> the SINGLETON
 ## ContourBridge that owns it (registered at engage via bridge.register_read_through).

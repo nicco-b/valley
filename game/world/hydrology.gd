@@ -609,9 +609,10 @@ func _contour_resolve() -> void:
 	bridge.register_read_through()
 	_contour_bridge = bridge
 	_contour_mode = 2
-	# The Rung 2 DARK sub-flag: only meaningful once the bridge is live. Off by
-	# default; on, the region-river tick routes through the persistent held world.
-	_contour_held = OS.get_environment("STRATA_CONTOUR_HELD") == "1"
+	# The Rung 2 sub-flag: only meaningful once the bridge is live. ON by
+	# default (landing-round flip; STRATA_CONTOUR_HELD=0 is the legacy hatch);
+	# on, the region-river tick routes through the persistent held world.
+	_contour_held = ContourPosture.held_enabled()  # ruled default: unset => ON (=0 legacy hatch)
 
 
 ## The watershed (sim-tier) river reservoir evolution (Wave G2): routed through

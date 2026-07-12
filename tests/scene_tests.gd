@@ -6081,10 +6081,15 @@ func _test_climate_v2() -> void:
 		Weather._wind_angle = was_angle
 		Weather.wind_dir = Vector2.from_angle(was_angle)
 		Weather.force_kind("calm")
-	# Legacy migration: a save with only the scalar floods the field.
+	# Legacy migration: a save with only the scalar floods the field. The
+	# synthetic legacy shape is injected through the FORCING DOOR (force_value,
+	# docs/SUBSTRATE.md §2a point 5): under the flipped default posture
+	# (mirror retired) a plain set_value of a held-owned key is correctly a
+	# no-op — an external mutation must write through, exactly like `state set`.
+	# (The real load path is unaffected: SaveManager rides WorldState.restore.)
 	var keep_wet: float = Climate.wetness
-	WorldState.set_value("climate.wet_grid", null)
-	WorldState.set_value("climate.wetness", 0.42)
+	WorldState.force_value("climate.wet_grid", null)
+	WorldState.force_value("climate.wetness", 0.42)
 	Climate.load_state()
 	_check(absf(Climate.wetness - 0.42) < 0.001,
 		"legacy scalar migrates into the field")

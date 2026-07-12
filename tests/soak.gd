@@ -146,7 +146,9 @@ func _ready() -> void:
 	# registered; `leaked=0` proves the _state copy was actually retired, not shadowed.
 	# The fingerprint identity above is the deciding proof — sand.repose feeds the
 	# sand digest, so a broken read-through moves the fingerprint. Inert off the flip.
-	if OS.get_environment("STRATA_CONTOUR_MIRROR") == "0" \
+	# Landing-round flip: soak asks the resolver for the EFFECTIVE posture (env
+	# hatches honored — the legacy runs set STRATA_CONTOUR_MIRROR=1 / _HELD=0).
+	if ContourPosture.mirror_flipped() \
 			and WorldState.has_method("mirror_flipped"):
 		var armed: bool = WorldState.mirror_flipped()
 		var providers: int = WorldState.read_through_count()
@@ -156,7 +158,7 @@ func _ready() -> void:
 			% [str(armed), providers, leaked, str(repose)])
 		# Only demand engagement when Contour+HELD actually routed (the flip needs a
 		# live held world); off the held path the flip is lawfully inert.
-		if OS.get_environment("STRATA_CONTOUR_HELD") == "1" \
+		if ContourPosture.held_enabled() \
 				and OS.get_environment("STRATA_CONTOUR") != "0":
 			_check(armed, "mirror flip armed under STRATA_CONTOUR_MIRROR=0")
 			_check(providers > 0, "SINGLETON bridges registered read-through providers")
@@ -239,7 +241,7 @@ func _invariants(wildlife: Node) -> void:
 ## inert — no held world lives, so _held_sourced_state == the mirror trivially, and
 ## the "sourced" proof below is skipped (nothing to source).
 func _rung3_snapshot_acceptance() -> void:
-	if OS.get_environment("STRATA_CONTOUR_HELD") != "1":
+	if not ContourPosture.held_enabled():
 		return
 	if not SaveGame.has_method("_held_sourced_state"):
 		return

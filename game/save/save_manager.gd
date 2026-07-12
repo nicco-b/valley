@@ -91,7 +91,8 @@ func snapshot_data() -> Dictionary:
 ## today's WorldState.snapshot(), byte-for-byte — the copy path stays the floor.
 func _held_sourced_state() -> Dictionary:
 	var state := WorldState.snapshot()
-	if OS.get_environment("STRATA_CONTOUR_HELD") != "1":
+	# Landing-round flip: the covenant follows the EFFECTIVE posture (resolver).
+	if not ContourPosture.held_enabled():
 		return state
 	for src in get_tree().get_nodes_in_group("contour_held_source"):
 		if not src.has_method("held_owned_snapshot"):
@@ -203,7 +204,8 @@ func apply_snapshot(data: Dictionary, replay_away: bool) -> bool:
 	# next natural tick and the save meanwhile sources the restored mirror (correct —
 	# held_owned_snapshot returns {} with no live held world). Byte-inert with the flag
 	# unset (no held world exists, so reset_held is a no-op).
-	if OS.get_environment("STRATA_CONTOUR_HELD") == "1":
+	# Landing-round flip: the covenant follows the EFFECTIVE posture (resolver).
+	if ContourPosture.held_enabled():
 		get_tree().call_group("contour_held_source", "reset_held_world")
 	InteractionField.wear_restore(data.get("wear", {}))
 	# The world ran 1:1 while the app was closed — live the missed hours.

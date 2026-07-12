@@ -1,0 +1,41 @@
+{
+	"format": 1,
+	"look_family": "sky",
+	"palette_ref": "res://data/sky/day_night.json",
+	"note": "A Look record for the SKY family (E3.4): the family-generic {look_family, params} envelope, where `params` carries the non-palette dome CONSTANTS and `palette_ref` names the day/night palette the hour is resolved against — the ONE palette source (game/world/day_night.gd loads the same record; a content-empty game falls back to day_night.gd's DEFAULT_KEYS). The look reads `palette(hour)` with the hour as a PURE input (law 5 — never a clock read). The constants below are PROMOTED VERBATIM from runtime/game/shaders/sky.gdshader's sky() and the hour->sun_size/night math in game/world/day_night.gd — a MOVE, not a retune; byte-identical to what those files compute. gouache was look #1; sky is look #2, still not the schema. An unknown look_family fails LOUDLY (game/world/look_data.gd, Wash's look registry), never a silent fallback.",
+	"params": {
+		"horizon_curve": 0.45,
+		"below_horizon": {
+			"floor": 0.82,
+			"rate": 2.5
+		},
+		"sun": {
+			"disc_edge": 0.72,
+			"disc_weight": 1.15,
+			"halo_falloff": 8.0,
+			"halo_weight": 0.22,
+			"size_base": 0.035,
+			"size_swell": 0.05,
+			"size_swell_rate": 3.0
+		},
+		"stars": {
+			"cell_scale": 28.0,
+			"horizon_offset": 0.35,
+			"threshold": 0.82,
+			"point_size": 0.09,
+			"jitter": 0.8,
+			"brightness_base": 0.35,
+			"brightness_var": 0.65,
+			"min_elevation": 0.02,
+			"fade_elevation": 0.25,
+			"moon_extinction": 0.55,
+			"humidity_extinction": 0.45,
+			"tint": [1.0, 0.96, 0.9]
+		},
+		"night_rate": 4.0,
+		"lightning": {
+			"color": [0.93, 0.93, 1.0],
+			"weight": 0.85
+		}
+	}
+}

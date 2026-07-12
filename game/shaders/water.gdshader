@@ -70,6 +70,14 @@ const float SURF_GAMMA = 0.78;   // break when waveheight/depth tops this
 const float SHOAL_MAX = 1.7;     // Green's-law amplitude gain cap
 const float SLOW_M = 6.0;        // meters of phase lag at zero depth (crests bunch)
 const float DEPTH_MIN = 0.05;    // the water column never divides by zero
+// W5.1 depth-tint remap: the old exp(-depth·2.4) saturated to milk in the
+// first ~0.3 m (a wader's shins vanished the instant they wet). The strand
+// wants the bed CLEAR through the shallows and milk only in the deep. A
+// clear offset (legs read until `depth_clear`) plus a gentler e-fold past
+// it puts the milk where the study asks: shins at 0.5 m, opaque past ~3 m.
+// Retune by eye off the strand re-shot, not by code.
+uniform float depth_clear = 0.28;  // the bed reads clean until this depth (m)
+uniform float depth_murk = 0.72;   // milk e-folds per meter past the clear band
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 global uniform sampler2D wave_map; // tier-2.5 height field, meters
@@ -100,6 +108,31 @@ const float FOAM_SPAN = 0.8;  // the band ladder covers this much LIFTED history
 // A/B the fade off (WAVE_FADE=off) — retune by eye, not by code.
 uniform float foam_fade_near = 150.0;
 uniform float foam_fade_far = 300.0;
+// W5.4 shore-lap ring (lakes/rivers): the sea has its W2 surf band, but a
+// calm lake shore just faded. shore_lap (1 on lakes, 0 default) paints a
+// slow posterized foam RING that laps the waterline — a travelling band
+// keyed on the water column depth (thin at shore, gone by ~0.5 m), stepped
+// to gouache curds, not a mist. The terrain-side WETNESS band this pairs
+// with waits on W1's river_mask (absent this branch) — parked there.
+uniform float shore_lap = 0.0;
+// W5.3 lake mirror (★2 RULED: STYLIZED MIRROR): a gouache-QUANTIZED
+// sky+sun reflection on CALM lakes only — not SSR, not planar. water_bodies
+// sets lake_mirror=1 on lake materials; sea and rivers keep 0 (the sea
+// keeps its Gerstner life; rivers move too fast to mirror). The term
+// bounces the view ray off the painted normal into an analytic two-band
+// sky — the REAL top/horizon palette day_night publishes each frame, so
+// the mirror never drifts from the sky it claims to reflect — and both
+// the sky gradient AND the mirror mix are snapped to hard steps: laid
+// gouache strokes, never a chrome sheen. A stepped pale sun glint (the
+// posterized-white law, same family as falls/foam) rides water_sun_dir.
+// Calmness gates everything: rings, chop, current, and swell each fade
+// the mirror, so a stirred or windy lake goes honestly matte again.
+uniform float lake_mirror = 0.0;
+const float MIRROR_STEPS = 4.0;   // mirror-mix quantization: the gouache bands
+const float SKY_BANDS = 4.0;      // reflected sky gradient posterization
+global uniform vec3 water_sun_dir;      // direction TO the sun (day_night)
+global uniform vec3 water_sky_top;      // sky zenith colour this frame
+global uniform vec3 water_sky_horizon;  // sky horizon colour this frame
 global uniform sampler2D trace_map;
 global uniform vec2 trace_center;
 global uniform float trace_size;
@@ -236,7 +269,33 @@ void vertex() {
 	}
 }
 
+// W5.2 ripple scale: the three axis-aligned sines below march in lockstep,
+// and at 30–80 m view distance the regular sine phase resolves into
+// corduroy stripes (fly_channel_top). A world-anchored value-noise octave
+// warps the domain so the crests wander instead of ruling straight lines —
+// anchored to world XZ (p already carries wpos·0.8), so the break is
+// spatial, not a screen-space shimmer that swims with the camera.
+float hash21(vec2 p) {
+	p = fract(p * vec2(123.34, 456.21));
+	p += dot(p, p + 45.32);
+	return fract(p.x * p.y);
+}
+float vnoise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float a = hash21(i);
+	float b = hash21(i + vec2(1.0, 0.0));
+	float c = hash21(i + vec2(0.0, 1.0));
+	float d = hash21(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
 float ripple(vec2 p, float t) {
+	// World-anchored domain warp — the octave that kills the corduroy.
+	vec2 w = vec2(vnoise(p * 0.45 + vec2(t * 0.05, 0.0)),
+			vnoise(p * 0.45 + vec2(0.0, -t * 0.05))) - 0.5;
+	p += w * 1.35;
 	return sin(p.x * 1.7 + t * 1.1) * 0.5
 			+ sin((p.x + p.y) * 0.9 - t * 0.7) * 0.3
 			+ sin(p.y * 2.3 + t * 1.7) * 0.2;
@@ -300,9 +359,14 @@ void fragment() {
 			foam_hist = floor(foam_hist / band + 0.5) * band;
 		}
 	}
+	// W5.2: fade the fine procedural ripple out of the NORMAL with camera
+	// distance — the octave that reads as corduroy at 30–80 m never aliases
+	// into stripes because there is no high-freq normal left out there; the
+	// swell gradient (coarse, world-scale) carries the far surface alone.
+	float rip_atten = 1.0 - smoothstep(30.0, 85.0, length(VERTEX));
 	vec3 n_ws = normalize(vec3(
-			-rx * (0.3 + t * 0.5) - wgrad.x - swell_grad.x * 2.8, 1.0,
-			-rz * (0.3 + t * 0.5) - wgrad.y - swell_grad.y * 2.8));
+			-rx * (0.3 + t * 0.5) * rip_atten - wgrad.x - swell_grad.x * 2.8, 1.0,
+			-rz * (0.3 + t * 0.5) * rip_atten - wgrad.y - swell_grad.y * 2.8));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_ws, 0.0)).xyz);
 
 	// The hour picks the palette: teal day, slate night, pink low sun.
@@ -313,7 +377,10 @@ void fragment() {
 	// normal, more with depth, and drink the light toward the deep tint.
 	vec2 refr = n_ws.xz * (0.015 + 0.035 * clamp(water_depth * 0.5, 0.0, 1.0));
 	vec3 through = texture(screen_tex, clamp(SCREEN_UV - refr, vec2(0.001), vec2(0.999))).rgb;
-	float shallow = exp(-water_depth * mix(2.4, 1.1, water_gold));
+	// W5.1: clear band, then a gentle e-fold — golden hour reads a touch
+	// deeper (the low-sun water is quieter, less scatter).
+	float murk_d = max(water_depth - depth_clear, 0.0);
+	float shallow = exp(-murk_d * mix(depth_murk, depth_murk * 0.66, water_gold));
 	through *= mix(vec3(1.0), pal_a, clamp(1.0 - shallow, 0.0, 0.85) * 0.7);
 
 	// Surface color: the deep body rising with depth and grazing angle.
@@ -322,12 +389,57 @@ void fragment() {
 	vec3 surface_col = mix(pal_a * 0.9, pal_b * 1.04, 0.35 + fresnel * 0.5);
 	vec3 col = mix(through, surface_col, body);
 
+	// W5.3: the quantized lake mirror (★2 ruling: stylized mirror).
+	if (lake_mirror > 0.5) {
+		// Calm gate: every local disturbance takes the mirror away —
+		// wading rings (wave field height/gradient), the stirred trace,
+		// current, and wind swell. A glass lake mirrors; a lively one is
+		// today's matte gouache, unchanged.
+		float stir = abs(wave_h) * 18.0 + length(wgrad) * 3.0 + t * 2.0
+				+ length(f) * 1.2 + clamp(swell_amp * 4.0, 0.0, 1.0);
+		float calm = 1.0 - clamp(stir, 0.0, 1.0);
+		if (calm > 0.01) {
+			// Bounce the view off the painted (posterized-ring) normal.
+			vec3 view_ws = normalize(CAMERA_POSITION_WORLD - wpos);
+			vec3 rdir = reflect(-view_ws, n_ws);
+			// The analytic sky: horizon → zenith by the ray's upness,
+			// SNAPPED to SKY_BANDS — the reflection is laid in flat
+			// strokes of the real sky palette, not a smooth photo grade.
+			float up = clamp(rdir.y, 0.0, 1.0);
+			up = floor(up * SKY_BANDS) / (SKY_BANDS - 1.0);
+			vec3 sky = mix(water_sky_horizon, water_sky_top, clamp(up, 0.0, 1.0));
+			// Mirror weight: grazing angles mirror hardest (fresnel),
+			// scaled by calm, then QUANTIZED to MIRROR_STEPS so the term
+			// arrives in bands (the gouache law), never a glaze.
+			float m = clamp(fresnel * 0.75 + 0.12, 0.0, 0.7) * calm;
+			m = floor(m * MIRROR_STEPS + 0.5) / MIRROR_STEPS;
+			col = mix(col, sky, m * 0.8);
+			// The sun glint: a stepped pale road under the low sun —
+			// posterized white (the falls/foam law), three hard steps,
+			// killed with the sun below the horizon and by any stir.
+			float sun_a = clamp(dot(rdir, normalize(water_sun_dir)), 0.0, 1.0);
+			float glint = pow(sun_a, 180.0) * calm
+					* clamp(water_sun_dir.y * 6.0, 0.0, 1.0);
+			glint = floor(clamp(glint, 0.0, 1.0) * 3.0) / 3.0;
+			col = mix(col, vec3(1.0, 0.98, 0.92), glint * 0.75);
+		}
+	}
+
 	// Foam: painted pale bands, posterized — shoreline lap, wave crests,
 	// fast water streaks, stirred wading. Never photoreal spray.
 	float foam = smoothstep(0.3, 0.05, water_depth) * 0.75;
 	foam += smoothstep(0.035, 0.09, wave_h + length(wgrad) * 0.05) * 0.6;
 	foam += smoothstep(0.8, 1.6, length(f)) * (0.5 + 0.5 * sin(fp.x * 3.1 + fp.y * 1.7)) * 0.35;
 	foam += t * 0.5;
+	// W5.4: the shore-lap ring — a slow band travelling up the shallows,
+	// posterized so it reads as painted curds lapping the waterline. Keyed
+	// on the water column so it hugs the true shore on any lake outline.
+	if (shore_lap > 0.5) {
+		float lap = 0.5 + 0.5 * sin(water_depth * 7.0 - TIME * 1.3
+				+ (fp.x * 0.15 + fp.y * 0.11));
+		foam += smoothstep(0.55, 0.02, water_depth)
+				* floor(lap * 3.0) / 3.0 * 0.4;
+	}
 	foam += rapids_v * rapids_boost * (0.38 + 0.28 * sin(fp.x * 2.3 + fp.y * 2.9));
 	// Storm rollers wear painted caps: crest phase gated by amplitude, so
 	// a calm sea stays clean and heavy swell reads from the strand. Kept

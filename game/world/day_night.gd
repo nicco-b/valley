@@ -101,6 +101,15 @@ func _process(delta: float) -> void:
 	var night := 1.0 - smoothstep(-0.12, 0.05, elevation)
 	RenderingServer.global_shader_parameter_set("water_gold", gold)
 	RenderingServer.global_shader_parameter_set("water_night", night)
+	# W5.3 (★2 RULED: stylized mirror): the lake mirror reflects the REAL
+	# sky — sun direction + the same top/horizon palette the sky material
+	# wears this frame — so the quantized mirror never drifts from the sky
+	# it claims to reflect. Sun colour rides the shader's light() glint.
+	RenderingServer.global_shader_parameter_set("water_sun_dir", sun.global_basis.z)
+	RenderingServer.global_shader_parameter_set("water_sky_top",
+		Vector3(top.r, top.g, top.b))
+	RenderingServer.global_shader_parameter_set("water_sky_horizon",
+		Vector3(horizon.r, horizon.g, horizon.b))
 	# Direction TO the sun; disc swells and reddens near the horizon.
 	mat.set_shader_parameter("sun_dir", sun.global_basis.z)
 	mat.set_shader_parameter("sun_size", 0.035 + 0.05 * (1.0 - clampf(absf(elevation) * 3.0, 0.0, 1.0)))

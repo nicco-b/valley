@@ -1,5 +1,5 @@
 {
-  "date" : "2026-07-12T08:54:57Z",
+  "date" : "2026-07-12T09:15:20Z",
   "files" : {
     "assets\/models\/creatures\/biped_fox.glb" : "a8953875edbc44cdf2e6f59889f4416f2340ba2945babaa858cecf29a26e6343",
     "data\/world\/biomes.json" : "b8c328cc6597a738d292e29fbe9b89ed52153dc9771a1f4c0a6e3a89aca0baf2",
@@ -160,7 +160,7 @@
     "tests\/fixtures\/characters\/mara.json" : "6ca8669b1e756ff650905b76fec3e28883b31edd31db660bb387a720bb5cd571",
     "tests\/fixtures\/saves\/v1_pre_interiors.json" : "f44f39b7373ce127f2bde7512689e88418b3ed3b48a2df8d0c81e56b8cc759f0",
     "tests\/fixtures\/saves\/v2_current.json" : "e23a5191fec5f1fb308037c39a9aa92b8724d6eba072ada0f9ddd605f5ea731d",
-    "tests\/framework_lint.gd" : "33afbdf6ca362880a341a258ee25fb407a8ba37ef2069d820d7fca9e25a28762",
+    "tests\/framework_lint.gd" : "3ae666c70dff11d450c447c05900b368c9e08bb89b5b45d075de50acacb84d3c",
     "tests\/held_snapshot_gate.gd" : "58294fc5359b7d40a17e251007aa45bbdf66a52ff05837f81dc1eb27eba19637",
     "tests\/held_snapshot_gate.tscn" : "31d8d0693930acdb6df3e0ae80140176515aebaad3c6459df7f98fb1c9579eef",
     "tests\/quest_harness.gd" : "d88772692965c270b4493e2c132d6c6743cf100daaceb49a89ca773261eb7b0d",
@@ -190,6 +190,6 @@
     "tools\/strata\/import_world.gd" : "7856f3728d00726975a67b816ba5421d7174ee401fc9ca1269974b3db1259e91"
   },
   "framework" : "datum",
-  "rev" : "94d618b2f467",
+  "rev" : "497fdbb826db",
   "source" : "\/Users\/nicco\/code\/datum\/runtime"
 }

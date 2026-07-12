@@ -139,6 +139,7 @@ extends SceneTree
 ## merge cleanup, not this rung's.
 
 const MANIFEST_PATH := "res://framework.json"
+const LOCK_PATH := "res://framework.lock.json"
 const DATA_DIR := "res://data"
 const SCANNABLE_EXT: Array[String] = ["gd", "gdshader", "glsl"]
 const MIN_ID_LEN := 3
@@ -502,7 +503,9 @@ func _run_probes() -> void:
 
 func _run_real() -> void:
 	var files := _framework_files()
-	_check(not files.is_empty(), "framework.json names at least one file")
+	_check(not files.is_empty(),
+		"no framework file set: neither framework.json (SOURCE posture) nor "
+		+ "framework.lock.json's files map (CONSUMER posture) is present/non-empty")
 	var ids := _content_ids(files)
 	print("  scanning %d framework files against %d content ids" % [files.size(), ids.size()])
 
@@ -999,16 +1002,35 @@ func _drape_contract_hits(table: Array, layers: Dictionary) -> Array[Dictionary]
 
 # --- manifest + content-id corpus ---------------------------------------
 
-## Every path framework.json lists, flattened across its "systems" table.
+## The framework file set, DUAL POSTURE (the consumer posture the manifest's
+## own design always implied — a scaffolded game verifies itself like valley
+## does). SOURCE posture (datum's own runtime/): framework.json is present,
+## and the set is every path it lists, flattened across its "systems" table.
+## CONSUMER posture (a scaffolded game, and valley once its demotion lands):
+## no framework.json, only framework.lock.json — the set is that lock's
+## `files` map keys, the SAME repo-relative paths the manifest lists. Same
+## rules, same allowlist, both postures. If NEITHER file exists, that is not
+## a valid framework tree at all — reported honestly by _run_real's
+## empty-set check, not a crash here.
 func _framework_files() -> Array[String]:
 	var out: Array[String] = []
-	var manifest: Variant = _load_json(MANIFEST_PATH)
-	if not (manifest is Dictionary):
+	if FileAccess.file_exists(MANIFEST_PATH):
+		var manifest: Variant = _load_json(MANIFEST_PATH)
+		if not (manifest is Dictionary):
+			return out
+		var systems: Dictionary = (manifest as Dictionary).get("systems", {})
+		for key: String in systems:
+			for f: String in systems[key]:
+				out.append(String(f))
 		return out
-	var systems: Dictionary = (manifest as Dictionary).get("systems", {})
-	for key: String in systems:
-		for f: String in systems[key]:
+	if FileAccess.file_exists(LOCK_PATH):
+		var lock: Variant = _load_json(LOCK_PATH)
+		if not (lock is Dictionary):
+			return out
+		var files: Dictionary = (lock as Dictionary).get("files", {})
+		for f: String in files.keys():
 			out.append(String(f))
+		return out
 	return out
 
 

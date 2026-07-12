@@ -7,6 +7,17 @@ Skyrim-inspired living world, hand-painted art by a solo illustrator,
 simulation-heavy. Read `docs/DESIGN.md` (what it is), `docs/FOUNDATIONS.md`
 (build plan), `docs/DEV_GUIDE.md` (how to work on it).
 
+**Valley is the game, not the framework (as of 2026-07-12).** The engine
+half once lived here; it moved out to become the **datum** framework at
+`~/code/datum/runtime`. Valley now consumes it like any scaffolded game:
+`framework.lock.json` records the rev, `strata-cli framework update .`
+pulls the current set (offer-shaped, never clobbering hand-edits), and
+`strata-cli framework push .` sends a fix made here back to the source.
+The kernel dylibs under `native/bin` + `native/contour/bin` stay (valley
+boots on them); the kernel source/build moved to datum
+(`museum/native-pre-move` preserves the old tree). `docs/PLAN_FRAMEWORK.md`
+is now a tombstone pointing at datum's living copy.
+
 ## Commands
 
 - `./scripts/run.sh` — run the game

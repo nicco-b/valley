@@ -1,0 +1,66 @@
+# Contour port of valley game/world/hydrology.gd :: the WATERSHED (sim-tier)
+# river reservoir tick, as its own §6 `system SimRivers`.
+#
+# docs/PORT_LEDGER.md Wave D3 certified sim_river_step as a pure leaf, the
+# SIBLING of the region-river Hydrology system's region_river_step (both live
+# in ports/hydrology.ct, the Plumb-certified oracle for the vendored body) —
+# but it stayed a plain GDScript call in hydrology.gd's `_hourly` because
+# nothing routed it yet, the ledger's recorded next rung. This module (Wave
+# G2) closes that: the sim-tier rivers' hourly recession maps sim_river_step
+# exactly the way Hydrology maps region_river_step (Wave D2's design call,
+# drawn once more).
+#
+# ITS OWN FILE/MODULE, deliberately not folded into hydrology.ct: Contour
+# advances a WHOLE compiled module's systems together on every tick() /
+# tick_seeded() call (ContourBridge's contract — "one clock step" of the
+# module, not one named system inside it), so a SEPARATE bridge per system is
+# the only way to tick SimRivers on its own hourly cadence without silently
+# re-ticking Hydrology's ALREADY soak-proven region-river system (or vice
+# versa) with stale seeded inputs. Same law Lakes (ports/lakes.ct) follows.
+#
+# `sim_rivers.storage` is the watershed rivers' reservoir storages (an array
+# in stable Terrain.sim_rivers() order), read then written — a
+# read-modify-write, same shape as Hydrology's `hydrology.storage`. The
+# engine-bound per-river environment is host-sampled (D8 catchment routing +
+# Weather/Climate reads — loomkernel- and engine-bound) and handed in as
+# seeded inputs: `sim_rivers.rain`, `.runoff`, `.melt` and `.spring` are
+# SHARED SCALARS this hour (every sim river reads the same storm cell and
+# ground state off the watershed's one center point — hydrology.gd L387-393,
+# L402; only `.area` varies per-river, from the D8 catchment measure).
+#
+# Structural faithfulness: the body below is byte-identical to the vendored
+# sim_river_step (plumb/vendor/hydrology.gd, also mirrored in
+# ports/hydrology.ct) — same const, same grouping (the outer paren matches
+# GDScript's `+=` RHS grouping, the inner (rain*runoff+melt) verbatim), same
+# snappedf — so Plumb proves THIS copy bit-identical to real headless Godot
+# too (a fresh manifest row, `sim_rivers_step`, over the same
+# hydrology_sim_river_step corpus D3c authored).
+
+# Reservoir recession per hour (flashy brook, ~8h e-fold). hydrology.gd L38.
+const RIVER_K = 0.12
+
+
+# One WATERSHED (sim-tier) river's next reservoir storage, m³. Identical body
+# to ports/hydrology.ct::sim_river_step — see that file's header for the
+# region-tier/sim-tier grouping distinction (the D2c 1-ULP lesson: float add
+# is not associative, so the two tiers keep separate, non-reused leaves).
+sim func sim_river_step(storage: float, area: float, rain: float, runoff: float, melt: float, spring: float) -> float:
+	storage = storage + (area * (rain * runoff + melt) + spring)
+	var q = storage * RIVER_K
+	storage = storage - q
+	return snappedf(storage, 0.01)
+
+
+# The hourly sim-tier river tick as a §6 system. `sim_rivers.storage` holds
+# every watershed river's reservoir storage (stable order); the four scalar
+# reads are this hour's shared environment, `sim_rivers.area` the one
+# per-river array. Maps sim_river_step over every river — the pure recession,
+# native; the spatial sampling, seeded from the engine.
+system SimRivers:
+	reads: sim_rivers.storage, sim_rivers.area, sim_rivers.rain, sim_rivers.runoff, sim_rivers.melt, sim_rivers.spring
+	writes: sim_rivers.storage
+	sim func step():
+		var s = sim_rivers.storage
+		for i in range(s.size()):
+			s[i] = sim_river_step(s[i], sim_rivers.area[i], sim_rivers.rain, sim_rivers.runoff, sim_rivers.melt, sim_rivers.spring)
+		sim_rivers.storage = s

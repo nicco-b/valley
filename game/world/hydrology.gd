@@ -120,6 +120,32 @@ var _contour_calls := 0   # region-river ticks answered by Contour (the engaged 
 var _contour_held := false
 var _contour_held_ticks := 0
 
+# --- Contour routing (Wave G2: the SIBLING SYSTEMS — SimRivers, Lakes) -----------
+## The two sibling leaves Wave D3 certified (sim_river_step, lake_step) cross here
+## as their OWN §6 systems (docs/PORT_LEDGER.md's recorded next rung off the
+## Hydrology row) — the SAME design call as Hydrology's region rivers (THE SPLIT:
+## engine-bound per-basin sampling stays host-side and is seeded in; the pure
+## recession/integration DECISION crosses), drawn once more for the sim-tier
+## rivers and the lakes. EACH GETS ITS OWN FILE/BRIDGE (game/world/sim_rivers.ct,
+## game/world/lakes.ct) — Contour advances a WHOLE compiled module's systems
+## together per tick, so a separate bridge per system is the only way to route
+## SimRivers/Lakes on their own hourly cadence without silently re-ticking
+## Hydrology's ALREADY soak-proven region-river system (or each other) with stale
+## seeded inputs. Same NO-SILENT-FALLBACK law: flag ON with the kernel absent /
+## module uncompilable / a refused tick is a loud push_error, never a quiet
+## GDScript pass. Sim-tier rivers are FINGERPRINT-DORMANT in the home fixture (no
+## authored water bodies survive there — see tests/scene_tests.gd::_test_hydrology)
+## so parity for these two rides Plumb (fresh manifest rows over the sim_rivers.ct/
+## lakes.ct copies) plus a dedicated authored-fixture scene test, not the soak.
+const _CONTOUR_MODULE_SIM_RIVERS := "res://game/world/sim_rivers.ct"
+const _CONTOUR_MODULE_LAKES := "res://game/world/lakes.ct"
+var _sim_mode := 0
+var _sim_bridge: ContourBridge = null
+var _sim_calls := 0      # sim-tier river ticks answered by Contour (the engaged probe)
+var _lake_mode := 0
+var _lake_bridge: ContourBridge = null
+var _lake_calls := 0     # lake ticks answered by Contour (the engaged probe)
+
 
 func _ready() -> void:
 	add_to_group("world_state_reader")  # SaveGame re-calls load_state post-restore
@@ -395,16 +421,11 @@ func _hourly(_h: int) -> void:
 	# Rivers: catchment runoff + springs in, reservoir recession out. The
 	# per-basin recession is the sim_river_step leaf (Wave D3) — the sim tier's
 	# own inflow grouping, area*(rain*runoff+melt)+spring, distinct from the
-	# region tier's. The spatial rain/catchment sampling stays host-side.
-	for r in Terrain.sim_rivers():
-		var id: String = r.id
-		var area: float = catchment_area.get(id, 0.0)
-		var spring := SPRING_M3H * lerpf(0.3, 1.3, Climate.wetness)
-		river_storage[id] = sim_river_step(river_storage[id], area, rain, runoff, melt_m, spring)
-		Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
-				RIVER_LEVEL_MAX, flow_norm(id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
-		WorldState.set_value("water.%s.storage" % id, river_storage[id])
-		WorldState.set_value("water.%s.flow" % id, snappedf(flow_norm(id), 0.001))
+	# region tier's. THE RULE crosses to Contour (Wave G2): routed through the
+	# native §6 `SimRivers` system (its own file/bridge) when engaged, else the
+	# byte-identical GDScript twin over the same body. The spatial rain/catchment
+	# sampling stays host-side either way.
+	_route_sim_rivers(rain, runoff, melt_m)
 
 	# Region rivers (generated, off the home watershed grid): the same
 	# reservoir balance, but each one lives under ITS OWN sky — rain_at
@@ -418,7 +439,21 @@ func _hourly(_h: int) -> void:
 	# and level-driven outflow/seepage out. Level is depth offset from the
 	# authored surface. Region lakes (Strata-imported, no_sim) run the
 	# same balance under their own sky — local rain and temperature, fed
-	# by the region rivers whose mouths sit on them.
+	# by the region rivers whose mouths sit on them. THE SPLIT (Wave G2, the
+	# D2c seeded-split drawn once more): the host sums each lake's inflow (this
+	# hour's just-ticked river discharges above + catchment runoff + rain on the
+	# water) and applies the cross-basin outlet coupling from the PRE-tick level
+	# exactly as before — a write into a DIFFERENT basin, orchestrated host-side,
+	# never a system write; only the per-lake level integration itself crosses,
+	# through the native §6 `Lakes` system (its own file/bridge) when engaged,
+	# else the byte-identical GDScript twin over the same lake_step body.
+	var lake_ids: Array[String] = []
+	var lake_idx: Array[int] = []
+	var lake_is_region: Array[bool] = []
+	var lake_level_in: Array = []
+	var lake_inflow_in: Array = []
+	var lake_area_in: Array = []
+	var lake_temp_in: Array = []
 	for w in Terrain.water_bodies:
 		var id: String = w.id
 		var is_region: bool = w.get("no_sim", false)
@@ -443,12 +478,22 @@ func _hourly(_h: int) -> void:
 		var outlet: String = w.get("outlet", "aquifer")
 		if river_storage.has(outlet):
 			river_storage[outlet] = float(river_storage[outlet]) + outflow * lake_area
-		level = lake_step(level, inflow, lake_area, lake_t)
-		if is_region:
+		lake_ids.append(id)
+		lake_idx.append(w.idx)
+		lake_is_region.append(is_region)
+		lake_level_in.append(level)
+		lake_inflow_in.append(inflow)
+		lake_area_in.append(lake_area)
+		lake_temp_in.append(lake_t)
+	var lake_level_out := _route_lakes(lake_level_in, lake_inflow_in, lake_area_in, lake_temp_in)
+	for i in lake_ids.size():
+		var id: String = lake_ids[i]
+		var level: float = float(lake_level_out[i])
+		if lake_is_region[i]:
 			region_lake_level[id] = level
 		else:
 			lake_level[id] = level
-		Terrain.lake_levels[w.idx] = level
+		Terrain.lake_levels[lake_idx[i]] = level
 		WorldState.set_value("water.%s.level" % id, level)
 	levels_changed.emit()
 
@@ -565,15 +610,166 @@ func _contour_resolve() -> void:
 	_contour_held = OS.get_environment("STRATA_CONTOUR_HELD") == "1"
 
 
+## The watershed (sim-tier) river reservoir evolution (Wave G2): routed through
+## the native §6 `SimRivers` system (its OWN file/bridge — game/world/
+## sim_rivers.ct — so ticking it can never re-run Hydrology's SEPARATE
+## region-river system, or vice versa) when engaged, else the byte-identical
+## GDScript twin. Both sample the SAME engine-bound per-river environment (this
+## hour's storm rain, ground runoff, snowmelt depth, and each river's own
+## catchment aggregate + wetness-scaled spring) and drive the SAME
+## sim_river_step body. Derived writes (river_levels, WorldState mirrors) stay
+## host-side in both, exactly as _route_region_rivers.
+func _route_sim_rivers(rain: float, runoff: float, melt_m: float) -> void:
+	var rivers: Array[Dictionary] = Terrain.sim_rivers()
+	var bridge := _sim_route_contour()
+	if bridge != null:
+		_sim_calls += 1
+		var storage_in: Array = []
+		var area_in: Array = []
+		var spring := SPRING_M3H * lerpf(0.3, 1.3, Climate.wetness)
+		for r in rivers:
+			storage_in.append(float(river_storage[r.id]))
+			area_in.append(float(catchment_area.get(r.id, 0.0)))
+		var inputs := {
+			"sim_rivers.storage": storage_in, "sim_rivers.area": area_in,
+			"sim_rivers.rain": rain, "sim_rivers.runoff": runoff,
+			"sim_rivers.melt": melt_m, "sim_rivers.spring": spring}
+		var applied := bridge.tick_seeded(inputs, 3600.0)
+		if not applied:
+			push_error("[hydrology] STRATA_CONTOUR=1 but the SimRivers system tick was "
+				+ "refused — refusing to silently run the GDScript twin")
+			return
+		var out: Variant = WorldState.get_value("sim_rivers.storage", null)
+		if not (out is Array and (out as Array).size() == rivers.size()):
+			push_error("[hydrology] STRATA_CONTOUR=1 but the SimRivers system returned no "
+				+ "storage array — refusing to silently run the GDScript twin")
+			return
+		for i in rivers.size():
+			var r: Dictionary = rivers[i]
+			var id: String = r.id
+			river_storage[id] = float((out as Array)[i])
+			Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
+					RIVER_LEVEL_MAX, flow_norm(id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
+			WorldState.set_value("water.%s.storage" % id, river_storage[id])
+			WorldState.set_value("water.%s.flow" % id, snappedf(flow_norm(id), 0.001))
+	else:
+		# Flag OFF (default): the GDScript twin, forever byte-identical — the same
+		# shared sim_river_step body every sim-tier river drains through.
+		for r in rivers:
+			var id: String = r.id
+			var area: float = catchment_area.get(id, 0.0)
+			var spring := SPRING_M3H * lerpf(0.3, 1.3, Climate.wetness)
+			river_storage[id] = sim_river_step(river_storage[id], area, rain, runoff, melt_m, spring)
+			Terrain.river_levels[r.idx] = snappedf(clampf(lerpf(RIVER_LEVEL_MIN,
+					RIVER_LEVEL_MAX, flow_norm(id)), RIVER_LEVEL_MIN, RIVER_LEVEL_MAX), 0.001)
+			WorldState.set_value("water.%s.storage" % id, river_storage[id])
+			WorldState.set_value("water.%s.flow" % id, snappedf(flow_norm(id), 0.001))
+
+
+## The live SimRivers bridge when routing is engaged, else null. Same shape as
+## _route_contour, a separate resolve so a SimRivers refusal never touches
+## Hydrology's (or Lakes') own mode.
+func _sim_route_contour() -> ContourBridge:
+	if _sim_mode == 0:
+		_sim_contour_resolve()
+	return _sim_bridge
+
+
+func _sim_contour_resolve() -> void:
+	var verdict := Contour.decide("sim_rivers")
+	if verdict != Contour.ROUTE_ENGAGE:
+		_sim_mode = verdict
+		return
+	var bridge := ContourBridge.new(WorldState)
+	var err := bridge.compile_file(_CONTOUR_MODULE_SIM_RIVERS)
+	if err != "":
+		push_error("[hydrology] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE_SIM_RIVERS, err] + "silently run the GDScript twin")
+		_sim_mode = -1
+		return
+	_sim_bridge = bridge
+	_sim_mode = 2
+
+
+## The per-lake level integration (Wave G2): routed through the native §6
+## `Lakes` system (its OWN file/bridge — game/world/lakes.ct — composed over
+## BOTH the region and sim tiers in Terrain.water_bodies order) when engaged,
+## else the byte-identical GDScript twin over the same lake_step body.
+## `levels_in`/`inflow_in`/`area_in`/`temp_in` are the host-summed per-lake
+## environment the caller already assembled (THE SPLIT, Wave G2: inflow already
+## sums this hour's just-ticked river discharges + catchment runoff + rain on
+## the water, exactly as the pre-G2 inline loop did); returns the new levels in
+## the SAME order — the caller applies them back into region_lake_level/
+## lake_level/Terrain.lake_levels/WorldState.
+func _route_lakes(levels_in: Array, inflow_in: Array, area_in: Array, temp_in: Array) -> Array:
+	var bridge := _lake_route_contour()
+	if bridge != null:
+		_lake_calls += 1
+		var inputs := {
+			"lakes.level": levels_in.duplicate(), "lakes.inflow": inflow_in,
+			"lakes.area": area_in, "lakes.temp": temp_in}
+		var applied := bridge.tick_seeded(inputs, 3600.0)
+		if not applied:
+			push_error("[hydrology] STRATA_CONTOUR=1 but the Lakes system tick was "
+				+ "refused — refusing to silently run the GDScript twin")
+			return levels_in
+		var out: Variant = WorldState.get_value("lakes.level", null)
+		if not (out is Array and (out as Array).size() == levels_in.size()):
+			push_error("[hydrology] STRATA_CONTOUR=1 but the Lakes system returned no "
+				+ "level array — refusing to silently run the GDScript twin")
+			return levels_in
+		return out as Array
+	else:
+		# Flag OFF (default): the GDScript twin, forever byte-identical — the same
+		# shared lake_step body every lake (region or sim) integrates through.
+		var out: Array = []
+		for i in levels_in.size():
+			out.append(lake_step(float(levels_in[i]), float(inflow_in[i]),
+				float(area_in[i]), float(temp_in[i])))
+		return out
+
+
+## The live Lakes bridge when routing is engaged, else null. Same shape as
+## _sim_route_contour.
+func _lake_route_contour() -> ContourBridge:
+	if _lake_mode == 0:
+		_lake_contour_resolve()
+	return _lake_bridge
+
+
+func _lake_contour_resolve() -> void:
+	var verdict := Contour.decide("lakes")
+	if verdict != Contour.ROUTE_ENGAGE:
+		_lake_mode = verdict
+		return
+	var bridge := ContourBridge.new(WorldState)
+	var err := bridge.compile_file(_CONTOUR_MODULE_LAKES)
+	if err != "":
+		push_error("[hydrology] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE_LAKES, err] + "silently run the GDScript twin")
+		_lake_mode = -1
+		return
+	_lake_bridge = bridge
+	_lake_mode = 2
+
+
 ## Routing introspection for the scene test / soak (proves the system ran, not a
 ## silent fallback): the resolved mode, whether it engaged, the tick count, and —
 ## for the substrate Rung 2 sub-flag — whether the held path ran and how often
 ## (held_ticks climbs only when STRATA_CONTOUR_HELD=1 routed the in-place tick).
+## sim_*/lake_* mirror the same shape for the two Wave G2 sibling systems (no
+## held-world rung for either yet — plain tick_seeded only).
 func contour_status() -> Dictionary:
 	if _contour_mode == 0:
 		_contour_resolve()
+	if _sim_mode == 0:
+		_sim_contour_resolve()
+	if _lake_mode == 0:
+		_lake_contour_resolve()
 	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls,
-		"held": _contour_held, "held_ticks": _contour_held_ticks}
+		"held": _contour_held, "held_ticks": _contour_held_ticks,
+		"sim_mode": _sim_mode, "sim_engaged": _sim_mode == 2, "sim_calls": _sim_calls,
+		"lake_mode": _lake_mode, "lake_engaged": _lake_mode == 2, "lake_calls": _lake_calls}
 
 
 ## Rung 3 (docs/SUBSTRATE.md §3): the held world's OWNED state for the save path.

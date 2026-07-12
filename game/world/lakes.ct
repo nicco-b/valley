@@ -1,0 +1,64 @@
+# Contour port of valley game/world/hydrology.gd :: the per-lake level tick,
+# as its own §6 `system Lakes` — COMPOSED over BOTH the region tier
+# (Strata-imported no_sim lakes) and the sim tier (authored lakes) in ONE
+# map, since both share the identical lake_step body and differ only in
+# which sky feeds them (host-sampled, not the leaf's concern — see
+# hydrology.gd's `_hourly` water_bodies loop, which already interleaves both
+# tiers in one loop today).
+#
+# ITS OWN FILE/MODULE (the same law sim_rivers.ct follows): Contour advances
+# a WHOLE compiled module's systems together per tick() / tick_seeded() call,
+# so Lakes gets its own bridge — ticking it can never re-run Hydrology or
+# SimRivers with stale seeded inputs, and vice versa.
+#
+# `lakes.level` is every water body's level offset (an array in stable
+# Terrain.water_bodies order, region and sim lakes interleaved exactly as the
+# GDScript loop iterates them today), read then written. THE SPLIT (Wave G2,
+# the D2c seeded-split drawn once more): the host SUMS each lake's inflow
+# BEFORE the tick — river discharges reaching it (read AFTER SimRivers and
+# Hydrology have already applied this hour, so this is the same
+# just-ticked, this-hour discharge the GDScript twin sums today) plus its
+# own catchment runoff plus direct rain on the water — and hands it in as
+# the declared read `lakes.inflow`; `lakes.area`/`lakes.temp` are the other
+# two host-sampled per-lake environment arrays. The CROSS-BASIN outlet
+# coupling (this lake's outflow feeding a DOWNSTREAM river's storage — a
+# different basin, not a per-element map) stays orchestrated host-side,
+# computed from the PRE-tick level exactly as before: it is not a system
+# write here, same as the GDScript twin never lets it touch this lake's own
+# integration.
+#
+# Structural faithfulness: the body below is byte-identical to the vendored
+# lake_step (plumb/vendor/hydrology.gd, also mirrored in ports/hydrology.ct)
+# — Plumb proves THIS copy bit-identical too (a fresh manifest row,
+# `lakes_step`, over the same hydrology_lake_step corpus D3c authored).
+
+# Lake balance constants. hydrology.gd L43-L46.
+const EVAP_M_PER_DEG = 0.00002   # evaporation per hour per warm degree
+const LAKE_OUT_K = 0.07          # outflow/seepage per hour per m above the deep rail
+const LAKE_LEVEL_MIN = -0.5      # deep rail (level clamp floor)
+const LAKE_LEVEL_MAX = 0.35      # brim rail (level clamp ceiling)
+
+
+# One lake's next level offset, m. Identical body to
+# ports/hydrology.ct::lake_step — see that file's header for why the
+# cross-basin outlet coupling stays host-side.
+sim func lake_step(level: float, inflow: float, lake_area: float, lake_t: float) -> float:
+	var evap = EVAP_M_PER_DEG * maxf(lake_t, 0.0)
+	var outflow = LAKE_OUT_K * maxf(level - LAKE_LEVEL_MIN, 0.0)
+	level = level + (inflow / lake_area - evap - outflow)
+	return snappedf(clampf(level, LAKE_LEVEL_MIN, LAKE_LEVEL_MAX), 0.001)
+
+
+# The hourly per-lake tick as a §6 system. `lakes.level` holds every water
+# body's level (stable order, both tiers interleaved); the three arrays are
+# the host-summed/sampled per-lake environment. Maps lake_step over every
+# lake — the pure integration, native; the cross-basin sums, seeded from the
+# host.
+system Lakes:
+	reads: lakes.level, lakes.inflow, lakes.area, lakes.temp
+	writes: lakes.level
+	sim func step():
+		var lv = lakes.level
+		for i in range(lv.size()):
+			lv[i] = lake_step(lv[i], lakes.inflow[i], lakes.area[i], lakes.temp[i])
+		lakes.level = lv

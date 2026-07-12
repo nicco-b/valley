@@ -181,17 +181,26 @@ static func contour_status() -> Dictionary:
 func _advance_contour(bridge: ContourBridge, dt_hours: float) -> bool:
 	var stream := Rng.stream(rng_stream)
 	var cohesive := roam_center.is_finite()
+	# Position-shaped reads/writes cross the WorldState mirror as {x,z} WIRE
+	# DICTS, never raw Vector2s (weather's dx/dz precedent): WorldState values
+	# are JSON-compatible BY CONTRACT (world_state.gd) because the whole store
+	# rides SaveGame's JSON round trip — a Vector2 mirrored there comes back
+	# from the next boot's restore as a stringified "(x, y)" and wedges every
+	# mind (the 2026-07-11 windowed destabilization). The VM still does vec2
+	# math: the .ct twin constructs vec2s from the wire dicts and decomposes
+	# its writes back (bit-parity holds — the widen/narrow at this boundary is
+	# exactly the CompositeCodec vec2 path's).
 	var inputs := {
 		"agent.needs": needs,
 		"agent.needs_def": needs_def,
 		"agent.activities": activities,
 		"agent.current": current,
 		"agent.produced": produced,
-		"agent.pos": pos,
-		"agent.target": target,
-		"agent.home": home,
-		"agent.jitter": jitter,
-		"agent.roam_center": roam_center if cohesive else Vector2.ZERO,
+		"agent.pos": _v2_wire(pos),
+		"agent.target": _v2_wire(target),
+		"agent.home": _v2_wire(home),
+		"agent.jitter": _v2_wire(jitter),
+		"agent.roam_center": _v2_wire(roam_center if cohesive else Vector2.ZERO),
 		"agent.has_cohesion": cohesive,
 		"agent.roam_range": roam_range,
 		"agent.cohesion_radius": cohesion_radius,
@@ -226,9 +235,10 @@ func _advance_contour(bridge: ContourBridge, dt_hours: float) -> bool:
 		return false
 	# Read back the system's declared writes; thread the advanced stream state back
 	# into the autoload so it persists and the next mind continues the SAME stream.
+	# Positions come back as the {x,z} wire dicts the twin writes (see inputs).
 	needs = WorldState.get_value("agent.needs", needs)
-	pos = WorldState.get_value("agent.pos", pos)
-	target = WorldState.get_value("agent.target", target)
+	pos = _v2_read(WorldState.get_value("agent.pos"), pos)
+	target = _v2_read(WorldState.get_value("agent.target"), target)
 	current = WorldState.get_value("agent.current", current)
 	produced = WorldState.get_value("agent.produced", produced)
 	last_utilities = WorldState.get_value("agent.last_utilities", last_utilities)
@@ -236,11 +246,28 @@ func _advance_contour(bridge: ContourBridge, dt_hours: float) -> bool:
 	return true
 
 
+## The {x,z} WIRE DICT a world XZ crosses the WorldState mirror as (the twin
+## contract's JSON-safe position shape — see _advance_contour's inputs note).
+static func _v2_wire(v: Vector2) -> Dictionary:
+	return {"x": v.x, "z": v.y}
+
+
+## Decode a wire-dict position back to a Vector2; anything else (a missing key,
+## a pre-contract save's stringified vector) keeps the fallback — honest, never
+## a crash on stale data.
+static func _v2_read(v: Variant, fallback: Vector2) -> Vector2:
+	if v is Dictionary and v.has("x") and v.has("z"):
+		return Vector2(float(v.x), float(v.z))
+	return fallback
+
+
 ## Pre-resolve every marker an activity names into a live world XZ (the Callable
 ## marker_resolver's job, done as DATA GDScript-side — CONTOUR.md §4). A marker
 ## whose resolver is unbound (wildlife) or returns INF (deleted) is simply OMITTED,
 ## and the port reads an absent marker as "fall back to home" — byte-identical to
-## resolve_at's marker branch. Only marker-shaped `at`s are resolved.
+## resolve_at's marker branch. Only marker-shaped `at`s are resolved. Positions
+## ride the {x,z} wire shape (the JSON-safe twin contract, like every agent.*
+## position crossing the mirror).
 func _resolve_markers() -> Dictionary:
 	var out: Dictionary = {}
 	if not marker_resolver.is_valid():
@@ -251,7 +278,7 @@ func _resolve_markers() -> Dictionary:
 			var mid := String((at_v as Dictionary).marker)
 			var p: Vector2 = marker_resolver.call(mid)
 			if p.is_finite():
-				out[mid] = p
+				out[mid] = _v2_wire(p)
 	return out
 
 

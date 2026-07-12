@@ -86,6 +86,7 @@ func _ready() -> void:
 	_test_items_contour()
 	_test_skills_contour()
 	_test_budget_contour()
+	_test_agent_mirror_json_safe()
 	if _failures > 0:
 		print("SCENE-TESTS FAIL: %d failed" % _failures)
 	else:
@@ -7716,3 +7717,55 @@ func _test_budget_contour() -> void:
 	_check(int(vm.call_fn("worst_grade", [th, 100, 700, 50])) == 1, "budget: worst_grade amber")
 	_check(int(vm.call_fn("worst_grade", [th, 10, 10, 50000])) == 2, "budget: worst_grade red")
 	print("  budget: grade/worst_grade bit-identical to the GDScript twin via Contour")
+
+
+## THE AGENT MIRROR IS JSON-SAFE (the 2026-07-11 windowed wedge): AgentMind's
+## declared resources cross the WorldState mirror as JSON-compatible values —
+## positions as {x,z} wire dicts, never Vector2s — because the whole store rides
+## SaveGame's JSON round trip (world_state.gd's contract). A mirrored Vector2
+## came back from the next boot's restore as a stringified "(x, y)"; set_value's
+## then-untyped `==` early-out ERRORED on every typed rewrite, the write never
+## landed, and every mind wedged at _advance_contour's read-back each tick.
+## Proves, through a REAL engaged mind: (1) every agent.* mirror value
+## JSON-round-trips type-stable, and (2) a poisoned pre-contract mirror HEALS on
+## the next tick — zero SCRIPT ERRORs (test.sh's stderr grep co-signs).
+func _test_agent_mirror_json_safe() -> void:
+	if not ResourceLoader.exists("res://game/wildlife/wildlife_manager.gd"):
+		print("  agent mirror: SKIP (content-empty game — no wildlife to raise a mind)")
+		return
+	if not bool(AgentSim.contour_status().get("engaged", false)):
+		print("  agent mirror: SKIP (no native kernel — GDScript twin only)")
+		return
+	var mgr: Node = load("res://game/wildlife/wildlife_manager.gd").new()
+	var herd: Dictionary = mgr.spawn_herd({
+		"id": "mirror_herd", "count": 1.0,
+		"home": {"x": 0.0, "z": 0.0}, "range": 50.0,
+		"body_scene": "res://game/wildlife/hound_body.tscn",
+		"activities": [
+			{"id": "drink", "at": {"x": 30.0, "z": 0.0}, "satisfies": "thirst", "rate": 16.0},
+			{"id": "prowl", "at": "roam", "satisfies": "wander", "rate": 5.0},
+		]})
+	var sim: AgentSim = herd.individuals[0].sim
+	sim.advance(0.5)
+	for k in ["agent.needs", "agent.pos", "agent.target", "agent.current",
+			"agent.produced", "agent.rng", "agent.last_utilities"]:
+		var v: Variant = WorldState.get_value(k)
+		var rt: Variant = JSON.parse_string(JSON.stringify(v))
+		var stable: bool = typeof(rt) == typeof(v) \
+				or (typeof(v) == TYPE_INT and typeof(rt) == TYPE_FLOAT)  # JSON has no int
+		_check(stable, "agent mirror '%s' JSON-round-trips type-stable (%s -> %s)"
+			% [k, type_string(typeof(v)), type_string(typeof(rt))])
+	_check(WorldState.get_value("agent.pos") is Dictionary,
+		"agent.pos crosses as the {x,z} wire dict, not a Vector2")
+	# A PRE-CONTRACT save's poisoned mirror (the stringified vector a JSON
+	# reload produced) heals on the next engaged tick instead of wedging.
+	WorldState.set_value("agent.pos", "(-198.6849, -439.4683)")
+	WorldState.set_value("agent.target", "(-196.9978, -444.865)")
+	sim.advance(0.5)
+	_check(WorldState.get_value("agent.pos") is Dictionary,
+		"a poisoned pos mirror heals to the wire dict on the next tick")
+	_check(WorldState.get_value("agent.target") is Dictionary,
+		"a poisoned target mirror heals too")
+	_check(sim.pos.is_finite(), "the mind's pos stays live through the heal")
+	mgr.free()
+	print("  agent mirror: JSON-safe wire contract + poisoned-save heal proven on an engaged mind")

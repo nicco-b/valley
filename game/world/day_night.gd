@@ -150,10 +150,24 @@ func _process(delta: float) -> void:
 	#    uniform tint.
 	var env := render_env
 	var fog := Weather.fog_amount()
-	env.fog_light_color = horizon.lerp(Color(0.8, 0.7, 0.58), Weather.storminess * 0.6) \
+	# Fog colour FOLLOWS the palette (2026-07-12, pink-haze mechanism fix):
+	# at calm the fog is a whisper of THIS hour's horizon — bluish at noon,
+	# warm at dusk, straight from the painted palette — and pulls toward the
+	# storm's warm grey only as weather earns it (storminess OR the gale's
+	# dust, whichever leads). The warm wash is a FEATURE of foul air, not a
+	# clock-invariant tint the calm midday sky wore for free. Dew fog still
+	# cools the murk toward a pale white.
+	var storm_warmth := maxf(Weather.storminess, Weather.dust)
+	env.fog_light_color = horizon.lerp(Color(0.8, 0.7, 0.58), storm_warmth * 0.6) \
 		.lerp(Color(0.92, 0.88, 0.86), fog * 0.5)
 	env.fog_density = lerpf(0.00022, 0.0045, maxf(Weather.storminess, Weather.dust * 0.85))
-	env.fog_sky_affect = 0.3 + 0.5 * Weather.storminess  # sky survives dew fog
+	# Sky-affect near ZERO at calm: the painted dome keeps its own colour and
+	# the fog never REPAINTS the sky at calm noon (the pink-haze wash was this
+	# term bleeding a warm horizon over the whole blue dome, then sky-sourced
+	# ambient carrying it onto the terrain — sky AND ground washed uniform).
+	# It climbs only under real weather: a storm shrouds the dome; dew fog is
+	# allowed a touch so the low murk still reads against the sky.
+	env.fog_sky_affect = 0.04 + 0.6 * Weather.storminess + 0.1 * fog
 	env.fog_height = 8.0 + 18.0 * fog
 	# Per-meter extinction INSIDE the layer: ~100m visibility at full
 	# dew fog — wadeable murk, not a whiteout.

@@ -1,5 +1,5 @@
 {
-  "date" : "2026-07-12T17:56:57Z",
+  "date" : "2026-07-12T18:57:58Z",
   "files" : {
     "assets\/models\/creatures\/biped_fox.glb" : "a8953875edbc44cdf2e6f59889f4416f2340ba2945babaa858cecf29a26e6343",
     "data\/world\/biomes.json" : "b8c328cc6597a738d292e29fbe9b89ed52153dc9771a1f4c0a6e3a89aca0baf2",
@@ -98,7 +98,7 @@
     "game\/world\/cell_records.gd" : "18b4946d34618980e2a860ac07f525f8e1484cbd0bd9660fbcb9d28d9e6e46d8",
     "game\/world\/climate.ct" : "fedd96f3d061b60ad88bcd55f17812ebbb1d64c59341cc9b65467d09633db1a1",
     "game\/world\/climate.gd" : "efdaff2849472d3ca84a31cb85b8b8aa7a53d309e5ed6b0885b7d9fa5c577252",
-    "game\/world\/day_night.gd" : "8b0e4a6d86b635bd4fb6db313b2e84ecfe619ee6f62bfe591edcb3398263bec4",
+    "game\/world\/day_night.gd" : "34e08d93d269fe4762c8672e974f8c899f5941c3a457bbaa7f009883033434bc",
     "game\/world\/far_terrain.gd" : "5fd1b42444aae299dad499ddf4020b938e1401d053f56ce320b7e70bf7163dcb",
     "game\/world\/firefly_field.gd" : "65a57471594bca465abe630fae99b3de45602839bb031bc6065d8661b5dead67",
     "game\/world\/float_body.gd" : "f0248c3ad1e9dc424c9b770b2be39becc6b89cd0d535d32f1144f7ad5909e0c4",
@@ -193,6 +193,6 @@
     "tools\/strata\/import_world.gd" : "7856f3728d00726975a67b816ba5421d7174ee401fc9ca1269974b3db1259e91"
   },
   "framework" : "datum",
-  "rev" : "95d9da51357d",
+  "rev" : "b6d538455461",
   "source" : "\/Users\/nicco\/code\/datum\/runtime"
 }

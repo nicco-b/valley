@@ -70,6 +70,14 @@ const float SURF_GAMMA = 0.78;   // break when waveheight/depth tops this
 const float SHOAL_MAX = 1.7;     // Green's-law amplitude gain cap
 const float SLOW_M = 6.0;        // meters of phase lag at zero depth (crests bunch)
 const float DEPTH_MIN = 0.05;    // the water column never divides by zero
+// W5.1 depth-tint remap: the old exp(-depth·2.4) saturated to milk in the
+// first ~0.3 m (a wader's shins vanished the instant they wet). The strand
+// wants the bed CLEAR through the shallows and milk only in the deep. A
+// clear offset (legs read until `depth_clear`) plus a gentler e-fold past
+// it puts the milk where the study asks: shins at 0.5 m, opaque past ~3 m.
+// Retune by eye off the strand re-shot, not by code.
+uniform float depth_clear = 0.28;  // the bed reads clean until this depth (m)
+uniform float depth_murk = 0.72;   // milk e-folds per meter past the clear band
 uniform sampler2D depth_tex : hint_depth_texture, filter_nearest;
 uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
 global uniform sampler2D wave_map; // tier-2.5 height field, meters
@@ -100,6 +108,13 @@ const float FOAM_SPAN = 0.8;  // the band ladder covers this much LIFTED history
 // A/B the fade off (WAVE_FADE=off) — retune by eye, not by code.
 uniform float foam_fade_near = 150.0;
 uniform float foam_fade_far = 300.0;
+// W5.4 shore-lap ring (lakes/rivers): the sea has its W2 surf band, but a
+// calm lake shore just faded. shore_lap (1 on lakes, 0 default) paints a
+// slow posterized foam RING that laps the waterline — a travelling band
+// keyed on the water column depth (thin at shore, gone by ~0.5 m), stepped
+// to gouache curds, not a mist. The terrain-side WETNESS band this pairs
+// with waits on W1's river_mask (absent this branch) — parked there.
+uniform float shore_lap = 0.0;
 global uniform sampler2D trace_map;
 global uniform vec2 trace_center;
 global uniform float trace_size;
@@ -236,7 +251,33 @@ void vertex() {
 	}
 }
 
+// W5.2 ripple scale: the three axis-aligned sines below march in lockstep,
+// and at 30–80 m view distance the regular sine phase resolves into
+// corduroy stripes (fly_channel_top). A world-anchored value-noise octave
+// warps the domain so the crests wander instead of ruling straight lines —
+// anchored to world XZ (p already carries wpos·0.8), so the break is
+// spatial, not a screen-space shimmer that swims with the camera.
+float hash21(vec2 p) {
+	p = fract(p * vec2(123.34, 456.21));
+	p += dot(p, p + 45.32);
+	return fract(p.x * p.y);
+}
+float vnoise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float a = hash21(i);
+	float b = hash21(i + vec2(1.0, 0.0));
+	float c = hash21(i + vec2(0.0, 1.0));
+	float d = hash21(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
 float ripple(vec2 p, float t) {
+	// World-anchored domain warp — the octave that kills the corduroy.
+	vec2 w = vec2(vnoise(p * 0.45 + vec2(t * 0.05, 0.0)),
+			vnoise(p * 0.45 + vec2(0.0, -t * 0.05))) - 0.5;
+	p += w * 1.35;
 	return sin(p.x * 1.7 + t * 1.1) * 0.5
 			+ sin((p.x + p.y) * 0.9 - t * 0.7) * 0.3
 			+ sin(p.y * 2.3 + t * 1.7) * 0.2;
@@ -300,9 +341,14 @@ void fragment() {
 			foam_hist = floor(foam_hist / band + 0.5) * band;
 		}
 	}
+	// W5.2: fade the fine procedural ripple out of the NORMAL with camera
+	// distance — the octave that reads as corduroy at 30–80 m never aliases
+	// into stripes because there is no high-freq normal left out there; the
+	// swell gradient (coarse, world-scale) carries the far surface alone.
+	float rip_atten = 1.0 - smoothstep(30.0, 85.0, length(VERTEX));
 	vec3 n_ws = normalize(vec3(
-			-rx * (0.3 + t * 0.5) - wgrad.x - swell_grad.x * 2.8, 1.0,
-			-rz * (0.3 + t * 0.5) - wgrad.y - swell_grad.y * 2.8));
+			-rx * (0.3 + t * 0.5) * rip_atten - wgrad.x - swell_grad.x * 2.8, 1.0,
+			-rz * (0.3 + t * 0.5) * rip_atten - wgrad.y - swell_grad.y * 2.8));
 	NORMAL = normalize((VIEW_MATRIX * vec4(n_ws, 0.0)).xyz);
 
 	// The hour picks the palette: teal day, slate night, pink low sun.
@@ -313,7 +359,10 @@ void fragment() {
 	// normal, more with depth, and drink the light toward the deep tint.
 	vec2 refr = n_ws.xz * (0.015 + 0.035 * clamp(water_depth * 0.5, 0.0, 1.0));
 	vec3 through = texture(screen_tex, clamp(SCREEN_UV - refr, vec2(0.001), vec2(0.999))).rgb;
-	float shallow = exp(-water_depth * mix(2.4, 1.1, water_gold));
+	// W5.1: clear band, then a gentle e-fold — golden hour reads a touch
+	// deeper (the low-sun water is quieter, less scatter).
+	float murk_d = max(water_depth - depth_clear, 0.0);
+	float shallow = exp(-murk_d * mix(depth_murk, depth_murk * 0.66, water_gold));
 	through *= mix(vec3(1.0), pal_a, clamp(1.0 - shallow, 0.0, 0.85) * 0.7);
 
 	// Surface color: the deep body rising with depth and grazing angle.
@@ -328,6 +377,15 @@ void fragment() {
 	foam += smoothstep(0.035, 0.09, wave_h + length(wgrad) * 0.05) * 0.6;
 	foam += smoothstep(0.8, 1.6, length(f)) * (0.5 + 0.5 * sin(fp.x * 3.1 + fp.y * 1.7)) * 0.35;
 	foam += t * 0.5;
+	// W5.4: the shore-lap ring — a slow band travelling up the shallows,
+	// posterized so it reads as painted curds lapping the waterline. Keyed
+	// on the water column so it hugs the true shore on any lake outline.
+	if (shore_lap > 0.5) {
+		float lap = 0.5 + 0.5 * sin(water_depth * 7.0 - TIME * 1.3
+				+ (fp.x * 0.15 + fp.y * 0.11));
+		foam += smoothstep(0.55, 0.02, water_depth)
+				* floor(lap * 3.0) / 3.0 * 0.4;
+	}
 	foam += rapids_v * rapids_boost * (0.38 + 0.28 * sin(fp.x * 2.3 + fp.y * 2.9));
 	// Storm rollers wear painted caps: crest phase gated by amplitude, so
 	// a calm sea stays clean and heavy swell reads from the strand. Kept

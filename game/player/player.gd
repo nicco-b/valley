@@ -327,10 +327,24 @@ func _update_underwater_fx() -> void:
 	if cam == null:
 		return
 	var cp := cam.global_position
-	var under := cp.y < Terrain.water_surface(cp.x, cp.z)
+	var wsurf := Terrain.water_surface(cp.x, cp.z)
+	var under := cp.y < wsurf
 	if under != _uw_rect.visible:
 		_uw_rect.visible = under
 		AudioServer.set_bus_effect_enabled(_uw_bus, _uw_lowpass, under)
+	if under:
+		# W5.1: depth-graded veil — a thin pink wash just under the surface
+		# (the bed still reads), thickening toward opaque pink soup with
+		# submersion depth. Fixes the flat constant veil of ingame_lakeshore_l1
+		# that milked out the moment the camera dipped. A gentle e-fold over
+		# ~3.5 m, ramping alpha 0.10 → 0.62 and the tint a touch deeper.
+		var cam_depth: float = maxf(wsurf - cp.y, 0.0)
+		var murk: float = 1.0 - exp(-cam_depth * 0.42)
+		_uw_rect.color = Color(
+			lerpf(0.86, 0.74, murk),
+			lerpf(0.52, 0.40, murk),
+			lerpf(0.58, 0.50, murk),
+			lerpf(0.10, 0.62, murk))
 
 
 func _physics_process(delta: float) -> void:

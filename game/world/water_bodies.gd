@@ -190,6 +190,7 @@ func _build_lakes() -> void:
 		else:
 			mi.mesh = _disc(radius, lake_step)
 		var lake_mat := _material(Vector2.ZERO)
+		lake_mat.set_shader_parameter("shore_lap", 1.0)  # W5.4: lakes lap their shore
 		if radius >= LAKE_SWELL_MIN_R:
 			# Fetch-scaled swell + real bathymetry (CUSTOM0): the shader's
 			# W2 path shoals, steepens, and breaks the chop on the lake's
@@ -489,6 +490,14 @@ func _sea_material(step: float, fade_radius: float) -> ShaderMaterial:
 	mat.set_shader_parameter("swell_step", step)
 	mat.set_shader_parameter("swell_fade_radius", fade_radius)
 	mat.set_shader_parameter("bathy_boost", 1.0)  # W2: CUSTOM0 carries the seabed
+	# W5.6 sea-tier seam feather: the mid disc (fade_radius > 0) already eases
+	# its SWELL flat at the rim, but its colour still ended on a hard mesh
+	# edge sitting 8 cm above the far disc — a drawn ring in arch_archipelago.
+	# Feather the mid disc's ALPHA over that same rim band so the coarse far
+	# disc (identical water look, right underneath) takes over with no seam.
+	# The near disc (fade_radius 0) keeps full alpha — nothing is behind it.
+	if fade_radius > 0.0:
+		mat.set_shader_parameter("rim_fade_radius", fade_radius)
 	return mat
 
 

@@ -65,6 +65,7 @@ func _ready() -> void:
 	_test_budget()
 	_test_audio()
 	_test_ambience()
+	_test_water_audio()
 	await _test_threshold()
 	await _test_interior_hand()
 	_test_map()
@@ -222,8 +223,8 @@ func _test_ambience() -> void:
 		"ambience: reload counts the registered nested dir, not data/audio_ambience")
 	_check(Records.dir_for(Audio.SFX_KIND) == Audio.SFX_DIR,
 		"ambience: audio_sfx dir registered (A1 wart: was counting data/audio_sfx)")
-	_check(Records.count_dir(Ambience.AMBIENCE_KIND) == 2,
-		"ambience: count_dir tallies the two shipped beds (got %d)"
+	_check(Records.count_dir(Ambience.AMBIENCE_KIND) == 3,
+		"ambience: count_dir tallies the three shipped beds — wind/night plus W10's shore_lap (got %d)"
 			% Records.count_dir(Ambience.AMBIENCE_KIND))
 	# The desk judges a bed by the game's own loader: a bed missing `bus`
 	# is caught; a complete one passes.
@@ -282,14 +283,19 @@ func _test_ambience() -> void:
 	amb._process(0.016)
 	var h: float = GameClock.solar_hours()
 	var loaded: Array = amb.get("_beds")
-	_check(loaded.size() == 2, "ambience: both shipped beds loaded live (got %d)" % loaded.size())
+	_check(loaded.size() == 3, "ambience: all three shipped beds loaded live (got %d)" % loaded.size())
 	for bed: Dictionary in loaded:
 		var id := String(bed.rec["id"])
 		var want := 0.0
 		if id == "wind_bed":
 			want = linear_to_db(clampf(_ref_wind(h, Weather.wind, 1.0), 0.0001, 1.0))
-		else:
+		elif id == "night_bed":
 			want = linear_to_db(clampf(_ref_night(h, Weather.storminess, 1.0), 0.0001, 1.0))
+		else:
+			# shore_lap (W10a): biomes ["strand"] never matches the empty
+			# no-player biome this test drives, so presence stays 0 and the
+			# bed is silent — proves a biome-keyed bed off its biome is inaudible.
+			want = linear_to_db(clampf(0.0001, 0.0001, 1.0))
 		_check(is_equal_approx(bed.player.volume_db, want),
 			"ambience: %s live volume matches the old curve (%.4f vs %.4f)"
 				% [id, bed.player.volume_db, want])
@@ -309,6 +315,63 @@ func _test_ambience() -> void:
 		"ambience: the duck token names the active rule (got %s)" % Audio.active_ducks())
 	Interiors.inside = was_inside
 	amb.queue_free()  # leave no bed players behind
+
+
+## W10a: the positional water beds. WaterAudio owns two rows the desk
+## validates identically to audio_ambience (schema + registered nested
+## dir + reloader), plants one AudioStreamPlayer3D per river reach and
+## per fall site, and drives their gain from Hydrology.flow_norm/drop —
+## pure functions, asserted numerically, the same idiom as bed_linear.
+func _test_water_audio() -> void:
+	var wa := WaterAudio.new()
+	add_child(wa)
+	# _ready (just ran via add_child) registers the desk kind and defers the
+	# first _rebuild; force it now so the emitters exist for this frame's
+	# assertions (mirrors the .call_deferred() in _ready).
+	wa._rebuild()
+
+	_check(not Records.schema_for(WaterAudio.WATER_AUDIO_KIND).is_empty(),
+		"water_audio: audio_water_emitter schema registered for the desk")
+	_check(Records.dir_for(WaterAudio.WATER_AUDIO_KIND) == WaterAudio.WATER_AUDIO_DIR,
+		"water_audio: reload counts the registered data/audio/water dir")
+	_check(Records.count_dir(WaterAudio.WATER_AUDIO_KIND) == 2,
+		"water_audio: count_dir tallies the two shipped rows (got %d)"
+			% Records.count_dir(WaterAudio.WATER_AUDIO_KIND))
+
+	if Terrain.rivers.is_empty():
+		_check(true, "water_audio: content-empty world (no rivers) — skipped emitter checks")
+	else:
+		var river_emitters: Array = wa.get("_river_emitters")
+		_check(river_emitters.size() == Terrain.rivers.size(),
+			"water_audio: one river-reach emitter per river (got %d for %d rivers)"
+				% [river_emitters.size(), Terrain.rivers.size()])
+		var fall_count := 0
+		for r in Terrain.rivers:
+			fall_count += (r.get("falls", []) as Array).size()
+		var falls_emitters: Array = wa.get("_falls_emitters")
+		_check(falls_emitters.size() == fall_count,
+			"water_audio: one roar emitter per fall site (got %d for %d falls)"
+				% [falls_emitters.size(), fall_count])
+	wa.queue_free()
+
+	# -- pure gain math --
+	var river_rec := {"gain_ref": 0.22}
+	_check(is_equal_approx(WaterAudio.river_gain(river_rec, 0.5), 0.11),
+		"water_audio: river_gain scales linearly with flow_norm")
+	_check(WaterAudio.river_gain(river_rec, 0.0) == 0.0,
+		"water_audio: an idle river (flow_norm 0) is silent")
+	_check(WaterAudio.river_gain(river_rec, -1.0) == 0.0,
+		"water_audio: a negative flow_norm never goes negative-gain")
+
+	var falls_rec := {"gain_ref": 0.55, "drop_ref": 12.0}
+	_check(is_equal_approx(WaterAudio.falls_gain(falls_rec, 1.0, 12.0), 0.55),
+		"water_audio: a full-drop fall at full flow hits gain_ref exactly")
+	_check(is_equal_approx(WaterAudio.falls_gain(falls_rec, 1.0, 6.0), 0.275),
+		"water_audio: half the reference drop halves the roar")
+	_check(WaterAudio.falls_gain(falls_rec, 1.0, 24.0) == WaterAudio.falls_gain(falls_rec, 1.0, 12.0),
+		"water_audio: drop clamps at drop_ref — no louder-than-full roar")
+	_check(WaterAudio.falls_gain(falls_rec, 0.0, 12.0) == 0.0,
+		"water_audio: a full-drop fall on a dry river is silent")
 
 
 ## The OLD hardcoded ambience curves (ambience.gd before A2), kept here as

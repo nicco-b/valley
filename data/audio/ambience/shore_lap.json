@@ -1,0 +1,12 @@
+{
+	"id": "shore_lap",
+	"file": "res://assets/audio/wind_loop.wav",
+	"bus": "Ambience",
+	"biomes": ["strand"],
+	"day_gain": 0.14,
+	"night_gain": 0.14,
+	"wind_base": 0.7,
+	"wind_scale": 0.5,
+	"storm_duck": -0.4,
+	"crossfade_s": 3.0
+}

@@ -244,10 +244,28 @@ func depth_at(pos: Vector3) -> float:
 	return _probe_out.x
 
 
+## W10b plunge-pool radius (mirrors water_waves.gd's PLUNGE_R_MIN/MAX —
+## the bake found the fall, we never re-detect; same clamp, no new sim).
+const PLUNGE_R_MIN := 2.5
+const PLUNGE_R_MAX := 11.0
+const PLUNGE_DROP_REF := 12.0
+## W10b river-mouth radius: how far past the last node "the mouth" reaches
+## (mirrors water_bodies.gd's _mouth_for span clamp).
+const MOUTH_R_MIN := 6.0
+const MOUTH_R_MAX := 30.0
+
+
 ## The current pushing a body at this point, m/s in the XZ plane.
 ## GPU field when live; in an authored river, the spline's flow scaled
 ## by Hydrology's real discharge — so the brook pushes downstream even
-## where the dynamics field has nothing to say.
+## where the dynamics field has nothing to say. W10b (wading polish):
+## a fall's plunge pool pushes OUTWARD from the base (the churn shoving a
+## swimmer off the cataract), and a river's mouth drifts SEAWARD/lakeward
+## past the ribbon's own end (the current doesn't just stop at the last
+## node). Both read ONLY the bake's own falls[]/nodes[] records plus the
+## tier-2 flow_norm field already used above — no new sim, no writes, so
+## this can never move the soak fingerprint (LAW A1: presentation reads
+## the sim, it does not touch it).
 func current_at(pos: Vector3) -> Vector2:
 	if enabled and _probe_out.x > 0.01:
 		var net := Vector2(_probe_out.y, _probe_out.z)
@@ -255,12 +273,39 @@ func current_at(pos: Vector3) -> Vector2:
 			CURRENT_MAX)
 		if speed > 0.05:
 			return net.normalized() * speed
+	var here := Vector2(pos.x, pos.z)
 	for r in Terrain.rivers:
 		var q := Terrain._river_probe(r, pos.x, pos.z)
 		if q.x < q.y:  # inside the ribbon
 			# Hydrology's region tier answers for generated rivers too.
 			return Terrain.river_tangent(r, pos.x, pos.z) \
 				* (CURRENT_MAX * Hydrology.flow_norm(r.id))
+	# Outside every ribbon: a plunge pool still churns just past its fall's
+	# base, and a mouth still drifts just past its river's last node.
+	for r in Terrain.rivers:
+		for fl in r.get("falls", []) as Array:
+			var drop: float = float(fl.get("drop", 0.0))
+			if drop < 1.0:
+				continue
+			var base: Vector2 = fl.get("base", fl.get("pos", Vector2.ZERO))
+			var width: float = float(fl.get("width", 0.0))
+			var radius := clampf(maxf(width * 0.5, 2.0) + drop * 0.15,
+				PLUNGE_R_MIN, PLUNGE_R_MAX)
+			var d := here - base
+			var dist := d.length()
+			if dist > 0.05 and dist < radius:
+				var speed := CURRENT_MAX * clampf(drop / PLUNGE_DROP_REF, 0.0, 1.0) \
+					* Hydrology.flow_norm(String(r.id))
+				return d.normalized() * speed
+		var nodes: Array = r.get("nodes", [])
+		if nodes.size() >= 2:
+			var last: Dictionary = nodes[nodes.size() - 1]
+			var lp: Vector2 = last.pos
+			var mouth_r := clampf(float(last.half) * 4.0, MOUTH_R_MIN, MOUTH_R_MAX)
+			if here.distance_to(lp) < mouth_r:
+				var dir: Vector2 = Terrain.river_tangent(r, lp.x, lp.y)
+				if dir.length() > 0.01:
+					return dir.normalized() * (CURRENT_MAX * 0.5 * Hydrology.flow_norm(String(r.id)))
 	return Vector2.ZERO
 
 

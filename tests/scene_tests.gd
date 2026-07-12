@@ -1570,7 +1570,7 @@ func _test_preview_mesh(peer: StreamPeerTCP) -> void:
 		_check(pre[0] == "err preview_mesh needs a dir (or off)", "bare preview_mesh errs")
 		_check(pre[1] == "err no preview mesh worn (preview_mesh <dir> first)",
 			"view_layer before a wear errs honestly")
-		_check(pre[2] == "err view_layer needs shaded|moisture|temperature|flow|slope|biome",
+		_check(pre[2] == "err view_layer needs shaded|moisture|temperature|flow|slope|biome|province",
 			"bare view_layer errs with the layer list")
 		_check(pre[3].begins_with("err no bake_manifest.json"), "missing manifest errs")
 		_check(pre[4].begins_with("err no height.exr"), "missing height.exr errs")
@@ -1619,7 +1619,7 @@ func _test_preview_mesh(peer: StreamPeerTCP) -> void:
 		_check(layers[0].begins_with("ok layer moisture"), "moisture drapes")
 		_check(layers[1] == "err layer file missing: temperature.png (re-export from Strata)",
 			"a layer the export lacks errs by filename")
-		_check(layers[2] == "err view_layer needs shaded|moisture|temperature|flow|slope|biome",
+		_check(layers[2] == "err view_layer needs shaded|moisture|temperature|flow|slope|biome|province",
 			"unknown layer errs with the layer list")
 		_check(layers[3].begins_with("ok layer slope"), "slope computes in-shader")
 		_check(layers[4].begins_with("ok layer biome"), "biome drapes the colormap")

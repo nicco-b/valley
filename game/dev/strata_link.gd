@@ -81,27 +81,34 @@ extends Node
 ##                               broken shader or an unshaded flat pane reads
 ##                               as one dominant color; a real gouache frame
 ##                               never does. "ok pane_health uniform=<0..1>
-##                               mean=<0..1> var=<0..1> verdict=<ok|degenerate>".
-##                               uniform is the fraction of sampled pixels
-##                               within epsilon (quantized to 5 bits/channel)
-##                               of the modal color; mean/var are the sampled
-##                               luma's mean and variance (Rec.601 weights),
-##                               corroborating, not load-bearing. Verdict law:
-##                               uniform > 0.92 => degenerate — MEASURED
-##                               (2026-07-11, this worktree, a real windowed
-##                               launch — headless has no frame to score): a
-##                               real world-live frame off the shipping tile
-##                               (default spawn cam, a hazy near-white sky —
-##                               about as flat as this world's real render
-##                               gets) scored "uniform=0.318 mean=0.901
-##                               var=0.0001", a fully-flattened synthetic
-##                               frame (Image.fill, one solid color — the
-##                               white-map failure's exact shape) scores
-##                               uniform=1.000 — a ~0.6 gap straddling the
-##                               0.92 line with wide margin on the WORST real
-##                               frame this world currently renders. Errs
-##                               "err pane_health no image (headless dummy
-##                               renderer draws nothing — needs the live
+##                               mean=<0..1> var=<0..1>
+##                               verdict=<ok|suspect|degenerate>". uniform is
+##                               the fraction of sampled pixels within epsilon
+##                               (quantized to 5 bits/channel) of the modal
+##                               color; mean/var are the sampled luma's mean
+##                               and variance (Rec.601 weights). Verdict law
+##                               (RECALIBRATED 2026-07-11 — see
+##                               PANE_HEALTH_VARIANCE_SUSPECT_MAX below for
+##                               the incident that forced this): uniform >
+##                               0.92 => degenerate (unambiguous — one
+##                               quantized color covers the frame, the literal
+##                               solid-fill shape); else var < 0.0010 =>
+##                               suspect (visually flat even though no single
+##                               quant bucket dominates — per-pixel dither/
+##                               noise over a flat frame scatters across many
+##                               buckets, keeping uniform low while variance
+##                               stays near zero. THIS is what tonight's
+##                               failure looked like: "uniform=0.370
+##                               mean=0.644 var=0.0003 verdict=ok" — a real
+##                               pink-wash render failure that the OLD
+##                               uniform-only rule waved through). suspect is
+##                               "look at this," not "broken" — it also
+##                               catches legitimate low-variance real states
+##                               (deep underwater, night) that this repo can
+##                               actually reach at boot-live; it is NOT a
+##                               false-positive alarm the way degenerate is.
+##                               Errs "err pane_health no image (headless
+##                               dummy renderer draws nothing — needs the live
 ##                               pane)" under --headless, same honesty as
 ##                               `flyover`/`thumbnail`. The
 ##                               pane-log tee's recent-SCRIPT-ERROR counter
@@ -113,9 +120,10 @@ extends Node
 ##                               self-arms ONCE per boot: the moment `boot`
 ##                               reads phase=live, the link runs this check
 ##                               itself and push_warning + prints a
-##                               bracketed line on a degenerate verdict (the
-##                               pane-log tee + ledger fold carry it from
-##                               there) — never re-armed, never per-frame.
+##                               bracketed line on a suspect OR degenerate
+##                               verdict (the pane-log tee + ledger fold carry
+##                               it from there) — never re-armed, never
+##                               per-frame.
 ##   thumbnail <slot> <path>  -> renders the slot's resolved scene/mesh to
 ##                               a transparent PNG at <path>, orbit-framed
 ##                               in an offscreen SubViewport (the pane has a
@@ -972,12 +980,39 @@ func _pane_health() -> String:
 const PANE_HEALTH_DS := 64
 ## Verdict line (header doc has the measured margin): a real world-live frame
 ## never gets remotely close to this on the shipping tile; a flattened/
-## broken-shader frame scores ~1.0.
+## broken-shader frame scores ~1.0. Unambiguous BAD signal — kept as the
+## hard degenerate line, unchanged by the 2026-07-11 recalibration below.
 const PANE_HEALTH_UNIFORM_DEGENERATE := 0.92
 ## Color-quantization width for the "near the modal color" bucket — 5 bits
 ## (32 levels) per channel, so anti-aliased near-duplicates of what is
 ## effectively the same color still land in one bucket.
 const PANE_HEALTH_QUANT_BITS := 5
+## THE 2026-07-11 RECALIBRATION. Tonight the live pane rendered a near-
+## uniform pink wash — a real render failure — and pane_health answered
+## "ok pane_health uniform=0.370 mean=0.644 var=0.0003 verdict=ok". uniform
+## alone missed it: the wash carried enough per-pixel dither/noise/gradient
+## to scatter across MANY 5-bit-quantized buckets, so no single bucket ever
+## cleared 0.92, even though the frame read as one flat color to the eye and
+## to luma variance (var=0.0003 — this world's known-flattest REAL frame,
+## the hazy-sky reference in the verb doc above, scores var=0.0001; same
+## order of magnitude, nothing like the "varied" scene test's var~0.04+).
+## uniform's bucket-count method is foolable by exactly the kind of noise a
+## broken render is likely to carry; variance is not — it is a direct,
+## continuous measure of luma spread that dither can't hide from by simply
+## spreading itself across more discrete buckets. So variance becomes a
+## SECOND, independent flatness signal (not "corroborating, not
+## load-bearing" as the old doc had it) rather than uniform's back-up:
+## var < PANE_HEALTH_VARIANCE_SUSPECT_MAX => suspect, checked whenever
+## uniform didn't already clear the hard degenerate line. Set to 0.0010:
+## ~3x tonight's failure (0.0003), comfortably below any genuinely textured
+## frame, and — deliberately — also catches the hazy-sky reference itself
+## (0.0001). That is intended, not a false positive: "about as flat as this
+## world's real render gets" deserves a flag, not a silent ok. suspect is
+## NOT an alarm the way degenerate is; see _pane_health_boot_tick for why
+## legitimate low-variance states (deep underwater, night — see that
+## function's doc for which states this check can actually observe) landing
+## here is the correct, expected behavior.
+const PANE_HEALTH_VARIANCE_SUSPECT_MAX := 0.0010
 
 ## The pure scoring core, split out of _pane_health so the scene test can
 ## drive it against a SYNTHETIC Image (a real GPU frame needs a live
@@ -987,9 +1022,14 @@ const PANE_HEALTH_QUANT_BITS := 5
 ## downsampled pass:
 ##   mean     — Rec.601 luma average (0..1)
 ##   variance — luma variance (0..1-ish; a flat frame reads ~0 regardless of
-##              mean, so it corroborates uniform rather than driving verdict)
+##              mean). Independent flatness signal (PANE_HEALTH_VARIANCE_
+##              SUSPECT_MAX doc has the 2026-07-11 incident that promoted
+##              this from "corroborating" to load-bearing) — catches flat
+##              frames that per-pixel dither/noise spreads across too many
+##              quantization buckets for `uniform` to see.
 ##   uniform  — fraction of sampled pixels within epsilon (the quantization
-##              bucket) of the modal color — the primary degenerate signal
+##              bucket) of the modal color — the hard degenerate signal for
+##              the unambiguous single-color-fill shape
 func _pane_health_stats(src: Image) -> Dictionary:
 	var img: Image = src.duplicate()
 	if img.get_format() != Image.FORMAT_RGB8:
@@ -1021,24 +1061,54 @@ func _pane_health_stats(src: Image) -> Dictionary:
 	for count in buckets.values():
 		modal_count = maxi(modal_count, int(count))
 	var uniform := float(modal_count) / float(n)
+	var variance := var_sum / float(n)
+	# Two independent flatness signals, checked in order of confidence: a
+	# saturated modal bucket is unambiguous (degenerate); failing that, near-
+	# zero variance is still "flat" even when dither/noise kept uniform low
+	# (suspect — see PANE_HEALTH_VARIANCE_SUSPECT_MAX for the incident that
+	# added this line and why it's a flag, not an alarm).
+	var verdict := "ok"
+	if uniform > PANE_HEALTH_UNIFORM_DEGENERATE:
+		verdict = "degenerate"
+	elif variance < PANE_HEALTH_VARIANCE_SUSPECT_MAX:
+		verdict = "suspect"
 	return {
 		"uniform": uniform,
 		"mean": mean,
-		"variance": var_sum / float(n),
-		"verdict": "degenerate" if uniform > PANE_HEALTH_UNIFORM_DEGENERATE else "ok",
+		"variance": variance,
+		"verdict": verdict,
 	}
 
 
 ## The pane_health self-arm (agent-observability-pipeline item 3): once per
 ## boot, the instant `boot` reads phase=live, run pane_health ONCE
-## unprompted and WARN if it comes back degenerate — the white-map class of
-## failure is exactly the case nobody is watching for (Strata not yet
-## connected, or a Finder-launched pane with no hub attached at all). Never
-## re-arms (a reload_world / re-stream does not re-trigger); never runs
-## before live (booting/revealing frames are legitimately unsettled, not
-## degenerate). Silent when there is no image to score (headless) — the
-## latch still sets so a later live-phase frame (impossible headless, but
-## defensive) can't retry every tick.
+## unprompted and flag it if it comes back suspect OR degenerate — the
+## white-map class of failure is exactly the case nobody is watching for
+## (Strata not yet connected, or a Finder-launched pane with no hub attached
+## at all). Never re-arms (a reload_world / re-stream does not re-trigger);
+## never runs before live (booting/revealing frames are legitimately
+## unsettled, not degenerate). Silent when there is no image to score
+## (headless) — the latch still sets so a later live-phase frame (impossible
+## headless, but defensive) can't retry every tick.
+##
+## What this ONE boot-live frame can actually show: world-live fires the
+## instant the near ring around the player's spawn position is confirmed
+## settled (world_streamer.gd boot_phase/_is_near_ring_settled) — a boot-time
+## terrain-streaming milestone, unrelated to any menu/overlay flow. This repo
+## has no title-screen or fade-in scene at all (grepped: no such node exists
+## anywhere in game/) — pane_health can never observe those, so they are not
+## a false-positive risk here regardless of threshold. It CAN legitimately
+## land on: deep underwater (a save can resume submerged — player.gd
+## _update_underwater_fx layers a pink veil, alpha e-folding up to 0.62,
+## NEVER fully opaque, so terrain always still contributes some variance
+## underneath) and night (day_night.gd dims continuously off sun elevation,
+## never clamps to flat black). Both are real states this check can hit at
+## boot and both can legitimately score low variance — which is exactly why
+## the recalibration (PANE_HEALTH_VARIANCE_SUSPECT_MAX) answers "suspect"
+## rather than "degenerate" for a low-variance frame that isn't ALSO
+## uniform-saturated: suspect says "a human should glance at this," not "the
+## pane is broken." Only push_warning's severity differs by verdict; both
+## print so the pane-log tee always has the line either way.
 func _pane_health_boot_tick() -> void:
 	if _pane_health_boot_checked:
 		return
@@ -1051,6 +1121,10 @@ func _pane_health_boot_tick() -> void:
 		return  # no image to score (headless/no viewport) — nothing to warn
 	if "verdict=degenerate" in reply:
 		var msg := "[stratalink] pane_health WARN at world-live: %s" % reply
+		print(msg)
+		push_warning(msg)
+	elif "verdict=suspect" in reply:
+		var msg := "[stratalink] pane_health SUSPECT at world-live: %s" % reply
 		print(msg)
 		push_warning(msg)
 

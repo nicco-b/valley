@@ -24,12 +24,9 @@ const BIOME_RES := 1024
 ## 5 wetland 6 volcanic_rock 7 bare_peak.
 const STRATA_TO_VALLEY := [0, 1, 5, 2, 4, 4, 3, 3, 7, 6]
 
-## Largest-first lake cap: Strata's solver reports EVERY filled depression
-## over its min_lake_area_m2 (an eroded 16km world holds hundreds), but
-## every water body sits in Terrain's per-sample loops (height carve,
-## water_surface) — records are a budget, not a survey. Rivers arrive
-## pre-capped by the doc's max_rivers.
-const LAKE_MAX := 24
+## The largest-first lake cap lives with the converter now (W4):
+## HydrologyRecords.LAKE_MAX — one budget for the importer AND the pre-bless
+## resolve, so the two faces can never keep different lakes.
 
 ## Spawn picking: where a fresh journey begins is a property of the WORLD,
 ## so the importer chooses it when it blesses the tile and records it as
@@ -495,72 +492,27 @@ func _import_hydrology(world_dir: String, out_dir: String, manifest: Dictionary)
 		return Vector3i(-1, -1, -1)
 	var hydro: Dictionary = parsed
 
+	# W4 (one river renderer): the export→record conversion lives in ONE place —
+	# HydrologyRecords — shared verbatim with the pre-bless resolve
+	# (Terrain.preview_water), so the blessed world and the shaping pane can
+	# never drift apart on depth/feather/outline shapes. Written records are
+	# byte-identical to the pre-W4 importer's (key order + the omitted-when-empty
+	# outline are load-bearing there).
 	DirAccess.make_dir_recursive_absolute(out_dir.path_join("rivers"))
-	var falls_total := 0
+	var falls_total := HydrologyRecords.fall_count(hydro)
 	var rivers: Array = hydro.get("rivers", [])
-	for r: Dictionary in rivers:
-		var nodes: Array = r.get("nodes", [])
-		if nodes.size() < 2:
-			continue
-		# Channel depth/feather from the river's size (width ∝ √discharge). The
-		# nodes are carried through VERBATIM — one water truth: STUDY_WATER_TERRAIN
-		# §4 W2 makes each node's `surface` the honest ε=0 water line (monotone
-		# non-increasing head→mouth), curvature-resampled and Chaikin-smoothed at
-		# the bake, and adds per-node `discharge` + `grade`. The game ribbon reads
-		# that surface straight (W1's carve already seated the bed under it), so
-		# the burial the study photographed is gone with no second river renderer.
-		var mean_w := 0.0
-		for n: Dictionary in nodes:
-			mean_w += float(n["width"])
-		mean_w /= nodes.size()
-		var falls: Array = r.get("waterfalls", [])
-		falls_total += falls.size()
-		var rec := {
-			"id": "hyd_%s" % String(r.get("id", "r")),
-			"no_sim": true,  # the REGION tier breathes it, off the soak digest
-			"depth": snappedf(clampf(0.5 + 0.12 * mean_w, 1.0, 3.0), 0.01),
-			"feather": snappedf(clampf(mean_w * 0.5, 4.0, 12.0), 0.1),
-			"catchment_m2": float(r.get("catchment_m2", 0.0)),
-			"nodes": nodes,
-			"waterfalls": falls,
-			"source": "strata_hydrology",
-		}
+	for rec: Dictionary in HydrologyRecords.river_records(hydro):
 		_write_json(out_dir.path_join("rivers/%s.json" % rec["id"]), rec)
 
 	# Lakes come sorted by descending area — keep the LAKE_MAX biggest.
-	var lakes: Array = hydro.get("lakes", [])
-	var skipped := lakes.size() - mini(lakes.size(), LAKE_MAX)
-	lakes = lakes.slice(0, LAKE_MAX)
+	var lake_recs := HydrologyRecords.lake_records(hydro)
+	var skipped: int = (hydro.get("lakes", []) as Array).size() - lake_recs.size()
 	if skipped > 0:
 		print("  hydrology: kept the %d largest lakes (%d puddles skipped)" % [
-			lakes.size(), skipped])
-	for l: Dictionary in lakes:
-		# The solver's TRUE shoreline (P2+): an ordered closed polygon in world
-		# meters. Carried through verbatim so water_bodies builds a mesh that
-		# hugs the real depression instead of a floating disc. Absent on a
-		# pre-outline export — the record simply omits it and the game falls
-		# back to the equal-area disc (x/z/radius), exactly as before.
-		var outline: Array = l.get("outline", [])
-		var rec := {
-			"id": "hyd_%s" % String(l.get("id", "l")),
-			"no_sim": true,  # region lake: its level stays off the soak digest
-			"center": {"x": float(l["x"]), "z": float(l["z"])},
-			"radius": float(l["radius"]),
-			"surface": float(l["surface"]),
-			"depth": float(l.get("depth", 0.0)),  # real max depth (W2 bathymetry)
-			# basin depth 0: the tile already holds the depression.
-			"basin": {"radius": float(l["radius"]), "depth": 0.0},
-			"outlet": "aquifer",
-			"source": "strata_hydrology",
-		}
-		if not outline.is_empty():
-			# Normalize to plain floats (JSON gives us Dictionaries already).
-			var ring: Array = []
-			for p: Dictionary in outline:
-				ring.append({"x": float(p["x"]), "z": float(p["z"])})
-			rec["outline"] = ring
+			lake_recs.size(), skipped])
+	for rec: Dictionary in lake_recs:
 		_write_json(out_dir.path_join("%s.json" % rec["id"]), rec)
-	return Vector3i(rivers.size(), lakes.size(), falls_total)
+	return Vector3i(rivers.size(), lake_recs.size(), falls_total)
 
 
 ## Copy Strata's baked scatter (world_vN/scatter/) into the game's cache dir

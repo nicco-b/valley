@@ -1776,6 +1776,24 @@ func _preview_world(dir: String) -> String:
 		"height_min": 0.0, "height_max": 1.0}
 	if not Terrain.preview_tile(rec, float(world.get("sea_level_m", Terrain.sea_level))):
 		return "err could not load %s" % rec["heightmap"]
+	# W4 — ONE RIVER RENDERER (STUDY_WATER_TERRAIN §4): the resolve imports the
+	# export's hydrology.json into the LIVE water stack, in memory, pre-bless —
+	# the water half of the re-tile above. The sea already held this posture
+	# (preview_sea, M6c); rivers/lakes now arrive the same way, so when the M6a
+	# gate lifts the drape below resolve_max_dist the revealed world carries the
+	# SAME water_bodies ribbons/lakes a blessed world would — one builder, two
+	# distances, zero duplicated water renderers. An export without
+	# hydrology.json (thin drag bake, plain viewer) changes nothing — today's
+	# behavior, exactly.
+	var water_tail := ""
+	var hydro_path := dir.path_join("hydrology.json")
+	if FileAccess.file_exists(hydro_path):
+		var hydro: Variant = JSON.parse_string(FileAccess.get_file_as_string(hydro_path))
+		if hydro is Dictionary and (hydro as Dictionary).has("rivers"):
+			var counts: Vector3i = Terrain.preview_water(hydro)
+			water_tail = " water=%dr/%dl" % [counts.x, counts.y]
+		else:
+			print("[link] preview_world: unreadable hydrology.json — water unchanged")
 	# M6a — the RESOLVE (PLAN_LIVING_PREVIEW §3): when a drape is currently
 	# worn (the living preview's sub-0.4s drag proxy), preview_world PROMOTES
 	# it to the real world UNDERNEATH — the kernel now carries the shape (Walk
@@ -1792,8 +1810,8 @@ func _preview_world(dir: String) -> String:
 		_near_ring_confirmed = false
 		_living_gate = true
 		_arm_drape_crossfade()
-	return "ok preview %.0fm sea=%.1fm (in memory — Send persists)" % [
-		size, Terrain.sea_level]
+	return "ok preview %.0fm sea=%.1fm (in memory — Send persists)%s" % [
+		size, Terrain.sea_level, water_tail]
 
 
 ## M6a — the living-preview CROSSFADE arm (§3): after a resolve re-tiles the

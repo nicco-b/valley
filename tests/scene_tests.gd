@@ -1783,6 +1783,26 @@ func _test_preview_water(peer: StreamPeerTCP) -> void:
 			"the mesh carries river + lake + waterfall surfaces (got %d)" %
 				(pv._water_mi.mesh.get_surface_count() if pv._water_mi.mesh != null else -1))
 		_check(pv._water_mi.visible, "the overlay is visible by default (live)")
+		# W4 — the HONEST chart: ribbon vertices sit at TRUE 1× width, draped to
+		# the export relief (flat 42m here) + the z-guard epsilon — never the old
+		# 3×-wide quad floating 2m over the record surface. The survey width
+		# rides NORMAL.xz for the ★6 fade shader instead.
+		if pv._water_mi.mesh != null and pv._water_mi.mesh.get_surface_count() == 3:
+			var arr: Array = pv._water_mi.mesh.surface_get_arrays(0)
+			var rv: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+			var rn: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+			_check(rv.size() > 0 and absf(rv[0].y - (42.0 + 0.3)) < 0.05,
+				"W4: the ribbon drapes to the export height (+epsilon), no 2m float (y=%.2f)"
+					% (rv[0].y if rv.size() > 0 else -1.0))
+			# First segment, first vert: node width 3 → true half 1.5m off the
+			# centerline (the river runs along z=0, so the vert sits at |z|=1.5).
+			_check(rv.size() > 0 and absf(absf(rv[0].z) - 1.5) < 0.05,
+				"W4: vertices carry TRUE 1x half-width (|z|=%.2f, want 1.5)"
+					% (absf(rv[0].z) if rv.size() > 0 else -1.0))
+			_check(rn.size() == rv.size() and rn.size() > 0 and rn[0].length() > 0.5,
+				"W4: the survey exaggeration rides NORMAL.xz for the fade shader")
+			_check(pv._water_river_mat != null,
+				"W4: the river surface wears the ★6 fade shader material")
 	# The ⏸ toggle: preview_water off hides WITHOUT re-solving (the node stays,
 	# just invisible), on shows it again. No re-wear, no stale geometry.
 	var off_w := await _link_send(peer, ["preview_water off"])
@@ -1897,6 +1917,16 @@ func _test_living_preview(peer: StreamPeerTCP) -> void:
 	mf.store_string(JSON.stringify({"world": {
 		"size_m": [16384.0, 16384.0], "sea_level_m": 5.0}}))
 	mf.close()
+	# W4 — the export carries hydrology: the resolve must import it into the
+	# LIVE water stack (Terrain.rivers/water_bodies), in memory, pre-bless.
+	_write_hydrology(dir, {"format": 1, "sea_level_m": 5.0,
+		"rivers": [{"id": "r0", "catchment_m2": 5.0e6, "nodes": [
+			{"x": -200.0, "z": 0.0, "width": 3.0, "surface": 40.0},
+			{"x": 200.0, "z": 0.0, "width": 9.0, "surface": 35.0}],
+			"waterfalls": [{"x": 0.0, "z": 0.0, "drop_m": 6.0}]}],
+		"lakes": [{"id": "l0", "x": 500.0, "z": 500.0, "radius": 80.0,
+			"surface": 30.0, "depth": 8.0, "outline": []}]})
+	var rivers_before: int = Terrain.rivers.size()
 
 	# -- (A) the resolve contract + Walk Here honesty ----------------------
 	var worn := await _link_send(peer, ["preview_mesh " + dir])
@@ -1916,6 +1946,23 @@ func _test_living_preview(peer: StreamPeerTCP) -> void:
 	var resolved := await _link_send(peer, ["preview_world " + dir])
 	_check(resolved.size() == 1 and resolved[0].begins_with("ok preview"),
 		"living: preview_world resolves (got %s)" % str(resolved))
+	# W4 — the resolve imported the export's hydrology into the live stack: the
+	# reply names the counts, and Terrain now carries the export's river (with
+	# its waterfall) and lake — the SAME records water_bodies builds the real
+	# ribbons/lake meshes from, so what the gate reveals below is the game's
+	# water. Disk untouched (in memory, like the tile).
+	_check(resolved.size() == 1 and resolved[0].contains("water=1r/1l"),
+		"W4: the resolve reply carries the imported water counts (got %s)" % str(resolved))
+	_check(Terrain.rivers.size() == 1 and String(Terrain.rivers[0].id) == "hyd_r0",
+		"W4: the export's river is live in Terrain.rivers (got %d)" % Terrain.rivers.size())
+	_check(Terrain.rivers.size() == 1 and (Terrain.rivers[0].falls as Array).size() == 1,
+		"W4: the river carries its waterfall record")
+	_check(Terrain.rivers.size() == 1 and bool(Terrain.rivers[0].no_sim),
+		"W4: preview water is region-tier (no_sim, off the soak digest)")
+	_check(Terrain.water_bodies.size() == 1
+			and String(Terrain.water_bodies[0].id) == "hyd_l0",
+		"W4: the export's lake is live in Terrain.water_bodies (got %d)"
+			% Terrain.water_bodies.size())
 	_check(absf(Terrain.height(3000.0, 3000.0) - 42.0) < 0.01,
 		"living: the kernel now carries the shaped ground (%.2f)" % Terrain.height(3000.0, 3000.0))
 	_check(StrataLink._drape_resolved,
@@ -2037,12 +2084,20 @@ func _test_living_preview(peer: StreamPeerTCP) -> void:
 	# player, erase the export. The world is exactly as the next test finds it.
 	await _link_send(peer, ["preview_mesh off"])
 	pl.queue_free()
+	# W4 restore: re-read the checkout's own water records off disk (the same
+	# door a real import uses) so the preview water leaves no trace, THEN
+	# re-wear the original tile (preview_tile seats sea + kernel tiles; the
+	# reload already re-inited the kernel against the disk water).
+	Terrain._reload_water()
+	_check(Terrain.rivers.size() == rivers_before,
+		"W4: restore returns the checkout's own rivers (%d, was %d)"
+			% [Terrain.rivers.size(), rivers_before])
 	_check(Terrain.preview_tile(orig_rec, orig_sea), "living: restore wears the original")
 	StrataLink._drape_resolved = false
 	if StrataLink._preview != null:
 		StrataLink._preview.queue_free()
 		StrataLink._preview = null
-	for f in ["height.exr", "bake_manifest.json"]:
+	for f in ["height.exr", "bake_manifest.json", "hydrology.json"]:
 		DirAccess.remove_absolute(dir.path_join(f))
 	DirAccess.remove_absolute(dir)
 

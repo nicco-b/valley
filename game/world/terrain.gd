@@ -725,6 +725,45 @@ func preview_tile(rec: Dictionary, p_sea_level: float) -> bool:
 	return true
 
 
+## The P8 viewer's WATER half (W4, one river renderer for both faces): seat a
+## Strata export's hydrology.json into the LIVE water stack, ENTIRELY in
+## memory — the same records the blessed importer would write to data/water/,
+## built by the SAME converter (HydrologyRecords), so below the M6a distance
+## gate the resolved pre-bless world shows the game's own water_bodies
+## ribbons/lakes, not a chart. Nothing touches disk: data/water/ stays
+## pristine; a real import/reload_world (which re-reads disk) or a restart
+## reverts. Call AFTER preview_tile — the ribbons/carve seat on the export's
+## own relief. Returns (rivers, lakes, waterfalls) seated.
+func preview_water(hydro: Dictionary) -> Vector3i:
+	water_bodies.clear()
+	lake_levels = PackedFloat32Array()
+	rivers.clear()
+	river_levels = PackedFloat32Array()
+	for rec: Dictionary in HydrologyRecords.lake_records(hydro):
+		water_bodies.append(_lake_from_record(
+			rec, String(rec["id"]), water_bodies.size()))
+	lake_levels.resize(water_bodies.size())
+	var falls := 0
+	for rec: Dictionary in HydrologyRecords.river_records(hydro):
+		var river := _river_from_record(rec, String(rec["id"]))
+		falls += (river.falls as Array).size()
+		_index_river(river)
+		rivers.append(river)
+	river_levels.resize(rivers.size())
+	if kernel:
+		_init_kernel()  # a fresh, fully-configured instance sees the new water
+	# The whole frame re-forms around the new channels/basins (height() carves
+	# them); water_bodies rebuilds every surface mesh off water_reloaded — the
+	# exact pair a real import fires, so the live stack can't tell the faces
+	# apart. That is the point.
+	water_reloaded.emit()
+	edited.emit(Rect2(-WORLD_FRAME_M * 0.5, -WORLD_FRAME_M * 0.5,
+		WORLD_FRAME_M, WORLD_FRAME_M))
+	print("[terrain] preview water seated (in memory): %d rivers %d lakes" % [
+		rivers.size(), water_bodies.size()])
+	return Vector3i(rivers.size(), water_bodies.size(), falls)
+
+
 ## Dev hot-reload of one painted tile: reload the image, swap the tile
 ## array and a FRESH kernel wholesale (workers mid-build keep a ref to
 ## the old one — never a torn mix), then invalidate the tile's rect so
@@ -858,6 +897,11 @@ func _reload_water() -> void:
 	rivers.clear()
 	river_levels = PackedFloat32Array()
 	_load_water()
+	# The kernel carves lakes/rivers per sample (set_lakes/add_river at init) —
+	# a live water reload must re-init it or collision keeps carving the OLD
+	# water under the fresh records (W4; same swap-wholesale rule as add_river).
+	if kernel:
+		_init_kernel()
 	# The region reservoirs (Hydrology) and river ribbons (water_bodies) live
 	# outside this array — an import while the game runs must re-seed and
 	# rebuild them, or the fresh hyd_* rivers idle at zero flow with stale

@@ -55,9 +55,12 @@
 		"watershed": [
 			"game/world/hydrology.gd",
 			"game/world/hydrology.ct",
+			"game/world/sim_rivers.ct",
+			"game/world/lakes.ct",
 			"game/world/hydrology_records.gd",
 			"game/world/water_bodies.gd",
 			"game/world/water_field.gd",
+			"game/world/water_field_anchor.ct",
 			"game/world/water_gpu.gd",
 			"game/world/water_waves.gd",
 			"game/world/wave_gpu.gd",

@@ -185,17 +185,107 @@ func _focus() -> Vector2:
 	return _center if _center.is_finite() else Vector2.ZERO
 
 
+# --- Contour routing (Wave G2: the re-anchor RULE) --------------------------
+## sand's tick_control split, drawn again for the window/anchor decision. Its
+## own file/bridge (game/world/water_field_anchor.ct — a name distinct from the
+## WaterField autoload, since Contour compiles one MODULE at a time and this
+## system's resource namespace/tag must not collide with a future WaterField
+## system). NO SILENT FALLBACK: flag ON with the kernel absent / module
+## uncompilable / a refused tick is a loud push_error.
+const _CONTOUR_MODULE := "res://game/world/water_field_anchor.ct"
+var _contour_mode := 0
+var _contour_bridge: ContourBridge = null
+var _contour_calls := 0   # anchor-decision ticks answered by Contour (the engaged probe)
+
+
+func _route_anchor(focus: Vector2, center: Vector2, has_center: bool, force: bool) -> Dictionary:
+	var bridge := _route_contour()
+	if bridge != null:
+		_contour_calls += 1
+		var inputs := {
+			"water_field_anchor.focus": focus, "water_field_anchor.center": center,
+			"water_field_anchor.has_center": has_center, "water_field_anchor.force": force}
+		var applied := bridge.tick_seeded(inputs, 0.0)
+		if not applied:
+			push_error("[water_field] STRATA_CONTOUR=1 but the WaterFieldAnchor system tick "
+				+ "was refused — refusing to silently run the GDScript twin")
+			return {"rebake": false, "center": center, "drifted": false}
+		var rebake: Variant = WorldState.get_value("water_field_anchor.rebake", null)
+		var drifted: Variant = WorldState.get_value("water_field_anchor.drifted", null)
+		var new_center: Variant = WorldState.get_value("water_field_anchor.center", null)
+		if rebake == null or drifted == null or new_center == null:
+			push_error("[water_field] STRATA_CONTOUR=1 but the WaterFieldAnchor system returned "
+				+ "an incomplete decision — refusing to silently run the GDScript twin")
+			return {"rebake": false, "center": center, "drifted": false}
+		return {"rebake": bool(rebake), "center": new_center as Vector2, "drifted": bool(drifted)}
+	return anchor_decision(focus, center, has_center, force)
+
+
+func _route_contour() -> ContourBridge:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return _contour_bridge
+
+
+func _contour_resolve() -> void:
+	var verdict := Contour.decide("water_field_anchor")
+	if verdict != Contour.ROUTE_ENGAGE:
+		_contour_mode = verdict
+		return
+	var bridge := ContourBridge.new(WorldState)
+	var err := bridge.compile_file(_CONTOUR_MODULE)
+	if err != "":
+		push_error("[water_field] STRATA_CONTOUR=1 but %s did not compile: %s — refusing to "
+			% [_CONTOUR_MODULE, err] + "silently run the GDScript twin")
+		_contour_mode = -1
+		return
+	_contour_bridge = bridge
+	_contour_mode = 2
+
+
+## Routing introspection for the scene test (proves the system ran, not a
+## silent fallback): the resolved mode, whether it engaged, the tick count.
+func contour_status() -> Dictionary:
+	if _contour_mode == 0:
+		_contour_resolve()
+	return {"mode": _contour_mode, "engaged": _contour_mode == 2, "calls": _contour_calls}
+
+
+## The scrolling-window re-anchor RULE (docs/PORT_LEDGER.md's water_field row,
+## Wave G2 — sand's tick_control split is the precedent): given the focus, the
+## current center (has_center=false until the first anchor), and whether a
+## rebake was force-requested (the fill-channels toggle), decide whether to
+## rebake and, if the focus drifted past RECENTER, the new ANCHOR_SNAP-snapped
+## center. Pure — no GPU/thread/RenderingServer/autoload reads. The scroll
+## OFFSET the GPU actually scrolls by is a mechanical derived value from this
+## decision's old/new center (a Vector2i round, host-side, the same "derived
+## writes stay host-side" law Hydrology's river_levels/WorldState mirrors
+## follow) — not part of the certified leaf.
+static func anchor_decision(focus: Vector2, center: Vector2, has_center: bool, force: bool) -> Dictionary:
+	var drifted := (not has_center) or (focus.distance_to(center) > RECENTER)
+	if not (drifted or force):
+		return {"rebake": false, "center": center, "drifted": false}
+	var new_center := center
+	if drifted:
+		new_center = focus.snappedf(ANCHOR_SNAP)
+	return {"rebake": true, "center": new_center, "drifted": drifted}
+
+
 func _process(delta: float) -> void:
 	# Re-anchor when the focus drifts (never mid-bake: one base at a
 	# time, and a fast-traveling focus just re-anchors next frame). A
-	# fill-channels toggle forces a rebake in place (no scroll).
+	# fill-channels toggle forces a rebake in place (no scroll). THE RULE
+	# crosses to Contour (Wave G2): the drift-check + snap decision routes
+	# through the native §6 `WaterFieldAnchor` system when engaged; the scroll
+	# offset (a mechanical Vector2i derived from the decision's center delta)
+	# and everything GPU/thread-bound stays host-side either way.
 	if not _base_pending:
 		var focus := _focus()
-		var drifted := not _center.is_finite() or focus.distance_to(_center) > RECENTER
-		if drifted or _force_bake:
+		var decision := _route_anchor(focus, _center, _center.is_finite(), _force_bake)
+		if bool(decision.get("rebake", false)):
 			var old := _center
-			if drifted:
-				_center = focus.snappedf(ANCHOR_SNAP)
+			if bool(decision.get("drifted", false)):
+				_center = decision.center
 				if old.is_finite():
 					_gpu.scroll(Vector2i(
 						((_center - old) / (WINDOW / WaterGpu.GRID)).round()))

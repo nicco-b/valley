@@ -22,6 +22,7 @@ func _ready() -> void:
 	_test_shoaling()
 	_test_buoyancy()
 	_test_hydrology()
+	_test_hydrology_sim_lakes_contour()
 	_test_strata_water()
 	_test_river_drape()
 	_test_bathy_edit_invalidate()
@@ -2322,6 +2323,29 @@ func _test_names() -> void:
 	# Validation refuses an empty name before anything reaches disk.
 	_check(not bool(Names.write("cove_c", "   ", "", tmp).get("ok", false)),
 		"names: an empty name is refused")
+
+	# contour_status().engaged (docs/PORT_LEDGER.md F4's standing follow-up,
+	# closed G2): resolve/has_name/kind_of/named_ids/entries are all ROUTED —
+	# assert the posture this boot resolved into, and that an engaged VM's
+	# call counter actually climbs (no silent fallback), the same law
+	# _test_conditions_contour and _test_hydrology already assert.
+	var names_cs: Dictionary = Names.contour_status()
+	if bool(names_cs.get("engaged", false)):
+		_check(int(names_cs.get("mode", 0)) == 2 and int(names_cs.get("calls", 0)) > 0,
+			"names: STRATA_CONTOUR routing ENGAGED by default (native queries earned the counter, no silent fallback)")
+		var before3: int = int(Names.contour_status().calls)
+		Names.resolve("hyd_l1")
+		Names.has_name("hyd_l1")
+		Names.kind_of("hyd_l1")
+		Names.named_ids()
+		Names.entries()
+		var after3: int = int(Names.contour_status().calls)
+		_check(after3 > before3,
+			"names: routed queries answered by the Contour VM (calls %d->%d, no silent fallback)" % [before3, after3])
+	else:
+		_check((int(names_cs.get("mode", 0)) == 1 or int(names_cs.get("mode", 0)) == -1)
+				and int(names_cs.get("calls", -1)) == 0,
+			"names: routing off (=0 hatch / kernel-less) — GDScript twin, no silent engage")
 
 	# Restore the LIVE table from the shipped content (other surfaces/tests
 	# see the real gazetteer again).
@@ -4938,6 +4962,108 @@ func _test_hydrology() -> void:
 	Climate.wetness = was_wet
 
 
+## Wave G2: `system SimRivers` + `system Lakes` (game/world/sim_rivers.ct,
+## game/world/lakes.ct) route the two sibling leaves Wave D3 certified
+## (sim_river_step, lake_step) — the recorded next rung off the Hydrology row.
+## Both are FINGERPRINT-DORMANT in the home fixture (_test_hydrology already
+## proves "no authored water bodies" there), so parity for these two rides
+## Plumb (fresh manifest rows over the deployed sim_rivers.ct/lakes.ct copies)
+## plus THIS dedicated fixture: an authored sim-tier river pair feeding an
+## authored sim-tier lake, built the same way _test_strata_water builds a
+## region river (Terrain._river_from_record), temporarily spliced into
+## Terrain's live arrays so a real _hourly tick exercises the routed path
+## end-to-end, then torn back down so no later test sees the fixture.
+func _test_hydrology_sim_lakes_contour() -> void:
+	var rivers_before: Array = Terrain.rivers.duplicate()
+	var bodies_before: Array = Terrain.water_bodies.duplicate()
+	var levels_before := Terrain.river_levels.duplicate()
+	var lake_levels_before := Terrain.lake_levels.duplicate()
+	var storage_before: Dictionary = Hydrology.river_storage.duplicate()
+	var lake_level_before: Dictionary = Hydrology.lake_level.duplicate()
+	var catchment_before: Dictionary = Hydrology.catchment_area.duplicate()
+
+	# Two short sim-tier rivers (no_sim absent -> false), mouths at the same
+	# point so both feed one authored sim-tier lake there — the cross-basin
+	# coupling this system split keeps host-side (THE lake sums both).
+	var mouth := Vector2(9000.0, 9000.0)  # far outside the home watershed grid
+	var r1 := Terrain._river_from_record({
+		"id": "g2_test_r1",
+		"nodes": [
+			{"x": mouth.x - 40.0, "z": mouth.y, "width": 3.0, "surface": 10.0},
+			{"x": mouth.x, "z": mouth.y, "width": 3.0, "surface": 9.0}]},
+		"g2_test_r1")
+	Terrain.rivers.append(r1)
+	var r2 := Terrain._river_from_record({
+		"id": "g2_test_r2",
+		"nodes": [
+			{"x": mouth.x, "z": mouth.y - 40.0, "width": 2.5, "surface": 10.5},
+			{"x": mouth.x, "z": mouth.y, "width": 2.5, "surface": 9.0}]},
+		"g2_test_r2")
+	Terrain.rivers.append(r2)
+	Terrain.river_levels.resize(Terrain.rivers.size())
+	Terrain.river_levels[r1.idx] = 0.0
+	Terrain.river_levels[r2.idx] = 0.0
+	var lake := Terrain._lake_from_record({
+		"id": "g2_test_lake", "center": {"x": mouth.x, "z": mouth.y},
+		"radius": 20.0, "surface": 8.0, "outlet": "aquifer"},
+		"g2_test_lake", Terrain.water_bodies.size())
+	Terrain.water_bodies.append(lake)
+	Terrain.lake_levels.resize(Terrain.water_bodies.size())
+	Terrain.lake_levels[lake.idx] = 0.0
+
+	# Seed Hydrology's own state the way _ready seeds boot-authored water
+	# (SimRivers/Lakes never re-derive a fixture's storage/catchment on their
+	# own — that stays host-orchestrated, same as every other route_* leaf).
+	Hydrology.river_storage[r1.id] = Hydrology.SPRING_M3H / Hydrology.RIVER_K
+	Hydrology.river_storage[r2.id] = Hydrology.SPRING_M3H / Hydrology.RIVER_K
+	Hydrology.catchment_area[r1.id] = 5e4
+	Hydrology.catchment_area[r2.id] = 3e4
+	Hydrology.lake_level[lake.id] = 0.0
+
+	for i in 4:
+		Hydrology._hourly(0)
+
+	_check(Hydrology.river_storage.has(r1.id) and Hydrology.river_storage.has(r2.id),
+		"the authored sim rivers keep breathing under Hydrology")
+	_check(is_finite(float(Hydrology.river_storage[r1.id]))
+			and float(Hydrology.river_storage[r1.id]) >= 0.0,
+		"g2_test_r1 storage stays finite and non-negative")
+	_check(Hydrology.lake_level.has(lake.id), "the authored sim lake keeps a level")
+	var lv: float = Hydrology.lake_level[lake.id]
+	_check(lv >= Hydrology.LAKE_LEVEL_MIN and lv <= Hydrology.LAKE_LEVEL_MAX,
+		"g2_test_lake's level stays on its rails after 4 routed ticks")
+
+	# Routing introspection: SimRivers/Lakes resolve to the SAME posture as
+	# Hydrology (one boot, one STRATA_CONTOUR flag) — engaged earns a call
+	# count > 0 with no refusal; off/kernel-less earns exactly 0, same law
+	# _test_hydrology already asserts for the region-river system.
+	var cs: Dictionary = Hydrology.contour_status()
+	if bool(cs.get("sim_engaged", false)):
+		_check(int(cs.get("sim_mode", 0)) == 2 and int(cs.get("sim_calls", 0)) > 0,
+			"SimRivers routing ENGAGED by default (native §6 ticks earned the counter)")
+	else:
+		_check((int(cs.get("sim_mode", 0)) == 1 or int(cs.get("sim_mode", 0)) == -1)
+				and int(cs.get("sim_calls", -1)) == 0,
+			"SimRivers routing off (=0 hatch / kernel-less) — GDScript twin, no silent engage")
+	if bool(cs.get("lake_engaged", false)):
+		_check(int(cs.get("lake_mode", 0)) == 2 and int(cs.get("lake_calls", 0)) > 0,
+			"Lakes routing ENGAGED by default (native §6 ticks earned the counter)")
+	else:
+		_check((int(cs.get("lake_mode", 0)) == 1 or int(cs.get("lake_mode", 0)) == -1)
+				and int(cs.get("lake_calls", -1)) == 0,
+			"Lakes routing off (=0 hatch / kernel-less) — GDScript twin, no silent engage")
+
+	# Tear down: restore every array/dict this test spliced into, so no later
+	# test (or the soak, if this ever ran inside one) sees the fixture.
+	Terrain.rivers = rivers_before
+	Terrain.water_bodies = bodies_before
+	Terrain.river_levels = levels_before
+	Terrain.lake_levels = lake_levels_before
+	Hydrology.river_storage = storage_before
+	Hydrology.lake_level = lake_level_before
+	Hydrology.catchment_area = catchment_before
+
+
 ## ONE_APP P2: Strata's hydrology.json lands as hyd_* water records —
 ## rivers on the region tier (real catchment, breathing discharge), lakes
 ## at their fill elevation on the region lake tier, waterfalls riding the
@@ -7338,6 +7464,22 @@ func _test_conditions_contour() -> void:
 			"conditions: STRATA_CONTOUR=1 routes Conditions.eval through the Contour VM (calls %d->%d, no silent fallback)" % [before, after])
 		WorldState.set_value("test.contour.route", null)
 		print("  conditions: routing ENGAGED — the sim's leaf helpers answered by the Lattice VM (%d calls)" % after)
+
+		# keys_of/custom_names (docs/PORT_LEDGER.md D3b's recorded follow-up,
+		# routed G2): the VM answers these two too now — counter climbs again,
+		# and a spot-check against known-correct output (the same nested
+		# all/any/custom composition D3b's corpus certified) catches a
+		# marshalling or VM regression loud, not silently.
+		var before2: int = int(Conditions.contour_status().calls)
+		var kc := {"all": [{"custom": ["h1"], "watch": ["x"]},
+			{"any": [{"custom": ["h2"], "watch": ["y", "z"]}]}]}
+		_check(Conditions.keys_of(kc) == ["x", "y", "z"],
+			"conditions: routed keys_of matches the certified nested all/any/custom composition")
+		_check(Conditions.custom_names(kc) == ["h1", "h2"],
+			"conditions: routed custom_names matches the certified nested composition")
+		var after2: int = int(Conditions.contour_status().calls)
+		_check(after2 > before2,
+			"conditions: STRATA_CONTOUR=1 routes keys_of/custom_names through the Contour VM (calls %d->%d, no silent fallback)" % [before2, after2])
 	else:
 		# Flag off (mode 1) or refused (mode -1) — never a silent VM route.
 		_check(int(st.mode) == 1 or int(st.mode) == -1,

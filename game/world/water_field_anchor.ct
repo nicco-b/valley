@@ -1,0 +1,52 @@
+# Contour port of valley game/world/water_field.gd :: the scrolling-window
+# re-anchor RULE (docs/PORT_LEDGER.md's water_field row, Wave G2 — sand's
+# tick_control split is the precedent, drawn again here).
+#
+# THE SPLIT: water_field.gd's tier-2 GPU depth field is presentation
+# (DECISIONS 2026-07-04 — "never saved, never fingerprinted"), so the
+# per-texel dynamics STAY GDScript/GPU (RenderingDevice compute, the
+# off-thread base bake, WorkerThreadPool). What crosses is the small pure
+# DECISION every `_process` frame makes before any of that: has the focus
+# drifted far enough from the window's center to re-anchor, and if so,
+# where's the new (snapped) center? `has_center=false` stands in for
+# GDScript's `not _center.is_finite()` sentinel (the pre-first-anchor
+# state) — `center` is NEVER read when has_center is false, matching
+# GDScript's short-circuiting `or`, so an unset (possibly infinite) center
+# never reaches arithmetic on either side.
+#
+# `system WaterFieldAnchor` owns the round trip; the actual GPU scroll
+# offset (a mechanical Vector2i derived from this decision's center delta)
+# stays host-side, the same "derived writes stay host-side" law Hydrology's
+# river_levels/WorldState mirrors already follow — no round() is needed
+# here (Lattice has none), because the leaf never computes it.
+
+const RECENTER = 384.0
+const ANCHOR_SNAP = 16.0
+
+
+sim func anchor_decision(focus: vector2, center: vector2, has_center: bool, force: bool) -> dict:
+	var drifted = not has_center
+	if has_center:
+		drifted = (focus - center).length() > RECENTER
+	if not (drifted or force):
+		return {"rebake": false, "center": center, "drifted": false}
+	var new_center = center
+	if drifted:
+		new_center = vec2(snappedf(focus.x, ANCHOR_SNAP), snappedf(focus.y, ANCHOR_SNAP))
+	return {"rebake": true, "center": new_center, "drifted": drifted}
+
+
+# The per-frame re-anchor tick as a §6 system: reads the host-sampled focus +
+# the round-tripped center/has_center/force, writes the decision back.
+# `has_center`/`force` are transient per-call inputs (never truly "state" the
+# system owns — the GDScript twin re-derives them from `_center.is_finite()`
+# and `_force_bake` each call), but they ride the same declared-reads seam
+# every other routed system uses.
+system WaterFieldAnchor:
+	reads: water_field_anchor.focus, water_field_anchor.center, water_field_anchor.has_center, water_field_anchor.force
+	writes: water_field_anchor.rebake, water_field_anchor.center, water_field_anchor.drifted
+	sim func step():
+		var out = anchor_decision(water_field_anchor.focus, water_field_anchor.center, water_field_anchor.has_center, water_field_anchor.force)
+		water_field_anchor.rebake = out.rebake
+		water_field_anchor.center = out.center
+		water_field_anchor.drifted = out.drifted

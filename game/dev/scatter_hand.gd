@@ -76,15 +76,29 @@ static func clear(id: String) -> void:
 ## Apply the hand's delta to a baked placement dict. Returns the effective
 ## placement (a duplicate, with `moved=true`) or null when the hand deleted it;
 ## an untouched placement rides through with `moved=false`. Pure — the world
-## streamer calls this per baked prop it instances.
+## streamer calls this per baked prop it instances. The overlay-op fold itself
+## is apply_delta() below (dict-in/dict-out, Plumb-certified); this wrapper
+## only translates the deltas() lookup's null/found split into apply_delta's
+## dict-sentinel convention and the empty-dict delete sentinel back to null —
+## Contour's value kinds have no null, so the certified leaf never returns one.
 static func apply(p: Dictionary) -> Variant:
 	var d: Variant = deltas().get(p.get("id", ""), null)
-	if d == null:
+	var out := apply_delta(p, d if d is Dictionary else {})
+	return null if out.is_empty() else out
+
+
+## The pure overlay-op fold: `d` empty means untouched (moved=false rides
+## through), `d.op=="delete"` returns an EMPTY dict (apply()'s delete
+## sentinel — Contour has no null value kind), anything else is a move
+## (x/y/z/yaw/scale overlaid, moved=true). Dict-in/dict-out, no lookup, no
+## I/O — the leaf docs/PORT_LEDGER.md's "small leaves" wave certifies.
+static func apply_delta(p: Dictionary, d: Dictionary) -> Dictionary:
+	if d.is_empty():
 		var out := p.duplicate()
 		out["moved"] = false
 		return out
 	if String(d.get("op", "")) == "delete":
-		return null
+		return {}
 	var moved := p.duplicate()
 	moved["x"] = float(d["x"]); moved["y"] = float(d["y"]); moved["z"] = float(d["z"])
 	moved["yaw"] = float(d["yaw"]); moved["scale"] = float(d["scale"])

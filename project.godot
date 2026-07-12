@@ -1,11 +1,7 @@
-; Engine configuration file.
-; It's best edited using the editor UI and not directly,
-; since the parameters that go here are not all obvious.
-;
-; Format:
-;   [section] ; section goes between []
-;   param=value ; assign values to parameters
-
+; Engine configuration file (written by Strata's New Game scaffold).
+; The [application] header is this game's own; every other section is
+; copied verbatim from the datum framework's project.godot at
+; scaffold/update time (framework.lock.json carries the provenance).
 config_version=5
 
 [application]
@@ -31,6 +27,7 @@ window/stretch/aspect="expand"
 
 [autoload]
 
+BootClock="*res://game/dev/boot_clock.gd"
 WorldState="*res://game/state/world_state.gd"
 GameClock="*res://game/world/game_clock.gd"
 FocusThrottle="*res://game/world/focus_throttle.gd"
@@ -237,6 +234,7 @@ wave_size={
 "type": "float",
 "value": 64.0
 }
+
 [input]
 
 debug_weather={

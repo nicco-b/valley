@@ -55,6 +55,16 @@ func _ready() -> void:
 			keys = parsed
 
 
+## The environment the active viewport actually renders — the on-screen air.
+## Falls back to the WorldEnvironment node's own resource when the viewport
+## has none of its own (they coincide in a standalone game window).
+func _render_environment() -> Environment:
+	var vp := get_viewport()
+	if vp != null and vp.world_3d != null and vp.world_3d.environment != null:
+		return vp.world_3d.environment
+	return world_environment.environment if world_environment != null else null
+
+
 func _process(delta: float) -> void:
 	_accum += delta
 	var inside: bool = Interiors.inside
@@ -86,7 +96,21 @@ func _process(delta: float) -> void:
 	var horizon: Color = a[2].lerp(b[2], t)
 	sun.light_color = a[3].lerp(b[3], t)
 
-	var mat: ShaderMaterial = world_environment.environment.sky.sky_material
+	# The RENDERED air, not the node's (pink-haze fix, 2026-07-12): write the
+	# palette to the environment the viewport actually draws through —
+	# `world_3d.environment` — not blindly to the WorldEnvironment node's own
+	# resource. In a plain game window they are the same object; but when the
+	# scene is embedded in a host pane (Plat.app's creation view renders
+	# through its own viewport/world), the node's environment is NOT the one
+	# on screen, so every `set_shader_parameter` here landed on an off-screen
+	# material while the drawn sky kept sky.gdshader's raw literal defaults
+	# (the reference-painting pinks) — a wash that 0.58 sky-sourced ambient
+	# then spread over the whole world, clock- and weather-invariant. Toolkit
+	# reads the same handle (`world_3d.environment`) as its source of truth.
+	var render_env: Environment = _render_environment()
+	if render_env == null or render_env.sky == null:
+		return
+	var mat: ShaderMaterial = render_env.sky.sky_material
 	mat.set_shader_parameter("top_color", top)
 	mat.set_shader_parameter("horizon_color", horizon)
 	mat.set_shader_parameter("sun_color", sun.light_color)
@@ -124,7 +148,7 @@ func _process(delta: float) -> void:
 	#  - volumetric banks near the player (Atmosphere drifts one along
 	#    the wind) so morning fog is something you wade through, not a
 	#    uniform tint.
-	var env := world_environment.environment
+	var env := render_env
 	var fog := Weather.fog_amount()
 	env.fog_light_color = horizon.lerp(Color(0.8, 0.7, 0.58), Weather.storminess * 0.6) \
 		.lerp(Color(0.92, 0.88, 0.86), fog * 0.5)

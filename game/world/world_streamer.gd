@@ -103,6 +103,11 @@ var _visual_results: Array = []  # [cell, mesh] guarded by _results_mutex
 
 
 func _ready() -> void:
+	# Boot phase table (2026-07-12 boot forensics): a fresh world_streamer node
+	# IS a new boot for this purpose — matching _boot_window/_first_frame_seen
+	# below, which are one-shot per instance and do NOT reset on an in-process
+	# reload_world (Terrain re-reads disk under this same node).
+	BootClock.reset_boot()
 	add_to_group("world_streamer")
 	add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)  # cells hide while a preview grid is worn
 	_scan_authored()
@@ -196,6 +201,7 @@ func _process(delta: float) -> void:
 	var settled := _is_near_ring_settled()
 	if settled and not _was_settled:
 		near_ring_settled.emit()
+		BootClock.mark("near_ring_settled")
 	_was_settled = settled
 	# THE BOOT WINDOW closes the first frame the near ring is confirmed
 	# settled — walkable ground has landed, interactivity resumes, so the
@@ -207,11 +213,15 @@ func _process(delta: float) -> void:
 	if _boot_window and settled:
 		_boot_window = false
 		_finish_budget_ms = FINISH_BUDGET_EDIT_MS
+		# boot_phase() reads "live" exactly from here on — the same edge
+		# Strata's "world live" narration ends its open phase on.
+		BootClock.mark("world_live")
 	# S1 — the first honest frame (B1): a near-ground mesh is present, so the
 	# frame drawn this tick shows the coarse world. Emit once; the host reveals.
 	if not _first_frame_seen and not _mesh_instances.is_empty():
 		_first_frame_seen = true
 		first_frame_rendered.emit()
+		BootClock.mark("first_frame_rendered")
 
 
 ## The pane-reveal boot phase (B1, docs/PLAN_STRATA_TOOL.md S1), read over

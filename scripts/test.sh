@@ -150,12 +150,21 @@ echo "== smoke test: world (240 frames) =="
 # use — the framework file rides every game unchanged).
 for cand in game/world/valley.tscn main.tscn; do
 	[ -f "$cand" ] || continue
-	OUT=$(godot --headless --quit-after 240 "res://$cand" 2>&1 | grep -vE "$FILTER")
+	RAW=$(godot --headless --quit-after 240 "res://$cand" 2>&1)
+	OUT=$(echo "$RAW" | grep -vE "$FILTER")
 	if [ -n "$OUT" ]; then
 		echo "$OUT"
 		echo "SMOKE FAIL (world $cand): unexpected output above"
 		exit 1
 	fi
+	# Boot phase table (BootClock, 2026-07-12 boot forensics): one grep-able
+	# line per phase edge this boot hit, in the order they landed — engine_up,
+	# kernel_live, catchments_done, bathymetry_done, first_frame_rendered,
+	# near_ring_settled, world_live. No budget/threshold assertions here on
+	# purpose (deliberately deferred to a later taste pass once real numbers
+	# exist) — this just prints the table.
+	echo "-- boot phase table --"
+	echo "$RAW" | grep -E "^\[boot\] "
 	break
 done
 echo "smoke clean"

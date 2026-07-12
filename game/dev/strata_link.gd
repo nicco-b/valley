@@ -395,7 +395,7 @@ signal preview_sea(active: bool, sea_level: float)
 ## exactly, both ways: add a verb there and it MUST land here too.
 const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "boot", "reload_world",
 	"teleport", "screenshot", "pane_health", "thumbnail", "flyover", "meshstats", "weather", "time",
-	"time_lock", "weather_lock",
+	"time_lock", "weather_lock", "sky_probe",
 	"preview_world", "preview_mesh", "preview_shared", "preview_water", "render_device",
 	"camera", "view", "view_layer", "probe",
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
@@ -652,6 +652,14 @@ func _execute(line: String) -> String:
 			if parts.size() < 2:
 				return "err time needs +<h> or <0..24>"
 			return _time(parts[1])
+		"sky_probe":
+			# Pink-haze forensics (2026-07-12): report the LIVE top_color of the
+			# sky material on BOTH the WorldEnvironment node's environment and the
+			# environment the viewport actually renders (world_3d.environment). If
+			# they differ — or their sky_material instances differ — the palette
+			# push landed off-screen and the drawn sky wore sky.gdshader's pink
+			# literal defaults. Read-only: touches nothing the render depends on.
+			return _sky_probe()
 		"time_lock":
 			# The time-of-day LOCK (2026-07-09): a REAL hold in GameClock — the
 			# 1:1 auto-advance suspends and the wall gap is swallowed (not a
@@ -951,8 +959,14 @@ func _boot() -> String:
 	var phase := "booting"
 	if ws != null and ws.has_method("boot_phase"):
 		phase = String(ws.boot_phase())
-	return "ok boot phase=%s first_frame=%d settled=%d" % [
-		phase, 0 if phase == "booting" else 1, 1 if phase == "live" else 0]
+	# edges= is ADDITIVE (2026-07-11 boot forensics): BootClock's phase table
+	# as one token. PaneBoot.read (host side) walks tokens and skips names it
+	# doesn't know, so older hosts see yesterday's line exactly — and the
+	# host's EventSink (the one events.ndjson appender) has a wire to read
+	# the whole boot budget from, not just the world-live endpoint.
+	return "ok boot phase=%s first_frame=%d settled=%d edges=%s" % [
+		phase, 0 if phase == "booting" else 1, 1 if phase == "live" else 0,
+		BootClock.edges_token()]
 
 
 ## PANE_HEALTH — the frame-sanity probe (agent-observability-pipeline item 3):
@@ -1571,6 +1585,27 @@ func _audio(parts: PackedStringArray) -> String:
 ## NPCs and climate LIVE the skipped hours — exactly the dev T-key path).
 ## "+2.5" adds hours; a bare "18" travels to the next 18:00 (today if
 ## still ahead, else tomorrow — the sim can't unlive hours).
+func _sky_probe() -> String:
+	var we := get_tree().current_scene.find_child("WorldEnvironment", true, false) \
+		if get_tree().current_scene != null else null
+	var node_env: Environment = (we as WorldEnvironment).environment \
+		if we is WorldEnvironment else null
+	var vp := get_viewport()
+	var rend_env: Environment = vp.world_3d.environment \
+		if vp != null and vp.world_3d != null else null
+	var same_env := node_env == rend_env
+	var node_mat: ShaderMaterial = node_env.sky.sky_material \
+		if node_env != null and node_env.sky != null else null
+	var rend_mat: ShaderMaterial = rend_env.sky.sky_material \
+		if rend_env != null and rend_env.sky != null else null
+	var same_mat := node_mat == rend_mat
+	var node_top: Variant = node_mat.get_shader_parameter("top_color") if node_mat != null else null
+	var rend_top: Variant = rend_mat.get_shader_parameter("top_color") if rend_mat != null else null
+	return "ok sky_probe same_env=%s same_mat=%s node_top=%s rend_top=%s" % [
+		"yes" if same_env else "no", "yes" if same_mat else "no",
+		str(node_top), str(rend_top)]
+
+
 func _time(arg: String) -> String:
 	var delta: float
 	if arg.begins_with("+"):

@@ -694,6 +694,7 @@ func _init_kernel() -> void:
 		_bay_amp, _bay_freq)
 	kernel.set_tiles(_tiles)
 	print("[terrain] native kernel live: worker sampling runs in C++")
+	BootClock.mark("kernel_live")
 
 
 ## The P8 viewer (StrataLink preview_world): wear a tile record IN MEMORY

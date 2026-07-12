@@ -877,6 +877,7 @@ func _build_catchments() -> void:
 	_catchments_built = true
 	print("[hydrology] catchments in %dms: %s" % [
 		Time.get_ticks_msec() - t0, catchment_area])
+	BootClock.mark("catchments_done")
 
 
 ## Where does rain landing at (x,z) end up? A basin id, "exits", or

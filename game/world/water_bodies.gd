@@ -228,6 +228,10 @@ func _build_lakes() -> void:
 ## lakes) gets its sea and lakes for the FIRST time here, and a re-import to a
 ## drier/wetter world drops stale bodies and re-seats the surviving ones.
 func _on_water_reloaded() -> void:
+	# The records (and possibly the tile) were rewritten on disk: the bathy
+	# cache key recomputes from the fresh state on next use. Old entries
+	# refuse against the new key by construction.
+	BathyCache.invalidate_key()
 	_rebuild_sea()
 	_rebuild_lakes()
 	_rebuild_rivers()
@@ -574,6 +578,7 @@ func _bathy_register(tier: String, mi: MeshInstance3D, radius: float, step: floa
 ## edit on the far side of the world from a lake) are left alone — same
 ## economy as far_terrain's own rect-scoped _invalidate.
 func _on_terrain_edited_bathy(world_rect: Rect2) -> void:
+	var touched := false
 	for tier: String in _bathy:
 		var st: Dictionary = _bathy[tier]
 		var anchor: Vector2 = st.anchor
@@ -583,6 +588,14 @@ func _on_terrain_edited_bathy(world_rect: Rect2) -> void:
 		var footprint := Rect2(anchor.x - r, anchor.y - r, r * 2.0, r * 2.0)
 		if footprint.intersects(world_rect):
 			st.anchor = Vector2.INF
+			touched = true
+	if touched:
+		# The ground moved out from under the boot-time cache key: the
+		# session's disk entries are stale until the next clean boot re-keys
+		# off the flushed inputs. Stand the cache down and wipe it — a
+		# refused load only costs a rebake; a stale one breaks surf on a
+		# reef that is not there.
+		BathyCache.mark_dirty()
 
 
 ## W2: move one sea tier to `goal`, rebaking its seabed for the new
@@ -608,8 +621,27 @@ func _bathy_follow(tier: String, goal: Vector2) -> void:
 			return  # the tier trails one snap until its bake lands
 		WorkerThreadPool.wait_for_task_completion(task)
 		st.task = -1
+		var was_first := not Vector2(st.anchor).is_finite()
 		_bathy_apply(st)
+		if was_first:
+			# The boot bake is the disk-cache payload: persist it so the
+			# next cold boot of the SAME inputs loads instead of re-baking.
+			# Only the first bake per tier — the sea tiers' later follow
+			# rebakes are focus-transient and never touch disk.
+			BathyCache.store(tier, st)
 	if Vector2(st.anchor) != goal:
+		# Boot fast path: the disk cache answers the FIRST bake of a tier
+		# when every input matches (world key + exact grid + anchor) —
+		# byte-identical to the rebuild it replaces, refused on any
+		# mismatch (BathyCache: the cache is an accelerator, never truth).
+		if not Vector2(st.anchor).is_finite():
+			var cached := BathyCache.fetch(tier, goal, st)
+			if not cached.is_empty():
+				print("[water] bathymetry %s: boot bake loaded from disk cache" % tier)
+				st.out = cached
+				st.goal = goal
+				_bathy_apply(st)
+				return
 		st.goal = goal
 		st.task = WorkerThreadPool.add_task(_bathy_bake.bind(st, goal),
 			false, "sea bathymetry " + tier)
@@ -670,6 +702,7 @@ func _bathy_apply(st: Dictionary) -> void:
 			dmax = maxf(dmax, out[i])
 		print("[water] bathymetry %s live: depth %.1f..%.1fm at (%.0f, %.0f)" % [
 			mi.name, dmin, dmax, goal.x, goal.y])
+		BootClock.mark("bathymetry_done")
 	st.anchor = goal
 
 

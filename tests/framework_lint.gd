@@ -106,6 +106,29 @@ extends SceneTree
 ##                    rd-teardown): the `#include` directive starts with '#',
 ##                    which every per-line rule above skips as a GDScript
 ##                    comment, and .gdshaderinc is not otherwise scanned.
+##   drape-contract   the VIEWPORT DRAPE-LAYER CONTRACT (G3, engine-viewport):
+##                    preview_terrain.gd's LAYERS constant used to be one of
+##                    THREE hand-duplicated copies (strata's DataRamps.swift/
+##                    LayerProbe.swift/BakeManifest.swift on the other side),
+##                    each carrying a "keep in lockstep" comment pointed at
+##                    the others. datum's contracts/drape_layer.ct is now the
+##                    single canonical table; tests/fixtures/drape_contract.json
+##                    is its machine-readable mirror, VENDORED here verbatim
+##                    (GDScript can't parse Contour source) — see that file's
+##                    own header for the sha256 pin. This rule parses
+##                    PreviewTerrain's ACTUAL `const LAYERS` block out of its
+##                    OWN SOURCE text (a bounded per-entry `"tag": {...}`
+##                    capture, same discipline as every other literal-
+##                    scanning rule here — NOT `load()`, which hits a real
+##                    engine-ordering trap: preview_terrain.gd's static type
+##                    inference reaches the `Terrain` autoload, and inside
+##                    this SceneTree script's own _init() the autoload
+##                    hasn't entered the tree yet — "Identifier not found:
+##                    Terrain") and asserts every vendored row's tag/mode/
+##                    file agrees with it, both ways: a tag LAYERS carries
+##                    that the contract doesn't, or vice versa, fails just as
+##                    loud as a mode or file mismatch on a tag both sides
+##                    agree exists.
 ##
 ## ALLOWLIST is the FW1-era honesty valve: known hits, each tagged with
 ## WHY it's not failing the build today — either a pending FW4 rung that
@@ -412,6 +435,62 @@ func _run_probes() -> void:
 	_check(inc_clean.is_empty(),
 		"probe: include-manifest passes listed includes (res:// + relative) and ignores a comment")
 
+	# drape-contract: the source-text LAYERS parser reads mode + file out of
+	# a synthetic const block shaped exactly like preview_terrain.gd's own
+	# (bounded by "const LAYERS" ... a column-0 "\n}"), including a fileless
+	# entry (the shaded/slope shape) and a multi-field one whose "file" isn't
+	# the first key (the biome/province shape).
+	var parsed := _preview_terrain_layers_from_source(
+		"const LAYERS := {\n"
+		+ "\t\"shaded\": {\"mode\": 0, \"fmt\": \"%.1f\"},\n"
+		+ "\t\"moisture\": {\"mode\": 1, \"file\": \"moisture.png\",\n"
+		+ "\t\t\"enc\": [0.0, 1.0], \"view\": [0.0, 1.0], \"row\": 0, \"fmt\": \"%.2f\"},\n"
+		+ "}\n"
+		+ "\n"
+		+ "## unrelated code after the block must not leak in\n"
+		+ "var _worn := false\n")
+	_check(parsed.size() == 2 and parsed.has("shaded") and parsed.has("moisture")
+			and int(parsed["shaded"]["mode"]) == 0 and not parsed["shaded"].has("file")
+			and int(parsed["moisture"]["mode"]) == 1 and parsed["moisture"]["file"] == "moisture.png",
+		"probe: _preview_terrain_layers_from_source parses mode/file per tag and stops at the block close")
+
+	# drape-contract: a mode mismatch on a shared tag is CAUGHT and named.
+	var drape_mode_dirty := _drape_contract_hits(
+		[{"tag": "moisture", "mode": 1, "file": "moisture.png"}],
+		{"moisture": {"mode": 9, "file": "moisture.png"}})
+	_check(drape_mode_dirty.size() == 1 and drape_mode_dirty[0].rule == "drape-contract"
+			and drape_mode_dirty[0].literal.contains("mode"),
+		"probe: drape-contract catches a mode mismatch and names it")
+
+	# drape-contract: a file mismatch on a shared tag is CAUGHT.
+	var drape_file_dirty := _drape_contract_hits(
+		[{"tag": "moisture", "mode": 1, "file": "moisture.png"}],
+		{"moisture": {"mode": 1, "file": "wrong.png"}})
+	_check(drape_file_dirty.size() == 1 and drape_file_dirty[0].rule == "drape-contract"
+			and drape_file_dirty[0].literal.contains("file"),
+		"probe: drape-contract catches a file mismatch and names it")
+
+	# drape-contract: a tag the contract names but LAYERS doesn't is CAUGHT.
+	var drape_missing := _drape_contract_hits(
+		[{"tag": "flow", "mode": 3, "file": "flow.exr"}], {})
+	_check(drape_missing.size() == 1 and drape_missing[0].literal.contains("missing tag"),
+		"probe: drape-contract catches LAYERS missing a contract tag")
+
+	# drape-contract: a tag LAYERS carries that the contract doesn't name is
+	# CAUGHT too — the same drift, the other direction.
+	var drape_orphan := _drape_contract_hits(
+		[], {"ghost": {"mode": 9, "file": "ghost.png"}})
+	_check(drape_orphan.size() == 1 and drape_orphan[0].literal.contains("doesn't"),
+		"probe: drape-contract catches a LAYERS tag the contract doesn't name")
+
+	# drape-contract: a null-file contract row (shaded/slope) matches a
+	# LAYERS spec with no "file" key at all — the honest "rides height only"
+	# shape passes clean.
+	var drape_clean := _drape_contract_hits(
+		[{"tag": "shaded", "mode": 0, "file": null}], {"shaded": {"mode": 0}})
+	_check(drape_clean.is_empty(),
+		"probe: drape-contract passes a fileless layer (the shaded/slope shape)")
+
 
 # --- pass 2: the real manifest ------------------------------------------
 
@@ -483,6 +562,27 @@ func _run_real() -> void:
 		else:
 			_observed += 1
 			print("  OBSERVE [%s] %s: '%s' (%s)" % [hit.rule, hit.path, hit.literal, allowed.reason])
+
+	# drape-contract (G3): PreviewTerrain.LAYERS vs the vendored datum table.
+	# Parsed from preview_terrain.gd's own SOURCE TEXT (never load()ed — see
+	# the header doc's note on the Terrain-autoload ordering trap that rules
+	# out the reflective route here).
+	var drape_fixture: Variant = _load_json("res://tests/fixtures/drape_contract.json")
+	if drape_fixture is Dictionary and (drape_fixture as Dictionary).get("layers") is Array:
+		var pt_text := FileAccess.get_file_as_string("res://game/dev/preview_terrain.gd")
+		var pt_layers := _preview_terrain_layers_from_source(pt_text)
+		_check(not pt_layers.is_empty(), "PreviewTerrain LAYERS parsed non-empty from source")
+		for hit: Dictionary in _drape_contract_hits((drape_fixture as Dictionary)["layers"], pt_layers):
+			var allowed := _allowlisted(hit)
+			if allowed.is_empty():
+				_failures += 1
+				print("  FAIL [%s] %s: '%s'" % [hit.rule, hit.path, hit.literal])
+			else:
+				_observed += 1
+				print("  OBSERVE [%s] %s: '%s' (%s)" % [hit.rule, hit.path, hit.literal, allowed.reason])
+	else:
+		_check(false, "tests/fixtures/drape_contract.json missing/unreadable "
+			+ "(vendor it from datum's contracts/drape_contract.json)")
 
 
 func _allowlisted(hit: Dictionary) -> Dictionary:
@@ -796,6 +896,98 @@ func _include_manifest_hits(framework_files: Array[String]) -> Array[Dictionary]
 			continue
 		var text := FileAccess.get_file_as_string("res://" + path)
 		hits.append_array(_include_hits_for(path, text, listed))
+	return hits
+
+
+# --- the VIEWPORT DRAPE-LAYER CONTRACT (drape-contract, G3) ---------------
+# preview_terrain.gd's LAYERS constant used to be one of THREE hand-
+# duplicated copies of the same table (strata's DataRamps.swift/
+# LayerProbe.swift/BakeManifest.swift being the other two), each side
+# carrying a "keep in lockstep" comment pointed at the others. datum's
+# contracts/drape_layer.ct is now the single canonical table;
+# tests/fixtures/drape_contract.json is its machine-readable mirror
+# (GDScript can't parse Contour source), vendored here verbatim — see that
+# file's own header for the sha256 + the datum commit it was pulled from.
+
+
+## PreviewTerrain's `const LAYERS` table, parsed from its OWN SOURCE TEXT —
+## never `load()`ed. `load()`ing preview_terrain.gd from inside this
+## SceneTree script's own _init() hits a real engine-ordering trap: its
+## static type inference reaches the `Terrain` autoload
+## (`world.get("sea_level_m", Terrain.sea_level)`), and the autoload hasn't
+## entered the tree yet at that point in startup — "Identifier not found:
+## Terrain", a load failure this lint would otherwise silently treat as "no
+## layers, nothing to check" (the load failing is not the same as LAYERS
+## being empty). Text parsing sidesteps the trap entirely and matches every
+## other rule's own discipline (none of them `load()` a real framework
+## script either).
+##
+## Every entry looks like `"tag": {"mode": N, ...}` with no NESTED `{}`
+## inside one row (only `[]` for the enc/view arrays), so a bounded
+## `"tag":\s*\{([^{}]*)\}` capture over just the `const LAYERS ... \n}` block
+## is exact, not a guess — `mode`/`file` pulled out of that inner text the
+## same way _reap_hit and friends pull tokens out of theirs.
+func _preview_terrain_layers_from_source(text: String) -> Dictionary:
+	var out: Dictionary = {}
+	var block_start := text.find("const LAYERS")
+	if block_start == -1:
+		return out
+	var block_end := text.find("\n}", block_start)
+	if block_end == -1:
+		return out
+	var block := text.substr(block_start, block_end - block_start)
+	var entry_re := RegEx.create_from_string("\"(\\w+)\"\\s*:\\s*\\{([^{}]*)\\}")
+	var mode_re := RegEx.create_from_string("\"mode\"\\s*:\\s*(-?\\d+)")
+	var file_re := RegEx.create_from_string("\"file\"\\s*:\\s*\"([^\"]*)\"")
+	for m in entry_re.search_all(block):
+		var tag := m.get_string(1)
+		var inner := m.get_string(2)
+		var spec: Dictionary = {}
+		var mm := mode_re.search(inner)
+		if mm:
+			spec["mode"] = int(mm.get_string(1))
+		var fm := file_re.search(inner)
+		if fm:
+			spec["file"] = fm.get_string(1)
+		out[tag] = spec
+	return out
+
+
+## The G3 fence, pure over plain Dictionary/Array (unit-testable without
+## touching disk, same discipline as every rule above): does `layers`
+## (PreviewTerrain's LAYERS, from `_preview_terrain_layers_from_source`)
+## agree with `table` (the vendored fixture's "layers" array) on every tag's
+## mode and drape file? Checked BOTH ways — a tag one side names and the
+## other doesn't is exactly the drift this rung exists to catch, same as a
+## mismatched mode/file on a tag both sides agree exists.
+func _drape_contract_hits(table: Array, layers: Dictionary) -> Array[Dictionary]:
+	var hits: Array[Dictionary] = []
+	var seen: Dictionary = {}
+	for row: Variant in table:
+		if not (row is Dictionary):
+			continue
+		var r: Dictionary = row
+		var tag: String = String(r.get("tag", ""))
+		seen[tag] = true
+		if not layers.has(tag):
+			hits.append({"path": "game/dev/preview_terrain.gd", "rule": "drape-contract",
+				"literal": "LAYERS is missing tag '%s' — the vendored drape contract names it" % tag})
+			continue
+		var spec: Dictionary = layers[tag]
+		var want_mode := int(r.get("mode", -1))
+		var got_mode := int(spec.get("mode", -1))
+		if got_mode != want_mode:
+			hits.append({"path": "game/dev/preview_terrain.gd", "rule": "drape-contract",
+				"literal": "LAYERS['%s'].mode is %d, the drape contract says %d" % [tag, got_mode, want_mode]})
+		var want_file: String = "" if r.get("file") == null else String(r.get("file"))
+		var got_file: String = String(spec.get("file", ""))
+		if got_file != want_file:
+			hits.append({"path": "game/dev/preview_terrain.gd", "rule": "drape-contract",
+				"literal": "LAYERS['%s'].file is '%s', the drape contract says '%s'" % [tag, got_file, want_file]})
+	for tag: String in layers.keys():
+		if not seen.has(tag):
+			hits.append({"path": "game/dev/preview_terrain.gd", "rule": "drape-contract",
+				"literal": "LAYERS names tag '%s' the vendored drape contract doesn't" % tag})
 	return hits
 
 

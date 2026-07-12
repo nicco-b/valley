@@ -29,6 +29,7 @@ func _ready() -> void:
 	_test_sea_reload_visibility()
 	_test_lake_outline()
 	_test_lake_outline_bathy()
+	_test_lake_mirror()
 	_test_water_field()
 	_test_wave_sources()
 	_test_foam_memory()
@@ -5277,6 +5278,55 @@ func _test_lake_outline_bathy() -> void:
 		_check(custom.size() == vcount * 3,
 			"outline lake mesh now carries the CUSTOM0 depth channel (%d floats)" % custom.size())
 	mi.free()
+	wb.free()
+
+
+## W5.3 (★ 2 RULED: STYLIZED MIRROR): the gouache-quantized sky+sun mirror
+## rides LAKE materials only. Lake materials built by _build_lakes carry
+## lake_mirror=1; the sea-tier material factory and the plain river/base
+## material never set it (shader default 0) — the sea keeps its Gerstner
+## life, rivers stay matte. The shader itself must hold the gouache law in
+## code: both the mirror mix and the reflected sky gradient are floor()-
+## quantized, and the calm gate exists so a stirred lake goes matte.
+func _test_lake_mirror() -> void:
+	var wb: Node3D = load("res://game/world/water_bodies.gd").new()
+	# Isolate: swap in one synthetic small lake (radius < LAKE_SWELL_MIN_R so
+	# no bathy/swell machinery runs), restore the real records after.
+	var saved_bodies: Array = Terrain.water_bodies
+	var saved_levels: PackedFloat32Array = Terrain.lake_levels
+	Terrain.water_bodies = [{"id": "mirror_probe", "center": Vector2(0, 0),
+		"radius": 30.0, "surface": 10.0, "idx": 0}]
+	Terrain.lake_levels = PackedFloat32Array([0.0])
+	wb._build_lakes()
+	var lake_mi: MeshInstance3D = wb._lake_meshes.get("mirror_probe")
+	_check(lake_mi != null, "the synthetic lake builds")
+	if lake_mi != null:
+		var lm: ShaderMaterial = lake_mi.mesh.surface_get_material(0)
+		_check(float(lm.get_shader_parameter("lake_mirror")) == 1.0,
+			"lake material wears the quantized mirror (lake_mirror=1)")
+	# The sea-tier factory and the base river material never set the term —
+	# an unset uniform reads null here, and the shader default is 0.
+	var sea_mat: ShaderMaterial = wb._sea_material(3.0, 1600.0)
+	_check(sea_mat.get_shader_parameter("lake_mirror") == null,
+		"sea material does NOT wear the mirror (Gerstner life kept)")
+	var river_mat: ShaderMaterial = wb._material(Vector2.ZERO)
+	_check(river_mat.get_shader_parameter("lake_mirror") == null,
+		"base/river material does NOT wear the mirror")
+	# The gouache law, held in code: the shader source quantizes the mirror
+	# mix and the reflected sky, and gates on calm — posterized strokes,
+	# never a chrome glaze (the coordinator-relayed ★ 2 ruling's terms).
+	var src := FileAccess.get_file_as_string("res://game/shaders/water.gdshader")
+	_check(src.contains("uniform float lake_mirror"),
+		"shader carries the lake_mirror uniform")
+	_check(src.contains("m = floor(m * MIRROR_STEPS"),
+		"the mirror mix is floor-quantized (gouache bands)")
+	_check(src.contains("up = floor(up * SKY_BANDS"),
+		"the reflected sky gradient is posterized")
+	_check(src.contains("float calm = 1.0 - clamp(stir"),
+		"the calm gate exists — a stirred lake goes matte")
+	# Restore the real world records; free the probe scaffolding.
+	Terrain.water_bodies = saved_bodies
+	Terrain.lake_levels = saved_levels
 	wb.free()
 
 

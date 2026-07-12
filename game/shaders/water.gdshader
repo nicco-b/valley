@@ -115,6 +115,24 @@ uniform float foam_fade_far = 300.0;
 // to gouache curds, not a mist. The terrain-side WETNESS band this pairs
 // with waits on W1's river_mask (absent this branch) — parked there.
 uniform float shore_lap = 0.0;
+// W5.3 lake mirror (★2 RULED: STYLIZED MIRROR): a gouache-QUANTIZED
+// sky+sun reflection on CALM lakes only — not SSR, not planar. water_bodies
+// sets lake_mirror=1 on lake materials; sea and rivers keep 0 (the sea
+// keeps its Gerstner life; rivers move too fast to mirror). The term
+// bounces the view ray off the painted normal into an analytic two-band
+// sky — the REAL top/horizon palette day_night publishes each frame, so
+// the mirror never drifts from the sky it claims to reflect — and both
+// the sky gradient AND the mirror mix are snapped to hard steps: laid
+// gouache strokes, never a chrome sheen. A stepped pale sun glint (the
+// posterized-white law, same family as falls/foam) rides water_sun_dir.
+// Calmness gates everything: rings, chop, current, and swell each fade
+// the mirror, so a stirred or windy lake goes honestly matte again.
+uniform float lake_mirror = 0.0;
+const float MIRROR_STEPS = 4.0;   // mirror-mix quantization: the gouache bands
+const float SKY_BANDS = 4.0;      // reflected sky gradient posterization
+global uniform vec3 water_sun_dir;      // direction TO the sun (day_night)
+global uniform vec3 water_sky_top;      // sky zenith colour this frame
+global uniform vec3 water_sky_horizon;  // sky horizon colour this frame
 global uniform sampler2D trace_map;
 global uniform vec2 trace_center;
 global uniform float trace_size;
@@ -370,6 +388,42 @@ void fragment() {
 	float body = clamp(mix(0.32, 0.18, water_gold) + (1.0 - shallow) * 0.5 + fresnel * 0.35, 0.0, 0.9);
 	vec3 surface_col = mix(pal_a * 0.9, pal_b * 1.04, 0.35 + fresnel * 0.5);
 	vec3 col = mix(through, surface_col, body);
+
+	// W5.3: the quantized lake mirror (★2 ruling: stylized mirror).
+	if (lake_mirror > 0.5) {
+		// Calm gate: every local disturbance takes the mirror away —
+		// wading rings (wave field height/gradient), the stirred trace,
+		// current, and wind swell. A glass lake mirrors; a lively one is
+		// today's matte gouache, unchanged.
+		float stir = abs(wave_h) * 18.0 + length(wgrad) * 3.0 + t * 2.0
+				+ length(f) * 1.2 + clamp(swell_amp * 4.0, 0.0, 1.0);
+		float calm = 1.0 - clamp(stir, 0.0, 1.0);
+		if (calm > 0.01) {
+			// Bounce the view off the painted (posterized-ring) normal.
+			vec3 view_ws = normalize(CAMERA_POSITION_WORLD - wpos);
+			vec3 rdir = reflect(-view_ws, n_ws);
+			// The analytic sky: horizon → zenith by the ray's upness,
+			// SNAPPED to SKY_BANDS — the reflection is laid in flat
+			// strokes of the real sky palette, not a smooth photo grade.
+			float up = clamp(rdir.y, 0.0, 1.0);
+			up = floor(up * SKY_BANDS) / (SKY_BANDS - 1.0);
+			vec3 sky = mix(water_sky_horizon, water_sky_top, clamp(up, 0.0, 1.0));
+			// Mirror weight: grazing angles mirror hardest (fresnel),
+			// scaled by calm, then QUANTIZED to MIRROR_STEPS so the term
+			// arrives in bands (the gouache law), never a glaze.
+			float m = clamp(fresnel * 0.75 + 0.12, 0.0, 0.7) * calm;
+			m = floor(m * MIRROR_STEPS + 0.5) / MIRROR_STEPS;
+			col = mix(col, sky, m * 0.8);
+			// The sun glint: a stepped pale road under the low sun —
+			// posterized white (the falls/foam law), three hard steps,
+			// killed with the sun below the horizon and by any stir.
+			float sun_a = clamp(dot(rdir, normalize(water_sun_dir)), 0.0, 1.0);
+			float glint = pow(sun_a, 180.0) * calm
+					* clamp(water_sun_dir.y * 6.0, 0.0, 1.0);
+			glint = floor(clamp(glint, 0.0, 1.0) * 3.0) / 3.0;
+			col = mix(col, vec3(1.0, 0.98, 0.92), glint * 0.75);
+		}
+	}
 
 	// Foam: painted pale bands, posterized — shoreline lap, wave crests,
 	// fast water streaks, stirred wading. Never photoreal spray.

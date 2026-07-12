@@ -191,6 +191,11 @@ func _build_lakes() -> void:
 			mi.mesh = _disc(radius, lake_step)
 		var lake_mat := _material(Vector2.ZERO)
 		lake_mat.set_shader_parameter("shore_lap", 1.0)  # W5.4: lakes lap their shore
+		# W5.3 (★2 RULED: stylized mirror): calm lakes wear the quantized
+		# sky+sun mirror. Lakes ONLY — the sea (Gerstner life) and rivers
+		# (current) never set this; the shader's calm gate stands the mirror
+		# down the moment the lake itself is stirred.
+		lake_mat.set_shader_parameter("lake_mirror", 1.0)
 		if radius >= LAKE_SWELL_MIN_R:
 			# Fetch-scaled swell + real bathymetry (CUSTOM0): the shader's
 			# W2 path shoals, steepens, and breaks the chop on the lake's

@@ -1,0 +1,77 @@
+{
+	"_note": "The machine-readable mirror of contracts/drape_layer.ct's DrapeLayer table (G3, engine-viewport rung). This is the file strata and valley VENDOR — a checked-in copy, byte-identical to this one, with a sha256 note in the vendoring test/lint pointing back here. Edit drape_layer.ct and this file together; a mismatch between them is a bug in this repo, not a cross-repo one.",
+	"modeNote": "mode ids mirror the retired render.metal viewMode enum (0 shaded, 1 moisture, 2 temperature, 3 flow, 4 slope, 5 biome); province rides 5 too (a palette, not a ramp, same idiom as biome's colormap.png).",
+	"flowRawNote": "flow.exr is written RAW (BakeManifest.swift's EXRWriter.writeR32, no min/max normalize), so its GPU sample is the PHYSICAL value directly, not a 0..1 fraction. encMin/encMax = [0,1] here is the identity pass-through valley's data_scale/data_offset formula needs to turn that raw physical sample straight into view-t (t = raw / viewMax) — preserved verbatim from preview_terrain.gd's own LAYERS table (the behavioral truth), not smoothed into something that reads cleaner but drifts from what ships.",
+	"probeWire": "ok probe <layer> <value> at (<x>, <z>)",
+	"probeErrors": [
+		"err probe needs x z",
+		"err no preview mesh worn (preview_mesh <dir> first)",
+		"err probe (<x>, <z>) outside the world (max <half>m from center)",
+		"err layer file missing: <file> (re-export from Strata)"
+	],
+	"layers": [
+		{
+			"tag": "shaded", "mode": 0,
+			"file": null, "probeFile": null,
+			"ramped": false,
+			"encMin": null, "encMax": null,
+			"viewMin": null, "viewMax": null,
+			"curve": null, "unit": "m",
+			"lutRow": null, "fmt": "%.1f"
+		},
+		{
+			"tag": "moisture", "mode": 1,
+			"file": "moisture.png", "probeFile": null,
+			"ramped": true,
+			"encMin": 0.0, "encMax": 1.0,
+			"viewMin": 0.0, "viewMax": 1.0,
+			"curve": "linear", "unit": "",
+			"lutRow": 0, "fmt": "%.2f"
+		},
+		{
+			"tag": "temperature", "mode": 2,
+			"file": "temperature.png", "probeFile": null,
+			"ramped": true,
+			"encMin": -10.0, "encMax": 35.0,
+			"viewMin": -5.0, "viewMax": 30.0,
+			"curve": "linear", "unit": "°C",
+			"lutRow": 1, "fmt": "%.1f"
+		},
+		{
+			"tag": "flow", "mode": 3,
+			"file": "flow.exr", "probeFile": null,
+			"ramped": true,
+			"encMin": 0.0, "encMax": 1.0,
+			"viewMin": 0.0, "viewMax": 60.0,
+			"curve": "sqrt", "unit": "",
+			"lutRow": 2, "fmt": "%.2f"
+		},
+		{
+			"tag": "slope", "mode": 4,
+			"file": null, "probeFile": null,
+			"ramped": true,
+			"encMin": null, "encMax": null,
+			"viewMin": 0.0, "viewMax": 1.0,
+			"curve": "linear", "unit": "",
+			"lutRow": 3, "fmt": "%.2f"
+		},
+		{
+			"tag": "biome", "mode": 5,
+			"file": "colormap.png", "probeFile": "biome.png",
+			"ramped": false,
+			"encMin": null, "encMax": null,
+			"viewMin": null, "viewMax": null,
+			"curve": null, "unit": "",
+			"lutRow": null, "fmt": "%d"
+		},
+		{
+			"tag": "province", "mode": 5,
+			"file": "province_color.png", "probeFile": "province.png",
+			"ramped": false,
+			"encMin": null, "encMax": null,
+			"viewMin": null, "viewMax": null,
+			"curve": null, "unit": "",
+			"lutRow": null, "fmt": "%d"
+		}
+	]
+}

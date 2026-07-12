@@ -340,3 +340,56 @@ sim func _rank_by_matrix(cands, matrix) -> array:
 		out = out + [cands[best_i]]
 		count = count + 1
 	return out
+
+
+# ============================================================================
+# DATA-DRIVEN HOOKS (E5.4, E5_RULINGS #4 — the marker precedent, CONTOUR.md §4)
+# ============================================================================
+#
+# Quest hooks go DATA, not OO. A quest's `handlers` is a declared table of
+# { trigger, condition, effect } records; the pure decision — WHICH effects fire
+# for a lifecycle event, in what order — crosses here. The two RESOLVERS stay
+# valley-side exactly as agent_sim's marker_resolver does (§4): the `condition`
+# ref is PRE-RESOLVED to a bool GDScript-side (handed in as `answers`, parallel by
+# index — the Callable-as-data door), and the returned `effect` refs are applied
+# GDScript-side through the closed effect set. Contour never holds a Callable —
+# it reads the resolved answers and hands the effect refs back OUT, byte-for-byte
+# the marker split. The arbitrary predicate/effect BODIES (the unbounded GDScript
+# §4 bans from a `sim` tier) are the resolver's job, never Contour's.
+#
+# The structural rewrites (the boring-GDScript-subset conventions of this file):
+#   * `for i in handlers.size()` + `out.append(x)`  → a `while` over `+` (as
+#     _sorted_strs/_rank_by_matrix already do — Contour has no append).
+#   * `trigger.split(":")` + `parts.size()`         → carried verbatim: split and
+#     .size() are certified in quest_lint.ct (`after.split(":")`), so the phase/
+#     scope test is the SAME shape _role_fill_when's `on_stage:<id>` reads.
+
+# The pure hook dispatch — a quest's declared handler table, the current lifecycle
+# event (phase + target id, "" for on_start), and the host-preresolved `answers`
+# (a bool per handler, parallel by index) -> the ORDERED effect-refs to fire.
+# Order-preserving (declared order), total over the closed trigger vocabulary; no
+# world read crosses (the answers ARE the world read, done glue-side).
+sim func hook_dispatch(handlers, phase, target, answers) -> array:
+	var out = []
+	var i = 0
+	var n = handlers.size()
+	while i < n:
+		var h = handlers[i]
+		if _trigger_matches(h.trigger, phase, target):
+			if answers[i]:
+				out = out + [h.effect]
+		i = i + 1
+	return out
+
+
+# A handler's trigger vs the current phase/target — _role_fill_when's `on_stage:<id>`
+# split generalized to every phase. split(":") -> [phase] or [phase, id]; the phase
+# must match, and a scoped trigger must also match the target (an unscoped one fires
+# for any target). Total over the closed trigger vocabulary (quest_lint's split fence).
+sim func _trigger_matches(trigger, phase, target) -> bool:
+	var parts = trigger.split(":")
+	if parts[0] != phase:
+		return false
+	if parts.size() > 1:
+		return parts[1] == target
+	return true

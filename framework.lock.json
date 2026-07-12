@@ -1,5 +1,5 @@
 {
-  "date" : "2026-07-12T23:07:35Z",
+  "date" : "2026-07-12T23:25:36Z",
   "files" : {
     "assets\/models\/creatures\/biped_fox.glb" : "a8953875edbc44cdf2e6f59889f4416f2340ba2945babaa858cecf29a26e6343",
     "data\/looks\/gouache.json" : "942cf83bc8466372fced440aaf64d97aa406397cae28f89d23266083b8830aaa",
@@ -78,8 +78,8 @@
     "game\/story\/quest_hooks.gd" : "f6dbc35fce8877b874e469a4ae64adf37398b054c89d6723b50cadd65fe0d159",
     "game\/story\/quest_lint.gd" : "bb6d8281732bf0a1a4242a9d66e45327ed3b28fdf5d8a28239cade867677d5be",
     "game\/story\/quest_run.gd" : "d94c4da0b8201b70ab01345e4f50cd26bfb5452864e506604dd879572b96ce43",
-    "game\/story\/story.ct" : "4973aa70a1bdc8c842a14e9395f79e79c0e64d547cf9d2bd0722fff443689e61",
-    "game\/story\/story.gd" : "36cc5d1095ecfd24bc17374a4fdf49e00680c5a779ad3d14eb4cd69cea01842b",
+    "game\/story\/story.ct" : "8bea02ba33db0cbf16c1bad4a9380830952eff26360a55227b56c8f45a24afbf",
+    "game\/story\/story.gd" : "8f1f0fba83e44e70792e14982983ce30ffe6a62d1509ab1315407ac3f30611c5",
     "game\/ui\/hud.gd" : "fefdd9ac8ada5d4bc8d69e9806248b2859667c6141b4fce6a8e1995ecd83945d",
     "game\/ui\/map_screen.gd" : "9436787569d933666df6090a752e62f962589641fbaa4f68a97a339c1fd21b4f",
     "game\/ui\/pause_menu.gd" : "884670623d5445fffc6ae3e60c13ac9d820410c6e2936d4b4e326c59aff6ad13",
@@ -152,7 +152,7 @@
     "scripts\/reimport.sh" : "c53c140bde431ca16cf2efbfa13de63810dea2a7fe5d937c4d073d27192b20cb",
     "scripts\/run.sh" : "35d528b01fc10c67cafb93865ff11c9f7f6b65f530e64bf2c543da3ce9673070",
     "scripts\/soak.sh" : "713a34ad5d06892e8dbec5285d835e966fa2a182d5a1571dc136fcc1be7d2e35",
-    "scripts\/test.sh" : "622df991443e92d2503c632ec1dbe5185cdb56caf08559a40af9decbef94e790",
+    "scripts\/test.sh" : "475d5ced49b763a445f724d9ea1cc0212db707296fd6d166707a8fc53e311c26",
     "scripts\/toolkit.sh" : "e2353edb6a791ddaabda94038cea4c1a25020502ed4654ebc6661689bcda0c2f",
     "tests\/character_lint.gd" : "d64934675372a16723fc403fea24e82c734947cc158cf0059eab2d92491c8c2d",
     "tests\/character_lint.tscn" : "731d832b1150ea1e3be870d12a33ff8ada898df2ded1cc68f64d33ebd112b4ec",
@@ -196,6 +196,6 @@
     "tools\/strata\/import_world.gd" : "7856f3728d00726975a67b816ba5421d7174ee401fc9ca1269974b3db1259e91"
   },
   "framework" : "datum",
-  "rev" : "da0919290b2f",
+  "rev" : "cafd53add48a",
   "source" : "\/Users\/nicco\/code\/datum\/runtime"
 }

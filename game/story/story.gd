@@ -651,6 +651,73 @@ func hook_request_scene(qid: String, scene_id: String) -> void:
 	_scene_requests.append("%s.%s" % [qid, scene_id])
 
 
+# --- the data-driven hooks door (E5.4, E5_RULINGS #4: the marker precedent) --
+## Quest hooks go DATA, not OO — the ruling on E5_RULINGS #4, on the strength of
+## the marker precedent (agent_sim's `marker_resolver`, CONTOUR.md §4). The OO
+## fragment above (QuestHooks + virtual on_start/on_stage/on_objective/on_resolve)
+## grows a DECLARED HANDLER TABLE beside it: a quest's `handlers` is an array of
+##   { "trigger": <phase[:id]>, "condition": <ref>, "effect": <ref> }
+## records, where
+##   * trigger — the lifecycle phase, optionally `:`-scoped to a stage/objective/
+##     outcome id, REUSING the `on_stage:<id>` spelling `fill` already speaks
+##     (_role_fill_when): on_start · on_stage · on_stage:<id> · on_objective ·
+##     on_objective:<id> · on_resolve · on_resolve:<id>. An unscoped trigger fires
+##     for every event of its phase; a scoped one only for its named target.
+##   * condition — OPTIONAL. A condition-REF the host PRE-RESOLVES to a bool before
+##     dispatch (the Callable-as-data door §4): the arbitrary predicate body stays
+##     valley-side exactly as marker_resolver does, and Contour sees only the ANSWER.
+##     Absent ⇒ unconditional (the host still supplies `true` in its slot).
+##   * effect — an effect-REF the host pre-resolves and applies AFTER dispatch, the
+##     same Callable-as-data door in reverse: Contour never holds the effect body,
+##     it hands the ref back OUT for the host to run through the closed effect set.
+##
+## THE PURE DECISION crosses (certified below); the two RESOLVERS stay glue — the
+## condition resolver (arbitrary predicate → the answers bool) and the effect
+## resolver (a returned ref → a world touch) are unbounded GDScript, banned from a
+## `sim` tier by construction (§4), so they live valley-side just like the OO
+## `condition`/`on_*` bodies do today. This is the marker split, verbatim: the
+## RESOLVER is data GDScript-side, the port reads only the resolved data.
+
+## The pure hook dispatch (CERTIFIED bit-identical by Plumb, story_hook_dispatch):
+## given a quest's declared handler table, the current lifecycle event (a `phase`
+## + a `target` id — "" for on_start), and the host-preresolved `answers` (a bool
+## per handler, parallel by index — the Callable-as-data condition door), return
+## the ORDERED list of effect-refs to fire. Order-preserving (a stage's handlers
+## fire in declared order), total over the closed trigger vocabulary, no world read
+## crosses (the answers ARE the world read, done glue-side). The `_trigger_matches`
+## phase/scope test mirrors _role_fill_when's `on_stage:<id>` split, so the two
+## `:`-scoped conventions stay one shape. A terminal latch's on_stage-then-
+## on_resolve sequencing is TWO calls (one per phase) from the caller — the phase
+## ordering is glue (the enumerated remainder), the per-phase decision is here.
+func hook_dispatch(handlers: Array, phase: String, target: String,
+		answers: Array) -> Array:
+	var vm := _route_contour()
+	if vm != null:
+		_contour_calls += 1
+		return vm.call_fn("hook_dispatch", [handlers, phase, target, answers])
+	var out := []
+	for i in handlers.size():
+		var h: Dictionary = handlers[i]
+		if _trigger_matches(h.trigger, phase, target):
+			if answers[i]:
+				out.append(h.effect)
+	return out
+
+
+## A handler's trigger vs the current phase/target — the `on_stage:<id>` split
+## _role_fill_when already speaks, generalized to every phase. `trigger.split(":")`
+## yields [phase] or [phase, id]; the phase must match, and a scoped trigger must
+## also match the target (an unscoped one fires for any). Total over the closed
+## trigger vocabulary (mirrors quest_lint's `after.split(":")` fence).
+func _trigger_matches(trigger: String, phase: String, target: String) -> bool:
+	var parts := trigger.split(":")
+	if parts[0] != phase:
+		return false
+	if parts.size() > 1:
+		return parts[1] == target
+	return true
+
+
 # --- the roles filler (§4) --------------------------------------------------
 ## CK's aliases, sim-native: a role is a named slot Story fills from the
 ## LIVE world when the quest needs it. Filling is a DETERMINISTIC query —

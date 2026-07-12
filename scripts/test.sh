@@ -109,6 +109,15 @@ echo "== framework manifest lint (the fence, PLAN_FRAMEWORK FW5) =="
 # see tests/framework_lint.gd); anything new fails for real.
 godot --headless -s tests/framework_lint.gd || exit 1
 
+echo "== desk verb contract (E5.3 ruling #1: verbs are the contract) =="
+# The ~40-verb desk contract (contracts/desk_verbs.json) must stay a faithful
+# extraction of game/dev/strata_link.gd: the verb SET matches the VERBS const
+# and the _execute dispatcher arms both ways, and every non-external reply
+# grammar appears verbatim in the source. Text lint, no engine boot — same
+# `godot -s` shape as the two lints above. strata (the Swift VerbRouter) and
+# any future desk client vendor this same JSON, pinned by sha in their tests.
+godot --headless -s tests/desk_verbs_contract.gd || exit 1
+
 echo "== determinism trap (fork engine only) =="
 # The fork's Engine.set_deterministic_section arms a trap around the sim tick
 # (game_clock.gd advance_hours). determinism_trap_probe plants an unseeded

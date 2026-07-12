@@ -2324,6 +2324,29 @@ func _test_names() -> void:
 	_check(not bool(Names.write("cove_c", "   ", "", tmp).get("ok", false)),
 		"names: an empty name is refused")
 
+	# contour_status().engaged (docs/PORT_LEDGER.md F4's standing follow-up,
+	# closed G2): resolve/has_name/kind_of/named_ids/entries are all ROUTED —
+	# assert the posture this boot resolved into, and that an engaged VM's
+	# call counter actually climbs (no silent fallback), the same law
+	# _test_conditions_contour and _test_hydrology already assert.
+	var names_cs: Dictionary = Names.contour_status()
+	if bool(names_cs.get("engaged", false)):
+		_check(int(names_cs.get("mode", 0)) == 2 and int(names_cs.get("calls", 0)) > 0,
+			"names: STRATA_CONTOUR routing ENGAGED by default (native queries earned the counter, no silent fallback)")
+		var before3: int = int(Names.contour_status().calls)
+		Names.resolve("hyd_l1")
+		Names.has_name("hyd_l1")
+		Names.kind_of("hyd_l1")
+		Names.named_ids()
+		Names.entries()
+		var after3: int = int(Names.contour_status().calls)
+		_check(after3 > before3,
+			"names: routed queries answered by the Contour VM (calls %d->%d, no silent fallback)" % [before3, after3])
+	else:
+		_check((int(names_cs.get("mode", 0)) == 1 or int(names_cs.get("mode", 0)) == -1)
+				and int(names_cs.get("calls", -1)) == 0,
+			"names: routing off (=0 hatch / kernel-less) — GDScript twin, no silent engage")
+
 	# Restore the LIVE table from the shipped content (other surfaces/tests
 	# see the real gazetteer again).
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
@@ -7441,6 +7464,22 @@ func _test_conditions_contour() -> void:
 			"conditions: STRATA_CONTOUR=1 routes Conditions.eval through the Contour VM (calls %d->%d, no silent fallback)" % [before, after])
 		WorldState.set_value("test.contour.route", null)
 		print("  conditions: routing ENGAGED — the sim's leaf helpers answered by the Lattice VM (%d calls)" % after)
+
+		# keys_of/custom_names (docs/PORT_LEDGER.md D3b's recorded follow-up,
+		# routed G2): the VM answers these two too now — counter climbs again,
+		# and a spot-check against known-correct output (the same nested
+		# all/any/custom composition D3b's corpus certified) catches a
+		# marshalling or VM regression loud, not silently.
+		var before2: int = int(Conditions.contour_status().calls)
+		var kc := {"all": [{"custom": ["h1"], "watch": ["x"]},
+			{"any": [{"custom": ["h2"], "watch": ["y", "z"]}]}]}
+		_check(Conditions.keys_of(kc) == ["x", "y", "z"],
+			"conditions: routed keys_of matches the certified nested all/any/custom composition")
+		_check(Conditions.custom_names(kc) == ["h1", "h2"],
+			"conditions: routed custom_names matches the certified nested composition")
+		var after2: int = int(Conditions.contour_status().calls)
+		_check(after2 > before2,
+			"conditions: STRATA_CONTOUR=1 routes keys_of/custom_names through the Contour VM (calls %d->%d, no silent fallback)" % [before2, after2])
 	else:
 		# Flag off (mode 1) or refused (mode -1) — never a silent VM route.
 		_check(int(st.mode) == 1 or int(st.mode) == -1,

@@ -134,7 +134,17 @@ static func eval(c: Dictionary, custom: Callable = Callable()) -> bool:
 ## Mechanical key extraction — the seed of Story's condition index. Total
 ## because the language is closed: every predicate's watched keys are in
 ## the table's "reads" column; `custom` contributes its declared watch.
+## Routed (docs/PORT_LEDGER.md D3b's recorded follow-up, landed G2): the
+## Contour port already carries this leaf (game/state/conditions.ct), just
+## never called — same _route()/no-silent-fallback law as latch_day et al.
 static func keys_of(c: Dictionary) -> Array[String]:
+	var vm := _route()
+	if vm != null:
+		_contour_calls += 1
+		var routed: Array[String] = []
+		for k in (vm.call_fn("keys_of", [c]) as Array):
+			routed.append(String(k))
+		return routed
 	var keys: Array[String] = []
 	for key: String in c:
 		match key:
@@ -175,8 +185,16 @@ static func keys_of(c: Dictionary) -> Array[String]:
 ## The custom-predicate names inside a condition (mechanical, like keys_of).
 ## Story asks the quest's hook for each name's custom_keys() so a hook may
 ## declare its own index keys in code, beside (or instead of) the record's
-## `watch` — the §6 "records may also declare watch" completion.
+## `watch` — the §6 "records may also declare watch" completion. Routed, the
+## same D3b follow-up as keys_of above.
 static func custom_names(c: Dictionary) -> Array[String]:
+	var vm := _route()
+	if vm != null:
+		_contour_calls += 1
+		var routed: Array[String] = []
+		for k in (vm.call_fn("custom_names", [c]) as Array):
+			routed.append(String(k))
+		return routed
 	var out: Array[String] = []
 	for key: String in c:
 		match key:

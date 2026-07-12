@@ -186,7 +186,13 @@ const ALLOWLIST: Array[Dictionary] = [
 		"literal": "home",
 		"reason": "villager-record schema field key (spawn/rest position), not an id "
 			+ "reference — coincides with a watershed record id; the wildlife SCHEMA "
-			+ "uses the same key but rides as content (unscanned)"},
+			+ "shares the key (its own entry below since the 2026-07-12 manifest join)"},
+	{"path": "game/wildlife/wildlife_manager.gd", "rule": "content-id",
+		"literal": "home",
+		"reason": "the same villager-record schema field key (spawn/rest position) — "
+			+ "wildlife_manager joined the manifest 2026-07-12 (Nicco's ruling: generic "
+			+ "fauna glue is framework); record-ification of its content refs rides FW4, "
+			+ "which retires this entry"},
 	# -- content-id: RESIDUE. Real leaks, no pending rung claims them. --
 	{"path": "game/player/player.gd", "rule": "content-id",
 		"literal": "wayfaring",

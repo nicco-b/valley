@@ -475,24 +475,24 @@ func contour_status() -> Dictionary:
 ## SINGLETON diff-only apply. Empty until the held world is live (the mirror stays
 ## authoritative until then); empty off the held path entirely.
 ##
-## STORE-FORM RECONCILIATION (climate.wet_grid): climate persists the grid through
-## a float32 buffer — _hourly builds the saved value as `out.append(wet_grid[i])`
-## over the `PackedFloat32Array` wet_grid, so the SAVE stores float32-NARROWED
-## values (0.053 -> 0.0529999993741512). The held world holds the SAME grid at
-## full float64 precision, so we narrow it through the identical float32 round-trip
-## here — the held-sourced save is then byte-for-byte the mirror. (A future rung
-## makes the store natively hold the grid, retiring this reconciliation.)
+## CANONICAL FORM IN THE .ct (climate.wet_grid) — G1, docs/SUBSTRATE.md §2 Rung 3:
+## the Climate §6 system now WRITES `f32(cell_step(...))` (game/world/climate.ct),
+## so the held world HOLDS the float32-narrowed value the save stores — the same
+## bits `_hourly`'s `out.append(wet_grid[i])` builds over the `PackedFloat32Array`
+## wet_grid. The held-sourced grid is therefore already byte-for-byte the mirror;
+## the float32 round-trip F3 reconciled here is RETIRED (the .ct holds the canonical
+## form, no host-side narrow). Straight passthrough of the bridge's owned snapshot.
 func held_owned_snapshot() -> Dictionary:
-	if _contour_bridge == null:
-		return {}
-	var owned := _contour_bridge.held_owned_snapshot()
-	if owned.has("climate.wet_grid"):
-		var pf := PackedFloat32Array(owned["climate.wet_grid"])
-		var narrowed: Array = []
-		for v in pf:
-			narrowed.append(v)
-		owned["climate.wet_grid"] = narrowed
-	return owned
+	return _contour_bridge.held_owned_snapshot() if _contour_bridge != null else {}
+
+
+## RESTORE-INTO-HELD (G1, docs/SUBSTRATE.md §2 Rung 3): SaveManager.apply_snapshot
+## calls this on the contour_held_source group after WorldState.restore, so a LOAD
+## rebuilds the held world from the restored save (the next _hourly re-creates it),
+## not the pre-load trajectory. Inert with no bridge / off the held path.
+func reset_held_world() -> void:
+	if _contour_bridge != null:
+		_contour_bridge.reset_held()
 
 
 func _hourly(_h: int) -> void:

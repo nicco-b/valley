@@ -86,11 +86,23 @@ sim func cell_step(w: float, rain: float, dry_t: float, dew: bool, melt: float) 
 # (`climate.rain`/`climate.dry_t`/`climate.dew` arrays) plus the valley-anchored
 # `climate.melt` scalar. The step maps the certified cell_step leaf over every
 # cell — the pure evolution, in Contour; the sampling, seeded from the engine.
+#
+# The write NARROWS through `f32` (the appendix's PackedFloat32Array-field rule):
+# climate.gd persists wet_grid through a `PackedFloat32Array`, so its canonical
+# store form is the float32-narrowed value. Writing `f32(cell_step(...))` makes the
+# grid HOLD that canonical form — reads on the next tick are already narrowed, and
+# a held substrate world holds the save's byte-truth directly (retiring F3's
+# climate.held_owned_snapshot float32 reconciliation, docs/SUBSTRATE.md §2 Rung 3).
+# The narrow is a no-op on the fingerprint: the twin re-narrows every cell into its
+# PackedFloat32Array each tick regardless, so `f32` only aligns the .ct's own held
+# value with what the twin already stores. cell_step itself stays a pure float64
+# leaf (Plumb pins it bit-for-bit) — the narrow lives at the resource WRITE, never
+# inside the certified leaf.
 system Climate:
 	reads: climate.wet_grid, climate.rain, climate.dry_t, climate.dew, climate.melt
 	writes: climate.wet_grid
 	sim func step():
 		var g = climate.wet_grid
 		for i in range(g.size()):
-			g[i] = cell_step(g[i], climate.rain[i], climate.dry_t[i], climate.dew[i], climate.melt)
+			g[i] = f32(cell_step(g[i], climate.rain[i], climate.dry_t[i], climate.dew[i], climate.melt))
 		climate.wet_grid = g

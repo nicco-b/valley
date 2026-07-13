@@ -472,6 +472,14 @@ signal edited(world_rect: Rect2)
 signal river_added(river: Dictionary)  # a runtime pen river (water_bodies/Hydrology attach)
 signal water_reloaded  # the whole water layer was re-read off disk (reload_world / import)
 
+## True exactly while reload_world() runs (the in-session adopt). The bake
+## caches' edited→mark_dirty handlers read it to tell a wholesale world
+## replacement (content keys already guarantee correctness — invalidate, do
+## not stand down) from a live sculpt (genuine dirty — stand down). All the
+## emits inside reload_world are synchronous, so no handler can observe a
+## stale value.
+var world_replacing := false
+
 # The biome substrate (Stage B, 2026-07-05): a painted indexed map over
 # the whole world (data/world/biome_map.png, matched to the palette in
 # biomes.json). Pure PRESENTATION + flora density — never touches
@@ -821,11 +829,27 @@ func reload_tile(image_path: String) -> String:
 ## heightmap that will not re-read (the OLD world stays live, untouched —
 ## the audit-QW3 honesty contract, now covering water/biomes too).
 func reload_world() -> String:
+	# THE ADOPT DECOUPLING (2026-07-13): a wholesale reload is NOT a live
+	# sculpt. The bake caches (BathyCache / CatchmentCache / WaterFieldCache)
+	# used to stand fully down off this path's whole-frame `edited` — a blunt
+	# session flag standing proxy for "the ground moved under my key". But the
+	# caches' content keys (the import stamp's height sha + every record sha)
+	# already PROVE exactly that: a re-blessed world re-keys and old entries
+	# refuse by construction, while the bless-time prebake's fresh entries —
+	# keyed on the very records this reload is adopting — get to LOAD instead
+	# of being condemned unread. So the reload path raises this flag and the
+	# edited→mark_dirty handlers downgrade to invalidate_key while it is up.
+	# A real edit gesture (sculpt stroke, pen, revert) never sets it — genuine
+	# dirty keeps standing the caches down for the session, exactly as before.
+	# Never weakens the keying: a stale entry still refuses on its own sha.
+	world_replacing = true
 	var status := _reload_world_tiles()
 	if status == "failed":
+		world_replacing = false
 		return "failed"  # tiles + water + biomes all left as they were
 	_reload_water()
 	reload_biomes()
+	world_replacing = false
 	return status
 
 

@@ -182,7 +182,14 @@ func _ready() -> void:
 	# sculpt/bless moved the ground the flow routes over → stand the cache
 	# down so no stale-keyed entry is ever written or served this session.
 	Terrain.water_reloaded.connect(func() -> void: CatchmentCache.invalidate_key())
-	Terrain.edited.connect(func(_rect: Rect2) -> void: CatchmentCache.mark_dirty())
+	# The adopt decoupling (2026-07-13): reload_world's whole-frame edited is
+	# a wholesale replacement, not a sculpt — the fresh records re-key the
+	# cache (invalidate, via water_reloaded above), and the bless-time
+	# prebake's entry gets to load. Only a REAL edit gesture stands the
+	# cache down for the session.
+	Terrain.edited.connect(func(_rect: Rect2) -> void:
+		if not Terrain.world_replacing:
+			CatchmentCache.mark_dirty())
 
 
 func _exit_tree() -> void:
@@ -851,6 +858,7 @@ func _build_catchments() -> void:
 		print("[hydrology] catchments in %dms: loaded from disk cache (%d basins)" % [
 			Time.get_ticks_msec() - t0, basin_names.size()])
 		BootClock.mark("catchments_done")
+		Prebake.mark("catchments")  # already on disk — nothing left to store
 		return
 	# Dev-world fast path (docs/BOOT_DEVWORLD.md rung 2, lever 3 "prebake
 	# everything, refuse-on-miss"): a dev world ships with its caches already
@@ -923,6 +931,7 @@ func _build_catchments() -> void:
 	print("[hydrology] catchments in %dms: %s" % [
 		Time.get_ticks_msec() - t0, catchment_area])
 	BootClock.mark("catchments_done")
+	Prebake.mark("catchments")  # bless-time prebake run: this bake is on disk
 
 
 ## Where does rain landing at (x,z) end up? A basin id, "exits", or

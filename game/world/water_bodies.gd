@@ -362,6 +362,12 @@ func _build_river_mesh(r: Dictionary) -> void:
 
 
 func _process(_delta: float) -> void:
+	# The bless-time prebake run (adopt-time hydrology, 2026-07-13): this is
+	# the main-thread pulse that notices every bathy tier's first bake has
+	# landed on disk and quits the headless run. First thing, before any
+	# early return below can starve it (a dry world has no _sea_near).
+	if Prebake.active():
+		_prebake_poll()
 	# The map keeps the real water in view (2026-07-08, the orbit map):
 	# sea, lakes, and rivers ARE chart information — the surfaces follow
 	# the map focus below, and the chart palette that used to stand in
@@ -590,12 +596,40 @@ func _on_terrain_edited_bathy(world_rect: Rect2) -> void:
 			st.anchor = Vector2.INF
 			touched = true
 	if touched:
-		# The ground moved out from under the boot-time cache key: the
-		# session's disk entries are stale until the next clean boot re-keys
-		# off the flushed inputs. Stand the cache down and wipe it — a
-		# refused load only costs a rebake; a stale one breaks surf on a
-		# reef that is not there.
-		BathyCache.mark_dirty()
+		if Terrain.world_replacing:
+			# A wholesale reload (the in-session adopt), not a sculpt: the
+			# fresh import stamp + records re-key the cache, old entries
+			# refuse on their own shas, and the bless-time prebake's fresh
+			# entries are exactly what the rebuilt tiers should LOAD. Never
+			# stand down here — that was the blunt proxy the content keys
+			# replace (the adopt decoupling, 2026-07-13).
+			BathyCache.invalidate_key()
+		else:
+			# The ground moved out from under the boot-time cache key: the
+			# session's disk entries are stale until the next clean boot
+			# re-keys off the flushed inputs. Stand the cache down and wipe
+			# it — a refused load only costs a rebake; a stale one breaks
+			# surf on a reef that is not there.
+			BathyCache.mark_dirty()
+
+
+## The prebake run's bathy completion check (main thread, every _process):
+## "done" once every registered tier has landed its FIRST bake — anchor
+## finite (a landed bake) with no task in flight — because the first bake
+## per tier is exactly what BathyCache.store persists. No kernel or no
+## registered tiers (a dry world) is done immediately: nothing this run
+## could ever store. Then the shared poll quits once every phase is in.
+func _prebake_poll() -> void:
+	var all_landed := true
+	if Terrain.kernel != null:
+		for tier in _bathy:
+			var st: Dictionary = _bathy[tier]
+			if not Vector2(st.anchor).is_finite() or int(st.get("task", -1)) >= 0:
+				all_landed = false
+				break
+	if all_landed:
+		Prebake.mark("bathy")
+	Prebake.maybe_finish(get_tree())
 
 
 ## W2: move one sea tier to `goal`, rebaking its seabed for the new
@@ -606,8 +640,12 @@ func _on_terrain_edited_bathy(world_rect: Rect2) -> void:
 ## would hitch on-main and crash off-main; see Terrain.height_block).
 func _bathy_follow(tier: String, goal: Vector2) -> void:
 	var st: Dictionary = _bathy.get(tier, {})
+	# Headless never pays the seabed sample (presentation economy) — EXCEPT
+	# the bless-time prebake run (Prebake, adopt-time hydrology 2026-07-13),
+	# which is headless precisely to pay it early and store the blobs the
+	# live adopt then loads.
 	if st.is_empty() or Terrain.kernel == null \
-			or DisplayServer.get_name() == "headless":
+			or (DisplayServer.get_name() == "headless" and not Prebake.active()):
 		# Unregistered/kernel-less tiers still follow (deep default = W1).
 		var direct: MeshInstance3D = st.get("mi",
 				_sea_near if tier == "near" else _sea_mid)

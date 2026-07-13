@@ -82,9 +82,24 @@ func _ready() -> void:
 	# fingerprint-neutral, and it lets the headless scene-test gate pin the
 	# wiring even though the field itself only runs with a RenderingDevice.
 	Terrain.water_reloaded.connect(_on_water_reloaded)
+	# The base disk cache (WaterFieldCache, adopt-time hydrology 2026-07-13)
+	# follows the BathyCache wiring exactly: a whole-water reload re-keys it
+	# (the fresh records refuse old entries on their own shas — and let the
+	# bless-time prebake's fresh entry LOAD); a live sculpt stands it down
+	# for the session. reload_world's wholesale whole-frame edited is NOT a
+	# sculpt (Terrain.world_replacing — the adopt decoupling).
+	Terrain.water_reloaded.connect(func() -> void: WaterFieldCache.invalidate_key())
+	Terrain.edited.connect(func(_rect: Rect2) -> void:
+		if not Terrain.world_replacing:
+			WaterFieldCache.mark_dirty())
 	_gpu = WaterGpu.new()
 	enabled = _gpu.setup()
 	if not enabled:
+		if Prebake.active():
+			# The bless-time prebake run is headless (field off), but the
+			# base bake is pure kernel sampling — keep _process alive solely
+			# to compute + store it once the player/focus exists.
+			return
 		set_process(false)
 		return
 	RenderingServer.global_shader_parameter_set("water_field_map", _gpu.display_texture)
@@ -272,6 +287,9 @@ static func anchor_decision(focus: Vector2, center: Vector2, has_center: bool, f
 
 
 func _process(delta: float) -> void:
+	if not enabled:
+		_prebake_base()  # only reachable in the Prebake posture (see _ready)
+		return
 	# Re-anchor when the focus drifts (never mid-bake: one base at a
 	# time, and a fast-traveling focus just re-anchors next frame). A
 	# fill-channels toggle forces a rebake in place (no scroll). THE RULE
@@ -292,6 +310,25 @@ func _process(delta: float) -> void:
 				RenderingServer.global_shader_parameter_set(
 					"water_field_center", _center)
 			_force_bake = false
+			# Boot fast path (adopt-time hydrology 2026-07-13): the FIRST
+			# base at this anchor can be answered by the bless-time
+			# prebake's disk entry — bit-identical to the bake it replaces
+			# (raw f32 blobs, sha-verified), refused on ANY mismatch (world
+			# key, anchor, grid — WaterFieldCache: an accelerator, never
+			# truth). Only the fill=OFF boot base; every later drift/toggle
+			# rebakes live exactly as before.
+			if not _base_ready_once and not fill_channels:
+				var cached := WaterFieldCache.fetch(_center, WaterGpu.GRID, WINDOW)
+				if not cached.is_empty():
+					var no_sources := PackedFloat32Array()
+					no_sources.resize(WaterGpu.GRID * WaterGpu.GRID)
+					_fill_on_baked = false
+					_gpu.update_base(cached.heights, cached.sinks, no_sources)
+					_base_ready_once = true
+					print("[water] tier-2 field live: base loaded from disk cache at (%.0f, %.0f)" % [
+						_center.x, _center.y])
+					Prebake.mark("water_field")  # already on disk — nothing to store
+					return
 			# Snapshot per-river spring rates on the MAIN thread (the bake
 			# task must not read Hydrology concurrently).
 			_fill_on_baked = fill_channels
@@ -408,6 +445,31 @@ func summary() -> String:
 		"ON" if fill_channels else "off",
 		_probe_out.x, _probe_pos.x, _probe_pos.y]
 
+## The bless-time prebake (Prebake posture, headless — the field itself is
+## off). Compute the boot base ONCE at the anchor the live boot's first
+## _process would choose (the player's spawn focus, ANCHOR_SNAP-snapped —
+## same decision, same snap, so the live fetch's center matches) and store
+## it through WaterFieldCache. Synchronous on main: this run exists to pay
+## the bake, and _bake_base is pure kernel sampling. No kernel (or no
+## player yet) = nothing this run could store — mark and idle.
+func _prebake_base() -> void:
+	if _base_ready_once:
+		return  # stored (or proved un-storable); idle until the run quits
+	if Terrain.kernel == null:
+		_base_ready_once = true
+		Prebake.mark("water_field")
+		return
+	if get_tree().get_first_node_in_group("player") == null:
+		return  # the spawn focus doesn't exist yet — next frame
+	_center = _focus().snappedf(ANCHOR_SNAP)
+	_fill_on_baked = false
+	_bake_base()
+	WaterFieldCache.store(_center, WaterGpu.GRID, WINDOW, _base_heights, _base_sinks)
+	_base_ready_once = true
+	print("[water] tier-2 base prebaked + stored at (%.0f, %.0f)" % [_center.x, _center.y])
+	Prebake.mark("water_field")
+
+
 func _bake_base() -> void:
 	var g := WaterGpu.GRID
 	var step := WINDOW / g
@@ -508,5 +570,13 @@ func _drain_base() -> void:
 		_base_pending = false
 		if not _base_ready_once:
 			_base_ready_once = true
+			# Persist the boot base (fill=OFF only) as the disk bake: the
+			# next cold boot of the SAME inputs at the SAME anchor loads it
+			# instead of re-sampling. First base only — drift rebakes are
+			# focus-transient and never touch disk (the BathyCache rule).
+			if not _fill_on_baked:
+				WaterFieldCache.store(_center, WaterGpu.GRID, WINDOW,
+					_base_heights, _base_sinks)
+			Prebake.mark("water_field")  # a windowed prebake run stores here
 			print("[water] tier-2 field live: %dx%d at %.1fm texels, window follows the focus" % [
 				WaterGpu.GRID, WaterGpu.GRID, WINDOW / WaterGpu.GRID])

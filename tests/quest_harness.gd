@@ -63,7 +63,16 @@ func _ready() -> void:
 	_lint_probes()
 	_flip_probes()
 	_hook_probes()
+	_dispatch_probes()
 	_run_tests()
+
+	# The boot dispatch posture (STRATA_HOOK_DISPATCH) the `_run_tests` corpus ran
+	# under — test.sh drives the harness both ways and greps this to prove the ON
+	# run truly routed the full corpus through hook_dispatch, not a silent no-op.
+	if Story.hook_dispatch_status().get("live", false):
+		print("QUEST-HARNESS DISPATCH-ROUTED (STRATA_HOOK_DISPATCH live for the corpus)")
+	else:
+		print("QUEST-HARNESS DISPATCH-DIRECT (OO calls; STRATA_HOOK_DISPATCH off)")
 
 	if _failures > 0:
 		print("QUEST-HARNESS FAIL: %d failure(s)" % _failures)
@@ -292,6 +301,74 @@ func _hook_probes() -> void:
 		Story.unregister_quest("impure_probe")
 	_check(not draws[0].is_empty() and draws[0] != draws[1],
 		"purity probe: an impure hook (bare randf) is NOT replay-stable — the harness sees it")
+
+
+# --- pass 2d: the live hook-dispatch route (E5.8, STRATA_HOOK_DISPATCH) ------
+
+## The dispatch gate (E5.8): E5.4 crossed the pure hook_dispatch DECISION (which
+## effect-refs fire, in what order) + certified it byte-identical by Plumb. This
+## proves it LIVE — the OO lifecycle dispatch (on_start/on_stage/on_objective/
+## on_resolve) routed THROUGH hook_dispatch under STRATA_HOOK_DISPATCH must produce
+## outcomes BYTE-IDENTICAL to the direct OO calls, over the OO fixtures the E5.4
+## remainder names (hook_errand / hook_replay / role_on_fill). Each fixture's script
+## runs under BOTH postures in one process (Story._force_hook_dispatch), digesting
+## the quest namespaces (the same journal.*/choice.*/test.*/world.group.* digest the
+## replay proof uses); the two digests must match. The routed posture must ALSO have
+## ANSWERED (dispatch calls > 0) — a silent no-op would fake a match.
+func _dispatch_probes() -> void:
+	print("  dispatch probes (STRATA_HOOK_DISPATCH live route)")
+	for fixture: String in ["hook_errand", "hook_replay", "role_on_fill"]:
+		var test: Variant = Records.load_json("%s/%s.test.json" % [TESTS_DIR, fixture])
+		if not (test is Dictionary):
+			_check(false, "dispatch probe: %s parses" % fixture)
+			continue
+		Story._force_hook_dispatch(false)
+		var off_digest := _dispatch_run(test)
+		Story._force_hook_dispatch(true)
+		var on_digest := _dispatch_run(test)
+		var status: Dictionary = Story.hook_dispatch_status()
+		_check(off_digest == on_digest,
+			"dispatch %s: routed == direct (byte-identical outcomes)" % fixture)
+		if off_digest != on_digest:
+			print("    diverged:\n      direct: ", off_digest, "\n      routed: ", on_digest)
+		_check(int(status.get("calls", 0)) > 0,
+			"dispatch %s: routed path actually answered (%d events)" % [fixture, status.get("calls", 0)])
+	# Leave the process posture at the boot hatch (harness _run_tests honours it).
+	Story._hd_mode = 0
+
+
+## Run one fixture's MUTATING script (set/advance_hours/replay_advance) in a fresh
+## world under the CURRENT dispatch posture and return the quest-namespace digest.
+## Skips the read-only expect_* verbs — the outcome is the digest, not the asserts.
+func _dispatch_run(test: Dictionary) -> String:
+	# Pin the clock to a fixed baseline so BOTH postures start from the same day —
+	# otherwise the first run's advances leave the clock ahead of the second (and
+	# q.roll, seeded by day, would differ for a reason that isn't the dispatch route).
+	GameClock.day = 0
+	GameClock.hours = 9.0
+	GameClock._last_hour = int(GameClock.solar_hours())
+	_reset_world()
+	var inline: Dictionary = test.get("record", {})
+	if not inline.is_empty():
+		Story.register_quest(inline)
+	var world: Dictionary = test.get("world", {})
+	for key: String in world:
+		WorldState.set_value(key, world[key])
+	for step: Dictionary in test.get("script", []):
+		for verb: String in step:
+			var arg: Variant = step[verb]
+			match verb:
+				"set":
+					for key: String in arg:
+						WorldState.set_value(key, arg[key])
+				"advance_hours":
+					GameClock.advance_hours(float(arg))
+				"replay_advance":
+					_replay_advance(float(arg))
+	var digest := _replay_digest()
+	if not inline.is_empty():
+		Story.unregister_quest(String(inline.id))
+	return digest
 
 
 # --- pass 3: tests as data ---------------------------------------------------

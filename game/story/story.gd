@@ -130,6 +130,83 @@ var _contour_mode := 0
 var _contour_vm: Contour = null
 var _contour_calls := 0   # VM-answered rule calls (the engaged-path probe)
 
+# --- the live hook-dispatch route (E5.8, env hatch STRATA_HOOK_DISPATCH) -----
+## E5.4 crossed the pure hook_dispatch DECISION (which effect-refs fire, in what
+## order) + certified it byte-identical by Plumb. E5.8 makes that decision LIVE:
+## the OO lifecycle dispatch (on_start / on_stage / on_objective / on_resolve) is
+## routed THROUGH hook_dispatch instead of calling the QuestHooks virtual straight.
+## Each lifecycle event builds a one-row synthetic handler table {trigger: <phase>,
+## effect: <phase>} with an always-true answer, hands it to the certified decision,
+## and applies the returned effect-ref by calling the OO virtual — the marker split
+## verbatim (the DECISION crosses to sim, the effect BODY stays valley-side glue).
+## A one-row unscoped table fires exactly once in declared order, so the routed path
+## is byte-identical to the direct OO calls over the whole OO corpus (hook_errand /
+## hook_replay / role_*) — the honest first LIVE step, proven in both postures.
+##
+## THE HATCH: STRATA_HOOK_DISPATCH=1 routes live; anything else (default) keeps the
+## direct OO calls. Flipping the DEFAULT is a coordinator ruling (kept OFF here). Read
+## once, cached; a test setter (_force_hook_dispatch) lets the harness drive BOTH
+## postures in one process for the byte-identity proof. A call counter proves the
+## routed path actually answered (no silent no-op when the hatch is set).
+## 0 unresolved · 1 off (direct OO) · 2 on (routed through hook_dispatch).
+var _hd_mode := 0
+var _hd_calls := 0   # hook_dispatch-answered lifecycle events (the routed-path probe)
+
+
+## Is the live hook-dispatch route engaged? Resolves the hatch once (boot), cached.
+func _hook_dispatch_live() -> bool:
+	if _hd_mode == 0:
+		_hd_mode = 2 if OS.get_environment("STRATA_HOOK_DISPATCH") == "1" else 1
+	return _hd_mode == 2
+
+
+## Test-only: force the route on/off so the harness can run both postures in one
+## process (the byte-identity proof). Resets the answered-call counter.
+func _force_hook_dispatch(on: bool) -> void:
+	_hd_mode = 2 if on else 1
+	_hd_calls = 0
+
+
+## Routing introspection for the harness: the posture and the answered-event count
+## (proves the routed path actually dispatched, never a silent no-op when set).
+func hook_dispatch_status() -> Dictionary:
+	return {"live": _hook_dispatch_live(), "calls": _hd_calls}
+
+
+## Dispatch ONE lifecycle event to a quest's OO hook. When the live route is
+## engaged, the WHICH-fires decision crosses through the certified hook_dispatch
+## (a one-row synthetic table for this phase, always-true answer); the returned
+## effect-ref is applied by calling the OO virtual — byte-identical to the direct
+## call, but the decision is now the sim-tier one. `target` scopes the event
+## (stage id / objective id / outcome id; "" for on_start).
+func _dispatch_hook(hook: QuestHooks, run: QuestRun, phase: String, target: String,
+		obj_id: String = "") -> void:
+	if _hook_dispatch_live():
+		_hd_calls += 1
+		var handlers := [{"trigger": phase, "effect": phase}]
+		for effect in hook_dispatch(handlers, phase, target, [true]):
+			_apply_hook_effect(hook, run, String(effect), target, obj_id)
+	else:
+		_apply_hook_effect(hook, run, phase, target, obj_id)
+
+
+## Apply one resolved effect-ref by calling the matching OO lifecycle virtual —
+## the valley-side effect body (the marker split's glue half). Total over the
+## closed lifecycle vocabulary; an unknown ref is a loud refusal, never silent.
+func _apply_hook_effect(hook: QuestHooks, run: QuestRun, effect: String,
+		target: String, obj_id: String) -> void:
+	match effect:
+		"on_start":
+			hook.on_start(run)
+		"on_stage":
+			hook.on_stage(run, target)
+		"on_objective":
+			hook.on_objective(run, target, obj_id)
+		"on_resolve":
+			hook.on_resolve(run, target)
+		_:
+			push_error("[story] hook effect-ref '%s' is not a lifecycle phase" % effect)
+
 
 ## The live VM when routing is engaged, else null (flag off, or refused). Resolves
 ## once at first touch (boot); pure — no WorldState side effects, so flag-off is
@@ -401,7 +478,7 @@ func _try_start(q: Dictionary) -> bool:
 	# root seals — the hook may set up world keys the root's prose reads.
 	var hook := _hook_of(q)
 	if hook != null:
-		hook.on_start(_run_of(q))
+		_dispatch_hook(hook, _run_of(q), "on_start", "")
 	var prefix := _latch_prefix(q)
 	var rooted := false
 	for stage: Dictionary in q.stages:
@@ -496,9 +573,11 @@ func _latch_stage(q: Dictionary, prefix: String, stage: Dictionary) -> void:
 	var hook := _hook_of(q)
 	if hook != null:
 		var run := _run_of(q)
-		hook.on_stage(run, String(stage.id))
+		# Two dispatch calls at a terminal (on_stage THEN on_resolve): the phase
+		# SEQUENCING is glue, the per-phase decision crosses through hook_dispatch.
+		_dispatch_hook(hook, run, "on_stage", String(stage.id))
 		if stage.get("terminal", false):
-			hook.on_resolve(run, String(stage.id))
+			_dispatch_hook(hook, run, "on_resolve", String(stage.id))
 
 
 func _try_latch_objective(q: Dictionary, prefix: String, stage: Dictionary,
@@ -511,7 +590,7 @@ func _try_latch_objective(q: Dictionary, prefix: String, stage: Dictionary,
 		{"day": int(WorldState.get_value("time.day", 0))})
 	var hook := _hook_of(q)
 	if hook != null:
-		hook.on_objective(_run_of(q), String(stage.id), String(obj.id))
+		_dispatch_hook(hook, _run_of(q), "on_objective", String(stage.id), String(obj.id))
 	return true
 
 

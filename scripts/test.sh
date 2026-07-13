@@ -85,6 +85,22 @@ QUEST_OUT=$(godot --headless --quit-after 4000 res://tests/quest_harness.tscn 2>
 echo "$QUEST_OUT" | grep -E "QUEST-HARNESS|LINT|FAIL|SCRIPT ERROR"
 echo "$QUEST_OUT" | grep -q "SCRIPT ERROR" && exit 1
 echo "$QUEST_OUT" | grep -q "QUEST-HARNESS PASS" || exit 1
+echo "$QUEST_OUT" | grep -q "QUEST-HARNESS DISPATCH-DIRECT" \
+	|| { echo "QUEST-HARNESS FAIL: default run did not report the direct OO posture"; exit 1; }
+# E5.8: the live hook-dispatch route (STRATA_HOOK_DISPATCH). The pure hook_dispatch
+# DECISION crossed to sim (E5.4, Plumb-certified); this proves it LIVE by driving
+# the SAME corpus through it. The in-harness dispatch probe already runs the OO
+# fixtures under BOTH postures and asserts byte-identical outcomes in one process;
+# this second whole-harness run flips the boot hatch so the ENTIRE corpus routes
+# through hook_dispatch — it must PASS *and* report DISPATCH-ROUTED (never a silent
+# no-op). Default stays OFF (flipping the default is a coordinator ruling).
+QUEST_ON=$(STRATA_HOOK_DISPATCH=1 godot --headless --quit-after 4000 res://tests/quest_harness.tscn 2>&1)
+echo "$QUEST_ON" | grep -E "QUEST-HARNESS|LINT|FAIL|SCRIPT ERROR"
+echo "$QUEST_ON" | grep -q "SCRIPT ERROR" && exit 1
+echo "$QUEST_ON" | grep -q "QUEST-HARNESS PASS" || exit 1
+echo "$QUEST_ON" | grep -q "QUEST-HARNESS DISPATCH-ROUTED" \
+	|| { echo "QUEST-HARNESS FAIL: STRATA_HOOK_DISPATCH=1 did not route the corpus"; exit 1; }
+echo "  quest harness: STRATA_HOOK_DISPATCH=1 routed the corpus through hook_dispatch, byte-identical to the direct OO twin"
 
 echo "== character lint (the cast sheet, CREATION_KIT_REVIEW_V2 #3) =="
 # CharacterLint over data/characters (content-empty -> clean) + the shipped

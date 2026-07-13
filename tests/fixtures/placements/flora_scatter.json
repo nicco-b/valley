@@ -1,0 +1,18 @@
+{
+	"cell_size": 128.0,
+	"format": 1.0,
+	"note": "world_streamer.gd _add_scatter's candidate law, transcribed 2026-07-12",
+	"params": {
+		"count_base_hi": 34.0,
+		"count_base_lo": 8.0,
+		"count_extra": 8.0,
+		"count_vit_hi": 1.15,
+		"count_vit_lo": 0.55,
+		"rule": "flora_scatter",
+		"scale_max": 1.15,
+		"scale_min": 0.75,
+		"seed_add": 0.0,
+		"seed_mul": 1.0
+	},
+	"placement_family": "placement_gen"
+}

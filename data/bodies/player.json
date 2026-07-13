@@ -1,0 +1,20 @@
+{
+	"format": 1,
+	"body_family": "skinned_glb",
+	"note": "The PLAYER's body (FW4). player.tscn wears this record instead of embedding biped_fox.glb as an ext_resource — BodyLoader on the scene's Body node reads `mesh` and instances it as $Body/Model, behaviour-identical to the old embed. Today it wears the fox PLACEHOLDER (the framework's default-look body, INSTANCE #1 — see data/bodies/fox.json); when canon gives the player a real form, THIS record's mesh changes and nothing else does. `look_hooks.fabric: true` records that the player springs this rig's fabric (the fox's ears answer the wind — player.gd owns the chain TUNING as content, FABRIC_CHAINS); `paint: true` that CharacterPaint.apply runs on it. The loader consumes `mesh`; skeleton/animations/look_hooks are the record system's view of the body (see fox.json's note for the descriptive-vs-live distinction and the native-Wash future seam).",
+	"mesh": "res://assets/models/creatures/biped_fox.glb",
+	"skeleton": {
+		"anim_player": "AnimationPlayer"
+	},
+	"animations": {
+		"idle": "Idle",
+		"walk": "Walking",
+		"run": "Running",
+		"sit": "Sitting",
+		"jump": "Jump"
+	},
+	"look_hooks": {
+		"paint": true,
+		"fabric": true
+	}
+}

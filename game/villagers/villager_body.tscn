@@ -1,7 +1,7 @@
 [gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://game/villagers/villager_body.gd" id="1_script"]
-[ext_resource type="PackedScene" path="res://assets/models/creatures/biped_fox.glb" id="2_model"]
+[ext_resource type="Script" path="res://game/bodies/body_loader.gd" id="2_body"]
 
 [sub_resource type="CapsuleShape3D" id="Capsule_shape"]
 radius = 0.3
@@ -17,5 +17,5 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.65, 0)
 shape = SubResource("Capsule_shape")
 
 [node name="Body" type="Node3D" parent="."]
-
-[node name="Model" parent="Body" instance=ExtResource("2_model")]
+script = ExtResource("2_body")
+record = "res://data/bodies/villager.json"

@@ -38,6 +38,7 @@ func _ready() -> void:
 	_test_moon()
 	_test_wildlife()
 	_test_villager()
+	_test_body_records()
 	_test_fabric_spring()
 	_test_wear()
 	await _test_nav()
@@ -6489,6 +6490,60 @@ func _test_villager() -> void:
 	var cell_path := "%s/cell_%d_%d.json" % [CellRecords.DIR, cell.x, cell.y]
 	if FileAccess.file_exists(cell_path):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(cell_path))
+
+
+## Body records (FW4): the mesh binding that used to be TRAPPED inside
+## player.tscn/villager_body.tscn as an ext_resource is now a data record
+## the record system can see. This proves both halves: BodyData validates
+## the shipped records (and fails LOUDLY on an unknown field / unknown
+## family / bad mesh), and the scenes wire their $Body/Model from the
+## record — behaviour-identical to the old embed (the AnimationPlayer the
+## character scripts reach for is present after instantiation).
+func _test_body_records() -> void:
+	# The three shipped records load and carry the fox placeholder mesh.
+	for bn in ["fox", "player", "villager"]:
+		var rec := BodyData.load("res://data/bodies/%s.json" % bn)
+		_check(not rec.is_empty(), "body record '%s' loads and validates" % bn)
+		_check(rec.get("body_family") == "skinned_glb",
+			"body record '%s' is a skinned_glb" % bn)
+		_check(String(rec.get("mesh", "")).ends_with("biped_fox.glb"),
+			"body record '%s' names the fox placeholder mesh" % bn)
+	# Fail-loud discipline: an unknown FIELD, an unknown FAMILY, and a
+	# missing mesh each return {} (the push_errors are expected here).
+	var tmp := "user://body_probe.json"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	f.store_string('{"format":1,"body_family":"skinned_glb",' +
+		'"mesh":"res://assets/models/creatures/biped_fox.glb","wat":1}')
+	f.close()
+	_check(BodyData.load(tmp).is_empty(), "an unknown field fails the load loudly")
+	f = FileAccess.open(tmp, FileAccess.WRITE)
+	f.store_string('{"format":1,"body_family":"origami",' +
+		'"mesh":"res://assets/models/creatures/biped_fox.glb"}')
+	f.close()
+	_check(BodyData.load(tmp).is_empty(), "an unknown family fails the load loudly")
+	f = FileAccess.open(tmp, FileAccess.WRITE)
+	f.store_string('{"format":1,"body_family":"skinned_glb"}')
+	f.close()
+	_check(BodyData.load(tmp).is_empty(), "a missing mesh fails the load loudly")
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(tmp))
+	# BodyLoader wires a "Model" child (carrying its AnimationPlayer) from
+	# each record — the exact ordering the scenes rely on: the Body node's
+	# _ready adds Model before the character root reaches for it. Driven on
+	# a bare loader per record (the full player.tscn runs player.gd's
+	# _ready, which defers a world-load we don't want mid-suite; the real
+	# player.tscn is exercised by the pace live-parity probe, and the real
+	# villager_body.tscn by _test_villager above — both instantiate the
+	# scene whole and would crash here if $Body/Model were absent).
+	for bn in ["fox", "player", "villager"]:
+		var loader := BodyLoader.new()
+		loader.record = "res://data/bodies/%s.json" % bn
+		add_child(loader)  # _ready fires -> Model added
+		var model: Node = loader.get_node_or_null("Model")
+		_check(model != null, "BodyLoader wires Model from the '%s' record" % bn)
+		if model != null:
+			_check(model.find_children("*", "AnimationPlayer", true, false).size() == 1,
+				"the '%s' Model carries its AnimationPlayer" % bn)
+		loader.free()
 
 
 ## F2 fabric: spring bones are presentation-tier. Headless, the gate

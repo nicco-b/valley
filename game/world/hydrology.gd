@@ -176,6 +176,13 @@ func _ready() -> void:
 	# fresh hyd_* rivers would idle at zero discharge. Re-seed the newcomers,
 	# preserving every river that is already breathing.
 	Terrain.water_reloaded.connect(_reseed_region_water)
+	# The catchment bake (CatchmentCache) is keyed on the blessed ground and
+	# the water records, exactly like bathy. A whole-water reload rewrote the
+	# records → recompute the key from the fresh state on next use; a live
+	# sculpt/bless moved the ground the flow routes over → stand the cache
+	# down so no stale-keyed entry is ever written or served this session.
+	Terrain.water_reloaded.connect(func() -> void: CatchmentCache.invalidate_key())
+	Terrain.edited.connect(func(_rect: Rect2) -> void: CatchmentCache.mark_dirty())
 
 
 func _exit_tree() -> void:
@@ -820,12 +827,31 @@ func _push_levels() -> void:
 ## gradient, so every cell has a strictly downhill path to a drain (a
 ## water body or the domain edge); (2) D8 steepest descent on the filled
 ## surface, accumulating each basin's catchment area. Pure function of
-## Terrain + records: deterministic, rebuilt lazily each boot, never
-## saved. ~65k height samples + a heap flood, paid once.
+## Terrain + records: deterministic, ~65k height samples + a heap flood.
+## Baked to disk (CatchmentCache, boot→bake 2026-07-12): the FIRST build
+## per world writes {basin_grid, basin_names, catchment_area}; the next boot
+## of the same inputs loads them bit-identically instead of re-routing.
+## The cache is an accelerator — any input-hash mismatch refuses the load
+## and this rebuilds off the live kernel, then rewrites (never a stale serve).
 func _build_catchments() -> void:
 	var t0 := Time.get_ticks_msec()
 	var n := GRID_N
 	var half := domain * 0.5
+	var _cache_meta := {"n": n, "center": center, "domain": domain, "grid_m": grid_m}
+	# Boot fast path: the disk bake answers the build when the inputs still
+	# hash to the same world. A hit is bit-identical to the rebuild below —
+	# same basin ordering, same grid indices, same areas — so the sim
+	# fingerprint that hangs off these values cannot move across it.
+	var _cached := CatchmentCache.fetch(_cache_meta)
+	if not _cached.is_empty():
+		basin_grid = _cached.grid
+		basin_names = _cached.names
+		catchment_area = _cached.area
+		_catchments_built = true
+		print("[hydrology] catchments in %dms: loaded from disk cache (%d basins)" % [
+			Time.get_ticks_msec() - t0, basin_names.size()])
+		BootClock.mark("catchments_done")
+		return
 	# Bulk sampling through the native kernel when present (worker
 	# thread; see Terrain.kernel). Same sample points as the loop this
 	# replaces — the soak fingerprint hangs off these heights.
@@ -880,6 +906,10 @@ func _build_catchments() -> void:
 	basin_grid = basin
 	basin_names = basins
 	_catchments_built = true
+	# Persist this first build as the boot bake: the next cold boot of the
+	# SAME inputs loads it instead of re-routing. A live edit later stands the
+	# cache down (mark_dirty), so this never writes over a mid-session bless.
+	CatchmentCache.store(basin_grid, basin_names, catchment_area, _cache_meta)
 	print("[hydrology] catchments in %dms: %s" % [
 		Time.get_ticks_msec() - t0, catchment_area])
 	BootClock.mark("catchments_done")

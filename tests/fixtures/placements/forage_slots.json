@@ -1,0 +1,12 @@
+{
+	"cell_size": 128.0,
+	"format": 1.0,
+	"note": "world_streamer.gd _add_forage's slot law, transcribed 2026-07-12",
+	"params": {
+		"candidates": 3.0,
+		"rule": "forage_slots",
+		"seed_add": 5.0,
+		"seed_mul": 13.0
+	},
+	"placement_family": "placement_gen"
+}

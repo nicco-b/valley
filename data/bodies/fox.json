@@ -1,0 +1,20 @@
+{
+	"format": 1,
+	"body_family": "skinned_glb",
+	"note": "The biped-fox body: INSTANCE #1 of the body family (FW4), the framework's default-look placeholder form. A body record is the family-generic {body_family, mesh, skeleton, animations, look_hooks} envelope over a character's physical shape — the mesh binding that used to be TRAPPED inside player.tscn/villager_body.tscn as an ext_resource, now lifted into data where the record system can see it (game/bodies/body_data.gd loads it, game/bodies/body_loader.gd instances it as $Body/Model). `body_family` selects the render path exactly as a Look's `look_family` selects a shader; skinned_glb = a Godot PackedScene with its own AnimationPlayer + Skeleton3D. The fox is INSTANCE #1, never the schema: a game gives its people real bodies by shipping their own records with their own mesh. An unknown body_family, or an unknown FIELD, fails LOUDLY (body_data.gd), never a silent fallback to the fox. FUTURE SEAM: a native Wash skinned-mesh renderer is a separate rung — when it lands it is a NEW body_family reading these same mesh/skeleton/animations fields, dispatched from body_data.load; NOT built here (docs/BODY_RECORDS.md). The mesh path stays res://assets/models/creatures/biped_fox.glb — the REFERENCE is what de-traps the binding; the glb itself lives where models live (assets/models/creatures), the convention cards.gd already resolves against. skeleton/animations/look_hooks below DESCRIBE the shipped fox rig (its AnimationPlayer, its clip set, its paintable-with-ears hooks); the loader consumes `mesh` today and the rest are the record system's honest VIEW of the body, ready for the future consumers named above.",
+	"mesh": "res://assets/models/creatures/biped_fox.glb",
+	"skeleton": {
+		"anim_player": "AnimationPlayer"
+	},
+	"animations": {
+		"idle": "Idle",
+		"walk": "Walking",
+		"run": "Running",
+		"sit": "Sitting",
+		"jump": "Jump"
+	},
+	"look_hooks": {
+		"paint": true,
+		"fabric": true
+	}
+}

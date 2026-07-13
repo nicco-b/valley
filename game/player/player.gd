@@ -40,6 +40,30 @@ const FABRIC_CHAINS: Array[Dictionary] = [
 # entry). Content-empty (no record) boots silent, no error.
 const FOOTSTEP_RECORD := "res://data/audio/footsteps.json"
 
+# Pace live-capture (E4.2, dev-only) — PARSE LAW guard. The recorder lives in the
+# TEST HARNESS (runtime/tests/pace_rec.gd) and is deliberately NOT in the
+# framework manifest, so a scaffolded game never ships it. player.gd must
+# therefore NEVER name the `PaceRec` class_name directly: an unresolved
+# class_name fails the whole script's parse in a scaffolded game ("Identifier
+# PaceRec not declared" — the reported GameScaffoldTests break). Instead we load
+# the recorder dynamically, and ONLY when the capture env is armed AND the
+# harness script is actually present. In every ordinary boot and in every
+# scaffolded game this is one cheap bool check and the recorder stays null. The
+# datum-side parity gate (STRATA_PACE_CAPTURE set, tests/pace_rec.gd present)
+# resolves the SAME cached GDScript the probe's `class_name PaceRec` resolves, so
+# the shared `static var _f` capture state is unchanged.
+static var _pace_rec: Object = null
+static var _pace_rec_probed := false
+
+static func _pace_recorder() -> Object:
+	if not _pace_rec_probed:
+		_pace_rec_probed = true
+		if OS.has_environment("STRATA_PACE_CAPTURE"):
+			var p := "res://tests/pace_rec.gd"
+			if ResourceLoader.exists(p):
+				_pace_rec = load(p)
+	return _pace_rec
+
 var _sitting := false
 # Underwater swim state (2026-07-04 water review, step 1). PROVISIONAL
 # binding: dive = Ctrl / gamepad B (kitchen-table review pending). No
@@ -350,6 +374,14 @@ func _update_underwater_fx() -> void:
 func _physics_process(delta: float) -> void:
 	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 
+	# Pace live-capture (E4.2, dev-only, inert unless PaceRec.begin opened a file):
+	# snapshot the carried-IN state before the feel math mutates it, so the C
+	# live-parity gate can seed a PaceBody from exactly what player.gd started the
+	# tick with. Nothing here runs in normal play (active() is false).
+	var _pace_raw := input
+	var _pace_vin := velocity
+	var _pace_sub_in := _submerged
+
 	if Input.is_action_just_pressed("sit") and is_on_floor():
 		_sitting = not _sitting
 		if _sitting:
@@ -451,6 +483,27 @@ func _physics_process(delta: float) -> void:
 	_update_underwater_fx()
 	if not is_on_floor():
 		_fall_speed = absf(velocity.y)  # captured pre-landing: the floor zeroes it
+
+	# Pace live-capture: emit this tick's {carried-in state, input, sampled env,
+	# resulting pre-move velocity} — the parity target — right before the collider
+	# runs. NO-OP in normal play (PaceRec.active() is false unless the capture
+	# probe opened a tape). vel here is the FEEL output move_and_slide has not yet
+	# touched, which is exactly what pace_integrate produces.
+	var _pace_rec_live := _pace_recorder()
+	if _pace_rec_live != null and _pace_rec_live.active():
+		_pace_rec_live.row(delta, _pace_raw.x, _pace_raw.y, _rig.global_rotation.y,
+			1 if Input.is_action_pressed("sprint") else 0,
+			1 if Input.is_action_pressed("jump") else 0,
+			1 if Input.is_action_just_pressed("jump") else 0,
+			1 if Input.is_action_pressed("dive") else 0,
+			1 if _sitting else 0,
+			Skills.level("wayfaring"), Skills.level("swimming"),
+			wsurf, Terrain.height(global_position.x, global_position.z),
+			1 if is_on_floor() else 0, get_floor_normal(),
+			WaterField.current_at(global_position),
+			global_position, _pace_vin, 1 if _pace_sub_in else 0,
+			velocity, 1 if _submerged else 0, 1 if _sliding else 0)
+
 	move_and_slide()
 
 	# The granular sim: moving feet shovel sand along the velocity;

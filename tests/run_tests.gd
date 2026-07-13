@@ -15,6 +15,7 @@ func _init() -> void:
 	_test_terrain_tile_frame_guard()
 	_test_dev_mode_compute()
 	_test_vernier_registry()
+	_test_placement_records()
 	if _failures > 0:
 		print("FAIL: %d test(s) failed" % _failures)
 		quit(1)
@@ -209,3 +210,106 @@ func _test_vernier_registry() -> void:
 		"a duplicate register() is refused — the original entry stands")
 
 	VN._reset_for_test()
+
+
+func _test_placement_records() -> void:
+	var PR = load("res://game/world/placement_records.gd")
+
+	# --- The envelope judgement (sentences byte-matched by the Swift twin) ---
+	var gen: Dictionary = PR.load_record(
+		"res://tests/fixtures/placements/flora_scatter.json", "placement_gen")
+	_check(not gen.is_empty(), "flora_scatter fixture loads as placement_gen")
+	_check(PR.envelope_message(gen, "placement_set")
+		== "declares placement_family 'placement_gen', expected 'placement_set'",
+		"family mismatch refuses with the exact sentence")
+	_check(PR.envelope_message({}, "placement_gen")
+		== "missing field 'placement_family'",
+		"empty envelope names the first missing field")
+	var newer := gen.duplicate(true)
+	newer["format"] = 2
+	_check(PR.envelope_message(newer, "placement_gen")
+		== "format 2 is newer than this build understands (max 1)",
+		"a newer format is refused, never half-read")
+	var mistyped := gen.duplicate(true)
+	mistyped["params"] = "oops"
+	_check(PR.envelope_message(mistyped, "placement_gen")
+		== "field 'params' should be Dictionary, got String",
+		"a mistyped params refuses with records.gd's wording")
+
+	# --- placement_set rows: judgement + expressibility (no migration) ---
+	_check(PR.set_row_message({"what": "res://x.tscn", "x": 1.0, "y": 2.0,
+		"z": 3.0, "yaw": 0.5}) == "", "a sound frozen row passes")
+	_check(PR.set_row_message({"what": "a", "x": 1.0, "y": 2.0, "z": 3.0})
+		== "missing field 'yaw'", "a rowless yaw is named")
+	# A Chronicle row (cell_records.gd's shape) is expressible losslessly.
+	var chron := {"kit": "res://props/oak.glb", "x": 4.0, "y": 1.0, "z": 9.0,
+		"yaw": 0.25, "scale": 1.1, "ground_dy": 0.4, "id": "p1a_2",
+		"group": "bridge", "enabled": false}
+	var row: Dictionary = PR.row_from_chronicle(chron)
+	_check(PR.set_row_message(row) == "", "a Chronicle row maps to a sound row")
+	_check(row["what"] == chron["kit"] and row["scale"] == 1.1
+		and row["id"] == "p1a_2" and row["enabled"] == false,
+		"kit -> what; every other Chronicle key rides through preserved")
+	# A baked-scatter row (scatter_bake.gd's shape) is expressible too.
+	var baked: Dictionary = PR.row_from_baked({"id": "s7", "cat": "rock_small",
+		"x": 2.0, "y": 0.0, "z": 5.0, "yaw": 1.5, "scale": 0.9, "pick": 0.42})
+	_check(PR.set_row_message(baked) == "" and baked["what"] == "rock_small"
+		and baked["pick"] == 0.42, "cat -> what; pick and id ride through")
+	# Per-cell keying on the Ambit grid ("x_y").
+	var set_rec := {"placement_family": "placement_set", "format": 1,
+		"cell_size": 128.0, "params": {"cells": {"3_-2": [row]}}}
+	_check(PR.envelope_message(set_rec, "placement_set") == "",
+		"a placement_set envelope passes")
+	_check(PR.set_rows(set_rec, Vector2i(3, -2)).size() == 1
+		and PR.set_rows(set_rec, Vector2i(0, 0)).is_empty(),
+		"set_rows keys cells as x_y on the Ambit grid")
+
+	# --- THE REPRODUCTION PROOF (the round's round-trip, half 1) ---
+	# Record-driven generation must equal an INDEPENDENT transcription of
+	# world_streamer.gd's own draw loops (_add_scatter / _add_forage), for a
+	# representative fixture cell set, bit for bit, twice (stability x2).
+	var forage: Dictionary = PR.load_record(
+		"res://tests/fixtures/placements/forage_slots.json", "placement_gen")
+	_check(not forage.is_empty(), "forage_slots fixture loads as placement_gen")
+	var cells := [Vector2i(0, 0), Vector2i(1, 0), Vector2i(-3, 7), Vector2i(12, -5)]
+	var env := {"valley_factor": 0.25, "biome_mult": 1.0, "vitality": 0.8}
+	var fenv := {"yield_items": ["berry", "reed"]}
+	for c: Vector2i in cells:
+		# world_streamer.gd _add_scatter, transcribed by hand (draw order law:
+		# count bound first, then lx, lz, roll, s per candidate, pre-filter).
+		var rng := RandomNumberGenerator.new()
+		rng.seed = hash(c)
+		var base_count := int(round(lerpf(34.0, 8.0, env.valley_factor)
+				* env.biome_mult * lerpf(0.55, 1.15, env.vitality)))
+		var expect: Array = []
+		for i in rng.randi_range(base_count, base_count + 8):
+			expect.append({"lx": rng.randf() * 128.0, "lz": rng.randf() * 128.0,
+				"roll": rng.randf(), "scale": rng.randf_range(0.75, 1.15)})
+		var got: Array = PR.gen_candidates(gen, c, env)
+		var got2: Array = PR.gen_candidates(gen, c, env)
+		_check(got == expect,
+			"flora candidates == streamer transcription for cell %s" % c)
+		_check(got == got2, "flora candidates bit-stable x2 for cell %s" % c)
+		# world_streamer.gd _add_forage, transcribed by hand (seed *13+5;
+		# 3 slots per yielding item; lx, lz, yaw drawn for EVERY slot).
+		var frng := RandomNumberGenerator.new()
+		frng.seed = hash(c) * 13 + 5
+		var fexpect: Array = []
+		for item in fenv.yield_items:
+			for i in 3:
+				fexpect.append({"item": item, "slot": i,
+					"lx": frng.randf() * 128.0, "lz": frng.randf() * 128.0,
+					"yaw": frng.randf() * TAU})
+		_check(PR.gen_candidates(forage, c, fenv) == fexpect,
+			"forage slots == streamer transcription for cell %s" % c)
+	_check(PR.gen_candidates({"params": {"rule": "martian_maze"}},
+		Vector2i.ZERO, {}) == [], "an unknown gen rule is loud and empty")
+
+	# --- THE ROUND-TRIP PROOF (half 2): extract -> load -> stringify is
+	# byte-identical to the committed fixture (the transcriber's fixed point).
+	for fname: String in ["flora_scatter.json", "forage_slots.json"]:
+		var path := "res://tests/fixtures/placements/" + fname
+		var raw := FileAccess.get_file_as_string(path)
+		var reloaded: Dictionary = PR.load_record(path, "placement_gen")
+		_check(PR.stringify(reloaded) == raw,
+			"%s round-trips byte-identical" % fname)

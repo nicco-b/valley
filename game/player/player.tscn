@@ -1,7 +1,7 @@
 [gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://game/player/player.gd" id="1_script"]
-[ext_resource type="PackedScene" path="res://assets/models/creatures/biped_fox.glb" id="2_model"]
+[ext_resource type="Script" path="res://game/bodies/body_loader.gd" id="2_body"]
 [ext_resource type="Script" path="res://game/player/fireflies.gd" id="3_fireflies"]
 
 [sub_resource type="CapsuleShape3D" id="Capsule_shape"]
@@ -18,8 +18,8 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.65, 0)
 shape = SubResource("Capsule_shape")
 
 [node name="Body" type="Node3D" parent="."]
-
-[node name="Model" parent="Body" instance=ExtResource("2_model")]
+script = ExtResource("2_body")
+record = "res://data/bodies/player.json"
 
 [node name="Fireflies" type="Node3D" parent="."]
 script = ExtResource("3_fireflies")

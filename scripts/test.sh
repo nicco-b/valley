@@ -134,6 +134,20 @@ echo "== desk verb contract (E5.3 ruling #1: verbs are the contract) =="
 # any future desk client vendor this same JSON, pinned by sha in their tests.
 godot --headless -s tests/desk_verbs_contract.gd || exit 1
 
+echo "== dev-world refusal (docs/BOOT_DEVWORLD.md rung 2: a dev fingerprint must never bless) =="
+# STRATA_DEV_WORLD=1 must make the soak refuse outright — the coarse-ring dev
+# boot profile is never blessworthy, so its fingerprint must never reach a
+# bless decision. Same PASS-line backstop as the other gates (quit-after exits
+# 0 regardless; the refusal line is the assertion, not the process exit code).
+DEV_OUT=$(STRATA_DEV_WORLD=1 godot --headless --quit-after 2000 res://tests/soak.tscn 2>&1)
+echo "$DEV_OUT" | grep -E "SOAK REFUSED|SOAK PASS|SOAK FAIL|SCRIPT ERROR"
+echo "$DEV_OUT" | grep -q "SCRIPT ERROR" && exit 1
+echo "$DEV_OUT" | grep -q "SOAK REFUSED" \
+	|| { echo "DEV-WORLD FAIL: soak did not refuse under STRATA_DEV_WORLD=1"; exit 1; }
+echo "$DEV_OUT" | grep -q "SOAK PASS" \
+	&& { echo "DEV-WORLD FAIL: soak ran to completion under STRATA_DEV_WORLD=1"; exit 1; }
+echo "  soak refused a dev-world fingerprint, as ruled"
+
 echo "== determinism trap (fork engine only) =="
 # The fork's Engine.set_deterministic_section arms a trap around the sim tick
 # (game_clock.gd advance_hours). determinism_trap_probe plants an unseeded
@@ -144,7 +158,7 @@ echo "== determinism trap (fork engine only) =="
 # — is the rest of this script + soak.sh going green.)
 DET_OUT=$(godot --headless --quit-after 400 res://tests/determinism_trap_probe.tscn 2>&1)
 if echo "$DET_OUT" | grep -q "DET-TRAP SKIP"; then
-	echo "  SKIP (stock engine — no determinism trap)"
+	echo "DET-TRAP: SKIP (stock engine) — no determinism trap in this build; the armed-trap proof did NOT run"
 elif echo "$DET_OUT" | grep -q "DET-TRAP PASS" \
 		&& echo "$DET_OUT" | grep -q "Determinism trap: randf() draws from the global unseeded RNG" \
 		&& echo "$DET_OUT" | grep -q "Determinism trap: Time.get_unix_time_from_system() reads the real-world wall clock" \
@@ -173,6 +187,7 @@ echo "== smoke test: world (240 frames) =="
 # game/world/valley.tscn, a Strata-scaffolded game's main.tscn. Smoke
 # whichever THIS project ships (the SKIP-when-absent pattern the tests
 # use — the framework file rides every game unchanged).
+WORLD_SMOKED=0
 for cand in game/world/valley.tscn main.tscn; do
 	[ -f "$cand" ] || continue
 	RAW=$(godot --headless --quit-after 240 "res://$cand" 2>&1)
@@ -190,6 +205,15 @@ for cand in game/world/valley.tscn main.tscn; do
 	# exist) — this just prints the table.
 	echo "-- boot phase table --"
 	echo "$RAW" | grep -E "^\[boot\] "
+	WORLD_SMOKED=1
 	break
 done
-echo "smoke clean"
+# Honesty: with neither valley.tscn nor main.tscn present (this framework
+# checkout is CONTENT-EMPTY — valley's data/ + scene stayed valley-side) the
+# loop above smoked NOTHING. Say so out loud instead of claiming "smoke clean",
+# which would imply the world boot ran and passed when it never ran at all.
+if [ "$WORLD_SMOKED" -eq 1 ]; then
+	echo "smoke clean"
+else
+	echo "WORLD SMOKE SKIPPED (content-empty) — no game/world/valley.tscn or main.tscn to boot; title smoke ran, world boot did NOT"
+fi

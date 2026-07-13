@@ -852,6 +852,16 @@ func _build_catchments() -> void:
 			Time.get_ticks_msec() - t0, basin_names.size()])
 		BootClock.mark("catchments_done")
 		return
+	# Dev-world fast path (docs/BOOT_DEVWORLD.md rung 2, lever 3 "prebake
+	# everything, refuse-on-miss"): a dev world ships with its caches already
+	# written, so no boot-time compute should EVER run. A miss here means the
+	# prebake is missing or stale — refuse loudly instead of silently paying
+	# the full D8 flow-routing compute the flag exists to skip.
+	if DevWorld.active():
+		push_error("[hydrology] STRATA_DEV_WORLD=1 but the catchment cache missed — "
+			+ "refusing to compute; prebake the world before shipping the dev fixture")
+		BootClock.mark("catchments_done")
+		return
 	# Bulk sampling through the native kernel when present (worker
 	# thread; see Terrain.kernel). Same sample points as the loop this
 	# replaces — the soak fingerprint hangs off these heights.

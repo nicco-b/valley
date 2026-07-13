@@ -15,7 +15,14 @@ extends Node3D
 ##  - "If you can see it, you can go there": same height function as
 ##    the streamed cells, all the way to the world rim.
 
-const WORLD_REACH := 12288.0  # tiles considered within this radius
+const WORLD_REACH_DEFAULT := 12288.0  # tiles considered within this radius
+# Dev-world fast path (docs/BOOT_DEVWORLD.md rung 2, lever 1 "tiny frame"): a
+# 2k-ish playable frame never needs a horizon past its own edge, so the far
+# ring's root tiles simply never split/build there — fewer cells to ever
+# stream. Pure visual LOD (no collision, no navmesh, no sim read — see the
+# class doc), so shrinking the reach is fingerprint-neutral by construction.
+const WORLD_REACH_DEV := 2048.0
+var WORLD_REACH := WORLD_REACH_DEFAULT
 const ROOT_SIZE := 8192.0
 const MIN_TILE := 1024.0
 const SPLIT_K := 1.2  # split while focus is within K * size of the tile
@@ -46,6 +53,8 @@ var _last_refresh := Vector2.INF
 
 
 func _ready() -> void:
+	if DevWorld.active():
+		WORLD_REACH = WORLD_REACH_DEV
 	add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)  # the horizon steps aside during preview
 	var streamer := get_tree().get_first_node_in_group("world_streamer")
 	if streamer:

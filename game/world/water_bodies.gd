@@ -642,6 +642,16 @@ func _bathy_follow(tier: String, goal: Vector2) -> void:
 				st.goal = goal
 				_bathy_apply(st)
 				return
+			# Dev-world fast path (docs/BOOT_DEVWORLD.md rung 2, lever 3
+			# "prebake everything, refuse-on-miss"): a dev world ships
+			# with its bathy cache already written; a miss means the
+			# prebake is missing or stale — refuse loudly rather than
+			# silently paying the full seabed bake the flag exists to skip.
+			if DevWorld.active():
+				push_error(("[water] STRATA_DEV_WORLD=1 but the bathy cache missed for "
+					+ "tier %s — refusing to bake; prebake the world before shipping "
+					+ "the dev fixture") % tier)
+				return
 		st.goal = goal
 		st.task = WorkerThreadPool.add_task(_bathy_bake.bind(st, goal),
 			false, "sea bathymetry " + tier)

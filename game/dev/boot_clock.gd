@@ -26,9 +26,44 @@ var _fired: Dictionary = {}  # phase name -> true, this boot cycle
 var _edges: Array = []  # [{phase, ms}] in arrival order, this boot cycle
 var _streamers := 0  # world_streamer nodes seen this process
 
+## --- WINDOWED-only boot phases (loop-compression 2026-07-12) ---
+## The headless smoke table (BOOT_BAKE.md) strips the GPU present cost with the
+## dummy renderer — and that cost IS the bulk of the ~150s INTERACTIVE boot the
+## standing pain names. These three edges time the windowed critical path and
+## appear ONLY on a real windowed boot (gated on a non-headless display server):
+## an absent row on the headless table is honest, exactly like bathymetry_done's
+## absence, not a hole. All three are inert until the streamer arms them at the
+## first honest frame (arm_windowed), and a no-op under --headless thereafter.
+##   near_ring_meshed — the wall moment the LAST near-ring cell's visual mesh
+##                      landed on the main thread (the mesh build WAVES have
+##                      drained to the near ring). Counted per near-cell land via
+##                      note_wave; the count + span is logged when world_live
+##                      settles. Precedes world_live (the walkable-collision
+##                      settle) — the visible ground beats the walkable ground.
+##   first_present    — the first GPU frame actually pushed to the display AFTER
+##                      an honest near-ground mesh exists (RenderingServer's
+##                      frame_post_draw, armed by first_frame_rendered). The wall
+##                      moment pixels reach the screen; headless never presents.
+##   steady_frame     — the first frame after first_present whose frame time held
+##                      at/under STEADY_MS for STEADY_RUN frames running: boot
+##                      hitching (shader-compile stalls, mesh-upload spikes) has
+##                      subsided. A "warm" PROXY measured from frame cadence, not
+##                      a compiler hook — GDScript has no shader-compile signal.
+const STEADY_MS := 34.0   # a frame at/under ~30fps — boot hitching has cleared
+const STEADY_RUN := 30    # consecutive smooth frames before we call it warm
+var _windowed_armed := false
+var _steady_run := 0
+var _wave_count := 0       # near-ring cell meshes landed this boot window
+var _wave_first_ms := -1
+var _wave_last_ms := 0
+
 
 func _ready() -> void:
 	_t0 = Time.get_ticks_msec()
+	# The steady-frame watcher runs in _process; keep it inert until a windowed
+	# boot arms it (arm_windowed re-enables), so engine_up..first_present cost
+	# nothing per frame and --headless never processes.
+	set_process(false)
 	mark("engine_up")
 
 
@@ -49,6 +84,14 @@ func reset_boot() -> void:
 	_t0 = Time.get_ticks_msec()
 	_fired.clear()
 	_edges.clear()
+	# A switch is a fresh boot for the windowed phases too: re-arm from zero so
+	# the next honest frame times this boot's present/warm, not the last one's.
+	_windowed_armed = false
+	_steady_run = 0
+	_wave_count = 0
+	_wave_first_ms = -1
+	_wave_last_ms = 0
+	set_process(false)
 	mark("engine_up")  # the engine is already up: this boot's zero
 
 
@@ -78,3 +121,71 @@ func edges_token() -> String:
 	for e in _edges:
 		parts.append("%s:%d" % [e["phase"], e["ms"]])
 	return ",".join(parts)
+
+
+## Arm the WINDOWED phases. Called once by world_streamer at first_frame_rendered
+## (the earliest tick an honest near-ground mesh exists). Under --headless there
+## is no GPU present, so the two present-derived rows (first_present, steady_frame)
+## stay absent — honest, not a hole; only the frame_post_draw hook and the
+## per-frame watcher are skipped, leaving the compute table exactly as it was.
+func arm_windowed() -> void:
+	if _windowed_armed:
+		return
+	_windowed_armed = true
+	if DisplayServer.get_name() == "headless":
+		return
+	# first_present: the next real frame pushed to the display now that an honest
+	# mesh exists. frame_post_draw fires once after that present, then unhooks.
+	RenderingServer.frame_post_draw.connect(_on_first_present, CONNECT_ONE_SHOT)
+	set_process(true)  # steady-frame watcher; disables itself once it marks
+
+
+func _on_first_present() -> void:
+	mark("first_present")
+
+
+## Steady-frame watcher — runs ONLY after a windowed arm, and disables itself the
+## moment it marks. STEADY_RUN consecutive frames at/under STEADY_MS means the
+## boot-time hitching (shader compiles, mesh uploads) has subsided: a warm proxy
+## from frame cadence (GDScript exposes no shader-compile completion signal).
+func _process(delta: float) -> void:
+	if _fired.has("steady_frame"):
+		set_process(false)
+		return
+	if not _fired.has("first_present"):
+		return  # wait for pixels on screen before timing warmth
+	if delta * 1000.0 <= STEADY_MS:
+		_steady_run += 1
+		if _steady_run >= STEADY_RUN:
+			mark("steady_frame")
+			set_process(false)
+	else:
+		_steady_run = 0
+
+
+## Tally one near-ring cell mesh landing on the main thread (the streamer calls
+## this from _finish_terrain for a near cell during the boot window). Cheap
+## counter + first/last timestamps — NOT a [boot] row per cell (that would flood
+## the table); the summary lands once at world_live via note_meshed().
+func note_wave() -> void:
+	if _fired.has("world_live"):
+		return
+	_wave_count += 1
+	var ms := Time.get_ticks_msec() - _t0
+	if _wave_first_ms < 0:
+		_wave_first_ms = ms
+	_wave_last_ms = ms
+
+
+## Close the near-ring meshing tally. Called by the streamer at the world_live
+## settle: the LAST near-cell mesh time (_wave_last_ms) is the near_ring_meshed
+## edge — retroactive but honest (we know the last wave only once the ring is
+## done). The wave count + span rides its own bracketed log line for the ledger.
+func note_meshed() -> void:
+	if _fired.has("near_ring_meshed") or _wave_count == 0:
+		return
+	_fired["near_ring_meshed"] = true
+	_edges.append({"phase": "near_ring_meshed", "ms": _wave_last_ms})
+	print("[boot] near_ring_meshed ms=%d" % _wave_last_ms)
+	print("[boot] mesh_waves cells=%d first=%d last=%d span=%d" % [
+		_wave_count, _wave_first_ms, _wave_last_ms, _wave_last_ms - _wave_first_ms])

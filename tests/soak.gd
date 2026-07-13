@@ -14,6 +14,16 @@ var _failures := 0
 
 
 func _ready() -> void:
+	# Dev-world refusal (docs/BOOT_DEVWORLD.md rung 2 ruling #2): a dev world's
+	# coarse sim ring is never blessworthy — a dev fingerprint must never enter
+	# a bless decision. Refuse to run at all rather than let a coarse-ring
+	# fingerprint pass itself off as one, before anything else in this soak
+	# touches the world.
+	if DevWorld.active():
+		print("SOAK REFUSED: STRATA_DEV_WORLD=1 — dev world is never blessworthy, "
+			+ "fingerprint invalid")
+		get_tree().quit(1)
+		return
 	# Fix everything time- and chance-shaped before any sim draws.
 	WorldState.set_value("world.seed", SOAK_SEED)
 	Rng.load_state()

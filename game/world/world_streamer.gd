@@ -108,6 +108,16 @@ func _ready() -> void:
 	# below, which are one-shot per instance and do NOT reset on an in-process
 	# reload_world (Terrain re-reads disk under this same node).
 	BootClock.reset_boot()
+	# Dev-world fast path (docs/BOOT_DEVWORLD.md rung 2, lever 2): the boot
+	# fill shrinks from a 5x5 to a 3x3 ring (~64% fewer pre-world_live cell
+	# builds). Streaming-only — the sim reads the kernel/records, never the
+	# streamed cell set — so this is fingerprint-neutral. Read once, here,
+	# before any cell ever streams; steady-state widening (the map key) still
+	# works, only the boot fill is smaller. Default OFF (STRATA_DEV_WORLD
+	# unset) leaves load_radius at its shipping value, untouched.
+	if DevWorld.active():
+		load_radius = 1
+		DevWorld.announce()
 	add_to_group("world_streamer")
 	add_to_group(PreviewTerrain.STEPS_ASIDE_GROUP)  # cells hide while a preview grid is worn
 	_scan_authored()
@@ -217,6 +227,10 @@ func _process(delta: float) -> void:
 	if _boot_window and settled:
 		_boot_window = false
 		_finish_budget_ms = FINISH_BUDGET_EDIT_MS
+		# Close the near-ring meshing tally BEFORE world_live so near_ring_meshed
+		# lands ahead of it on the table (the visible ground beat the walkable
+		# ground) — loop-compression windowed instrumentation.
+		BootClock.note_meshed()
 		# boot_phase() reads "live" exactly from here on — the same edge
 		# Strata's "world live" narration ends its open phase on.
 		BootClock.mark("world_live")
@@ -226,6 +240,10 @@ func _process(delta: float) -> void:
 		_first_frame_seen = true
 		first_frame_rendered.emit()
 		BootClock.mark("first_frame_rendered")
+		# Arm the WINDOWED phases (first_present, steady_frame): the honest frame
+		# now exists, so the next GPU present is the pixels-on-screen moment the
+		# headless table can't see. A no-op under --headless.
+		BootClock.arm_windowed()
 
 
 ## The pane-reveal boot phase (B1, docs/PLAN_STRATA_TOOL.md S1), read over
@@ -686,6 +704,11 @@ func _finish_terrain(c: Vector2i, mesh: ArrayMesh, shape: Shape3D,
 			Terrain.valley_factor(origin.x + CELL_SIZE * 0.5, origin.z + CELL_SIZE * 0.5))
 	add_child(body)
 	_terrain[c] = body
+	# Loop-compression: tally near-ring cell meshes as they land during the boot
+	# window — the mesh build WAVES the windowed profile attributes the present
+	# cost to (BootClock.note_meshed closes the span at world_live).
+	if _boot_window and _chebyshev(c - _focus_cell) <= NEAR_RING:
+		BootClock.note_wave()
 	if navmesh != null:
 		Nav.add_cell(c, navmesh, origin)  # deferred rebakes keep the old region
 

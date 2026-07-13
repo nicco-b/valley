@@ -399,7 +399,7 @@ const VERBS: Array[String] = ["ping", "status", "pulse", "verbs", "boot", "reloa
 	"preview_world", "preview_mesh", "preview_shared", "preview_water", "render_device",
 	"camera", "view", "view_layer", "probe",
 	"toolkit", "hud", "panel", "inspect", "notices", "overrides", "state",
-	"records", "budget", "undo", "redo", "prefab",
+	"records", "record_write", "record_validate", "budget", "undo", "redo", "prefab",
 	"save_anchor", "restore_anchor", "anchors", "journal", "scrub",
 	"play_sound", "audio", "name", "names", "marker", "vernier"]
 
@@ -773,6 +773,19 @@ func _execute(line: String) -> String:
 			# framework stays game-agnostic — Records holds the schema and
 			# reloader registries; the game's loaders fill them.
 			return _records(parts, line)
+		"record_write":
+			# The records desk's WRITE verb (Editor H-now, verb-first): land a
+			# whole record to disk, gated by the game's own lint. Validate-then-
+			# write is Records.write_kind's ONE door (the path CharacterSheet's
+			# save walks); a refusal is the game's own sentence on the wire, and
+			# nothing lands.
+			return _record_write(parts, line)
+		"record_validate":
+			# The records desk's VALIDATE verb (Editor H-now): judge a candidate
+			# by the same truth the write path trusts, WITHOUT landing it — by a
+			# bare id (the on-disk record) or an inline JSON object. The Record
+			# inspector's validate light and the ＋-stub flow both read this.
+			return _record_validate(parts, line)
 		"budget":
 			# The world budget in one line (a METER, NOT A WALL): the three axes
 			# the stress probe charted — this cell's placements, live agents,
@@ -1550,6 +1563,64 @@ func _records(parts: PackedStringArray, line: String) -> String:
 			return "ok schema %s %s" % [kind, " ".join(toks)]
 		_:
 			return "err records needs validate|reload|schema <kind> ..."
+
+
+## The records desk's WRITE verb (Editor H-now, verb-first per the editor
+## study): `record_write <kind> <id> <json>` lands a whole record to disk
+## through Records.write_kind — the ONE validate-then-write door (the path
+## CharacterSheet's save walks). The record object is the rest of the line
+## after the kind and id, so JSON with spaces (nested objects, arrays) travels
+## intact. write_kind judges the candidate by the kind's loader schema and the
+## owning system's semantic validator FIRST; a refusal is the game's own words
+## on the wire and NOTHING lands. On a landed write the reply names the kind and
+## id — the desk then `records reload <kind>` to rebind it live.
+func _record_write(parts: PackedStringArray, line: String) -> String:
+	if parts.size() < 4:
+		return "err record_write needs <kind> <id> <json>"
+	var kind := parts[1]
+	var id := parts[2]
+	var toks := line.split(" ", false, 3)
+	if toks.size() < 4:
+		return "err record_write needs <kind> <id> <json>"
+	var parsed: Variant = JSON.parse_string(toks[3])
+	if not (parsed is Dictionary):
+		return "err record_write %s %s: not a JSON object" % [kind, id]
+	var msg := Records.write_kind(kind, id, parsed)
+	if msg != "":
+		return "err record_write %s %s: %s" % [kind, id, msg]
+	return "ok record_write %s %s" % [kind, id]
+
+
+## The records desk's VALIDATE verb (Editor H-now): `record_validate <kind>
+## <id-or-json>` judges a candidate by the SAME Records.validate_kind truth the
+## write path trusts, WITHOUT landing anything — so the inspector's validate
+## light and the ＋-stub flow can ask "would this load?" before a write. The
+## rest of the line is EITHER a bare record id (its on-disk <id>.json is read
+## from the kind's registered dir) OR an inline JSON object (begins with `{`).
+## "ok record_validate <kind>" when it would load; "err record_validate <kind>:
+## <the game's words>" when it wouldn't — the desk surfaces that verbatim.
+func _record_validate(parts: PackedStringArray, line: String) -> String:
+	if parts.size() < 3:
+		return "err record_validate needs <kind> <id-or-json>"
+	var kind := parts[1]
+	var toks := line.split(" ", false, 2)
+	var rest := toks[2].strip_edges() if toks.size() >= 3 else ""
+	var record: Dictionary
+	if rest.begins_with("{"):
+		var parsed: Variant = JSON.parse_string(rest)
+		if not (parsed is Dictionary):
+			return "err record_validate %s: not a JSON object" % kind
+		record = parsed
+	else:
+		var id := parts[2]
+		var loaded: Variant = Records.load_json(Records.dir_for(kind) + "/" + id + ".json")
+		if not (loaded is Dictionary):
+			return "err record_validate %s %s: no such record" % [kind, id]
+		record = loaded
+	var msg := Records.validate_kind(kind, record)
+	if msg != "":
+		return "err record_validate %s: %s" % [kind, msg]
+	return "ok record_validate %s" % kind
 
 
 ## The Mix face over the link (PLAN_AUDIO 4a). Bare `audio` mirrors the

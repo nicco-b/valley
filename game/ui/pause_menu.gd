@@ -77,6 +77,26 @@ func toggle() -> void:
 		_resume.grab_focus.call_deferred()
 
 
+## Save the session and hand the tree back to the selector (the boot
+## scene — standalone's title Campfire). The world scene tears down; the
+## autoloads (this menu among them) live on, so the pause posture must be
+## reset by hand or it would ride over the title. Never get_tree().quit():
+## the app only closes from the title's own Quit.
+func _quit_to_selector() -> void:
+	SaveGame.save_game()
+	paused = false
+	visible = false
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_tree().change_scene_to_file(_selector_scene())
+
+
+## The boot/selector scene path — the project's main_scene (title.tscn for
+## standalone valley). Pulled out pure so a scene test can assert the door
+## points at a real scene without changing the live tree.
+static func _selector_scene() -> String:
+	return String(ProjectSettings.get_setting("application/run/main_scene", ""))
+
+
 func _build_ui() -> void:
 	_root = Control.new()
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -131,9 +151,17 @@ func _build_ui() -> void:
 		Settings.save())
 	vbox.add_child(_fullscreen)
 
-	vbox.add_child(_button("Save & Quit", func() -> void:
+	# The explicit save door — a deliberate SessionSave, separate from the
+	# 30s autosave, so "I want this moment kept" is one press away.
+	vbox.add_child(_button("Save", func() -> void:
 		SaveGame.save_game()
-		get_tree().quit()))
+		HUD.notify("saved — the valley is kept")))
+
+	# Quit to the selector, NOT the app: a 1:1 world isn't abandoned, it's
+	# left. Save clean, then hand the tree back to the boot scene (the title
+	# Campfire IS the standalone selector — memory: boot = project selector).
+	# The app only truly quits from the title's own Quit.
+	vbox.add_child(_button("Save & Quit to Menu", _quit_to_selector))
 
 
 func _button(text: String, action: Callable) -> Button:

@@ -3121,6 +3121,11 @@ func _test_pause_esc_routing() -> void:
 		"open map closes first (standalone)")
 	_check(PauseMenu._esc_action(true, false, true, true) == A.CLOSE_MAP,
 		"open map closes first (embedded)")
+	# Quit-to-selector points at a REAL boot scene (the standalone Campfire),
+	# never a hard app quit — the door the pause menu hands the tree back to.
+	var selector := PauseMenu._selector_scene()
+	_check(selector.begins_with("res://") and ResourceLoader.exists(selector),
+		"pause quit-to-selector targets the real boot scene (%s)" % selector)
 
 
 ## TICKET (take 2): `--embedded` doesn't survive to OS.get_cmdline_args()

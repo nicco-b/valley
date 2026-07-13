@@ -199,6 +199,34 @@ func register_validator(kind: String, validator: Callable) -> void:
 	_validators[kind] = validator
 
 
+## The records desk's WRITE door (Editor H-now): the ONE path that lands a
+## record to disk, gated by the SAME judgement the loader trusts. Validate the
+## candidate by `validate_kind` (required-field schema THEN the owning system's
+## semantic validator — the door CharacterSheet's save already walks); only a
+## record the game can read lands. On a pass, write <id>.json to the kind's
+## REGISTERED dir (dir_for — the true nested path, not the naive data/<kind>),
+## creating it if absent, as tab-indented JSON. Returns "" on a landed write,
+## else the game's own refusal words verbatim — never a Strata invention, and
+## never a half-written file (the refusal lands BEFORE any IO). `id` is a bare
+## record key: it names <id>.json, so a slash or a `..` would escape the kind's
+## dir — an unsafe id is refused with the game's words, not sanitized silently.
+func write_kind(kind: String, id: String, record: Dictionary) -> String:
+	if id.is_empty() or not id.is_valid_filename() or id.contains("/") or id.contains("\\"):
+		return "id '%s' is not a bare record key (a-z 0-9 - _)" % id
+	var msg := validate_kind(kind, record)
+	if msg != "":
+		return msg
+	var dir_path := dir_for(kind)
+	DirAccess.make_dir_recursive_absolute(dir_path)
+	var path := dir_path + "/" + id + ".json"
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return "cannot write %s (err %d)" % [path, FileAccess.get_open_error()]
+	f.store_string(JSON.stringify(record, "\t"))
+	f.close()
+	return ""
+
+
 ## A system that can re-read its records and rebind them live registers a
 ## reloader here (kind -> Callable()); the `records reload` verb calls it
 ## after a landed write so the running game reflects the edit.
